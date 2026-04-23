@@ -1,0 +1,30 @@
+schemaVersion: "1"
+kind: mixin
+name: code-server
+extends: claude
+displayName: code-server (web VS Code) with Claude Code
+description: Runs code-server on port 8080, opened on the sandbox workspace, with the Claude Code VS Code extension preinstalled. Pair with the built-in claude agent so the extension inherits the sandbox's Anthropic credentials.
+
+network:
+  allowedDomains:
+    - code-server.dev
+    - github.com
+    - objects.githubusercontent.com
+    - open-vsx.org
+
+commands:
+  install:
+    - command: "curl -fsSL https://code-server.dev/install.sh | sh"
+      description: Install code-server via the upstream install script
+    - command: "code-server --install-extension anthropic.claude-code"
+      user: "1000"
+      description: Pre-install the Claude Code extension from open-vsx so you have a native chat panel that talks to the claude agent's credentials
+  initFiles:
+    - path: /home/agent/.local/bin/start-code-server.sh
+      content: |
+        exec code-server --bind-addr 0.0.0.0:8080 --auth none "${WORKDIR}"
+      description: Startup wrapper with the workspace path baked in at sandbox start
+  startup:
+    - command: ["sh", "-c", "nohup sh /home/agent/.local/bin/start-code-server.sh > /tmp/code-server.log 2>&1 &"]
+      user: "1000"
+      description: Start code-server in the background, opened on the primary workspace

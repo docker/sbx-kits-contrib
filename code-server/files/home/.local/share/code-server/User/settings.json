@@ -1,0 +1,7 @@
+{
+  "workbench.startupEditor": "none",
+  "chat.commandCenter.enabled": false,
+  "workbench.tips.enabled": false,
+  "telemetry.telemetryLevel": "off",
+  "claudeCode.preferredLocation": "sidebar"
+}
