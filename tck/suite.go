@@ -70,13 +70,13 @@ func (s *Suite) RunContainerTests(t *testing.T) {
 		ctx := context.Background()
 		container := s.startContainer(t, ctx)
 
-		// Inject artifact files before running assertions
+		// Inject static files from files/ directory
 		for _, f := range s.Artifact.Files {
 			var targetDir string
 			if f.Target == spec.TargetHome {
 				targetDir = HomeDir
 			} else {
-				targetDir = "/workspace"
+				targetDir = TestWorkDir
 			}
 			containerPath := targetDir + "/" + f.RelativePath
 
@@ -87,6 +87,27 @@ func (s *Suite) RunContainerTests(t *testing.T) {
 
 			err = container.CopyToContainer(ctx, f.Content, containerPath, f.Mode)
 			require.NoError(t, err, "failed to copy %s to container", containerPath)
+		}
+
+		// Simulate initFiles — Docker Sandboxes write these at startup with ${WORKDIR} resolved
+		if s.Artifact.Commands != nil {
+			for _, f := range s.Artifact.Commands.InitFiles {
+				containerPath := strings.ReplaceAll(f.Path, "${WORKDIR}", TestWorkDir)
+				content := strings.ReplaceAll(f.Content, "${WORKDIR}", TestWorkDir)
+
+				parentDir := filepath.Dir(containerPath)
+				code, _, err := container.Exec(ctx, []string{"mkdir", "-p", parentDir})
+				require.NoError(t, err)
+				require.Equal(t, 0, code, "mkdir -p %s failed", parentDir)
+
+				mode := int64(0o644)
+				if f.Mode != "" {
+					fmt.Sscanf(f.Mode, "%o", &mode)
+				}
+
+				err = container.CopyToContainer(ctx, []byte(content), containerPath, mode)
+				require.NoError(t, err, "failed to write initFile %s to container", containerPath)
+			}
 		}
 
 		// All container assertions against the same container
@@ -430,26 +451,15 @@ func (s *Suite) startContainer(t *testing.T, ctx context.Context) testcontainers
 		}
 	}
 
-	req := testcontainers.ContainerRequest{
-		Image:      s.Image,
-		Env:        envMap,
-		Tmpfs:      s.ExpectedTmpfs,
-		Entrypoint: []string{"sleep", "infinity"},
-	}
-
-	container, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
-		ContainerRequest: req,
-		Started:          true,
-	})
+	ctr, err := testcontainers.Run(ctx, s.Image,
+		testcontainers.WithEnv(envMap),
+		testcontainers.WithTmpfs(s.ExpectedTmpfs),
+		testcontainers.WithEntrypoint("sleep", "infinity"),
+	)
+	testcontainers.CleanupContainer(t, ctr)
 	require.NoError(t, err, "failed to start container from image %s", s.Image)
 
-	t.Cleanup(func() {
-		if err := testcontainers.TerminateContainer(container); err != nil {
-			t.Logf("failed to terminate container: %v", err)
-		}
-	})
-
-	return container
+	return ctr
 }
 
 // readOutput reads all output from a container exec and trims trailing whitespace.

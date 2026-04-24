@@ -3,6 +3,7 @@ package tck
 import (
 	"fmt"
 	"sort"
+	"strings"
 
 	"github.com/docker/sbx-kits-contrib/spec"
 )
@@ -73,8 +74,13 @@ func deriveEnvVars(env *spec.EnvironmentPolicy) []string {
 	return vars
 }
 
-// deriveContainerFiles builds expected absolute container paths from artifact
-// files and initFiles. Only "home" target files are derived since workspace
+// TestWorkDir is the workspace path used when substituting ${WORKDIR} in
+// initFiles during TCK container tests.
+const TestWorkDir = "/workspace"
+
+// deriveContainerFiles builds expected absolute container paths from both the
+// artifact's files/ directory and commands.initFiles (with ${WORKDIR} resolved
+// to TestWorkDir). Only "home" target static files are included since workspace
 // paths depend on the workdir.
 func deriveContainerFiles(files []spec.ArtifactFile, commands *spec.CommandsPolicy) []string {
 	var paths []string
@@ -87,11 +93,16 @@ func deriveContainerFiles(files []spec.ArtifactFile, commands *spec.CommandsPoli
 
 	if commands != nil {
 		for _, f := range commands.InitFiles {
-			paths = append(paths, f.Path)
+			paths = append(paths, resolveWorkdir(f.Path))
 		}
 	}
 
 	return paths
+}
+
+// resolveWorkdir replaces ${WORKDIR} with TestWorkDir.
+func resolveWorkdir(s string) string {
+	return strings.ReplaceAll(s, "${WORKDIR}", TestWorkDir)
 }
 
 // deriveTmpfs builds the expected tmpfs mounts from the manifest's tmpfs map,

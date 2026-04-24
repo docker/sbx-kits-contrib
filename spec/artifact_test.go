@@ -1,0 +1,128 @@
+package spec
+
+import (
+	"os"
+	"path/filepath"
+	"testing"
+	"testing/fstest"
+
+	"github.com/stretchr/testify/require"
+)
+
+func TestLoadFromDirectory(t *testing.T) {
+	t.Run("sample-mixin", func(t *testing.T) {
+		a, err := LoadFromDirectory("testdata/sample-mixin")
+		require.NoError(t, err)
+
+		require.Equal(t, "sample-mixin", a.Manifest.Name)
+		require.Equal(t, KindMixin, a.Manifest.Kind)
+		require.Empty(t, a.Manifest.Template, "mixins have no template")
+		require.NotNil(t, a.Network)
+		require.NotNil(t, a.Credentials)
+		require.NotNil(t, a.Environment)
+		require.NotNil(t, a.Settings)
+		require.NotNil(t, a.Commands)
+		require.NotEmpty(t, a.Files, "should have static files")
+	})
+
+	t.Run("sample-agent", func(t *testing.T) {
+		a, err := LoadFromDirectory("testdata/sample-agent")
+		require.NoError(t, err)
+
+		require.Equal(t, "sample-agent", a.Manifest.Name)
+		require.Equal(t, KindAgent, a.Manifest.Kind)
+		require.NotEmpty(t, a.Manifest.Template, "agents must have a template")
+		require.Equal(t, "sample-bin", a.Manifest.Binary)
+		require.Equal(t, []string{"--verbose", "--task-mode"}, a.Manifest.RunOptions)
+		require.Equal(t, "SAMPLE.md", a.Manifest.AIFilename)
+		require.Equal(t, PersistenceEphemeral, a.Manifest.Persistence)
+		require.NotEmpty(t, a.Memory)
+	})
+
+	t.Run("missing_directory", func(t *testing.T) {
+		_, err := LoadFromDirectory("testdata/does-not-exist")
+		require.Error(t, err)
+	})
+
+	t.Run("files_collected", func(t *testing.T) {
+		a, err := LoadFromDirectory("testdata/sample-mixin")
+		require.NoError(t, err)
+
+		var paths []string
+		for _, f := range a.Files {
+			paths = append(paths, f.Target+"/"+f.RelativePath)
+		}
+		require.Contains(t, paths, "home/.sample/config.json")
+	})
+
+	t.Run("not_a_directory", func(t *testing.T) {
+		_, err := LoadFromDirectory("testdata/sample-mixin/spec.yaml")
+		require.ErrorContains(t, err, "not a directory")
+	})
+}
+
+func TestLoadFromFS(t *testing.T) {
+	fsys := fstest.MapFS{
+		"mykit/spec.yaml": &fstest.MapFile{
+			Data: []byte(`schemaVersion: "1"
+kind: mixin
+name: fs-kit
+displayName: FS Kit
+description: "loaded from fs.FS"
+`),
+		},
+		"mykit/files/home/hello.txt": &fstest.MapFile{
+			Data: []byte("hello"),
+			Mode: 0o644,
+		},
+	}
+
+	a, err := LoadFromFS(fsys, "mykit")
+	require.NoError(t, err)
+	require.Equal(t, "fs-kit", a.Manifest.Name)
+	require.Len(t, a.Files, 1)
+	require.Equal(t, "hello.txt", a.Files[0].RelativePath)
+	require.Equal(t, TargetHome, a.Files[0].Target)
+}
+
+func TestParseArtifact_SpecYmlFallback(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "spec.yml"), []byte(`schemaVersion: "1"
+kind: mixin
+name: yml-kit
+displayName: YML Kit
+description: "loaded from spec.yml"
+`), 0o644))
+
+	a, err := LoadFromDirectory(dir)
+	require.NoError(t, err)
+	require.Equal(t, "yml-kit", a.Manifest.Name)
+}
+
+func TestParseArtifact_NoSpecFile(t *testing.T) {
+	dir := t.TempDir()
+	_, err := LoadFromDirectory(dir)
+	require.ErrorContains(t, err, "spec.yaml")
+}
+
+func TestParseArtifact_InvalidYAML(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "spec.yaml"), []byte(`{{{invalid`), 0o644))
+	_, err := LoadFromDirectory(dir)
+	require.ErrorContains(t, err, "invalid")
+}
+
+func TestCollectFilesFromDir_SymlinkEscape(t *testing.T) {
+	dir := t.TempDir()
+	homeDir := filepath.Join(dir, "files", "home")
+	require.NoError(t, os.MkdirAll(homeDir, 0o755))
+
+	// Create a real file outside the artifact directory to symlink to
+	outsideFile := filepath.Join(t.TempDir(), "outside.txt")
+	require.NoError(t, os.WriteFile(outsideFile, []byte("secret"), 0o644))
+
+	require.NoError(t, os.Symlink(outsideFile, filepath.Join(homeDir, "escaped")))
+
+	_, err := collectFilesFromDir(dir)
+	require.ErrorContains(t, err, "escapes the artifact directory")
+}
