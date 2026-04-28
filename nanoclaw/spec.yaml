@@ -22,8 +22,8 @@ commands:
       user: "1000"
       description: Configure npm to use the sandbox proxy
     - command: "cat > /usr/local/bin/nanoclaw << 'SCRIPT'\n#!/bin/sh\nif [ ! -f /home/agent/nanoclaw/dist/index.js ]; then\n  echo \"First run: installing nanoclaw (this takes ~2 minutes)...\"\n  cd /home/agent\n  git clone --depth 1 https://github.com/qwibitai/nanoclaw.git\n  cd nanoclaw\n  npm install --maxsockets=1 --fetch-timeout=600000\n  npm rebuild better-sqlite3\n  npm run build\n  echo \"Done! Starting nanoclaw...\"\nfi\nunset HTTP_PROXY HTTPS_PROXY http_proxy https_proxy\ncd /home/agent/nanoclaw\nexec node dist/index.js \"$@\"\nSCRIPT\nchmod +x /usr/local/bin/nanoclaw"
-      user: "1000"
-      description: Create self-installing nanoclaw launcher
+      user: "0"
+      description: Create self-installing nanoclaw launcher (root-owned path)
   startup:
     - command: ["node", "/home/agent/anthropic-bridge.js"]
       user: "1000"
