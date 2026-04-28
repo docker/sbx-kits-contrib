@@ -1,0 +1,36 @@
+schemaVersion: "1"
+kind: agent
+name: amp
+displayName: Amp
+description: The frontier coding agent.
+
+agent:
+  image: "docker/sandbox-templates:shell-docker"
+  aiFilename: AGENTS.md
+  persistence: persistent
+  entrypoint:
+    run: [amp, --dangerously-allow-all]
+
+network:
+  serviceDomains:
+    ampcode.com: amp
+  serviceAuth:
+    amp:
+      headerName: Authorization
+      valueFormat: "Bearer %s"
+  allowedDomains:
+    - "ampcode.com:443"
+    - "*.ampcode.com:443"
+
+commands:
+  install:
+    - command: "curl -fsSL https://ampcode.com/install.sh | bash"
+      user: "1000"
+      description: Install Amp
+
+memory: |
+  ## Sandbox environment
+
+  You are running inside a Docker sandbox. The workspace is mounted at
+  its absolute host path. `sudo` is passwordless; use it for package
+  installs.
