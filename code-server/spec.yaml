@@ -11,6 +11,7 @@ network:
     - github.com
     - objects.githubusercontent.com
     - open-vsx.org
+    - openvsx.eclipsecontent.org
 
 commands:
   install:
