@@ -81,15 +81,14 @@ in the docs for the full picture.
 
 ## Removing the stored secret
 
-To remove the entry created by `set-custom`, look up its placeholder in
-`sbx secret ls` and pass it to `sbx secret rm`:
+To remove the entry created by `set-custom`, pass the host to
+`sbx secret rm`:
 
 ```console
-$ sbx secret ls
-$ sbx secret rm -g --placeholder "<placeholder>"
+$ sbx secret rm -g --host ampcode.com
 ```
 
-The `--placeholder` and `--host` flags on `sbx secret rm` aren't listed
-in `sbx secret rm --help`, but they're the only way to remove entries
-created with `set-custom`. Like `set-custom` itself, they're
-experimental and may change.
+The `--host` flag on `sbx secret rm` isn't listed in
+`sbx secret rm --help`, but it's the only way to remove entries
+created with `set-custom`. Like `set-custom` itself, it's experimental
+and may change.
