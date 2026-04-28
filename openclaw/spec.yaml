@@ -19,8 +19,6 @@ network:
 
 environment:
   variables:
-    ANTHROPIC_BASE_URL: "http://127.0.0.1:54321"
-    ANTHROPIC_API_KEY: proxy-managed
     OPENCLAW_STATE_DIR: /home/agent/.openclaw
 
 commands:
@@ -35,10 +33,6 @@ commands:
       user: "0"
       description: Configure npm proxy and install OpenClaw globally
   startup:
-    - command: ["node", "/home/agent/anthropic-bridge.js"]
-      user: "1000"
-      background: true
-      description: Start Anthropic API bridge for Node.js proxy support
     - command: ["node", "/usr/local/share/npm-global/bin/openclaw", "gateway", "run", "--allow-unconfigured"]
       user: "1000"
       background: true
