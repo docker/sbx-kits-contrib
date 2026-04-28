@@ -16,6 +16,7 @@ import (
 	"github.com/docker/sbx-kits-contrib/spec"
 	"github.com/stretchr/testify/require"
 	"github.com/testcontainers/testcontainers-go"
+	tcexec "github.com/testcontainers/testcontainers-go/exec"
 )
 
 const (
@@ -110,10 +111,69 @@ func (s *Suite) RunContainerTests(t *testing.T) {
 			}
 		}
 
+		// Execute install commands as a real sandbox would. This catches
+		// failures that pure spec validation cannot — wrong user (writes
+		// to root-owned paths as user 1000), missing tools, syntax
+		// errors, conflicting flags. Skipped under -short.
+		s.assertInstallExecution(t, ctx, container)
+
 		// All container assertions against the same container
 		s.assertEnvVars(t, ctx, container)
 		s.assertFiles(t, ctx, container)
 		s.assertTmpfs(t, ctx, container)
+	})
+}
+
+// assertInstallExecution runs each install command from the artifact in the
+// test container with the user it declares, and asserts a clean exit. The
+// TCK container has no proxy or network policy enforcement, so this catches
+// permission, syntax, and missing-tool bugs but not allowedDomains gaps.
+//
+// Skipped when testing.Short() is set so contributors can iterate quickly
+// (some install commands run multi-minute network-bound tasks like
+// "npm install --maxsockets=1").
+func (s *Suite) assertInstallExecution(t *testing.T, ctx context.Context, container testcontainers.Container) {
+	if s.Artifact.Commands == nil || len(s.Artifact.Commands.Install) == 0 {
+		return
+	}
+	if testing.Short() {
+		t.Log("install_execution: skipped under -short")
+		return
+	}
+
+	t.Run("install_execution", func(t *testing.T) {
+		for i, cmd := range s.Artifact.Commands.Install {
+			user := cmd.User
+			if user == "" {
+				// Mirrors sandboxlib/kit/agent.go buildInstallCustomizers:
+				// install commands default to root since they typically
+				// install system packages.
+				user = "0"
+			}
+
+			label := cmd.Description
+			if label == "" {
+				label = fmt.Sprintf("install[%d]", i)
+			}
+
+			t.Run(label, func(t *testing.T) {
+				// Wrap with "sh -c" to match the real install runner —
+				// kit authors write natural shell strings (pipes,
+				// expansions) without explicit shell wrapping.
+				code, reader, err := container.Exec(ctx,
+					[]string{"sh", "-c", cmd.Command},
+					tcexec.WithUser(user),
+					tcexec.Multiplexed(),
+				)
+				require.NoError(t, err, "exec install command (user=%s): %s", user, cmd.Command)
+
+				output := readOutput(t, reader)
+				require.Equalf(t, 0, code,
+					"install command exited %d (user=%s)\n  command: %s\n  output:\n%s",
+					code, user, cmd.Command, output,
+				)
+			})
+		}
 	})
 }
 
