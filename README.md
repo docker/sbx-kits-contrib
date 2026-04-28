@@ -4,6 +4,50 @@ Community-contributed kits for [Docker Sandboxes](https://github.com/docker/sand
 
 Each top-level directory is a **kit** — a declarative artifact containing a `spec.yaml` and optional `files/` directory that extends sandbox agents with additional capabilities.
 
+## Using a kit
+
+Kits are passed to `sbx run` (or `sbx create`) via `--kit`. The flag accepts a local path, an OCI registry reference, a ZIP archive, or a `git+...` URL.
+
+The most common form is a git URL targeting this repo:
+
+```console
+$ sbx run --kit "git+https://github.com/docker/sbx-kits-contrib.git#dir=code-server" claude
+```
+
+The fragment after `#` accepts two parameters, both optional:
+
+| Parameter | Purpose | Example |
+| --- | --- | --- |
+| `dir` | Subdirectory inside the repo containing the kit | `#dir=code-server` |
+| `ref` | Git ref to check out — branch, tag, or commit SHA | `#ref=v1.0.0` |
+
+Combine them with `&`:
+
+```console
+# Pin to a tag — the recommended form for production use
+$ sbx run --kit "git+https://github.com/docker/sbx-kits-contrib.git#ref=v0.2.0&dir=code-server" claude
+
+# Track a branch (less stable; the kit may change under you)
+$ sbx run --kit "git+https://github.com/docker/sbx-kits-contrib.git#ref=main&dir=code-server" claude
+
+# Pin to an exact commit SHA — fully reproducible
+$ sbx run --kit "git+https://github.com/docker/sbx-kits-contrib.git#ref=abc1234&dir=code-server" claude
+```
+
+Without `ref`, sbx clones the default branch shallowly. With a branch or tag, sbx clones at that ref shallowly. With a commit SHA, sbx clones fully and checks out the commit.
+
+You can also use SSH instead of HTTPS for private repos:
+
+```console
+$ sbx run --kit "git+ssh://git@github.com/docker/sbx-kits-contrib.git#dir=code-server" claude
+```
+
+For local development, point `--kit` at a directory:
+
+```console
+$ sbx run --kit ./code-server/ claude
+```
+
 ## Repository Structure
 
 ```
