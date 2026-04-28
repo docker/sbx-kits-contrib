@@ -38,10 +38,10 @@ The kit uses `commands.initFiles` to write a tiny wrapper script at
 `/home/agent/.local/bin/start-code-server.sh` each time the sandbox
 starts. `${WORKDIR}` expands to the actual workspace path at that
 point, so the script has the correct folder baked in before
-`code-server` runs. `commands.startup` invokes it via `sh <script>`
-(the `mode` field on initFiles didn't reliably apply the execute
-bit, so we sidestep needing it), backgrounded with `nohup … &`,
-stdout/stderr redirected to `/tmp/code-server.log`.
+`code-server` runs. `commands.startup` invokes the script directly,
+backgrounded with `nohup … &`, stdout/stderr redirected to
+`/tmp/code-server.log`. `mode: "0755"` on the initFile makes the
+generated file executable.
 
 This is the cleanest place to see why `initFiles` exists — the
 workspace path isn't known until the sandbox starts, so it can't be

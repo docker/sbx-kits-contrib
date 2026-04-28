@@ -23,8 +23,9 @@ commands:
     - path: /home/agent/.local/bin/start-code-server.sh
       content: |
         exec code-server --bind-addr 0.0.0.0:8080 --auth none "${WORKDIR}"
+      mode: "0755"
       description: Startup wrapper with the workspace path baked in at sandbox start
   startup:
-    - command: ["sh", "-c", "nohup sh /home/agent/.local/bin/start-code-server.sh > /tmp/code-server.log 2>&1 &"]
+    - command: ["sh", "-c", "nohup /home/agent/.local/bin/start-code-server.sh > /tmp/code-server.log 2>&1 &"]
       user: "1000"
       description: Start code-server in the background, opened on the primary workspace
