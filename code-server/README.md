@@ -12,7 +12,7 @@ shares credentials and conversation history with the `claude` CLI agent.
 Pair it with the built-in `claude` agent:
 
 ```console
-$ sbx run claude --kit "git+https://github.com/dvdksn/kits-cookbook.git#dir=code-server" ~/my-project
+$ sbx run claude --kit "git+https://github.com/docker/sbx-kits-contrib.git#dir=code-server" ~/my-project
 ```
 
 Publish the port from your host:
