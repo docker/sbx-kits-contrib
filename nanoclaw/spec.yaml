@@ -1,17 +1,47 @@
 schemaVersion: "1"
-kind: mixin
+kind: agent
 name: nanoclaw
-extends: claude
 displayName: NanoClaw
 description: "Lightweight AI assistant runtime driven by Claude Code; ships the CLI channel — chat platforms (WhatsApp, Telegram, Discord, …) add via upstream skills"
 
+agent:
+  image: "docker/sandbox-templates:claude-code-docker"
+  aiFilename: CLAUDE.md
+  persistence: persistent
+  entrypoint:
+    run: ["sh", "-c", "cd /home/agent/nanoclaw && exec claude --dangerously-skip-permissions"]
+
 network:
+  serviceDomains:
+    api.anthropic.com: anthropic
+    console.anthropic.com: anthropic
+    claude.ai: anthropic
+  serviceAuth:
+    anthropic:
+      headerName: x-api-key
+      valueFormat: "%s"
   allowedDomains:
+    - "downloads.claude.ai:443"
+    - "claude.com:443"
     - "*.whatsapp.com"
     - "*.whatsapp.net"
     - registry.npmjs.org
     - "*.npmjs.org"
     - nanoclaw.dev
+
+credentials:
+  sources:
+    anthropic:
+      env:
+        - ANTHROPIC_API_KEY
+
+environment:
+  variables:
+    IS_SANDBOX: "1"
+
+settings:
+  containerSettings:
+    claude: true
 
 commands:
   install:
@@ -24,6 +54,17 @@ commands:
     - command: "cat > /usr/local/bin/nanoclaw << 'SCRIPT'\n#!/bin/sh\ncd /home/agent/nanoclaw\nexec node dist/index.js \"$@\"\nSCRIPT\nchmod +x /usr/local/bin/nanoclaw"
       user: "0"
       description: Create nanoclaw launcher (root-owned path)
-    - command: "if [ ! -f /home/agent/.local/bin/claude_real ]; then mv /home/agent/.local/bin/claude /home/agent/.local/bin/claude_real; fi && cat > /home/agent/.local/bin/claude << 'SCRIPT'\n#!/bin/sh\ncd /home/agent/nanoclaw 2>/dev/null\nexec /home/agent/.local/bin/claude_real \"$@\"\nSCRIPT\nchmod +x /home/agent/.local/bin/claude"
-      user: "1000"
-      description: Wrap claude so it always launches from /home/agent/nanoclaw (original at claude_real)
+
+oauth:
+  service: anthropic
+  tokenEndpoint:
+    host: platform.claude.com
+    path: /v1/oauth/token
+  sentinels:
+    accessToken: sk-ant-oat01-proxy-managed
+    refreshToken: sk-ant-ort01-proxy-managed
+  credentialFile:
+    path: "~/.claude/.credentials.json"
+    template: '{"claudeAiOauth":{"accessToken":"{{.AccessToken}}","refreshToken":"{{.RefreshToken}}","expiresAt":{{.ExpiresAt}},"scopes":{{.ScopesJSON}}}}'
+  skipIfEnv:
+    - ANTHROPIC_API_KEY
