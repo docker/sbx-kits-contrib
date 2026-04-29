@@ -4,6 +4,14 @@ Community-contributed kits for [Docker Sandboxes](https://github.com/docker/sand
 
 Each top-level directory is a **kit** — a declarative artifact containing a `spec.yaml` and optional `files/` directory that extends sandbox agents with additional capabilities.
 
+> [!NOTE]
+> Kits are experimental. The kit file format, CLI commands, and experience
+> for creating, loading, and managing kits are subject to change as the
+> feature evolves. Bugs and feature requests for the kits in this repo
+> belong in [its issue tracker](https://github.com/docker/sbx-kits-contrib/issues);
+> general feedback on the kit feature itself goes to
+> [docker/sbx-releases](https://github.com/docker/sbx-releases).
+
 ## Using a kit
 
 Kits are passed to `sbx run` (or `sbx create`) via `--kit`. The flag accepts a local path, an OCI registry reference, a ZIP archive, or a `git+...` URL.
