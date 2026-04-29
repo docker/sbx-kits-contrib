@@ -9,7 +9,7 @@ agent:
   aiFilename: AGENTS.md
   persistence: persistent
   entrypoint:
-    run: [openclaw]
+    run: [openclaw, chat]
 
 network:
   serviceDomains:

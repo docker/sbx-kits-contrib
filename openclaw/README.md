@@ -5,8 +5,8 @@ A standalone agent kit (`kind: agent`) for
 assistant with multi-platform chat, skills, and a gateway service.
 The kit installs Node.js 22 (openclaw requires `>= 22.12.0`) and
 openclaw via npm at sandbox creation time, launches the openclaw
-gateway in the background, and runs `openclaw` as the entrypoint
-when you attach.
+gateway in the background, and runs `openclaw chat` (the
+interactive TUI) as the entrypoint when you attach.
 
 ## Usage
 
