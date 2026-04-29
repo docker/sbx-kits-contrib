@@ -1,12 +1,37 @@
 schemaVersion: "1"
-kind: mixin
+kind: agent
 name: pi
 displayName: Pi
 description: "Minimal terminal coding agent with extensible tools, skills, and TUI"
 
+agent:
+  image: "docker/sandbox-templates:shell-docker"
+  aiFilename: AGENTS.md
+  persistence: persistent
+  entrypoint:
+    run: [pi]
+
 network:
+  serviceDomains:
+    api.anthropic.com: anthropic
+    console.anthropic.com: anthropic
+    claude.ai: anthropic
+  serviceAuth:
+    anthropic:
+      headerName: x-api-key
+      valueFormat: "%s"
   allowedDomains:
     - registry.npmjs.org
+
+credentials:
+  sources:
+    anthropic:
+      env:
+        - ANTHROPIC_API_KEY
+
+environment:
+  proxyManaged:
+    - ANTHROPIC_API_KEY
 
 commands:
   install:

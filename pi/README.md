@@ -1,28 +1,25 @@
 # pi
 
-A mixin that installs the
+A standalone agent kit (`kind: agent`) for the
 [`@mariozechner/pi-coding-agent`](https://www.npmjs.com/package/@mariozechner/pi-coding-agent)
 CLI — a minimal terminal coding agent with extensible tools, skills, and
-TUI — into a `shell` sandbox.
+TUI. The kit installs `pi` via npm at sandbox creation time and runs
+it as the entrypoint when you attach.
 
 ## Usage
 
 ```console
-$ sbx run --kit "git+https://github.com/docker/sbx-kits-contrib.git#dir=pi" shell
+$ sbx run --kit "git+https://github.com/docker/sbx-kits-contrib.git#dir=pi" pi
 ```
 
 Or with a local clone of this repo:
 
 ```console
-$ sbx run --kit ./pi/ shell
+$ sbx run --kit ./pi/ pi
 ```
 
-The first launch installs the agent via `npm install -g`. Once inside
-the sandbox shell:
-
-```console
-$ pi
-```
+The first launch installs the agent via `npm install -g`. Subsequent
+launches reuse the sandbox.
 
 ## How auth works
 
