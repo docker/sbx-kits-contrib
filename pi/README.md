@@ -3,9 +3,7 @@
 A mixin that installs the
 [`@mariozechner/pi-coding-agent`](https://www.npmjs.com/package/@mariozechner/pi-coding-agent)
 CLI — a minimal terminal coding agent with extensible tools, skills, and
-TUI — into a `shell` sandbox. The kit also drops an Anthropic API
-proxy bridge at `127.0.0.1:54321` so the agent's Anthropic SDK calls
-flow through the sandbox proxy with proxy-managed credentials.
+TUI — into a `shell` sandbox.
 
 ## Usage
 
@@ -28,13 +26,13 @@ $ pi
 
 ## How auth works
 
-The kit sets `ANTHROPIC_BASE_URL=http://127.0.0.1:54321` and
-`ANTHROPIC_API_KEY=proxy-managed`. The Anthropic API bridge that
-starts at sandbox launch listens on that URL and forwards traffic to
-`api.anthropic.com` through the sandbox proxy, which substitutes the
-real Anthropic credentials on egress. The agent never sees the secret.
+Anthropic SDK calls inside the sandbox flow through the sandbox proxy
+automatically: `NODE_USE_ENV_PROXY=1` (set globally by sbx) makes
+Node.js honor `HTTP_PROXY`/`HTTPS_PROXY`, and the proxy substitutes
+the real Anthropic credentials in place of the `proxy-managed`
+sentinel that's already in the default sandbox environment. The agent
+never sees the real key.
 
 `registry.npmjs.org` is the only domain the kit adds to
-`allowedDomains` — it's needed for the install. Anthropic's API host
-is reached via the bridge through default sandbox policy, not via a
-kit allowlist entry.
+`allowedDomains` — it's needed for the install. `api.anthropic.com`
+is reached via default sandbox policy, not a kit allowlist entry.

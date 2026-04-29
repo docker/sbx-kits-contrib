@@ -8,18 +8,8 @@ network:
   allowedDomains:
     - registry.npmjs.org
 
-environment:
-  variables:
-    ANTHROPIC_BASE_URL: "http://127.0.0.1:54321"
-    ANTHROPIC_API_KEY: proxy-managed
-
 commands:
   install:
     - command: "npm config set proxy $HTTP_PROXY && npm config set https-proxy $HTTP_PROXY && i=0; while [ $i -lt 5 ]; do npm install -g --maxsockets=1 --fetch-timeout=600000 @mariozechner/pi-coding-agent && break; i=$((i+1)); echo \"Retrying ($i/5)...\"; done"
       user: "1000"
       description: "Configure npm proxy and install pi coding agent globally (with retries)"
-  startup:
-    - command: ["node", "/home/agent/anthropic-bridge.js"]
-      user: "1000"
-      background: true
-      description: Start Anthropic API bridge for Node.js proxy support
