@@ -1,8 +1,9 @@
 schemaVersion: "1"
 kind: mixin
 name: nanoclaw
+extends: claude
 displayName: NanoClaw
-description: "Lightweight AI assistant runtime — ships the CLI channel; chat platforms (WhatsApp, Telegram, Discord, …) add via upstream skills"
+description: "Lightweight AI assistant runtime driven by Claude Code; ships the CLI channel — chat platforms (WhatsApp, Telegram, Discord, …) add via upstream skills"
 
 network:
   allowedDomains:
@@ -17,6 +18,12 @@ commands:
     - command: "npm config set proxy $HTTP_PROXY && npm config set https-proxy $HTTP_PROXY"
       user: "1000"
       description: Configure npm to use the sandbox proxy
-    - command: "cat > /usr/local/bin/nanoclaw << 'SCRIPT'\n#!/bin/sh\nif [ ! -f /home/agent/nanoclaw/dist/index.js ]; then\n  echo \"First run: installing nanoclaw (this takes ~2 minutes)...\"\n  cd /home/agent\n  git clone --depth 1 https://github.com/qwibitai/nanoclaw.git\n  cd nanoclaw\n  npm install --maxsockets=1 --fetch-timeout=600000\n  npm rebuild better-sqlite3\n  npm run build\n  echo \"Done! Starting nanoclaw...\"\nfi\ncd /home/agent/nanoclaw\nexec node dist/index.js \"$@\"\nSCRIPT\nchmod +x /usr/local/bin/nanoclaw"
+    - command: "git clone --depth 1 https://github.com/qwibitai/nanoclaw.git /home/agent/nanoclaw && cd /home/agent/nanoclaw && npm install --maxsockets=1 --fetch-timeout=600000 && npm rebuild better-sqlite3 && npm run build"
+      user: "1000"
+      description: Clone and build nanoclaw (~2 minutes; runs once at sandbox creation)
+    - command: "cat > /usr/local/bin/nanoclaw << 'SCRIPT'\n#!/bin/sh\ncd /home/agent/nanoclaw\nexec node dist/index.js \"$@\"\nSCRIPT\nchmod +x /usr/local/bin/nanoclaw"
       user: "0"
-      description: Create self-installing nanoclaw launcher (root-owned path)
+      description: Create nanoclaw launcher (root-owned path)
+    - command: "if [ ! -f /home/agent/.local/bin/claude_real ]; then mv /home/agent/.local/bin/claude /home/agent/.local/bin/claude_real; fi && cat > /home/agent/.local/bin/claude << 'SCRIPT'\n#!/bin/sh\ncd /home/agent/nanoclaw 2>/dev/null\nexec /home/agent/.local/bin/claude_real \"$@\"\nSCRIPT\nchmod +x /home/agent/.local/bin/claude"
+      user: "1000"
+      description: Wrap claude so it always launches from /home/agent/nanoclaw (original at claude_real)
