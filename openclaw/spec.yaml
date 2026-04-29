@@ -1,10 +1,25 @@
 schemaVersion: "1"
-kind: mixin
+kind: agent
 name: openclaw
 displayName: OpenClaw
 description: "Personal AI assistant with multi-platform chat, skills, and gateway support"
 
+agent:
+  image: "docker/sandbox-templates:shell-docker"
+  aiFilename: AGENTS.md
+  persistence: persistent
+  entrypoint:
+    run: [openclaw]
+
 network:
+  serviceDomains:
+    api.anthropic.com: anthropic
+    console.anthropic.com: anthropic
+    claude.ai: anthropic
+  serviceAuth:
+    anthropic:
+      headerName: x-api-key
+      valueFormat: "%s"
   allowedDomains:
     - deb.nodesource.com
     - registry.npmjs.org
@@ -17,9 +32,17 @@ network:
     - openclaw.ai
     - docs.openclaw.ai
 
+credentials:
+  sources:
+    anthropic:
+      env:
+        - ANTHROPIC_API_KEY
+
 environment:
   variables:
     OPENCLAW_STATE_DIR: /home/agent/.openclaw
+  proxyManaged:
+    - ANTHROPIC_API_KEY
 
 commands:
   install:
