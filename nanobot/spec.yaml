@@ -1,10 +1,25 @@
 schemaVersion: "1"
-kind: mixin
+kind: agent
 name: nanobot
 displayName: Nanobot
 description: "Lightweight personal AI assistant with multi-platform chat and multi-provider LLM support"
 
+agent:
+  image: "docker/sandbox-templates:shell-docker"
+  aiFilename: AGENTS.md
+  persistence: persistent
+  entrypoint:
+    run: ["nanobot", "agent", "--config", "/home/agent/.nanobot/config.json"]
+
 network:
+  serviceDomains:
+    api.anthropic.com: anthropic
+    console.anthropic.com: anthropic
+    claude.ai: anthropic
+  serviceAuth:
+    anthropic:
+      headerName: x-api-key
+      valueFormat: "%s"
   allowedDomains:
     - pypi.org
     - files.pythonhosted.org
@@ -16,9 +31,17 @@ network:
     - "*.slack.com"
     - "*.feishu.cn"
 
+credentials:
+  sources:
+    anthropic:
+      env:
+        - ANTHROPIC_API_KEY
+
 environment:
   variables:
     NANOBOT_AGENTS__DEFAULTS__WORKSPACE: /home/agent/nanobot
+  proxyManaged:
+    - ANTHROPIC_API_KEY
 
 commands:
   install:
