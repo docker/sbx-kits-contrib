@@ -23,7 +23,7 @@ Every kit should ship a `README.md`. The structure isn't mandatory, but the exis
 - **Title and one-paragraph description** of what the kit does and what agent it pairs with.
 - **Usage** — the `sbx run` invocation and any host-side prerequisites.
 - **How _X_ works** — short sections explaining non-obvious decisions in the spec, so the next reviewer doesn't have to reverse-engineer the YAML.
-- **Cleanup**, if the kit creates state on the host.
+- **Cleanup**, if the kit creates state on the host. 
 
 For kits that have a corresponding tutorial on [docs.docker.com](https://docs.docker.com/), link to it instead of duplicating the design rationale.
 
