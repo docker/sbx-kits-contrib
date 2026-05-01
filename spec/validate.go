@@ -77,6 +77,18 @@ func ValidateNetworkPolicy(n *NetworkPolicy) error {
 		}
 	}
 
+	if len(n.AllowedDomains) > 0 && len(n.DeniedDomains) > 0 {
+		allowed := make(map[string]bool, len(n.AllowedDomains))
+		for _, d := range n.AllowedDomains {
+			allowed[d] = true
+		}
+		for _, d := range n.DeniedDomains {
+			if allowed[d] {
+				return fmt.Errorf("network: domain %q is in both allowedDomains and deniedDomains", d)
+			}
+		}
+	}
+
 	return nil
 }
 

@@ -47,6 +47,7 @@ func NewSuiteFromDir(dir string, opts ...Option) (*Suite, error) {
 	// Derive network expectations
 	if artifact.Network != nil {
 		suite.ExpectedAllowedDomains = artifact.Network.AllowedDomains
+		suite.ExpectedDeniedDomains = artifact.Network.DeniedDomains
 		suite.ExpectedServiceDomains = artifact.Network.ServiceDomains
 		suite.ExpectedServiceAuth = artifact.Network.ServiceAuth
 	}

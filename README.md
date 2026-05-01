@@ -94,6 +94,8 @@ description: "Short description of what this kit does"
 network:
   allowedDomains:
     - example.com
+  deniedDomains:
+    - tracker.example.com
 
 environment:
   variables:

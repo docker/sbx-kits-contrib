@@ -95,6 +95,29 @@ func TestValidateNetworkPolicy(t *testing.T) {
 		}
 		require.ErrorContains(t, ValidateNetworkPolicy(n), "%s placeholder")
 	})
+
+	t.Run("allowed_and_denied_disjoint", func(t *testing.T) {
+		n := &NetworkPolicy{
+			AllowedDomains: []string{"api.example.com:443", "good.example.com:443"},
+			DeniedDomains:  []string{"evil.example.com:443"},
+		}
+		require.NoError(t, ValidateNetworkPolicy(n))
+	})
+
+	t.Run("denied_only_is_valid", func(t *testing.T) {
+		n := &NetworkPolicy{
+			DeniedDomains: []string{"evil.example.com:443"},
+		}
+		require.NoError(t, ValidateNetworkPolicy(n))
+	})
+
+	t.Run("domain_in_both_allow_and_deny", func(t *testing.T) {
+		n := &NetworkPolicy{
+			AllowedDomains: []string{"api.example.com:443"},
+			DeniedDomains:  []string{"api.example.com:443"},
+		}
+		require.ErrorContains(t, ValidateNetworkPolicy(n), "in both allowedDomains and deniedDomains")
+	})
 }
 
 func TestValidateCredentialPolicy(t *testing.T) {

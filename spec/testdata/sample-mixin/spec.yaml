@@ -8,6 +8,8 @@ network:
   allowedDomains:
     - example.com
     - "*.example.org"
+  deniedDomains:
+    - tracker.example.com
   serviceDomains:
     api.example.com: example
   serviceAuth:

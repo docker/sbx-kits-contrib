@@ -103,6 +103,12 @@ type NetworkPolicy struct {
 
 	// AllowedDomains is an explicit allowlist of domains the agent may access.
 	AllowedDomains []string `json:"allowedDomains,omitempty" yaml:"allowedDomains,omitempty"`
+
+	// DeniedDomains is an explicit denylist of domains the agent must not access.
+	// Deny rules take precedence over allow rules at policy evaluation time, so a
+	// kit can lock its sandbox out of specific domains regardless of presets or
+	// other allow lists contributed by composed kits.
+	DeniedDomains []string `json:"deniedDomains,omitempty" yaml:"deniedDomains,omitempty"`
 }
 
 // ServiceAuth defines how to format authentication headers for a service.

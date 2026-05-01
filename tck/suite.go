@@ -41,6 +41,7 @@ type Suite struct {
 	ExpectedEnvVars        []string
 	ExpectedContainerFiles []string
 	ExpectedAllowedDomains []string
+	ExpectedDeniedDomains  []string
 	ExpectedServiceDomains map[string]string
 	ExpectedServiceAuth    map[string]spec.ServiceAuth
 	ExpectedTmpfs          map[string]string // path -> options (manifest tmpfs + /run/secrets)
@@ -331,7 +332,7 @@ func (s *Suite) RunValidationTests(t *testing.T) {
 
 // RunNetworkPolicyTests verifies the artifact's network policy is consistent.
 func (s *Suite) RunNetworkPolicyTests(t *testing.T) {
-	if s.Artifact.Network == nil && len(s.ExpectedAllowedDomains) == 0 && len(s.ExpectedServiceDomains) == 0 {
+	if s.Artifact.Network == nil && len(s.ExpectedAllowedDomains) == 0 && len(s.ExpectedDeniedDomains) == 0 && len(s.ExpectedServiceDomains) == 0 {
 		return
 	}
 
@@ -339,6 +340,7 @@ func (s *Suite) RunNetworkPolicyTests(t *testing.T) {
 		net := s.Artifact.Network
 		if net == nil {
 			require.Empty(t, s.ExpectedAllowedDomains, "expected allowed domains but network policy is nil")
+			require.Empty(t, s.ExpectedDeniedDomains, "expected denied domains but network policy is nil")
 			require.Empty(t, s.ExpectedServiceDomains, "expected service domains but network policy is nil")
 			return
 		}
@@ -346,6 +348,11 @@ func (s *Suite) RunNetworkPolicyTests(t *testing.T) {
 		if len(s.ExpectedAllowedDomains) > 0 {
 			require.ElementsMatch(t, s.ExpectedAllowedDomains, net.AllowedDomains,
 				"allowed domains should match")
+		}
+
+		if len(s.ExpectedDeniedDomains) > 0 {
+			require.ElementsMatch(t, s.ExpectedDeniedDomains, net.DeniedDomains,
+				"denied domains should match")
 		}
 
 		if len(s.ExpectedServiceDomains) > 0 {
