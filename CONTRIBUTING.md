@@ -39,6 +39,16 @@ $ sbx run --kit ./my-kit/ <agent>
 
 The first two are what CI runs. The third catches things the TCK doesn't — install scripts hitting unexpected hosts, startup wrappers crashing silently, agents not authenticating.
 
+## Developer Certificate of Origin (DCO)
+
+By contributing to this repository, you certify that you have the right to submit the work under the repository license.
+
+Please sign off every commit:
+
+```bash
+git commit -s -m "Your commit message"
+```
+
 ## Pull requests
 
 - **New kit**: capitalized `Add <kit-name> kit`.
