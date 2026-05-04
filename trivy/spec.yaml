@@ -18,20 +18,14 @@ network:
     # github.com 302-redirects to release-assets.githubusercontent.com for binary downloads.
     - github.com
     - release-assets.githubusercontent.com
-    # Vulnerability DB pull (runtime; trivy-db is published as an OCI artifact on GHCR).
-    # We deliberately exclude Trivy's *default* primary mirror (mirror.gcr.io / Google) and
-    # force Aqua's GHCR-hosted artifact instead — see TRIVY_DB_REPOSITORY in `environment`.
-    # This trims the kit's external trust surface from {GitHub + GHCR + Google} to {GitHub + GHCR}.
+    # Vulnerability DB pull at runtime. Trivy's default chain is mirror.gcr.io (primary)
+    # with ghcr.io as a fallback for the trivy-db OCI artifact; we declare both openly in
+    # the allowlist rather than relying on env-var overrides to redirect the source.
+    # The trust footprint is intentionally explicit at the policy layer; tightening this
+    # is part of the v2 path (hardened-distribution-channel install).
+    - mirror.gcr.io
     - ghcr.io
     - pkg-containers.githubusercontent.com
-
-environment:
-  variables:
-    # Skip Trivy's default mirror.gcr.io fallback chain; pin DB source to Aqua's GHCR artifact.
-    # Trivy 0.61+ honors this env var; older versions need the --db-repository CLI flag instead.
-    TRIVY_DB_REPOSITORY: "ghcr.io/aquasecurity/trivy-db"
-    # Same idea for the Java DB (used by `trivy fs` against jar/pom files).
-    TRIVY_JAVA_DB_REPOSITORY: "ghcr.io/aquasecurity/trivy-java-db"
 
 commands:
   install:

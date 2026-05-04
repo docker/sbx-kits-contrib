@@ -43,23 +43,28 @@ flows (`fs`, `repo`, plain `image`). Aqua's commercial feeds (premium
 indicators, SaaS reporting) are out of scope for this kit; if you need
 them, fork and add the appropriate `serviceDomains` and `credentials`.
 
-The kit's `allowedDomains` covers exactly four hosts:
+The kit's `allowedDomains` covers exactly five hosts:
 
 | Host | Why |
 | --- | --- |
 | `github.com` | Release page entry point for the install tarball (302-redirects) |
 | `release-assets.githubusercontent.com` | Where GitHub release blobs actually live (the redirect target) |
-| `ghcr.io` | Pulls the vuln DB OCI artifact (`ghcr.io/aquasecurity/trivy-db`) |
+| `mirror.gcr.io` | Trivy's default *primary* vuln DB source (`mirror.gcr.io/aquasec/trivy-db`) |
+| `ghcr.io` | Trivy's *fallback* vuln DB source (`ghcr.io/aquasecurity/trivy-db`) |
 | `pkg-containers.githubusercontent.com` | GHCR blob storage backend |
 
-Trivy's *default* primary DB source is `mirror.gcr.io` (Google's container
-registry mirror), with `ghcr.io` as a fallback. The kit deliberately
-excludes `mirror.gcr.io` and forces the GHCR artifact directly via
-`TRIVY_DB_REPOSITORY=ghcr.io/aquasecurity/trivy-db` (and the matching
-`TRIVY_JAVA_DB_REPOSITORY`). This trims the kit's external trust surface
-from {GitHub + GHCR + Google} to {GitHub + GHCR} and removes Google as a
-required participant. (Trivy 0.61+ honours the env vars; older versions
-need the `--db-repository` flag instead.)
+Both DB sources are declared in the allowlist rather than redirecting Trivy
+to one specific source via env vars. The reason: env-var-based security
+config is fragile — anything running as the agent user inside the sandbox
+can override or unset it. Declaring all required egress at the policy
+layer keeps the trust footprint observable and survives a compromised
+agent process trying to subvert it.
+
+Tightening this footprint — both the install channel (currently a pinned
+GitHub release) and the DB source (currently Trivy's defaults) — is the
+v2 path: install via a hardened-distribution channel where the entire
+build pipeline is observable and signed. Deferred until that integration
+lands cleanly at the runtime layer.
 
 Anything else — registries you want to scan images from, custom vuln DB
 mirrors, your reporting endpoint — should be added with a per-sandbox or
