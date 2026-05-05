@@ -1,0 +1,12 @@
+### Open Interpreter — Docker Sandbox profile
+# auto_run skips the "approve this code?" prompt — the sandbox provides
+# the isolation that makes this safe to enable.
+auto_run: true
+
+llm:
+  model: "gpt-4o"
+  temperature: 0
+
+computer:
+  # Gives OI a built-in Computer API for file, browser, and OS operations
+  import_computer_api: true

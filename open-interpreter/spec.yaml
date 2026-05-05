@@ -1,0 +1,86 @@
+schemaVersion: "1"
+kind: agent
+name: open-interpreter
+displayName: Open Interpreter
+description: >
+  Natural language interface for your sandbox. Describe what you need;
+  Open Interpreter writes and runs the code (Python, JS, Shell, and more)
+  to complete the task.
+
+agent:
+  image: "docker/sandbox-templates:shell-docker"
+  aiFilename: AGENTS.md
+  persistence: persistent
+  entrypoint:
+    run: [interpreter]
+
+credentials:
+  sources:
+    openai:
+      env:
+        - OPENAI_API_KEY
+      file:
+        path: ~/.openai-api-key
+    anthropic:
+      env:
+        - ANTHROPIC_API_KEY
+
+network:
+  # Narrow serviceDomains: only the LLM API hosts that need auth injection.
+  # A wildcard here would TLS-intercept all traffic, including code that
+  # OI executes on your behalf, breaking arbitrary downloads.
+  serviceDomains:
+    api.openai.com: openai
+    api.anthropic.com: anthropic
+  serviceAuth:
+    openai:
+      headerName: Authorization
+      valueFormat: "Bearer %s"
+    anthropic:
+      headerName: x-api-key
+      valueFormat: "%s"
+  allowedDomains:
+    # Open Procedures: OI fetches task-specific best-practice snippets at runtime
+    - raw.githubusercontent.com
+    - objects.githubusercontent.com
+    - api.github.com
+    # PyPI: pip installs at creation time and during code execution
+    - pypi.org
+    - files.pythonhosted.org
+    # npm: OI can write and run JS
+    - registry.npmjs.org
+    - "*.npmjs.org"
+    # apt: OI can run shell commands that install system packages
+    - deb.debian.org
+    - archive.ubuntu.com
+    - security.ubuntu.com
+    # LiteLLM model info and routing
+    - "*.litellm.ai"
+
+environment:
+  proxyManaged:
+    - OPENAI_API_KEY
+    - ANTHROPIC_API_KEY
+
+commands:
+  install:
+    - command: "pip install open-interpreter"
+      user: "1000"
+      description: Install Open Interpreter and its dependencies
+
+memory: |
+  ## Open Interpreter
+
+  You are Open Interpreter. You take natural language requests and complete
+  them by writing and running code.
+
+  The sandbox is isolated — you can run code freely without worrying about
+  damaging the host system.
+
+  - **Auto-run is on**: code executes without confirmation prompts.
+  - **Supported languages**: Python, JavaScript, Shell, and anything else
+    installed in the environment.
+  - **Switch models**: run `interpreter --model claude-3-5-sonnet-20241022`
+    to use Claude, or `interpreter --model ollama/llama3` for a local model.
+  - **Workspace**: your working directory is `${WORKDIR}`. Files created
+    there persist across sandbox restarts.
