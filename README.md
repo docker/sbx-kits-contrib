@@ -58,18 +58,41 @@ For local development, point `--kit` at a directory:
 $ sbx run --kit ./code-server/ claude
 ```
 
-## Repository Structure
+## Kits by Kind
 
-```
-sbx-kits-contrib/
-├── spec/          # Kit artifact types, loading, and validation (importable library)
-├── tck/           # Technology Compatibility Kit — test suite using testcontainers-go
-├── pi/            # Pi coding agent kit
-├── nanobot/       # Nanobot assistant kit
-├── openclaw/      # OpenClaw assistant kit
-├── nanoclaw/      # NanoClaw WhatsApp bridge kit
-└── .github/       # CI workflows
-```
+### Mixins (extend existing agents)
+
+| Kit | Description | Extends |
+| --- | --- | --- |
+| [`brew/`](./brew/) | Homebrew package manager for macOS and Linux | shell |
+| [`code-server/`](./code-server/) | Web VS Code with Claude Code extension | claude |
+
+### Agents (standalone agent kits)
+
+| Kit | Description | Auth |
+| --- | --- | --- |
+| [`amp/`](./amp/) | Amp coding agent | API key |
+| [`claude-ollama/`](./claude-ollama/) | Claude Code wired to local Ollama | None |
+| [`nanobot/`](./nanobot/) | Multi-platform chat assistant (Telegram, Discord, WhatsApp, Slack, Feishu) | Anthropic |
+| [`nanoclaw/`](./nanoclaw/) | Lightweight AI assistant driven by Claude Code | Anthropic |
+| [`openclaw/`](./openclaw/) | Multi-platform chat assistant with gateway support | Anthropic |
+| [`pi/`](./pi/) | Minimal terminal coding agent with extensible tools and TUI | Anthropic |
+| [`trivy/`](./trivy/) | Aqua's open-source vulnerability scanner | None |
+
+### Work in Progress
+
+| Kit | Description | Status |
+| --- | --- | --- |
+| [`opencode/`](./opencode/) | OpenCode agent kit | Stub — no `spec.yaml` yet |
+| [`oh-my-openagent/`](./oh-my-openagent/) | Oh My OpenAgent kit | Stub — no `spec.yaml` yet |
+
+### Shared packages
+
+| Directory | Purpose |
+| --- | --- |
+| `spec/` | Kit artifact types, loading, and validation (importable Go library) |
+| `tck/` | Technology Compatibility Kit — test suite using testcontainers-go |
+| `.github/` | CI workflows |
 
 ## Adding a New Kit
 
