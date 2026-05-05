@@ -49,6 +49,10 @@ Please sign off every commit:
 git commit -s -m "Your commit message"
 ```
 
+## Signing Commits
+
+Please ensure that your commits are signed. You can learn more about signing commits [here](https://docs.github.com/en/free-pro-team@latest/authentication/managing-commit-signature-verification).
+
 ## Pull requests
 
 - **New kit**: capitalized `Add <kit-name> kit`.

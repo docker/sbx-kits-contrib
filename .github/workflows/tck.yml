@@ -83,8 +83,10 @@ jobs:
           go-version-file: go.mod
 
       - name: Run TCK for ${{ matrix.kit }}
+        env:
+          KIT: ${{ matrix.kit }}
         run: |
-          cd ${{ matrix.kit }}
+          cd "$KIT"
           go test -v -timeout 30m -count=1 ./...
 
   test-tck:

@@ -1,0 +1,62 @@
+schemaVersion: "1"
+kind: agent
+name: trivy
+displayName: Trivy
+description: "Aqua's open source vulnerability scanner — sandboxed because security scanners shouldn't be able to compromise their hosts (TeamPCP, March 2026)."
+
+agent:
+  image: "docker/sandbox-templates:shell-docker"
+  aiFilename: AGENTS.md
+  persistence: persistent
+  # Drop into bash with trivy on PATH and the workspace as cwd. Run `trivy fs .` to scan.
+  entrypoint:
+    run: [bash, -l]
+
+network:
+  allowedDomains:
+    # Release tarball download (install time, one-shot).
+    # github.com 302-redirects to release-assets.githubusercontent.com for binary downloads.
+    - github.com
+    - release-assets.githubusercontent.com
+    # Vulnerability DB pull at runtime. Trivy's default chain is mirror.gcr.io (primary)
+    # with ghcr.io as a fallback for the trivy-db OCI artifact; we declare both openly in
+    # the allowlist rather than relying on env-var overrides to redirect the source.
+    # The trust footprint is intentionally explicit at the policy layer; tightening this
+    # is part of the v2 path (hardened-distribution-channel install).
+    - mirror.gcr.io
+    - ghcr.io
+    - pkg-containers.githubusercontent.com
+
+commands:
+  install:
+    # Install Trivy from a pinned, digest-verified GitHub release.
+    # Why not the official `install.sh`: that pattern (curl|sh) is exactly what TeamPCP
+    # weaponized in March 2026 against tag-rewriteable references. We pin a known-good
+    # release by version AND SHA256, in the kit, in git. To bump: change TRIVY_VERSION
+    # plus the per-arch SHA256 below (sourced from the release's checksums.txt).
+    - command: |
+        set -euo pipefail
+        TRIVY_VERSION=0.70.0
+        ARCH=$(dpkg --print-architecture)
+        case "$ARCH" in
+          amd64)
+            TARBALL="trivy_${TRIVY_VERSION}_Linux-64bit.tar.gz"
+            SHA256="8b4376d5d6befe5c24d503f10ff136d9e0c49f9127a4279fd110b727929a5aa9"
+            ;;
+          arm64)
+            TARBALL="trivy_${TRIVY_VERSION}_Linux-ARM64.tar.gz"
+            SHA256="2f6bb988b553a1bbac6bdd1ce890f5e412439564e17522b88a4541b4f364fc8d"
+            ;;
+          *)
+            echo "unsupported sandbox arch: $ARCH (expected amd64 or arm64)" >&2
+            exit 1
+            ;;
+        esac
+        URL="https://github.com/aquasecurity/trivy/releases/download/v${TRIVY_VERSION}/${TARBALL}"
+        curl --proto '=https' --tlsv1.2 -fsSL -o /tmp/trivy.tgz "$URL"
+        echo "${SHA256}  /tmp/trivy.tgz" | sha256sum -c -
+        tar -C /usr/local/bin -xzf /tmp/trivy.tgz trivy
+        rm /tmp/trivy.tgz
+        trivy --version
+      user: "0"
+      description: "Install Trivy CLI v0.70.0, version+digest pinned"
