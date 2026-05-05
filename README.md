@@ -1,6 +1,6 @@
 # sbx-kits-contrib
 
-Community-contributed kits for [Docker Sandboxes](https://github.com/docker/sandboxes).
+Community-contributed kits for [Docker Sandboxes](https://docs.docker.com/ai/sandboxes/).
 
 Each top-level directory is a **kit** — a declarative artifact containing a `spec.yaml` and optional `files/` directory that extends sandbox agents with additional capabilities.
 
