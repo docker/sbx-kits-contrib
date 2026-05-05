@@ -91,12 +91,21 @@ mixin kit with the extra domains.
 
 | Component | How |
 | --- | --- |
-| `open-interpreter` | `pip install open-interpreter` at creation time |
+| `uv` | `curl -LsSf https://astral.sh/uv/install.sh \| sh` at creation time |
+| `open-interpreter` | `uv tool install --python 3.12 open-interpreter` at creation time |
 | Default profile | Dropped via `files/` at `/home/agent/.config/open-interpreter/profiles/default.yaml` |
 
+`uv` is used instead of `pip` for two reasons: the base image runs Ubuntu 24.04
+which enforces PEP 668 (bare `pip install` is blocked), and `open-interpreter`'s
+`numpy` dependency has no Python 3.13 wheel — `uv --python 3.12` fetches a
+standalone Python 3.12 runtime automatically without needing a system compiler.
+
+On every sandbox start, `uv tool upgrade open-interpreter` runs in the background
+so you stay on the latest release without recreating the sandbox.
+
 The install is substantial (LiteLLM, Anthropic SDK, Selenium, FastAPI, and more
-are bundled). First sandbox creation takes 2–3 minutes; subsequent starts reuse
-the persistent volume.
+are bundled). First sandbox creation takes 3–5 minutes; subsequent starts reuse
+the persistent volume and upgrade in the background.
 
 ## Cleanup
 
