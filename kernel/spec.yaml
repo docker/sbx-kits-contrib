@@ -1,0 +1,48 @@
+schemaVersion: "1"
+kind: mixin
+name: kernel
+displayName: Kernel Browser
+description: >
+  Cloud-hosted Chromium for AI agents via kernel.sh. Sessions start in <30ms
+  with stealth mode, managed auth, and live session replay built in.
+
+credentials:
+  sources:
+    kernel:
+      env:
+        - KERNEL_API_KEY
+
+network:
+  # Narrow serviceDomains: only the REST API host gets auth injection.
+  # A wildcard here would put the proxy into TLS-intercept mode for all
+  # *.onkernel.com traffic, including the CDP WebSocket proxy and any CDN
+  # traffic — that corrupts the connection. List only the auth-bearing host.
+  serviceDomains:
+    api.onkernel.com: kernel
+  serviceAuth:
+    kernel:
+      headerName: Authorization
+      valueFormat: "Bearer %s"
+  allowedDomains:
+    # CDP WebSocket proxy URLs take the form:
+    #   wss://proxy.<region>.onkernel.com:8443/browser/cdp?jwt=...
+    # The wildcard covers all regional proxy hosts without auth injection.
+    - "*.onkernel.com"
+    # npm — for agents that install @onkernel/sdk or playwright-core
+    - registry.npmjs.org
+    - "*.npmjs.org"
+    # PyPI — for agents that install the kernel Python SDK
+    - pypi.org
+    - files.pythonhosted.org
+
+environment:
+  # KERNEL_API_KEY is proxy-managed: the sandbox receives a placeholder;
+  # the proxy substitutes the real value on outbound requests to api.onkernel.com.
+  proxyManaged:
+    - KERNEL_API_KEY
+
+commands:
+  install:
+    - command: "npm install -g @onkernel/cli"
+      user: "0"
+      description: Install the Kernel CLI
