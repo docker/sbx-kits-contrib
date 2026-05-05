@@ -4,6 +4,8 @@ Community-contributed kits for [Docker Sandboxes](https://docs.docker.com/ai/san
 
 Each top-level directory is a **kit** — a declarative artifact containing a `spec.yaml` and optional `files/` directory that extends sandbox agents with additional capabilities.
 
+Contributing a kit or a fix? Read [`CONTRIBUTING.md`](./CONTRIBUTING.md) first — this repo enforces verified commit signatures, so you'll need GPG or SSH signing set up before your PR can be merged.
+
 > [!NOTE]
 > Kits are experimental. The kit file format, CLI commands, and experience
 > for creating, loading, and managing kits are subject to change as the
