@@ -1,0 +1,37 @@
+schemaVersion: "1"
+kind: agent
+name: opencode-model-runner
+displayName: OpenCode (Docker Model Runner)
+description: OpenCode wired to a local Docker Model Runner instance via its OpenAI-compatible API, preconfigured for qwen3.
+
+agent:
+  image: "docker/sandbox-templates:opencode-docker"
+  aiFilename: AGENTS.md
+  persistence: persistent
+  entrypoint:
+    run: [opencode]
+
+commands:
+  initFiles:
+    - path: /home/agent/.config/opencode/opencode.json
+      mode: "0644"
+      description: Configure OpenCode to use the local Docker Model Runner
+      content: |
+        {
+          "$schema": "https://opencode.ai/config.json",
+          "provider": {
+            "model-runner": {
+              "npm": "@ai-sdk/openai-compatible",
+              "name": "Docker Model Runner",
+              "options": {
+                "baseURL": "http://host.docker.internal:12434/v1"
+              },
+              "models": {
+                "qwen3": {
+                  "name": "Qwen3 (Model Runner)"
+                }
+              }
+            }
+          },
+          "model": "model-runner/qwen3"
+        }
