@@ -1,0 +1,85 @@
+schemaVersion: "1"
+kind: agent
+name: aider
+displayName: Aider
+description: >
+  AI pair programming in your terminal. Edits code, runs tests, and commits
+  changes using Claude, GPT, Gemini, or any LiteLLM-compatible model.
+
+agent:
+  image: "docker/sandbox-templates:shell-docker"
+  persistence: persistent
+  entrypoint:
+    run: ["/home/agent/.local/bin/aider"]
+
+# Auth is injected by the SBX proxy. Register your key before first run:
+#
+#   sbx secret set-custom -g \
+#     --host api.anthropic.com \
+#     --env ANTHROPIC_API_KEY \
+#     --placeholder "sk-ant-{rand}" \
+#     --value "$ANTHROPIC_API_KEY"
+#
+# See README.md for other LLM providers.
+network:
+  serviceDomains:
+    api.anthropic.com: anthropic
+    api.openai.com: openai
+    generativelanguage.googleapis.com: gemini
+  serviceAuth:
+    anthropic:
+      headerName: x-api-key
+      valueFormat: "%s"
+    openai:
+      headerName: Authorization
+      valueFormat: "Bearer %s"
+    gemini:
+      headerName: x-goog-api-key
+      valueFormat: "%s"
+  allowedDomains:
+    # Source control
+    - "github.com"
+    - "api.github.com"
+    - "raw.githubusercontent.com"
+    - "objects.githubusercontent.com"
+    # Python packages
+    - "pypi.org"
+    - "files.pythonhosted.org"
+    # uv installer and releases
+    - "astral.sh"
+    - "*.astral.sh"
+    # Aider model metadata and docs
+    - "aider.chat"
+
+environment:
+  variables:
+    # litellm/aider model alias — override with: sbx run aider -e AIDER_MODEL=gpt-4o
+    AIDER_MODEL: "sonnet"
+    AIDER_AUTO_COMMITS: "true"
+    AIDER_ANALYTICS: "false"
+    AIDER_CHECK_UPDATE: "false"
+
+commands:
+  install:
+    - command: "curl -LsSf https://astral.sh/uv/install.sh | sh"
+      user: "1000"
+      description: Install uv
+
+    # --python 3.12: the base image ships Python 3.13, but aider's numpy
+    # dependency (<=1.26.x) has no Python 3.13 wheel and the base image
+    # has no C compiler. uv downloads a Python 3.12 standalone (~28 MB)
+    # from releases.astral.sh, which is already in allowedDomains.
+    - command: "/home/agent/.local/bin/uv tool install --with pip --python 3.12 aider-chat"
+      user: "1000"
+      description: Install Aider with Python 3.12
+
+  startup:
+    - command:
+        - "/home/agent/.local/bin/uv"
+        - "tool"
+        - "upgrade"
+        - "aider-chat"
+        - "--quiet"
+      user: "1000"
+      background: true
+      description: Upgrade Aider to latest

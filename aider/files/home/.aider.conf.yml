@@ -1,0 +1,15 @@
+# Default Aider configuration for Docker SBX.
+# Environment variables (AIDER_*) from the kit spec take precedence over these.
+# Edit this file inside the sandbox or mount your own via sbx run --env-file.
+
+# Model alias — "sonnet" resolves to the latest Claude Sonnet.
+# Other useful aliases: opus, haiku, gpt-4o, o3-mini, gemini/gemini-2.5-pro
+model: sonnet
+
+# Git behaviour
+auto-commits: true
+dirty-commits: true
+
+# Analytics and update checks are disabled in sandbox environments.
+analytics: false
+check-update: false
