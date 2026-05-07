@@ -17,6 +17,7 @@ Pick an existing kit closest in shape to what you want to build and read it end-
 - **[`amp/`](./amp)** — `kind: agent` kit: custom image, `serviceDomains`/`serviceAuth` for proxy-injected credentials, paired with a one-time `sbx secret set-custom` step.
 
 Kits are organized by kind — **mixin** or **agent** — as listed in the [Kits by Kind](./README.md#kits-by-kind) section of the README. When adding a new kit, set `kind` in `spec.yaml` to the appropriate value and add your kit to the corresponding table.
+
 ## Per-kit README
 
 Every kit should ship a `README.md`. The structure isn't mandatory, but the existing kits converge on:
