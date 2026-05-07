@@ -1,0 +1,39 @@
+schemaVersion: "1"
+kind: mixin
+name: task
+displayName: Task
+description: Installs the Task CLI so sandbox agents can run Taskfiles.
+
+network:
+  allowedDomains:
+    - github.com
+    - release-assets.githubusercontent.com
+
+commands:
+  install:
+    - command: |
+        set -euo pipefail
+        TASK_VERSION=3.50.0
+        ARCH=$(dpkg --print-architecture)
+        case "$ARCH" in
+          amd64)
+            TARBALL="task_linux_amd64.tar.gz"
+            SHA256="d449ba85ab85a0769989d78f8b9872938e4ba9347f7f4f925f73d98272a0a655"
+            ;;
+          arm64)
+            TARBALL="task_linux_arm64.tar.gz"
+            SHA256="ee67e7d999a4a70711bff1946c70bf76628012c91d9be55626ee90ba976897da"
+            ;;
+          *)
+            echo "unsupported sandbox arch: $ARCH (expected amd64 or arm64)" >&2
+            exit 1
+            ;;
+        esac
+        URL="https://github.com/go-task/task/releases/download/v${TASK_VERSION}/${TARBALL}"
+        curl --proto '=https' --tlsv1.2 -fsSL -o /tmp/task.tgz "$URL"
+        echo "${SHA256}  /tmp/task.tgz" | sha256sum -c -
+        tar -C /usr/local/bin -xzf /tmp/task.tgz task
+        rm /tmp/task.tgz
+        task --version
+      user: "0"
+      description: "Install Task CLI v3.50.0, version+digest pinned"
