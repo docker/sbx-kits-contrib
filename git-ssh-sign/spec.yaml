@@ -5,16 +5,48 @@ displayName: Git SSH Commit Signing
 description: Configures git to sign commits using the SSH key forwarded from the host's SSH agent.
 
 commands:
+  initFiles:
+    - path: /home/agent/.config/git/ssh-signing-key-command
+      mode: "0755"
+      description: Resolve the forwarded SSH agent key for Git SSH signing
+      content: |
+        #!/bin/sh
+        set -e
+
+        if [ -z "$SSH_AUTH_SOCK" ]; then
+            echo "[git-ssh-sign] no SSH agent - cannot sign commits" >&2
+            exit 1
+        fi
+
+        key=$(ssh-add -L 2>/dev/null | head -n 1)
+        if [ -z "$key" ]; then
+            echo "[git-ssh-sign] no keys in SSH agent - cannot sign commits" >&2
+            exit 1
+        fi
+
+        config_dir="$GIT_SSH_SIGN_CONFIG_DIR"
+        if [ -z "$config_dir" ]; then
+            config_dir="/home/agent/.config/git"
+        fi
+        mkdir -p "$config_dir"
+
+        email=$(git config user.email 2>/dev/null || printf '%s' "agent@sandbox.local")
+        printf '%s %s\n' "$email" "$key" > "$config_dir/allowed_signers"
+        printf 'key::%s\n' "$key"
+
   install:
     - command: |
         git config --system gpg.format ssh
-        git config --system user.signingKey /home/agent/.config/git/signing_key.pub
+        git config --system --unset-all user.signingKey || true
         git config --system commit.gpgSign true
         git config --system tag.gpgSign true
+        git config --system gpg.ssh.defaultKeyCommand /home/agent/.config/git/ssh-signing-key-command
         git config --system gpg.ssh.allowedSignersFile /home/agent/.config/git/allowed_signers
-        git config --system core.hooksPath /home/agent/.config/git/hooks
+        if [ "$(git config --system --get core.hooksPath || true)" = "/home/agent/.config/git/hooks" ]; then
+            git config --system --unset-all core.hooksPath
+        fi
       user: "0"
-      description: Configure SSH commit signing and global hooks directory
+      description: Configure SSH commit signing with a dynamic key command
 
 memory: |
   ## Git commit signing

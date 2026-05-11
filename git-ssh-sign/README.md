@@ -31,8 +31,8 @@ ssh-ed25519 AAAA... you@example.com
 ```
 
 If it returns nothing, the key isn't loaded on the host yet — re-run
-`ssh-add` there and try again. The pre-commit hook will block commits
-with a clear error if no key is available.
+`ssh-add` there and try again. Git signing will fail with a clear error
+if no key is available.
 
 ## Verifying
 
@@ -47,36 +47,34 @@ If signing fails, see Docker's
 
 ## How it works
 
-Git signing requires two things to be in place before `git commit` runs:
-the signing *config* (which key to use, what format) and the actual
-*key material* (the public key file). These have different timing
-constraints, so the kit handles them separately.
+Git signing requires two things to be available when Git signs the
+commit: signing *config* (what format to use and how to resolve a key)
+and the actual *key material* from the forwarded SSH agent.
 
 **Signing config — written at install time to `/etc/gitconfig`**
 
 The install command writes `gpg.format`, `commit.gpgSign`,
-`tag.gpgSign`, `user.signingKey`, and `gpg.ssh.allowedSignersFile` to
-the system-level git config. This file is read by git at process
-startup and is never overwritten by the sandbox infrastructure, so the
-config is always present when `git commit` begins.
+`tag.gpgSign`, `gpg.ssh.defaultKeyCommand`, and
+`gpg.ssh.allowedSignersFile` to the system-level git config. This file
+is read by git at process startup and is never overwritten by the
+sandbox infrastructure, so the config is always present when
+`git commit` begins.
 
-**Key material — written by a pre-commit hook**
+**Key material — resolved at signing time**
 
-`user.signingKey` points to `/home/agent/.config/git/signing_key.pub`.
-A global pre-commit hook (registered via `core.hooksPath` in
-`/etc/gitconfig`) writes the SSH public key from the agent to that file
-before each commit. Git reads the key file at signing time, which
-happens after the pre-commit hook completes, so the file is always
-ready when git needs it.
+`gpg.ssh.defaultKeyCommand` points to
+`/home/agent/.config/git/ssh-signing-key-command`. When Git needs a
+signing key, it runs that command. The command reads the first public key
+from `ssh-add -L`, writes `/home/agent/.config/git/allowed_signers` for
+signature verification, and prints the key in Git's inline `key::...`
+format.
 
-This split is necessary because the public key isn't known until
-runtime (it comes from `ssh-add -L`), and writing it at install or
-startup time risks the SSH agent not yet being connected.
+This avoids writing key material at install or startup time, when the
+forwarded SSH agent may not be connected yet. It also avoids relying on
+Git hooks for signing.
 
-**Chaining repo-local hooks**
+**Composing with repo-local hooks**
 
-The global pre-commit hook checks for a `.git/hooks/pre-commit` in the
-current repo and chains to it if present, so project-level hooks
-(husky, lint-staged, etc.) continue to work. Projects that manage
-hooks with their own `core.hooksPath` in the local git config are
-unaffected — the local setting takes precedence over the system one.
+This kit does not set `core.hooksPath` and does not install a
+pre-commit hook. Project-level hooks, hook managers, and repo-local
+`core.hooksPath` settings can run independently of commit signing.
