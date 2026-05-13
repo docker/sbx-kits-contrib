@@ -61,6 +61,9 @@ type Manifest struct {
 	// RunOptions are CLI arguments passed to the agent binary at startup.
 	RunOptions []string `json:"runOptions,omitempty" yaml:"runOptions,omitempty"`
 
+	// Resources optionally constrains container CPU, memory, and GPU.
+	Resources *Resources `json:"resources,omitempty" yaml:"resources,omitempty"`
+
 	// Security defines container security settings.
 	Security *Security `json:"security,omitempty" yaml:"security,omitempty"`
 
@@ -75,6 +78,21 @@ type Manifest struct {
 type Security struct {
 	// Privileged runs the container in privileged mode.
 	Privileged bool `json:"privileged,omitempty" yaml:"privileged,omitempty"`
+}
+
+// Resources describes optional container resource limits. All fields are
+// optional; an unset field means "no constraint from the spec".
+type Resources struct {
+	// CPU is the number of CPU cores. Fractional values are allowed
+	// (e.g. 0.5, 2.5).
+	CPU float64 `json:"cpu,omitempty" yaml:"cpu,omitempty"`
+
+	// MemoryMB is the memory limit in mebibytes.
+	MemoryMB int64 `json:"memoryMB,omitempty" yaml:"memoryMB,omitempty"`
+
+	// GPU is the GPU allocation as a string. Format is consumer-defined
+	// (e.g. "1", "all", a vendor-specific selector).
+	GPU string `json:"gpu,omitempty" yaml:"gpu,omitempty"`
 }
 
 // NetworkPolicy defines network rules for which external domains the agent
@@ -364,6 +382,7 @@ type agentBlock struct {
 	Image      string           `yaml:"image,omitempty"`
 	Entrypoint *entrypointBlock `yaml:"entrypoint,omitempty"`
 	AIFilename string           `yaml:"aiFilename,omitempty"`
+	Resources  *Resources       `yaml:"resources,omitempty"`
 }
 
 // entrypointBlock describes the agent's process launch configuration.

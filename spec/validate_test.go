@@ -66,6 +66,23 @@ func TestValidateManifest(t *testing.T) {
 		require.ErrorContains(t, ValidateManifest(&m), "template is required")
 	})
 
+	t.Run("resources_valid", func(t *testing.T) {
+		m := valid
+		m.Resources = &Resources{CPU: 2.5, MemoryMB: 4096, GPU: "1"}
+		require.NoError(t, ValidateManifest(&m))
+	})
+
+	t.Run("resources_negative_cpu", func(t *testing.T) {
+		m := valid
+		m.Resources = &Resources{CPU: -1}
+		require.ErrorContains(t, ValidateManifest(&m), "cpu must be non-negative")
+	})
+
+	t.Run("resources_negative_memory", func(t *testing.T) {
+		m := valid
+		m.Resources = &Resources{MemoryMB: -1}
+		require.ErrorContains(t, ValidateManifest(&m), "memoryMB must be non-negative")
+	})
 }
 
 func TestValidateNetworkPolicy(t *testing.T) {

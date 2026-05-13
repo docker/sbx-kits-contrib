@@ -307,6 +307,15 @@ func (s *Suite) RunValidationTests(t *testing.T) {
 			})
 		}
 
+		if m.Resources != nil {
+			t.Run("resources", func(t *testing.T) {
+				require.GreaterOrEqual(t, m.Resources.CPU, 0.0,
+					"resources.cpu must be non-negative")
+				require.GreaterOrEqual(t, m.Resources.MemoryMB, int64(0),
+					"resources.memoryMB must be non-negative")
+			})
+		}
+
 		if m.AIFilename != "" {
 			t.Run("ai_filename", func(t *testing.T) {
 				require.True(t, strings.HasSuffix(m.AIFilename, ".md") || strings.HasSuffix(m.AIFilename, ".txt"),

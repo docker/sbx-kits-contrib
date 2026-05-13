@@ -43,6 +43,7 @@ func (s *specFile) normalizeAgent() error {
 
 	s.Template = s.Agent.Image
 	s.AIFilename = s.Agent.AIFilename
+	s.Resources = s.Agent.Resources
 
 	if s.Agent.Entrypoint != nil {
 		if len(s.Agent.Entrypoint.Run) > 0 {

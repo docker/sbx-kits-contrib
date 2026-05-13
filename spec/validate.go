@@ -57,6 +57,15 @@ func ValidateManifest(m *Manifest) error {
 		}
 	}
 
+	if m.Resources != nil {
+		if m.Resources.CPU < 0 {
+			return fmt.Errorf("manifest: resources.cpu must be non-negative (got %v)", m.Resources.CPU)
+		}
+		if m.Resources.MemoryMB < 0 {
+			return fmt.Errorf("manifest: resources.memoryMB must be non-negative (got %d)", m.Resources.MemoryMB)
+		}
+	}
+
 	return nil
 }
 
