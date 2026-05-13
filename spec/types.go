@@ -61,9 +61,6 @@ type Manifest struct {
 	// RunOptions are CLI arguments passed to the agent binary at startup.
 	RunOptions []string `json:"runOptions,omitempty" yaml:"runOptions,omitempty"`
 
-	// KitDir is the directory under the workspace where kit files are stored.
-	KitDir string `json:"kitDir,omitempty" yaml:"kitDir,omitempty"`
-
 	// Security defines container security settings.
 	Security *Security `json:"security,omitempty" yaml:"security,omitempty"`
 
