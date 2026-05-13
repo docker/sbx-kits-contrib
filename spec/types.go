@@ -236,6 +236,12 @@ type Artifact struct {
 	// Extends is the optional parent kit name for single-parent inheritance.
 	Extends string `json:"extends,omitempty"`
 
+	// Locked lists dotted YAML paths (e.g. "agent.image") on this artifact
+	// that child kits must not override during single-parent inheritance.
+	// The spec library only validates well-formedness; enforcement lives
+	// in the consumer that performs the merge.
+	Locked []string `json:"locked,omitempty"`
+
 	// Network is the optional network policy.
 	Network *NetworkPolicy `json:"network,omitempty"`
 
@@ -340,6 +346,7 @@ func (p *OAuthPolicy) ResolvedResponseFields() OAuthResponseFields {
 type specFile struct {
 	Manifest    `yaml:",inline"`
 	Extends     string             `yaml:"extends,omitempty"`
+	Locked      []string           `yaml:"locked,omitempty"`
 	Agent       *agentBlock        `yaml:"agent,omitempty"`
 	Secrets     []string           `yaml:"secrets,omitempty"`
 	Egress      map[string]string  `yaml:"egress,omitempty"`

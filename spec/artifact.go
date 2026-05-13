@@ -96,6 +96,7 @@ func parseArtifact(readFile func(string) ([]byte, error)) (*Artifact, error) {
 	return &Artifact{
 		Manifest:    spec.Manifest,
 		Extends:     spec.Extends,
+		Locked:      spec.Locked,
 		Network:     spec.Network,
 		Credentials: spec.Credentials,
 		Environment: spec.Environment,

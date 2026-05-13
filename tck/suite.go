@@ -300,6 +300,13 @@ func (s *Suite) RunValidationTests(t *testing.T) {
 			})
 		}
 
+		if len(s.Artifact.Locked) > 0 {
+			t.Run("locked", func(t *testing.T) {
+				require.NoError(t, spec.ValidateLocked(s.Artifact.Locked),
+					"locked paths must be well-formed")
+			})
+		}
+
 		if m.AIFilename != "" {
 			t.Run("ai_filename", func(t *testing.T) {
 				require.True(t, strings.HasSuffix(m.AIFilename, ".md") || strings.HasSuffix(m.AIFilename, ".txt"),

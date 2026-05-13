@@ -220,6 +220,44 @@ func TestValidateTmpfs(t *testing.T) {
 	})
 }
 
+func TestValidateLocked(t *testing.T) {
+	t.Run("nil_is_valid", func(t *testing.T) {
+		require.NoError(t, ValidateLocked(nil))
+	})
+
+	t.Run("simple_paths", func(t *testing.T) {
+		require.NoError(t, ValidateLocked([]string{"agent.image", "network.allowedDomains"}))
+	})
+
+	t.Run("single_segment_is_valid", func(t *testing.T) {
+		require.NoError(t, ValidateLocked([]string{"memory"}))
+	})
+
+	t.Run("empty_entry", func(t *testing.T) {
+		require.ErrorContains(t, ValidateLocked([]string{""}), "must not be empty")
+	})
+
+	t.Run("leading_dot", func(t *testing.T) {
+		require.ErrorContains(t, ValidateLocked([]string{".image"}), "not a well-formed dotted path")
+	})
+
+	t.Run("trailing_dot", func(t *testing.T) {
+		require.ErrorContains(t, ValidateLocked([]string{"agent."}), "not a well-formed dotted path")
+	})
+
+	t.Run("double_dot", func(t *testing.T) {
+		require.ErrorContains(t, ValidateLocked([]string{"agent..image"}), "not a well-formed dotted path")
+	})
+
+	t.Run("disallowed_chars", func(t *testing.T) {
+		require.ErrorContains(t, ValidateLocked([]string{"agent.image[0]"}), "not a well-formed dotted path")
+	})
+
+	t.Run("duplicate", func(t *testing.T) {
+		require.ErrorContains(t, ValidateLocked([]string{"agent.image", "agent.image"}), "duplicated")
+	})
+}
+
 func TestValidateOAuthPolicy(t *testing.T) {
 	t.Run("nil_is_valid", func(t *testing.T) {
 		require.NoError(t, ValidateOAuthPolicy(nil))

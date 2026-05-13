@@ -17,6 +17,12 @@ var shellIdentifierPattern = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 // placeholderPattern matches ${...} placeholders in init file content.
 var placeholderPattern = regexp.MustCompile(`\$\{[^}]+\}`)
 
+// lockedPathPattern matches a dotted YAML path: lowercase letter or digit
+// start, then segments of letters/digits separated by single dots, e.g.
+// "agent.image" or "network.allowedDomains". Used only for well-formedness;
+// the consumer that performs the merge decides which paths are meaningful.
+var lockedPathPattern = regexp.MustCompile(`^[a-z][a-zA-Z0-9]*(\.[a-z][a-zA-Z0-9]*)*$`)
+
 // supportedPlaceholders lists the placeholders allowed in initFiles content.
 var supportedPlaceholders = map[string]bool{
 	"${WORKDIR}": true,
@@ -227,6 +233,9 @@ func ValidateArtifact(a *Artifact) error {
 	if err := ValidateTmpfs(a.Manifest.Tmpfs); err != nil {
 		return err
 	}
+	if err := ValidateLocked(a.Locked); err != nil {
+		return err
+	}
 	if err := ValidateNetworkPolicy(a.Network); err != nil {
 		return err
 	}
@@ -259,6 +268,27 @@ func ValidateArtifact(a *Artifact) error {
 		}
 	}
 
+	return nil
+}
+
+// ValidateLocked validates the well-formedness of a locked-paths list.
+// Each entry must be a non-empty dotted YAML path matching
+// lockedPathPattern; duplicates are rejected. Whether a given path is
+// meaningful for inheritance is decided by the merge consumer.
+func ValidateLocked(paths []string) error {
+	seen := make(map[string]struct{}, len(paths))
+	for i, p := range paths {
+		if p == "" {
+			return fmt.Errorf("locked[%d] must not be empty", i)
+		}
+		if !lockedPathPattern.MatchString(p) {
+			return fmt.Errorf("locked[%d] %q is not a well-formed dotted path", i, p)
+		}
+		if _, dup := seen[p]; dup {
+			return fmt.Errorf("locked[%d] %q is duplicated", i, p)
+		}
+		seen[p] = struct{}{}
+	}
 	return nil
 }
 
