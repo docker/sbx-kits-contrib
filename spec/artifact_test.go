@@ -35,7 +35,6 @@ func TestLoadFromDirectory(t *testing.T) {
 		require.Equal(t, "sample-bin", a.Manifest.Binary)
 		require.Equal(t, []string{"--verbose", "--task-mode"}, a.Manifest.RunOptions)
 		require.Equal(t, "SAMPLE.md", a.Manifest.AIFilename)
-		require.Equal(t, PersistenceEphemeral, a.Manifest.Persistence)
 		require.NotEmpty(t, a.Memory)
 	})
 

@@ -51,10 +51,6 @@ func ValidateManifest(m *Manifest) error {
 		}
 	}
 
-	if m.Persistence != "" && m.Persistence != PersistenceEphemeral && m.Persistence != PersistencePersistent {
-		return fmt.Errorf("manifest: invalid persistence %q (must be %q or %q)", m.Persistence, PersistenceEphemeral, PersistencePersistent)
-	}
-
 	return nil
 }
 

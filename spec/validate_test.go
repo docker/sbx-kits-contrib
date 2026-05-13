@@ -66,11 +66,6 @@ func TestValidateManifest(t *testing.T) {
 		require.ErrorContains(t, ValidateManifest(&m), "template is required")
 	})
 
-	t.Run("invalid_persistence", func(t *testing.T) {
-		m := valid
-		m.Persistence = "something-else"
-		require.ErrorContains(t, ValidateManifest(&m), "invalid persistence")
-	})
 }
 
 func TestValidateNetworkPolicy(t *testing.T) {

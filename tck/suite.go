@@ -264,13 +264,6 @@ func (s *Suite) RunValidationTests(t *testing.T) {
 			}
 		})
 
-		if m.Persistence != "" {
-			t.Run("persistence", func(t *testing.T) {
-				require.Contains(t, []string{spec.PersistenceEphemeral, spec.PersistencePersistent}, m.Persistence,
-					"persistence must be %q or %q", spec.PersistenceEphemeral, spec.PersistencePersistent)
-			})
-		}
-
 		if m.Security != nil {
 			t.Run("security", func(t *testing.T) {
 				// privileged is a bool — just verify the field is reachable

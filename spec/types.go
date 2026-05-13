@@ -21,15 +21,6 @@ const (
 	KindMixin = "mixin"
 )
 
-// Persistence constants for volume management.
-const (
-	// PersistenceEphemeral means no persistent state is kept (default).
-	PersistenceEphemeral = "ephemeral"
-
-	// PersistencePersistent means agent state is stored in named Docker volumes.
-	PersistencePersistent = "persistent"
-)
-
 // ArtifactFile target constants.
 const (
 	// TargetHome means the file is copied relative to /home/agent/.
@@ -72,9 +63,6 @@ type Manifest struct {
 
 	// KitDir is the directory under the workspace where kit files are stored.
 	KitDir string `json:"kitDir,omitempty" yaml:"kitDir,omitempty"`
-
-	// Persistence controls volume management: "persistent" or "ephemeral" (default).
-	Persistence string `json:"persistence,omitempty" yaml:"persistence,omitempty"`
 
 	// Security defines container security settings.
 	Security *Security `json:"security,omitempty" yaml:"security,omitempty"`
@@ -369,10 +357,9 @@ type specFile struct {
 
 // agentBlock groups agent-specific configuration.
 type agentBlock struct {
-	Image       string           `yaml:"image,omitempty"`
-	Entrypoint  *entrypointBlock `yaml:"entrypoint,omitempty"`
-	AIFilename  string           `yaml:"aiFilename,omitempty"`
-	Persistence string           `yaml:"persistence,omitempty"`
+	Image      string           `yaml:"image,omitempty"`
+	Entrypoint *entrypointBlock `yaml:"entrypoint,omitempty"`
+	AIFilename string           `yaml:"aiFilename,omitempty"`
 }
 
 // entrypointBlock describes the agent's process launch configuration.

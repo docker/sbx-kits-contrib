@@ -7,7 +7,6 @@ description: "Lightweight AI assistant runtime driven by Claude Code; ships the 
 agent:
   image: "docker/sandbox-templates:claude-code-docker"
   aiFilename: CLAUDE.md
-  persistence: persistent
   entrypoint:
     run: ["/usr/local/bin/nanoclaw-start"]
 

@@ -7,7 +7,6 @@ description: "Personal AI assistant with multi-platform chat, skills, and gatewa
 agent:
   image: "docker/sandbox-templates:shell-docker"
   aiFilename: AGENTS.md
-  persistence: persistent
   entrypoint:
     run: ["/usr/local/bin/openclaw-start"]
 
