@@ -5,6 +5,8 @@ import (
 	"path"
 	"regexp"
 	"strings"
+
+	"github.com/docker/go-units"
 )
 
 // namePattern matches valid kit names: lowercase alphanumeric with hyphens,
@@ -22,6 +24,10 @@ var placeholderPattern = regexp.MustCompile(`\$\{[^}]+\}`)
 // "agent.image" or "network.allowedDomains". Used only for well-formedness;
 // the consumer that performs the merge decides which paths are meaningful.
 var lockedPathPattern = regexp.MustCompile(`^[a-z][a-zA-Z0-9]*(\.[a-z][a-zA-Z0-9]*)*$`)
+
+// octalModePattern matches file mode strings: 3 or 4 octal digits, with an
+// optional leading "0". Accepts "755", "0755", "1777", "01777".
+var octalModePattern = regexp.MustCompile(`^0?[0-7]{3,4}$`)
 
 // supportedPlaceholders lists the placeholders allowed in initFiles content.
 var supportedPlaceholders = map[string]bool{
@@ -202,27 +208,34 @@ func ValidateSecurity(_ *Security) error {
 	return nil
 }
 
-// ValidateVolumes validates volume mount paths.
-func ValidateVolumes(volumes map[string]string) error {
-	for p := range volumes {
-		if p == "" {
-			return fmt.Errorf("manifest: volume path must not be empty")
-		}
-		if !strings.HasPrefix(p, "/") {
-			return fmt.Errorf("manifest: volume path %q must be an absolute path", p)
-		}
-	}
-	return nil
+// ValidateVolumes validates block-volume mount entries.
+func ValidateVolumes(volumes []MountSpec) error {
+	return validateMounts("volumes", volumes)
 }
 
-// ValidateTmpfs validates tmpfs mount paths.
-func ValidateTmpfs(tmpfs map[string]string) error {
-	for p := range tmpfs {
-		if p == "" {
-			return fmt.Errorf("manifest: tmpfs path must not be empty")
+// ValidateTmpfs validates tmpfs mount entries.
+func ValidateTmpfs(tmpfs []MountSpec) error {
+	return validateMounts("tmpfs", tmpfs)
+}
+
+// validateMounts checks the shared MountSpec invariants: absolute Path,
+// parseable Size if set, octal Mode if set. field is used as the error
+// prefix so volume and tmpfs failures are distinguishable.
+func validateMounts(field string, mounts []MountSpec) error {
+	for i, m := range mounts {
+		if m.Path == "" {
+			return fmt.Errorf("manifest: %s[%d].path must not be empty", field, i)
 		}
-		if !strings.HasPrefix(p, "/") {
-			return fmt.Errorf("manifest: tmpfs path %q must be an absolute path", p)
+		if !strings.HasPrefix(m.Path, "/") {
+			return fmt.Errorf("manifest: %s[%d].path %q must be an absolute path", field, i, m.Path)
+		}
+		if m.Size != "" {
+			if _, err := units.RAMInBytes(m.Size); err != nil {
+				return fmt.Errorf("manifest: %s[%d].size %q is not a valid size: %w", field, i, m.Size, err)
+			}
+		}
+		if m.Mode != "" && !octalModePattern.MatchString(m.Mode) {
+			return fmt.Errorf("manifest: %s[%d].mode %q must be octal (e.g. \"1777\")", field, i, m.Mode)
 		}
 	}
 	return nil

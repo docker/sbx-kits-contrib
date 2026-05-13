@@ -67,17 +67,35 @@ type Manifest struct {
 	// Security defines container security settings.
 	Security *Security `json:"security,omitempty" yaml:"security,omitempty"`
 
-	// Volumes maps container paths to volume options.
-	Volumes map[string]string `json:"volumes,omitempty" yaml:"volumes,omitempty"`
+	// Volumes are block-volume mounts in dash-style list form. Entries are
+	// applied by Path.
+	Volumes []MountSpec `json:"volumes,omitempty" yaml:"volumes,omitempty"`
 
-	// Tmpfs maps container paths to tmpfs mount options.
-	Tmpfs map[string]string `json:"tmpfs,omitempty" yaml:"tmpfs,omitempty"`
+	// Tmpfs are tmpfs mounts in dash-style list form. Entries are applied
+	// by Path.
+	Tmpfs []MountSpec `json:"tmpfs,omitempty" yaml:"tmpfs,omitempty"`
 }
 
 // Security defines container security settings for the sandbox.
 type Security struct {
 	// Privileged runs the container in privileged mode.
 	Privileged bool `json:"privileged,omitempty" yaml:"privileged,omitempty"`
+}
+
+// MountSpec is a single mount entry shared by Manifest.Volumes (persistent
+// block volumes) and Manifest.Tmpfs (in-memory tmpfs). The fields are
+// identical; the semantic distinction lives on the field that holds the
+// slice, not on the entry type.
+type MountSpec struct {
+	// Path is the absolute mount path in the container.
+	Path string `json:"path" yaml:"path"`
+
+	// Size is the mount size as a byte-size string (e.g., "100m", "4g",
+	// "512m"). Optional.
+	Size string `json:"size,omitempty" yaml:"size,omitempty"`
+
+	// Mode is the mount mode in octal (e.g., "1777"). Optional.
+	Mode string `json:"mode,omitempty" yaml:"mode,omitempty"`
 }
 
 // Resources describes optional container resource limits. All fields are

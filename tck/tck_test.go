@@ -66,12 +66,19 @@ func TestDeriveTmpfs(t *testing.T) {
 	})
 
 	t.Run("merges_manifest_tmpfs", func(t *testing.T) {
-		result := deriveTmpfs(map[string]string{
-			"/tmp": "size=1G",
+		result := deriveTmpfs([]spec.MountSpec{
+			{Path: "/tmp", Size: "1g"},
 		})
 		require.Contains(t, result, "/run/secrets")
 		require.Contains(t, result, "/tmp")
-		require.Equal(t, "size=1G", result["/tmp"])
+		require.Equal(t, "size=1g", result["/tmp"])
+	})
+
+	t.Run("composes_size_and_mode", func(t *testing.T) {
+		result := deriveTmpfs([]spec.MountSpec{
+			{Path: "/scratch", Size: "512m", Mode: "1777"},
+		})
+		require.Equal(t, "size=512m,mode=1777", result["/scratch"])
 	})
 }
 

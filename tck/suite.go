@@ -273,18 +273,18 @@ func (s *Suite) RunValidationTests(t *testing.T) {
 
 		if len(m.Volumes) > 0 {
 			t.Run("volumes", func(t *testing.T) {
-				for p := range m.Volumes {
-					require.True(t, strings.HasPrefix(p, "/"),
-						"volume path %q must be absolute", p)
+				for i, v := range m.Volumes {
+					require.True(t, strings.HasPrefix(v.Path, "/"),
+						"volumes[%d].path %q must be absolute", i, v.Path)
 				}
 			})
 		}
 
 		if len(m.Tmpfs) > 0 {
 			t.Run("tmpfs", func(t *testing.T) {
-				for p := range m.Tmpfs {
-					require.True(t, strings.HasPrefix(p, "/"),
-						"tmpfs path %q must be absolute", p)
+				for i, mnt := range m.Tmpfs {
+					require.True(t, strings.HasPrefix(mnt.Path, "/"),
+						"tmpfs[%d].path %q must be absolute", i, mnt.Path)
 				}
 			})
 		}

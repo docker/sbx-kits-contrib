@@ -211,29 +211,53 @@ func TestValidateCommandsPolicy(t *testing.T) {
 
 func TestValidateVolumes(t *testing.T) {
 	t.Run("valid", func(t *testing.T) {
-		require.NoError(t, ValidateVolumes(map[string]string{"/data": "size=4G"}))
+		require.NoError(t, ValidateVolumes([]MountSpec{{Path: "/data", Size: "4g", Mode: "0755"}}))
+	})
+
+	t.Run("path_only_is_valid", func(t *testing.T) {
+		require.NoError(t, ValidateVolumes([]MountSpec{{Path: "/data"}}))
 	})
 
 	t.Run("empty_path", func(t *testing.T) {
-		require.ErrorContains(t, ValidateVolumes(map[string]string{"": ""}), "must not be empty")
+		require.ErrorContains(t, ValidateVolumes([]MountSpec{{Path: ""}}), "volumes[0].path must not be empty")
 	})
 
 	t.Run("relative_path", func(t *testing.T) {
-		require.ErrorContains(t, ValidateVolumes(map[string]string{"data": ""}), "must be an absolute path")
+		require.ErrorContains(t, ValidateVolumes([]MountSpec{{Path: "data"}}), "volumes[0].path \"data\" must be an absolute path")
+	})
+
+	t.Run("invalid_size", func(t *testing.T) {
+		require.ErrorContains(t, ValidateVolumes([]MountSpec{{Path: "/data", Size: "huge"}}), "volumes[0].size \"huge\" is not a valid size")
+	})
+
+	t.Run("invalid_mode", func(t *testing.T) {
+		require.ErrorContains(t, ValidateVolumes([]MountSpec{{Path: "/data", Mode: "rwx"}}), "volumes[0].mode \"rwx\" must be octal")
 	})
 }
 
 func TestValidateTmpfs(t *testing.T) {
 	t.Run("valid", func(t *testing.T) {
-		require.NoError(t, ValidateTmpfs(map[string]string{"/tmp": "size=1G"}))
+		require.NoError(t, ValidateTmpfs([]MountSpec{{Path: "/tmp", Size: "1g", Mode: "1777"}}))
+	})
+
+	t.Run("path_only_is_valid", func(t *testing.T) {
+		require.NoError(t, ValidateTmpfs([]MountSpec{{Path: "/tmp"}}))
 	})
 
 	t.Run("empty_path", func(t *testing.T) {
-		require.ErrorContains(t, ValidateTmpfs(map[string]string{"": ""}), "must not be empty")
+		require.ErrorContains(t, ValidateTmpfs([]MountSpec{{Path: ""}}), "tmpfs[0].path must not be empty")
 	})
 
 	t.Run("relative_path", func(t *testing.T) {
-		require.ErrorContains(t, ValidateTmpfs(map[string]string{"tmp": ""}), "must be an absolute path")
+		require.ErrorContains(t, ValidateTmpfs([]MountSpec{{Path: "tmp"}}), "tmpfs[0].path \"tmp\" must be an absolute path")
+	})
+
+	t.Run("invalid_size", func(t *testing.T) {
+		require.ErrorContains(t, ValidateTmpfs([]MountSpec{{Path: "/tmp", Size: "huge"}}), "tmpfs[0].size \"huge\" is not a valid size")
+	})
+
+	t.Run("invalid_mode", func(t *testing.T) {
+		require.ErrorContains(t, ValidateTmpfs([]MountSpec{{Path: "/tmp", Mode: "rwx"}}), "tmpfs[0].mode \"rwx\" must be octal")
 	})
 }
 
