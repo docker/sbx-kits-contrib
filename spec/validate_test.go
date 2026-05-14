@@ -207,6 +207,20 @@ func TestValidateCommandsPolicy(t *testing.T) {
 		}
 		require.ErrorContains(t, ValidateCommandsPolicy(c), "command is required")
 	})
+
+	t.Run("valid_initfile_mode", func(t *testing.T) {
+		c := &CommandsPolicy{
+			InitFiles: []InitFile{{Path: "/tmp/f", Content: "x", Mode: "0644"}},
+		}
+		require.NoError(t, ValidateCommandsPolicy(c))
+	})
+
+	t.Run("invalid_initfile_mode", func(t *testing.T) {
+		c := &CommandsPolicy{
+			InitFiles: []InitFile{{Path: "/tmp/f", Content: "x", Mode: "rwx"}},
+		}
+		require.ErrorContains(t, ValidateCommandsPolicy(c), "must be octal")
+	})
 }
 
 func TestValidateVolumes(t *testing.T) {

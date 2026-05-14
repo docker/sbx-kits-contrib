@@ -189,6 +189,9 @@ func ValidateCommandsPolicy(c *CommandsPolicy) error {
 		if err := validateInitFileContent(i, f.Content); err != nil {
 			return err
 		}
+		if f.Mode != "" && !octalModePattern.MatchString(f.Mode) {
+			return fmt.Errorf("commands: initFiles[%d].mode must be octal (e.g. \"0755\"), got %q", i, f.Mode)
+		}
 	}
 
 	return nil
