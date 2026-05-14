@@ -6,11 +6,11 @@ instance via its OpenAI-compatible endpoint. Useful for offline development,
 cost-free experimentation, or testing custom local models with the OpenCode UI.
 
 > **Prerequisites:** Docker Model Runner must be enabled on the host with TCP
-> access on port 12434, and the model you want to use must be pulled:
+> access on port 12434, and at least one model must be pulled:
 >
 > ```console
 > $ docker desktop enable model-runner --tcp
-> $ docker model pull qwen3
+> $ docker model pull <model>
 > ```
 >
 > **Linux hosts:** `host.docker.internal` requires Docker to be started with
@@ -28,42 +28,24 @@ $ sbx run --kit ./opencode-model-runner/ opencode-model-runner ~/my-project
 The agent name passed to `sbx run` (`opencode-model-runner`) matches the
 `name:` field in the kit's `spec.yaml`.
 
-OpenCode opens already pointed at `model-runner/qwen3`. Switch any time with
-`/models`.
-
-## Switch models
-
-Three values in `spec.yaml` reference the model tag (the key under `models`,
-the display `name`, and the top-level default `model`). To use a different
-model, save `spec.yaml` to a local directory, replace the three occurrences
-of `qwen3` with the tag you want, and pass `--kit` at that path:
-
-```console
-$ mkdir opencode-model-runner
-$ curl -o opencode-model-runner/spec.yaml \
-    https://raw.githubusercontent.com/docker/sbx-kits-contrib/main/opencode-model-runner/spec.yaml
-$ # edit opencode-model-runner/spec.yaml
-$ sbx run --kit ./opencode-model-runner opencode-model-runner ~/my-project
-```
-
-The tag must match what `docker model ls` shows. For a larger context window
-than the default, package a variant first:
-
-```console
-$ docker model package --from qwen3 --context-size 64000 qwen3:64k
-```
-
-then point `spec.yaml` at `qwen3:64k`.
+All models available via `docker model ls` are automatically discovered and
+selectable in OpenCode via `/models`.
 
 ## How it works
 
 OpenCode reads its provider configuration from
 `~/.config/opencode/opencode.json`. This kit uses `commands.initFiles` to drop
-that JSON into the sandbox at startup, declaring a single
-`@ai-sdk/openai-compatible` provider whose `baseURL` is
-`http://host.docker.internal:12434/v1` (Model Runner's OpenAI-compatible
-endpoint) and a top-level `model` of `model-runner/qwen3` so OpenCode boots
-directly into the local model.
+that JSON into the sandbox at startup, declaring:
+
+- An `@ai-sdk/openai-compatible` provider (`dmr`) whose `baseURL` is
+  `http://host.docker.internal:12434/v1` (Model Runner's OpenAI-compatible
+  endpoint), with `modelsDiscovery.enabled: true` so the provider queries
+  Model Runner's `/models` endpoint at startup.
+- The `opencode-models-discovery` plugin (with `smartModelName: false`) which
+  surfaces the discovered models in OpenCode's model picker.
+
+Any model pulled with `docker model pull` appears automatically — no manual
+config edits needed.
 
 ## Related
 
