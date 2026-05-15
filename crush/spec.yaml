@@ -1,0 +1,178 @@
+schemaVersion: "1"
+kind: agent
+name: crush
+displayName: Crush
+description: Multi-provider AI coding agent from Charm, with proxy-mediated auth for 15 model providers.
+
+agent:
+  image: "docker/sandbox-templates:shell-docker"
+  aiFilename: AGENTS.md
+  entrypoint:
+    run: [crush]
+    args: ["--yolo"]
+
+environment:
+  proxyManaged:
+    - ANTHROPIC_API_KEY
+    - AWS_ACCESS_KEY_ID
+    - AZURE_OPENAI_API_KEY
+    - CEREBRAS_API_KEY
+    - GEMINI_API_KEY
+    - GOOGLE_GENERATIVE_AI_API_KEY
+    - GROQ_API_KEY
+    - HF_TOKEN
+    - IONET_API_KEY
+    - MINIMAX_API_KEY
+    - MISTRAL_API_KEY
+    - OPENAI_API_KEY
+    - OPENROUTER_API_KEY
+    - SYNTHETIC_API_KEY
+    - VERCEL_API_KEY
+    - ZAI_API_KEY
+
+credentials:
+  sources:
+    anthropic:
+      env: [ANTHROPIC_API_KEY]
+    aws:
+      env: [AWS_ACCESS_KEY_ID]
+    azure-openai:
+      env: [AZURE_OPENAI_API_KEY]
+    cerebras:
+      env: [CEREBRAS_API_KEY]
+    google:
+      env: [GEMINI_API_KEY, GOOGLE_GENERATIVE_AI_API_KEY]
+    groq:
+      env: [GROQ_API_KEY]
+    huggingface:
+      env: [HF_TOKEN]
+    ionet:
+      env: [IONET_API_KEY]
+    minimax:
+      env: [MINIMAX_API_KEY]
+    mistral:
+      env: [MISTRAL_API_KEY]
+    openai:
+      env: [OPENAI_API_KEY]
+    openrouter:
+      env: [OPENROUTER_API_KEY]
+    synthetic:
+      env: [SYNTHETIC_API_KEY]
+    vercel:
+      env: [VERCEL_API_KEY]
+    zai:
+      env: [ZAI_API_KEY]
+
+network:
+  serviceDomains:
+    api.anthropic.com: anthropic
+    api.openai.com: openai
+    "*.openai.azure.com": azure-openai
+    generativelanguage.googleapis.com: google
+    api.mistral.ai: mistral
+    api.groq.com: groq
+    groq.com: groq
+    api.cerebras.ai: cerebras
+    openrouter.ai: openrouter
+    api-inference.huggingface.co: huggingface
+    api.io.net: ionet
+    api.minimax.chat: minimax
+    api.synthetic.com: synthetic
+    api.zai.com: zai
+    v0.dev: vercel
+    "bedrock-runtime.*.amazonaws.com": aws
+    "bedrock.*.amazonaws.com": aws
+  serviceAuth:
+    anthropic:
+      headerName: x-api-key
+      valueFormat: "%s"
+    openai:
+      headerName: Authorization
+      valueFormat: "Bearer %s"
+    azure-openai:
+      headerName: api-key
+      valueFormat: "%s"
+    google:
+      headerName: x-goog-api-key
+      valueFormat: "%s"
+    mistral:
+      headerName: Authorization
+      valueFormat: "Bearer %s"
+    groq:
+      headerName: Authorization
+      valueFormat: "Bearer %s"
+    cerebras:
+      headerName: Authorization
+      valueFormat: "Bearer %s"
+    openrouter:
+      headerName: Authorization
+      valueFormat: "Bearer %s"
+    huggingface:
+      headerName: Authorization
+      valueFormat: "Bearer %s"
+    ionet:
+      headerName: Authorization
+      valueFormat: "Bearer %s"
+    minimax:
+      headerName: Authorization
+      valueFormat: "Bearer %s"
+    synthetic:
+      headerName: Authorization
+      valueFormat: "Bearer %s"
+    vercel:
+      headerName: Authorization
+      valueFormat: "Bearer %s"
+    zai:
+      headerName: Authorization
+      valueFormat: "Bearer %s"
+    aws:
+      headerName: Authorization
+      valueFormat: "AWS4-HMAC-SHA256 Credential=%s/"
+  allowedDomains:
+    - repo.charm.sh
+    - api.anthropic.com
+    - api.openai.com
+    - "*.openai.azure.com"
+    - generativelanguage.googleapis.com
+    - api.mistral.ai
+    - api.groq.com
+    - groq.com
+    - api.cerebras.ai
+    - openrouter.ai
+    - api-inference.huggingface.co
+    - api.io.net
+    - api.minimax.chat
+    - api.synthetic.com
+    - api.zai.com
+    - v0.dev
+    - "bedrock-runtime.*.amazonaws.com"
+    - "bedrock.*.amazonaws.com"
+
+commands:
+  install:
+    - command: |
+        set -euo pipefail
+        mkdir -p /etc/apt/keyrings
+        curl -fsSL https://repo.charm.sh/apt/gpg.key | gpg --dearmor -o /etc/apt/keyrings/charm.gpg
+      user: "0"
+      description: Add Charm GPG key
+    - command: |
+        echo 'deb [signed-by=/etc/apt/keyrings/charm.gpg] https://repo.charm.sh/apt/ * *' \
+          > /etc/apt/sources.list.d/charm.list
+      user: "0"
+      description: Add Charm apt repository
+    - command: apt-get update -qq && apt-get install -y -qq crush
+      user: "0"
+      description: Install Crush from Charm apt repository
+
+memory: |
+  ## Crush
+
+  Crush is a multi-provider AI coding agent from Charm. It is installed
+  as `crush` on `PATH` and started with `--yolo` so it skips interactive
+  permission prompts (the sandbox itself is the safety boundary).
+
+  Set any of the provider API keys on your host (e.g. `ANTHROPIC_API_KEY`,
+  `OPENAI_API_KEY`, `GROQ_API_KEY`) and the sandbox proxy will inject them
+  on outbound requests to the matching provider. See
+  <https://github.com/charmbracelet/crush> for usage.
