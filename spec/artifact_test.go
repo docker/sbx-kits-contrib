@@ -111,6 +111,37 @@ func TestParseArtifact_InvalidYAML(t *testing.T) {
 	require.ErrorContains(t, err, "invalid")
 }
 
+// TestParseArtifact_StrictUnknownField guards the strict-decode behaviour:
+// unknown top-level keys (and unknown nested keys under known blocks) hard-
+// fail rather than getting silently dropped. This is the contract the
+// engine relies on so that removed fields like `persistence:` and
+// `kitDir:` produce a clear diagnostic for kit authors, not a silent no-op.
+func TestParseArtifact_StrictUnknownField(t *testing.T) {
+	t.Run("unknown_top_level_key_rejected", func(t *testing.T) {
+		dir := t.TempDir()
+		require.NoError(t, os.WriteFile(filepath.Join(dir, "spec.yaml"), []byte(`schemaVersion: "1"
+kind: mixin
+name: bogus-toplevel
+persistence: persistent
+`), 0o644))
+		_, err := LoadFromDirectory(dir)
+		require.ErrorContains(t, err, "persistence")
+	})
+
+	t.Run("unknown_nested_key_rejected", func(t *testing.T) {
+		dir := t.TempDir()
+		require.NoError(t, os.WriteFile(filepath.Join(dir, "spec.yaml"), []byte(`schemaVersion: "1"
+kind: agent
+name: bogus-nested
+agent:
+  image: docker/sandbox-templates:shell-docker
+  persistence: persistent
+`), 0o644))
+		_, err := LoadFromDirectory(dir)
+		require.ErrorContains(t, err, "persistence")
+	})
+}
+
 func TestCollectFilesFromDir_SymlinkEscape(t *testing.T) {
 	dir := t.TempDir()
 	homeDir := filepath.Join(dir, "files", "home")
