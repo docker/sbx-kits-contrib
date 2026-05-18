@@ -7,7 +7,6 @@ description: "Lightweight personal AI assistant with multi-platform chat and mul
 agent:
   image: "docker/sandbox-templates:shell-docker"
   aiFilename: AGENTS.md
-  persistence: persistent
   entrypoint:
     run: ["nanobot", "agent", "--config", "/home/agent/.nanobot/config.json"]
 

@@ -1,0 +1,24 @@
+schemaVersion: "1"
+kind: mixin
+name: git-ssh-sign
+displayName: Git SSH Commit Signing
+description: Configures git to sign commits using the SSH key forwarded from the host's SSH agent.
+
+commands:
+  install:
+    - command: |
+        git config --system gpg.format ssh
+        git config --system user.signingKey /home/agent/.config/git/signing_key.pub
+        git config --system commit.gpgSign true
+        git config --system tag.gpgSign true
+        git config --system gpg.ssh.allowedSignersFile /home/agent/.config/git/allowed_signers
+        git config --system core.hooksPath /home/agent/.config/git/hooks
+      user: "0"
+      description: Configure SSH commit signing and global hooks directory
+
+memory: |
+  ## Git commit signing
+
+  This sandbox is configured to sign git commits with your host's SSH key.
+  Commits and tags are signed automatically. Use `git log --show-signature`
+  to verify signatures on existing commits.

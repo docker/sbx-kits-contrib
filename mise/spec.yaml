@@ -1,0 +1,72 @@
+schemaVersion: "1"
+kind: mixin
+name: mise
+displayName: mise (mise-en-place)
+description: "The polyglot dev-tool version manager (https://mise.jdx.dev) — installs the mise CLI and wires up shell activation so the agent can run `mise install`, `mise use`, and per-project `.mise.toml` resolutions in the sandbox."
+
+network:
+  allowedDomains:
+    # github.com — release tag URLs for the install-time tarball AND for mise's `ubi`
+    # backend at runtime (https://github.com/<owner>/<repo>/releases/download/...).
+    # The download then 302-redirects to release-assets.githubusercontent.com.
+    - github.com
+    # api.github.com — mise queries the GitHub releases API to resolve `<tool>@latest`
+    # and similar version selectors for any github-hosted tool. Without this, even
+    # `mise install <github-tool>@<exact-version>` fails because the resolver still
+    # touches the API to validate the tag.
+    - api.github.com
+    - release-assets.githubusercontent.com
+    # Runtime tool installs (`mise install <tool>`) hit per-language hosts beyond GitHub
+    # (nodejs.org, pypi.org, go.dev, crates.io, etc.) that vary by what the user asks
+    # mise to install. Fork and extend `allowedDomains` with the hosts you actually
+    # need — see the README for a starter list.
+
+environment:
+  variables:
+    # Treat the whole sandbox filesystem as trusted so `.mise.toml` files don't trigger an
+    # interactive trust prompt. This is appropriate inside a sandbox: the user has already
+    # opted into running this code by attaching the workspace.
+    MISE_TRUSTED_CONFIG_PATHS: "/"
+
+commands:
+  install:
+    # Install mise from a pinned, digest-verified GitHub release tarball. The official
+    # `curl https://mise.run | sh` flow is fine for a workstation, but inside a sandbox
+    # we want the version and binary digest captured in git. To bump: change MISE_VERSION
+    # and the per-arch SHA256 below (sourced from the release's SHASUMS256.txt).
+    - command: |
+        set -euo pipefail
+        MISE_VERSION=2026.5.2
+        ARCH=$(dpkg --print-architecture)
+        case "$ARCH" in
+          amd64)
+            TARBALL="mise-v${MISE_VERSION}-linux-x64.tar.gz"
+            SHA256="cdf616b3d8554bece574cb1a5c0f19cc0f551dffbecf66037df1cc06569a42ef"
+            ;;
+          arm64)
+            TARBALL="mise-v${MISE_VERSION}-linux-arm64.tar.gz"
+            SHA256="a746ad85fe8a7b62a6c72939da5fb4231074fd16c482f6334a598bd92926f41e"
+            ;;
+          *)
+            echo "unsupported sandbox arch: $ARCH (expected amd64 or arm64)" >&2
+            exit 1
+            ;;
+        esac
+        URL="https://github.com/jdx/mise/releases/download/v${MISE_VERSION}/${TARBALL}"
+        curl --proto '=https' --tlsv1.2 -fsSL -o /tmp/mise.tgz "$URL"
+        echo "${SHA256}  /tmp/mise.tgz" | sha256sum -c -
+        tar -C /tmp -xzf /tmp/mise.tgz mise/bin/mise
+        install -m 0755 /tmp/mise/bin/mise /usr/local/bin/mise
+        rm -rf /tmp/mise /tmp/mise.tgz
+        mise --version
+      user: "0"
+      description: "Install mise CLI v2026.5.2, version+digest pinned"
+    # Wire shell activation into the agent user's bashrc so interactive shells get
+    # `mise activate` (PATH shimming + auto-`mise install` on cd). Append rather than
+    # overwrite so we don't clobber whatever the template image already ships.
+    - command: |
+        set -euo pipefail
+        grep -qF 'mise activate bash' ~/.bashrc 2>/dev/null || \
+          printf '\n# mise (added by sbx-kits-contrib/mise)\neval "$(mise activate bash)"\n' >> ~/.bashrc
+      user: "1000"
+      description: "Hook `mise activate bash` into ~/.bashrc for interactive shells"

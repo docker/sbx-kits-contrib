@@ -7,7 +7,6 @@ description: "Aqua's open source vulnerability scanner — sandboxed because sec
 agent:
   image: "docker/sandbox-templates:shell-docker"
   aiFilename: AGENTS.md
-  persistence: persistent
   # Drop into bash with trivy on PATH and the workspace as cwd. Run `trivy fs .` to scan.
   entrypoint:
     run: [bash, -l]

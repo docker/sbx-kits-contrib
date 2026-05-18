@@ -7,7 +7,6 @@ description: Claude Code wired to Ollama Anthropic-compatible API, with configur
 agent:
   image: "docker/sandbox-templates:claude-code-docker"
   aiFilename: CLAUDE.md
-  persistence: persistent
   entrypoint:
     run: [/home/agent/.local/bin/claude-ollama]
 

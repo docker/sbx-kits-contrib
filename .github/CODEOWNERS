@@ -4,3 +4,5 @@
 # For more details, see https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners
 
 * @docker/coding-agent-sandboxes
+
+/nanoclaw/ @gavrielc @gabi-simons

@@ -106,14 +106,23 @@ func resolveWorkdir(s string) string {
 	return strings.ReplaceAll(s, "${WORKDIR}", TestWorkDir)
 }
 
-// deriveTmpfs builds the expected tmpfs mounts from the manifest's tmpfs map,
-// always including /run/secrets for the secrets tmpfs.
-func deriveTmpfs(manifestTmpfs map[string]string) map[string]string {
+// deriveTmpfs builds the expected tmpfs mounts from the manifest's tmpfs
+// entries, always including /run/secrets for the secrets tmpfs. The result
+// is a path→option-string map suitable for testcontainers-go's WithTmpfs
+// (Size and Mode compose into the comma-separated value Docker expects).
+func deriveTmpfs(manifestTmpfs []spec.MountSpec) map[string]string {
 	tmpfs := map[string]string{
 		"/run/secrets": "rw,noexec,nosuid",
 	}
-	for k, v := range manifestTmpfs {
-		tmpfs[k] = v
+	for _, t := range manifestTmpfs {
+		var opts []string
+		if t.Size != "" {
+			opts = append(opts, "size="+t.Size)
+		}
+		if t.Mode != "" {
+			opts = append(opts, "mode="+t.Mode)
+		}
+		tmpfs[t.Path] = strings.Join(opts, ",")
 	}
 	return tmpfs
 }
