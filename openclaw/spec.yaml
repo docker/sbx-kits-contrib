@@ -7,9 +7,8 @@ description: "Personal AI assistant with multi-platform chat, skills, and gatewa
 agent:
   image: "docker/sandbox-templates:shell-docker"
   aiFilename: AGENTS.md
-  persistence: persistent
   entrypoint:
-    run: [openclaw, chat]
+    run: ["/usr/local/bin/openclaw-start"]
 
 network:
   serviceDomains:
@@ -21,8 +20,9 @@ network:
       headerName: x-api-key
       valueFormat: "%s"
   allowedDomains:
-    - deb.nodesource.com
     - registry.npmjs.org
+    - "*.npmjs.org"
+    - "nodejs.org:443"
     - "*.telegram.org"
     - "*.discord.com"
     - gateway.discord.gg
@@ -46,17 +46,17 @@ environment:
 
 commands:
   install:
-    - command: "curl -fsSL https://deb.nodesource.com/setup_22.x | bash - && apt-get install -y nodejs"
+    - command: "npm config set proxy $HTTP_PROXY && npm config set https-proxy $HTTP_PROXY"
       user: "0"
-      description: "Install Node.js 22 (OpenClaw requires >= 22.12.0)"
-    - command: "sudo apt update && sudo apt install -y ssh"
-      user: "1000"
-      description: Install SSH
-    - command: "npm config set proxy $HTTP_PROXY && npm config set https-proxy $HTTP_PROXY && npm install -g --maxsockets=1 --fetch-timeout=600000 openclaw@latest"
+      description: Configure npm proxy
+    - command: "printf '#!/bin/sh\\nif ! [ -f /home/agent/.openclaw-installed ]; then\\n  echo \"Waiting for OpenClaw installation to complete...\" >&2\\n  until [ -f /home/agent/.openclaw-installed ]; do sleep 2; done\\nfi\\nexec /usr/local/share/npm-global/bin/openclaw chat\\n' > /usr/local/bin/openclaw-start && chmod +x /usr/local/bin/openclaw-start"
       user: "0"
-      description: Configure npm proxy and install OpenClaw globally
+      description: Create agent entrypoint early; polls for install flag before starting openclaw
+    - command: "printf '#!/bin/sh\\nnpm install -g n && n install 22 && npm install -g --maxsockets=1 --fetch-timeout=600000 openclaw@latest && touch /home/agent/.openclaw-installed\\n' > /home/agent/openclaw-install.sh && chmod +x /home/agent/openclaw-install.sh && setsid /home/agent/openclaw-install.sh > /home/agent/openclaw-install.log 2>&1 &"
+      user: "0"
+      description: Upgrade to Node.js 22 and install OpenClaw in detached background session (~3 minutes; .openclaw-installed flag written on completion)
   startup:
-    - command: ["node", "/usr/local/share/npm-global/bin/openclaw", "gateway", "run", "--allow-unconfigured"]
+    - command: [sh, -c, "until [ -f /home/agent/.openclaw-installed ]; do sleep 5; done; /usr/local/share/npm-global/bin/openclaw gateway run --allow-unconfigured"]
       user: "1000"
       background: true
-      description: Start OpenClaw gateway
+      description: Wait for install then start OpenClaw gateway

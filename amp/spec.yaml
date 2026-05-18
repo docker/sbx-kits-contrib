@@ -7,7 +7,6 @@ description: The frontier coding agent.
 agent:
   image: "docker/sandbox-templates:shell-docker"
   aiFilename: AGENTS.md
-  persistence: persistent
   entrypoint:
     run: [amp, --dangerously-allow-all]
 

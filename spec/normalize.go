@@ -29,9 +29,6 @@ func (s *specFile) normalizeAgent() error {
 	if s.AIFilename != "" {
 		return fmt.Errorf("use 'agent.aiFilename' instead of flat 'aiFilename' field")
 	}
-	if s.Persistence != "" {
-		return fmt.Errorf("use 'agent.persistence' instead of flat 'persistence' field")
-	}
 
 	if s.Agent != nil && !isAgent {
 		return fmt.Errorf("'agent:' block is only valid for kind %q, not %q", KindAgent, s.Kind)
@@ -46,7 +43,7 @@ func (s *specFile) normalizeAgent() error {
 
 	s.Template = s.Agent.Image
 	s.AIFilename = s.Agent.AIFilename
-	s.Persistence = s.Agent.Persistence
+	s.Resources = s.Agent.Resources
 
 	if s.Agent.Entrypoint != nil {
 		if len(s.Agent.Entrypoint.Run) > 0 {

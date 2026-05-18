@@ -1,6 +1,7 @@
 package spec
 
 import (
+	"bytes"
 	"fmt"
 	"io/fs"
 	"os"
@@ -85,7 +86,15 @@ func parseArtifact(readFile func(string) ([]byte, error)) (*Artifact, error) {
 	}
 
 	var spec specFile
-	if err := yaml.Unmarshal(data, &spec); err != nil {
+	// Strict decoding: unknown top-level (or nested) yaml keys are a hard
+	// error. The schema is documented and small enough that any unrecognised
+	// key is almost always a typo or a stale field the kit author hasn't
+	// migrated yet. Surfacing it loudly is the whole point — yaml.Unmarshal
+	// would silently drop the key and let the author think their kit was
+	// being honoured.
+	dec := yaml.NewDecoder(bytes.NewReader(data))
+	dec.KnownFields(true)
+	if err := dec.Decode(&spec); err != nil {
 		return nil, fmt.Errorf("artifact: invalid %s: %w", specFileName, err)
 	}
 
@@ -96,6 +105,7 @@ func parseArtifact(readFile func(string) ([]byte, error)) (*Artifact, error) {
 	return &Artifact{
 		Manifest:    spec.Manifest,
 		Extends:     spec.Extends,
+		Locked:      spec.Locked,
 		Network:     spec.Network,
 		Credentials: spec.Credentials,
 		Environment: spec.Environment,

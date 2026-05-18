@@ -1,8 +1,16 @@
 # sbx-kits-contrib
 
-Community-contributed kits for [Docker Sandboxes](https://github.com/docker/sandboxes).
+Community-contributed kits for [Docker Sandboxes](https://docs.docker.com/ai/sandboxes/).
 
 Each top-level directory is a **kit** — a declarative artifact containing a `spec.yaml` and optional `files/` directory that extends sandbox agents with additional capabilities.
+
+## Documentation
+
+- [Kits overview](https://docs.docker.com/ai/sandboxes/customize/kits/) — what kits are and how to use them
+- [Kit examples](https://docs.docker.com/ai/sandboxes/customize/kit-examples/) — reference examples for common kit patterns
+- [Build your own agent kit](https://docs.docker.com/ai/sandboxes/customize/build-an-agent/) — step-by-step tutorial using the `amp` kit in this repo
+
+Contributing a kit or a fix? Read [`CONTRIBUTING.md`](./CONTRIBUTING.md) first — this repo enforces verified commit signatures, so you'll need GPG or SSH signing set up before your PR can be merged.
 
 > [!NOTE]
 > Kits are experimental. The kit file format, CLI commands, and experience

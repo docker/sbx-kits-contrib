@@ -1,0 +1,42 @@
+schemaVersion: "1"
+kind: mixin
+name: vale
+displayName: Vale
+description: Installs the latest Vale prose linter from GitHub releases.
+
+network:
+  allowedDomains:
+    - api.github.com
+    - github.com
+    - release-assets.githubusercontent.com
+
+commands:
+  install:
+    - command: |
+        set -euo pipefail
+        VALE_VERSION=$(curl -fsSL https://api.github.com/repos/vale-cli/vale/releases/latest \
+          | grep -o '"tag_name": *"[^"]*"' | grep -o '[0-9][^"]*')
+        ARCH=$(dpkg --print-architecture)
+        case "$ARCH" in
+          amd64) TARBALL="vale_${VALE_VERSION}_Linux_64-bit.tar.gz" ;;
+          arm64) TARBALL="vale_${VALE_VERSION}_Linux_arm64.tar.gz" ;;
+          *)
+            echo "unsupported arch: $ARCH" >&2
+            exit 1
+            ;;
+        esac
+        curl --proto '=https' --tlsv1.2 -fsSL \
+          -o /tmp/vale.tgz \
+          "https://github.com/vale-cli/vale/releases/download/v${VALE_VERSION}/${TARBALL}"
+        tar -C /usr/local/bin -xzf /tmp/vale.tgz vale
+        rm /tmp/vale.tgz
+        vale --version
+      user: "0"
+      description: "Install latest Vale CLI"
+
+memory: |
+  ## Vale prose linter
+
+  The `vale` CLI is installed and available on `PATH`. Use it to lint
+  prose in Markdown, AsciiDoc, reStructuredText, and other text formats.
+  Run `vale --version` to confirm, and `vale <file>` to lint a file.

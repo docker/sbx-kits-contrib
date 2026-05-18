@@ -5,6 +5,8 @@ import (
 	"path"
 	"regexp"
 	"strings"
+
+	"github.com/docker/go-units"
 )
 
 // namePattern matches valid kit names: lowercase alphanumeric with hyphens,
@@ -16,6 +18,16 @@ var shellIdentifierPattern = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 
 // placeholderPattern matches ${...} placeholders in init file content.
 var placeholderPattern = regexp.MustCompile(`\$\{[^}]+\}`)
+
+// lockedPathPattern matches a dotted YAML path: lowercase letter or digit
+// start, then segments of letters/digits separated by single dots, e.g.
+// "agent.image" or "network.allowedDomains". Used only for well-formedness;
+// the consumer that performs the merge decides which paths are meaningful.
+var lockedPathPattern = regexp.MustCompile(`^[a-z][a-zA-Z0-9]*(\.[a-z][a-zA-Z0-9]*)*$`)
+
+// octalModePattern matches file mode strings: 3 or 4 octal digits, with an
+// optional leading "0". Accepts "755", "0755", "1777", "01777".
+var octalModePattern = regexp.MustCompile(`^0?[0-7]{3,4}$`)
 
 // supportedPlaceholders lists the placeholders allowed in initFiles content.
 var supportedPlaceholders = map[string]bool{
@@ -51,8 +63,13 @@ func ValidateManifest(m *Manifest) error {
 		}
 	}
 
-	if m.Persistence != "" && m.Persistence != PersistenceEphemeral && m.Persistence != PersistencePersistent {
-		return fmt.Errorf("manifest: invalid persistence %q (must be %q or %q)", m.Persistence, PersistenceEphemeral, PersistencePersistent)
+	if m.Resources != nil {
+		if m.Resources.CPU < 0 {
+			return fmt.Errorf("manifest: resources.cpu must be non-negative (got %v)", m.Resources.CPU)
+		}
+		if m.Resources.MemoryMB < 0 {
+			return fmt.Errorf("manifest: resources.memoryMB must be non-negative (got %d)", m.Resources.MemoryMB)
+		}
 	}
 
 	return nil
@@ -172,6 +189,9 @@ func ValidateCommandsPolicy(c *CommandsPolicy) error {
 		if err := validateInitFileContent(i, f.Content); err != nil {
 			return err
 		}
+		if f.Mode != "" && !octalModePattern.MatchString(f.Mode) {
+			return fmt.Errorf("commands: initFiles[%d].mode must be octal (e.g. \"0755\"), got %q", i, f.Mode)
+		}
 	}
 
 	return nil
@@ -191,27 +211,34 @@ func ValidateSecurity(_ *Security) error {
 	return nil
 }
 
-// ValidateVolumes validates volume mount paths.
-func ValidateVolumes(volumes map[string]string) error {
-	for p := range volumes {
-		if p == "" {
-			return fmt.Errorf("manifest: volume path must not be empty")
-		}
-		if !strings.HasPrefix(p, "/") {
-			return fmt.Errorf("manifest: volume path %q must be an absolute path", p)
-		}
-	}
-	return nil
+// ValidateVolumes validates block-volume mount entries.
+func ValidateVolumes(volumes []MountSpec) error {
+	return validateMounts("volumes", volumes)
 }
 
-// ValidateTmpfs validates tmpfs mount paths.
-func ValidateTmpfs(tmpfs map[string]string) error {
-	for p := range tmpfs {
-		if p == "" {
-			return fmt.Errorf("manifest: tmpfs path must not be empty")
+// ValidateTmpfs validates tmpfs mount entries.
+func ValidateTmpfs(tmpfs []MountSpec) error {
+	return validateMounts("tmpfs", tmpfs)
+}
+
+// validateMounts checks the shared MountSpec invariants: absolute Path,
+// parseable Size if set, octal Mode if set. field is used as the error
+// prefix so volume and tmpfs failures are distinguishable.
+func validateMounts(field string, mounts []MountSpec) error {
+	for i, m := range mounts {
+		if m.Path == "" {
+			return fmt.Errorf("manifest: %s[%d].path must not be empty", field, i)
 		}
-		if !strings.HasPrefix(p, "/") {
-			return fmt.Errorf("manifest: tmpfs path %q must be an absolute path", p)
+		if !strings.HasPrefix(m.Path, "/") {
+			return fmt.Errorf("manifest: %s[%d].path %q must be an absolute path", field, i, m.Path)
+		}
+		if m.Size != "" {
+			if _, err := units.RAMInBytes(m.Size); err != nil {
+				return fmt.Errorf("manifest: %s[%d].size %q is not a valid size: %w", field, i, m.Size, err)
+			}
+		}
+		if m.Mode != "" && !octalModePattern.MatchString(m.Mode) {
+			return fmt.Errorf("manifest: %s[%d].mode %q must be octal (e.g. \"1777\")", field, i, m.Mode)
 		}
 	}
 	return nil
@@ -229,6 +256,9 @@ func ValidateArtifact(a *Artifact) error {
 		return err
 	}
 	if err := ValidateTmpfs(a.Manifest.Tmpfs); err != nil {
+		return err
+	}
+	if err := ValidateLocked(a.Locked); err != nil {
 		return err
 	}
 	if err := ValidateNetworkPolicy(a.Network); err != nil {
@@ -263,6 +293,27 @@ func ValidateArtifact(a *Artifact) error {
 		}
 	}
 
+	return nil
+}
+
+// ValidateLocked validates the well-formedness of a locked-paths list.
+// Each entry must be a non-empty dotted YAML path matching
+// lockedPathPattern; duplicates are rejected. Whether a given path is
+// meaningful for inheritance is decided by the merge consumer.
+func ValidateLocked(paths []string) error {
+	seen := make(map[string]struct{}, len(paths))
+	for i, p := range paths {
+		if p == "" {
+			return fmt.Errorf("locked[%d] must not be empty", i)
+		}
+		if !lockedPathPattern.MatchString(p) {
+			return fmt.Errorf("locked[%d] %q is not a well-formed dotted path", i, p)
+		}
+		if _, dup := seen[p]; dup {
+			return fmt.Errorf("locked[%d] %q is duplicated", i, p)
+		}
+		seen[p] = struct{}{}
+	}
 	return nil
 }
 

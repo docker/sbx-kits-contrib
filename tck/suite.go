@@ -264,13 +264,6 @@ func (s *Suite) RunValidationTests(t *testing.T) {
 			}
 		})
 
-		if m.Persistence != "" {
-			t.Run("persistence", func(t *testing.T) {
-				require.Contains(t, []string{spec.PersistenceEphemeral, spec.PersistencePersistent}, m.Persistence,
-					"persistence must be %q or %q", spec.PersistenceEphemeral, spec.PersistencePersistent)
-			})
-		}
-
 		if m.Security != nil {
 			t.Run("security", func(t *testing.T) {
 				// privileged is a bool — just verify the field is reachable
@@ -280,18 +273,18 @@ func (s *Suite) RunValidationTests(t *testing.T) {
 
 		if len(m.Volumes) > 0 {
 			t.Run("volumes", func(t *testing.T) {
-				for p := range m.Volumes {
-					require.True(t, strings.HasPrefix(p, "/"),
-						"volume path %q must be absolute", p)
+				for i, v := range m.Volumes {
+					require.True(t, strings.HasPrefix(v.Path, "/"),
+						"volumes[%d].path %q must be absolute", i, v.Path)
 				}
 			})
 		}
 
 		if len(m.Tmpfs) > 0 {
 			t.Run("tmpfs", func(t *testing.T) {
-				for p := range m.Tmpfs {
-					require.True(t, strings.HasPrefix(p, "/"),
-						"tmpfs path %q must be absolute", p)
+				for i, mnt := range m.Tmpfs {
+					require.True(t, strings.HasPrefix(mnt.Path, "/"),
+						"tmpfs[%d].path %q must be absolute", i, mnt.Path)
 				}
 			})
 		}
@@ -304,6 +297,22 @@ func (s *Suite) RunValidationTests(t *testing.T) {
 				require.True(t, known,
 					"extends references unknown agent %q; known agents: %v",
 					s.Artifact.Extends, wellKnownAgentNames())
+			})
+		}
+
+		if len(s.Artifact.Locked) > 0 {
+			t.Run("locked", func(t *testing.T) {
+				require.NoError(t, spec.ValidateLocked(s.Artifact.Locked),
+					"locked paths must be well-formed")
+			})
+		}
+
+		if m.Resources != nil {
+			t.Run("resources", func(t *testing.T) {
+				require.GreaterOrEqual(t, m.Resources.CPU, 0.0,
+					"resources.cpu must be non-negative")
+				require.GreaterOrEqual(t, m.Resources.MemoryMB, int64(0),
+					"resources.memoryMB must be non-negative")
 			})
 		}
 

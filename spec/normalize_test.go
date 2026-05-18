@@ -11,9 +11,9 @@ func TestNormalizeAgent(t *testing.T) {
 		s := specFile{
 			Manifest: Manifest{Kind: KindAgent, SchemaVersion: SchemaVersion, Name: "a"},
 			Agent: &agentBlock{
-				Image:       "my-image",
-				AIFilename:  "AI.md",
-				Persistence: PersistencePersistent,
+				Image:      "my-image",
+				AIFilename: "AI.md",
+				Resources:  &Resources{CPU: 4, MemoryMB: 8192, GPU: "1"},
 				Entrypoint: &entrypointBlock{
 					Run:  []string{"bin", "--flag"},
 					Args: []string{"--extra"},
@@ -25,7 +25,10 @@ func TestNormalizeAgent(t *testing.T) {
 		require.Equal(t, "bin", s.Binary)
 		require.Equal(t, []string{"--flag", "--extra"}, s.RunOptions)
 		require.Equal(t, "AI.md", s.AIFilename)
-		require.Equal(t, PersistencePersistent, s.Persistence)
+		require.NotNil(t, s.Resources)
+		require.InDelta(t, 4.0, s.Resources.CPU, 0.0001)
+		require.Equal(t, int64(8192), s.Resources.MemoryMB)
+		require.Equal(t, "1", s.Resources.GPU)
 	})
 
 	t.Run("rejects_agent_block_on_mixin", func(t *testing.T) {
