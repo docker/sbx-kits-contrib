@@ -1,8 +1,10 @@
 schemaVersion: "1"
 kind: mixin
 name: sample-mixin
+version: "1.0.0"
 displayName: Sample Mixin
 description: "A test-only mixin that exercises every spec field the TCK validates"
+sourceURL: https://example.com/sample-mixin
 
 network:
   allowedDomains:

@@ -1,8 +1,10 @@
 schemaVersion: "1"
 kind: agent
 name: sample-agent
+version: "1.0.0"
 displayName: Sample Agent
 description: "A test-only agent that exercises agent-specific spec fields"
+sourceURL: https://example.com/sample-agent
 
 agent:
   image: "docker/sandbox-templates:shell-docker"
