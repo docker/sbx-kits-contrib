@@ -1,8 +1,10 @@
 schemaVersion: "1"
 kind: mixin
 name: mise
+version: "1.0.0"
 displayName: mise (mise-en-place)
 description: "The polyglot dev-tool version manager (https://mise.jdx.dev) — installs the mise CLI and wires up shell activation so the agent can run `mise install`, `mise use`, and per-project `.mise.toml` resolutions in the sandbox."
+sourceURL: https://github.com/docker/sbx-kits-contrib/tree/main/mise
 
 network:
   allowedDomains:

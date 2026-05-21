@@ -1,8 +1,10 @@
 schemaVersion: "1"
 kind: agent
 name: opencode-model-runner
+version: "1.0.0"
 displayName: OpenCode (Docker Model Runner)
 description: OpenCode wired to a local Docker Model Runner instance via its OpenAI-compatible API, with automatic model discovery.
+sourceURL: https://github.com/docker/sbx-kits-contrib/tree/main/opencode-model-runner
 
 agent:
   image: "docker/sandbox-templates:opencode-docker"

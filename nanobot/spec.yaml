@@ -1,8 +1,10 @@
 schemaVersion: "1"
 kind: agent
 name: nanobot
+version: "1.0.0"
 displayName: Nanobot
 description: "Lightweight personal AI assistant with multi-platform chat and multi-provider LLM support"
+sourceURL: https://github.com/docker/sbx-kits-contrib/tree/main/nanobot
 
 agent:
   image: "docker/sandbox-templates:shell-docker"

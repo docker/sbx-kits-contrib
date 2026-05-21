@@ -1,8 +1,10 @@
 schemaVersion: "1"
 kind: mixin
 name: task
+version: "1.0.0"
 displayName: Task
 description: Installs the Task CLI so sandbox agents can run Taskfiles.
+sourceURL: https://github.com/docker/sbx-kits-contrib/tree/main/task
 
 network:
   allowedDomains:

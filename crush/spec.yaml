@@ -1,8 +1,10 @@
 schemaVersion: "1"
 kind: agent
 name: crush
+version: "1.0.0"
 displayName: Crush
 description: Multi-provider AI coding agent from Charm, with proxy-mediated auth for 15 model providers.
+sourceURL: https://github.com/docker/sbx-kits-contrib/tree/main/crush
 
 agent:
   image: "docker/sandbox-templates:shell-docker"

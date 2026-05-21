@@ -1,9 +1,11 @@
 schemaVersion: "1"
 kind: mixin
 name: code-server
+version: "1.0.0"
 extends: claude
 displayName: code-server (web VS Code) with Claude Code
 description: Runs code-server on port 8080, opened on the sandbox workspace, with the Claude Code VS Code extension preinstalled. Pair with the built-in claude agent so the extension inherits the sandbox's Anthropic credentials.
+sourceURL: https://github.com/docker/sbx-kits-contrib/tree/main/code-server
 
 network:
   allowedDomains:

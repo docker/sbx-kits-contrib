@@ -1,8 +1,10 @@
 schemaVersion: "1"
 kind: agent
 name: nanoclaw
+version: "1.0.0"
 displayName: NanoClaw
 description: "Lightweight AI assistant runtime driven by Claude Code; ships the CLI channel — chat platforms (WhatsApp, Telegram, Discord, …) add via upstream skills"
+sourceURL: https://github.com/docker/sbx-kits-contrib/tree/main/nanoclaw
 
 agent:
   image: "docker/sandbox-templates:claude-code-docker"

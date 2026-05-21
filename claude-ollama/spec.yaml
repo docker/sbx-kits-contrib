@@ -1,8 +1,10 @@
 schemaVersion: "1"
 kind: agent
 name: claude-ollama
+version: "1.0.0"
 displayName: Claude Code (Ollama)
 description: Claude Code wired to Ollama Anthropic-compatible API, with configurable model.
+sourceURL: https://github.com/docker/sbx-kits-contrib/tree/main/claude-ollama
 
 agent:
   image: "docker/sandbox-templates:claude-code-docker"

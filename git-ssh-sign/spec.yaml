@@ -1,8 +1,10 @@
 schemaVersion: "1"
 kind: mixin
 name: git-ssh-sign
+version: "1.0.0"
 displayName: Git SSH Commit Signing
 description: Configures git to sign commits using the SSH key forwarded from the host's SSH agent.
+sourceURL: https://github.com/docker/sbx-kits-contrib/tree/main/git-ssh-sign
 
 commands:
   initFiles:

@@ -1,8 +1,10 @@
 schemaVersion: "1"
 kind: agent
 name: trivy
+version: "1.0.0"
 displayName: Trivy
 description: "Aqua's open source vulnerability scanner — sandboxed because security scanners shouldn't be able to compromise their hosts (TeamPCP, March 2026)."
+sourceURL: https://github.com/docker/sbx-kits-contrib/tree/main/trivy
 
 agent:
   image: "docker/sandbox-templates:shell-docker"

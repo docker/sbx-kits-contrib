@@ -1,9 +1,11 @@
 schemaVersion: "1"
 kind: mixin
 name: claude-model-runner
+version: "1.0.0"
 extends: claude
 displayName: Claude Code (Docker Model Runner)
 description: Route Claude Code's Anthropic API calls to a local Docker Model Runner endpoint at host.docker.internal:12434.
+sourceURL: https://github.com/docker/sbx-kits-contrib/tree/main/claude-model-runner
 
 environment:
   variables:

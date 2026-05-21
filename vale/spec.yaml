@@ -1,8 +1,10 @@
 schemaVersion: "1"
 kind: mixin
 name: vale
+version: "1.0.0"
 displayName: Vale
 description: Installs the latest Vale prose linter from GitHub releases.
+sourceURL: https://github.com/docker/sbx-kits-contrib/tree/main/vale
 
 network:
   allowedDomains:

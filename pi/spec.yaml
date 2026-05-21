@@ -1,8 +1,10 @@
 schemaVersion: "1"
 kind: agent
 name: pi
+version: "1.0.0"
 displayName: Pi
 description: "Minimal terminal coding agent with extensible tools, skills, and TUI"
+sourceURL: https://github.com/docker/sbx-kits-contrib/tree/main/pi
 
 agent:
   image: "docker/sandbox-templates:shell-docker"

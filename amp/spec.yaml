@@ -1,8 +1,10 @@
 schemaVersion: "1"
 kind: agent
 name: amp
+version: "1.0.0"
 displayName: Amp
 description: The frontier coding agent.
+sourceURL: https://github.com/docker/sbx-kits-contrib/tree/main/amp
 
 agent:
   image: "docker/sandbox-templates:shell-docker"
