@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"path"
 	"regexp"
+	"slices"
 	"strings"
 
 	"github.com/docker/go-units"
@@ -39,8 +40,8 @@ func ValidateManifest(m *Manifest) error {
 	if m.SchemaVersion == "" {
 		return fmt.Errorf("manifest: schemaVersion is required")
 	}
-	if m.SchemaVersion != SchemaVersion {
-		return fmt.Errorf("manifest: unsupported schemaVersion %q (supported: %q)", m.SchemaVersion, SchemaVersion)
+	if !slices.Contains(SupportedSchemaVersions, m.SchemaVersion) {
+		return fmt.Errorf("manifest: unsupported schemaVersion %q (supported: %v)", m.SchemaVersion, SupportedSchemaVersions)
 	}
 
 	if m.Kind == "" {

@@ -7,8 +7,21 @@
 // based) and the internal sandboxes engine.
 package spec
 
-// Supported schema version for kit artifacts.
+// SchemaVersion is the default schemaVersion used when a tool scaffolds
+// a new kit. Stays at "1" while sbx releases v2-capable engines into
+// the field; flip to "2" once enough consumers can read v2 artifacts to
+// make it safe as a default. Authors who want v2 today set schemaVersion:
+// "2" in their spec.yaml explicitly.
 const SchemaVersion = "1"
+
+// SupportedSchemaVersions enumerates every schemaVersion value the
+// loader accepts. "1" is the legacy shape (the current default); "2"
+// opts the kit into the v2 OCI artifact format at distribution time —
+// the spec fields themselves are unchanged across the two versions.
+//
+// New entries should be appended (never reordered) so existing kits
+// continue to validate.
+var SupportedSchemaVersions = []string{"1", "2"}
 
 // Kind constants for manifest types.
 const (
