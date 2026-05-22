@@ -34,6 +34,6 @@ environment:
 
 commands:
   install:
-    - command: "npm config set proxy $HTTP_PROXY && npm config set https-proxy $HTTP_PROXY && i=0; while [ $i -lt 5 ]; do npm install -g --maxsockets=1 --fetch-timeout=600000 @mariozechner/pi-coding-agent && break; i=$((i+1)); echo \"Retrying ($i/5)...\"; done"
+    - command: "npm config set proxy $HTTP_PROXY && npm config set https-proxy $HTTP_PROXY && i=0; while [ $i -lt 5 ]; do npm install -g --maxsockets=1 --fetch-timeout=600000 @earendil-works/pi-coding-agent && break; i=$((i+1)); echo \"Retrying ($i/5)...\"; done"
       user: "1000"
       description: "Configure npm proxy and install pi coding agent globally (with retries)"
