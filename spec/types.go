@@ -7,8 +7,21 @@
 // based) and the internal sandboxes engine.
 package spec
 
-// Supported schema version for kit artifacts.
+// SchemaVersion is the default schemaVersion used when a tool scaffolds
+// a new kit. Stays at "1" while sbx releases v2-capable engines into
+// the field; flip to "2" once enough consumers can read v2 artifacts to
+// make it safe as a default. Authors who want v2 today set schemaVersion:
+// "2" in their spec.yaml explicitly.
 const SchemaVersion = "1"
+
+// SupportedSchemaVersions enumerates every schemaVersion value the
+// loader accepts. "1" is the legacy shape (the current default); "2"
+// opts the kit into the v2 OCI artifact format at distribution time —
+// the spec fields themselves are unchanged across the two versions.
+//
+// New entries should be appended (never reordered) so existing kits
+// continue to validate.
+var SupportedSchemaVersions = []string{"1", "2"}
 
 // Kind constants for manifest types.
 const (
@@ -41,11 +54,21 @@ type Manifest struct {
 	// Name is a unique identifier (lowercase, alphanumeric + hyphens).
 	Name string `json:"name" yaml:"name"`
 
+	// Version is the kit's release version (e.g. "1.0", "2.3.1"). Optional;
+	// when set, it is the source for the OCI annotation
+	// vnd.docker.sandbox.kit.version at pack time.
+	Version string `json:"version,omitempty" yaml:"version,omitempty"`
+
 	// DisplayName is a human-readable name for display purposes.
 	DisplayName string `json:"displayName,omitempty" yaml:"displayName,omitempty"`
 
 	// Description is a short description of the agent or mixin.
 	Description string `json:"description,omitempty" yaml:"description,omitempty"`
+
+	// SourceURL is an optional URL to the kit's source repository or
+	// documentation. When set, it is the source for the standard OCI
+	// annotation org.opencontainers.image.source at pack time.
+	SourceURL string `json:"sourceURL,omitempty" yaml:"sourceURL,omitempty"`
 
 	// Binary is the executable binary name to run in the container.
 	// Required for kind "agent", not used for kind "mixin".

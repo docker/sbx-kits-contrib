@@ -33,6 +33,34 @@ func TestValidateManifest(t *testing.T) {
 		require.ErrorContains(t, ValidateManifest(&m), "schemaVersion")
 	})
 
+	t.Run("schema_version_1_accepted", func(t *testing.T) {
+		// "1" is the legacy schema version and must keep validating so
+		// existing kits in the wild continue to load after the bump.
+		m := valid
+		m.SchemaVersion = "1"
+		require.NoError(t, ValidateManifest(&m))
+	})
+
+	t.Run("schema_version_2_accepted", func(t *testing.T) {
+		// "2" opts a kit into the v2 OCI distribution format at pack
+		// time. The spec library accepts it; downstream tooling reads
+		// the value to decide which OCI format to emit.
+		m := valid
+		m.SchemaVersion = "2"
+		require.NoError(t, ValidateManifest(&m))
+	})
+
+	t.Run("unsupported_schema_version", func(t *testing.T) {
+		// Anything outside SupportedSchemaVersions must hard-fail with a
+		// message that names the value seen and the values accepted, so
+		// kit authors can spot a typo without grepping the spec library.
+		m := valid
+		m.SchemaVersion = "99"
+		err := ValidateManifest(&m)
+		require.ErrorContains(t, err, "unsupported schemaVersion")
+		require.ErrorContains(t, err, `"99"`)
+	})
+
 	t.Run("missing_kind", func(t *testing.T) {
 		m := valid
 		m.Kind = ""

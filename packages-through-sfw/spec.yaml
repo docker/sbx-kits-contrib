@@ -1,0 +1,100 @@
+schemaVersion: "1"
+kind: mixin
+name: packages-through-sfw
+displayName: Packages through SFW
+description: "Installs Socket Firewall Free and routes npm, pip, pip3, and python3 -m pip commands through sfw when resolved through PATH."
+
+network:
+  allowedDomains:
+    - "github.com:443"
+    - "release-assets.githubusercontent.com:443"
+    - "api.socket.dev:443"
+    - "socket.dev:443"
+    - "registry.npmjs.org:443"
+    - "pypi.org:443"
+    - "files.pythonhosted.org:443"
+
+commands:
+  install:
+    - command: "apt-get update && apt-get install -y --no-install-recommends ca-certificates curl nodejs npm python3-pip && rm -rf /var/lib/apt/lists/*"
+      user: "0"
+      description: Install package-manager prerequisites
+    - command: |
+        set -euo pipefail
+        SFW_VERSION=1.10.0
+        case "$(uname -m)" in
+          x86_64|amd64)
+            ASSET="sfw-free-linux-x86_64"
+            SHA256="1ea16f15f1217bde66ac9c7d0262c7126b7bb1b2d60e14e8fa0982456139ae6e"
+            ;;
+          aarch64|arm64)
+            ASSET="sfw-free-linux-arm64"
+            SHA256="d7e969c17e6d23ac1cb0dea81ff87ef9bca2d83570270d91aab14b2a7fb66ad4"
+            ;;
+          *)
+            echo "unsupported sandbox arch: $(uname -m) (expected amd64 or arm64)" >&2
+            exit 1
+            ;;
+        esac
+        URL="https://github.com/SocketDev/sfw-free/releases/download/v${SFW_VERSION}/${ASSET}"
+        curl --proto '=https' --tlsv1.2 -fsSL -o /tmp/sfw "$URL"
+        echo "${SHA256}  /tmp/sfw" | sha256sum -c -
+        install -m 0755 /tmp/sfw /usr/local/bin/sfw
+        rm -f /tmp/sfw
+        sfw --version
+      user: "0"
+      description: "Install Socket Firewall Free v1.10.0, version+digest pinned"
+    - command: |
+        set -euo pipefail
+        mkdir -p /usr/local/lib/packages-through-sfw/shims
+
+        cat > /usr/local/lib/packages-through-sfw/shims/npm <<'SCRIPT'
+        #!/bin/sh
+        PATH="/usr/sbin:/usr/bin:/sbin:/bin" exec /usr/local/bin/sfw npm "$@"
+        SCRIPT
+
+        cat > /usr/local/lib/packages-through-sfw/shims/pip <<'SCRIPT'
+        #!/bin/sh
+        exec env -u PIP_CERT -u REQUESTS_CA_BUNDLE -u SSL_CERT_FILE PATH="/usr/sbin:/usr/bin:/sbin:/bin" /usr/local/bin/sfw pip "$@"
+        SCRIPT
+
+        cat > /usr/local/lib/packages-through-sfw/shims/pip3 <<'SCRIPT'
+        #!/bin/sh
+        exec env -u PIP_CERT -u REQUESTS_CA_BUNDLE -u SSL_CERT_FILE PATH="/usr/sbin:/usr/bin:/sbin:/bin" /usr/local/bin/sfw pip3 "$@"
+        SCRIPT
+
+        cat > /usr/local/lib/packages-through-sfw/shims/python3 <<'SCRIPT'
+        #!/bin/sh
+        if [ "$1" = "-m" ] && [ "$2" = "pip" ]; then
+          shift 2
+          exec env -u PIP_CERT -u REQUESTS_CA_BUNDLE -u SSL_CERT_FILE PATH="/usr/sbin:/usr/bin:/sbin:/bin" /usr/local/bin/sfw pip "$@"
+        fi
+        PATH="/usr/sbin:/usr/bin:/sbin:/bin" exec python3 "$@"
+        SCRIPT
+
+        install -m 0755 /usr/local/lib/packages-through-sfw/shims/npm /usr/local/bin/npm
+        install -m 0755 /usr/local/lib/packages-through-sfw/shims/pip /usr/local/bin/pip
+        install -m 0755 /usr/local/lib/packages-through-sfw/shims/pip3 /usr/local/bin/pip3
+        install -m 0755 /usr/local/lib/packages-through-sfw/shims/python3 /usr/local/bin/python3
+
+        cat > /etc/profile.d/packages-through-sfw.sh <<'SCRIPT'
+        # Route package-manager installs through Socket Firewall Free.
+        if [ -x /usr/local/bin/npm ]; then
+          npm() { /usr/local/bin/npm "$@"; }
+        fi
+        if [ -x /usr/local/bin/pip ]; then
+          pip() { /usr/local/bin/pip "$@"; }
+        fi
+        if [ -x /usr/local/bin/pip3 ]; then
+          pip3() { /usr/local/bin/pip3 "$@"; }
+        fi
+        SCRIPT
+        chmod 0644 /etc/profile.d/packages-through-sfw.sh
+      user: "0"
+      description: Configure sfw PATH shims and shell wrappers
+    - command: |
+        set -euo pipefail
+        grep -qF '/etc/profile.d/packages-through-sfw.sh' ~/.bashrc 2>/dev/null || \
+          printf '\n# Packages through SFW wrappers (added by sbx-kits-contrib/packages-through-sfw)\n[ -f /etc/profile.d/packages-through-sfw.sh ] && . /etc/profile.d/packages-through-sfw.sh\n' >> ~/.bashrc
+      user: "1000"
+      description: Source sfw wrappers from ~/.bashrc for interactive Bash shells

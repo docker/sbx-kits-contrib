@@ -16,6 +16,8 @@ func TestLoadFromDirectory(t *testing.T) {
 
 		require.Equal(t, "sample-mixin", a.Manifest.Name)
 		require.Equal(t, KindMixin, a.Manifest.Kind)
+		require.Equal(t, "1.0.0", a.Manifest.Version)
+		require.Equal(t, "https://example.com/sample-mixin", a.Manifest.SourceURL)
 		require.Empty(t, a.Manifest.Template, "mixins have no template")
 		require.NotNil(t, a.Network)
 		require.NotNil(t, a.Credentials)
@@ -31,6 +33,8 @@ func TestLoadFromDirectory(t *testing.T) {
 
 		require.Equal(t, "sample-agent", a.Manifest.Name)
 		require.Equal(t, KindAgent, a.Manifest.Kind)
+		require.Equal(t, "1.0.0", a.Manifest.Version)
+		require.Equal(t, "https://example.com/sample-agent", a.Manifest.SourceURL)
 		require.NotEmpty(t, a.Manifest.Template, "agents must have a template")
 		require.Equal(t, "sample-bin", a.Manifest.Binary)
 		require.Equal(t, []string{"--verbose", "--task-mode"}, a.Manifest.RunOptions)
@@ -155,4 +159,65 @@ func TestCollectFilesFromDir_SymlinkEscape(t *testing.T) {
 
 	_, err := collectFilesFromDir(dir)
 	require.ErrorContains(t, err, "escapes the artifact directory")
+}
+
+func TestLoadFromBytes(t *testing.T) {
+	t.Run("happy_path", func(t *testing.T) {
+		a, err := LoadFromBytes([]byte(`schemaVersion: "1"
+kind: mixin
+name: bytes-kit
+displayName: Bytes Kit
+description: loaded directly from bytes
+`))
+		require.NoError(t, err)
+		require.Equal(t, "bytes-kit", a.Manifest.Name)
+		require.Equal(t, KindMixin, a.Manifest.Kind)
+		require.Empty(t, a.Files, "LoadFromBytes never populates Files")
+	})
+
+	t.Run("does_not_validate_files", func(t *testing.T) {
+		// LoadFromBytes is deliberately validation-free for Files — the
+		// caller is expected to populate Artifact.Files from a separate
+		// source (e.g. an OCI tar layer) and then call ValidateArtifact.
+		// Here we synthesize an Artifact that parses cleanly, then attach
+		// a malformed Files entry that only ValidateArtifact catches.
+		a, err := LoadFromBytes([]byte(`schemaVersion: "1"
+kind: mixin
+name: deferred-validate
+`))
+		require.NoError(t, err)
+
+		a.Files = []ArtifactFile{
+			{Target: "bogus-target", RelativePath: "x"},
+		}
+		require.ErrorContains(t, ValidateArtifact(a), "invalid target")
+	})
+
+	t.Run("invalid_yaml", func(t *testing.T) {
+		_, err := LoadFromBytes([]byte(`{{{ broken`))
+		require.ErrorContains(t, err, "invalid")
+	})
+
+	t.Run("unknown_field_rejected", func(t *testing.T) {
+		// Strict-decode behaviour applies to LoadFromBytes the same way it
+		// does to LoadFromDirectory.
+		_, err := LoadFromBytes([]byte(`schemaVersion: "1"
+kind: mixin
+name: typo-kit
+mystery: 42
+`))
+		require.Error(t, err)
+	})
+}
+
+func TestManifest_VersionAndSourceURL(t *testing.T) {
+	a, err := LoadFromBytes([]byte(`schemaVersion: "1"
+kind: mixin
+name: versioned-kit
+version: "2.3.1"
+sourceURL: https://example.com/versioned-kit
+`))
+	require.NoError(t, err)
+	require.Equal(t, "2.3.1", a.Manifest.Version)
+	require.Equal(t, "https://example.com/versioned-kit", a.Manifest.SourceURL)
 }
