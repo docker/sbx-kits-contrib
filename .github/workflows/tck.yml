@@ -247,14 +247,21 @@ jobs:
 
       - name: Set sbx default network policy
         # `sbx create` refuses to run until a default network policy is
-        # configured. Pick `deny-all` as the e2e baseline so the kit's
-        # own `network.allowedDomains` declarations are exactly what
-        # determines outbound reachability — with `allow-all` we'd be
-        # hiding any misconfigured kit. Kit allow-rules are scoped per
-        # sandbox and punch through the default deny (see
-        # `ApplyKitNetworkPolicyScoped` in docker/sandboxes:
-        # sandboxd/pkg/server/options_governance.go). Kit deny-rules
-        # still win over allow-rules (deny-wins semantics).
+        # configured. `deny-all` is the strict baseline: a kit gets
+        # *exactly* the outbound reachability it declares in
+        # `network.allowedDomains` and nothing more. That makes the e2e
+        # run a real contract test — if a kit's install hooks reach for
+        # apt/npm mirrors it didn't list, the failure is real and
+        # actionable. Kit allow-rules are scoped per sandbox and punch
+        # through the default deny (see `ApplyKitNetworkPolicyScoped` in
+        # docker/sandboxes:sandboxd/pkg/server/options_governance.go); kit
+        # deny-rules win over allow-rules (deny-wins).
+        #
+        # The trade-off: kits that previously relied on `balanced`'s
+        # tier-zero allowances (Debian apt mirrors, default npm registry)
+        # have to enumerate those domains in their own `allowedDomains`.
+        # That's the philosophy this CI is enforcing — kits are
+        # self-contained network contracts.
         run: sbx policy set-default deny-all
 
       - name: Run e2e TCK for ${{ matrix.kit }}
