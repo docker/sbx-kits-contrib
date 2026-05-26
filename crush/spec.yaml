@@ -130,12 +130,15 @@ network:
       valueFormat: "AWS4-HMAC-SHA256 Credential=%s/"
   allowedDomains:
     - repo.charm.sh
-    # Base Ubuntu apt mirrors used by the install hooks for
-    # `apt-get update && apt-get install crush`. shell-docker (and every
-    # other sbx template) is built on `ubuntu:*` whose default sources.list
-    # points at these two hosts.
-    - archive.ubuntu.com
-    - security.ubuntu.com
+    # `apt-get update` (run by the install hooks) refreshes metadata for
+    # every configured apt source — failing on any one of them returns
+    # exit 100 even if the kit's package would come from a different
+    # repo. The shell-docker template ships with three sources, so all
+    # three must be allowed for the kit's install to succeed under
+    # `deny-all`.
+    - archive.ubuntu.com        # default Ubuntu archive
+    - security.ubuntu.com       # Ubuntu security updates
+    - download.docker.com       # Docker's apt repo, pre-added by shell-docker
     - api.anthropic.com
     - api.openai.com
     - "*.openai.azure.com"

@@ -13,11 +13,13 @@ network:
     - "registry.npmjs.org:443"
     - "pypi.org:443"
     - "files.pythonhosted.org:443"
-    # Base Ubuntu apt mirrors used by the first install hook
-    # (`apt-get install ca-certificates curl nodejs npm python3-pip`).
-    # Ubuntu's default sources.list uses HTTP (port 80) for these.
-    - "archive.ubuntu.com:80"
-    - "security.ubuntu.com:80"
+    # `apt-get update` (run by the first install hook) refreshes metadata
+    # for every configured apt source. The shell-docker base template
+    # ships three sources, all of which must succeed for the update to
+    # exit 0, regardless of which one our install actually fetches from.
+    - "archive.ubuntu.com:80"        # default Ubuntu archive (HTTP)
+    - "security.ubuntu.com:80"       # Ubuntu security updates (HTTP)
+    - "download.docker.com:443"      # Docker's apt repo, pre-added by shell-docker
 
 commands:
   install:
