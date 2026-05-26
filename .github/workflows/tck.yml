@@ -167,27 +167,28 @@ jobs:
       - name: Verify sbx installation
         run: sbx version
 
-      - name: Diagnose secret integrity
-        env:
-          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
-          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+      - name: Install Secret Service provider (gnome-keyring)
         run: |
-          # GH masking redacts secret values but NOT their lengths or sha256
-          # hashes (a hash is one-way; the secret itself never appears).
-          # Compare these two lines locally to detect paste-time mangling:
-          #   printf '%s' "$DOCKERHUB_USERNAME" | shasum -a 256
-          #   printf '%s' "$DOCKERHUB_TOKEN"    | shasum -a 256
-          # If sha256 or length differ, the GH-stored value has whitespace
-          # contamination (trailing newline, leading space, partial copy).
-          printf 'username len=%d sha256=' "${#DOCKERHUB_USERNAME}"
-          printf '%s' "$DOCKERHUB_USERNAME" | sha256sum | awk '{print $1}'
-          printf 'token    len=%d sha256=' "${#DOCKERHUB_TOKEN}"
-          printf '%s' "$DOCKERHUB_TOKEN"    | sha256sum | awk '{print $1}'
+          # sbx's released Linux binary persists credentials via libsecret
+          # (the OS keychain on Linux). GHA's ubuntu-latest runner has no
+          # graphical session, so no org.freedesktop.secrets provider exists
+          # and `sbx login` fails when it tries to upsert. We install
+          # gnome-keyring and unlock it with an empty passphrase inside a
+          # dbus-run-session in the next step. The filestore backend in
+          # sandboxlib/auth/store_local.go is build-tag-gated and isn't in
+          # the released artifact, so this is the only path until that
+          # changes.
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq gnome-keyring
 
-      - name: Sign in to Docker Hub via sbx
+      - name: Run e2e TCK for ${{ matrix.kit }}
         env:
           DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
           DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+          # detect-changes emits bare directory names; go test cd's into the
+          # package dir, so anchor against $GITHUB_WORKSPACE to resolve to
+          # the repo-root kit directory rather than ./tck/<kit>.
+          KIT_UNDER_TEST: ${{ github.workspace }}/${{ matrix.kit }}
         run: |
           if [ -z "${DOCKERHUB_USERNAME}" ] || [ -z "${DOCKERHUB_TOKEN}" ]; then
             echo "DOCKERHUB_USERNAME / DOCKERHUB_TOKEN not configured; cannot run e2e."
@@ -195,23 +196,23 @@ jobs:
           fi
           # Defensive trim: GH preserves any whitespace pasted into the
           # secret editor, and sbx's readPasswordStdin only strips trailing
-          # \r\n. Strip ALL whitespace from both values — Hub usernames are
-          # alphanumeric + hyphens and PATs are alphanumeric + hyphens, so
-          # tr -d cannot corrupt a legitimate credential.
-          USER_CLEAN=$(printf '%s' "$DOCKERHUB_USERNAME" | tr -d '[:space:]')
-          TOKEN_CLEAN=$(printf '%s' "$DOCKERHUB_TOKEN"    | tr -d '[:space:]')
+          # \r\n. Hub usernames and PATs are alphanumeric + hyphens, so
+          # stripping all whitespace can't corrupt a legitimate value.
+          export USER_CLEAN=$(printf '%s' "$DOCKERHUB_USERNAME" | tr -d '[:space:]')
+          export TOKEN_CLEAN=$(printf '%s' "$DOCKERHUB_TOKEN"    | tr -d '[:space:]')
+
+          # Bundle login + test + logout inside one dbus session so every
+          # sbx command sees the same unlocked keyring. Splitting into
+          # separate steps would put each command in its own shell, losing
+          # the daemon. -e exits the heredoc on the first failure, which
+          # surfaces login/test failures clearly even though they share a
+          # step in the GHA UI.
+          dbus-run-session -- bash -e <<'EOF'
+          printf '\n' | gnome-keyring-daemon --start --unlock --components=secrets >/dev/null
+
           printf '%s' "$TOKEN_CLEAN" | sbx login --username "$USER_CLEAN" --password-stdin
 
-      - name: Run e2e TCK for ${{ matrix.kit }}
-        env:
-          # detect-changes emits bare directory names (`dirname "$f"`), and
-          # `go test ./tck/...` runs the binary with cwd set to the package
-          # dir. Anchor against $GITHUB_WORKSPACE so the test resolves to the
-          # repo-root kit directory rather than ./tck/<kit>.
-          KIT_UNDER_TEST: ${{ github.workspace }}/${{ matrix.kit }}
-        run: |
           go test -tags=e2e -v -timeout 25m -count=1 -run TestE2ECreateSandbox ./tck/...
 
-      - name: Sign out of Docker Hub
-        if: always()
-        run: sbx logout --yes || true
+          sbx logout --yes || true
+          EOF
