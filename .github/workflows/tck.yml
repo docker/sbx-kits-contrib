@@ -245,6 +245,18 @@ jobs:
           TOKEN_CLEAN=$(printf '%s' "$DOCKERHUB_TOKEN"    | tr -d '[:space:]')
           printf '%s' "$TOKEN_CLEAN" | sbx login --username "$USER_CLEAN" --password-stdin
 
+      - name: Set sbx default network policy
+        # `sbx create` refuses to run until a default network policy is
+        # configured. Pick `deny-all` as the e2e baseline so the kit's
+        # own `network.allowedDomains` declarations are exactly what
+        # determines outbound reachability — with `allow-all` we'd be
+        # hiding any misconfigured kit. Kit allow-rules are scoped per
+        # sandbox and punch through the default deny (see
+        # `ApplyKitNetworkPolicyScoped` in docker/sandboxes:
+        # sandboxd/pkg/server/options_governance.go). Kit deny-rules
+        # still win over allow-rules (deny-wins semantics).
+        run: sbx policy set-default deny-all
+
       - name: Run e2e TCK for ${{ matrix.kit }}
         env:
           # detect-changes emits bare directory names; go test cd's into the
