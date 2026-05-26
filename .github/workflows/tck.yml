@@ -167,31 +167,63 @@ jobs:
       - name: Verify sbx installation
         run: sbx version
 
-      - name: Install Secret Service provider (gnome-keyring)
+      - name: Unlock keyring (Secret Service for sbx login)
+        # sbx's released Linux binary persists credentials via libsecret
+        # (the OS keychain on Linux), which needs a running Secret Service
+        # provider on D-Bus. GHA's ubuntu-latest is headless, so we install
+        # gnome-keyring + dbus-x11, start a persistent dbus session, unlock
+        # gnome-keyring-daemon with an empty passphrase, and write
+        # DBUS_SESSION_BUS_ADDRESS, GNOME_KEYRING_CONTROL, and SSH_AUTH_SOCK
+        # to $GITHUB_ENV so subsequent steps can reach the daemon.
+        #
+        # Three earlier-iteration traps this avoids:
+        #   1. `dbus-run-session` instead of `dbus-launch`: dbus-run-session
+        #      kills the bus when its wrapped command exits; dbus-launch
+        #      leaves a persistent bus behind.
+        #   2. `printf ''` instead of `echo ''`: printf '' sends raw EOF
+        #      with no newline, and the daemon falls through to launching
+        #      gcr-prompter for interactive entry. echo '' sends a newline,
+        #      which the daemon accepts as "empty password, terminated".
+        #   3. Not propagating the daemon's env vars to subsequent steps:
+        #      without GNOME_KEYRING_CONTROL exported, sbx can't find the
+        #      running daemon and `s.Upsert` fails with a D-Bus path error.
+        #
+        # This is the same shape as the t1m0thyj/unlock-keyring action,
+        # inlined here so the dependency stays first-party.
         run: |
-          # sbx's released Linux binary persists credentials via libsecret
-          # (the OS keychain on Linux). GHA's ubuntu-latest runner has no
-          # graphical session, so no org.freedesktop.secrets provider exists
-          # and `sbx login` fails when it tries to upsert. We install
-          # gnome-keyring and unlock it with an empty passphrase inside a
-          # dbus-run-session in the next step. libsecret-tools provides
-          # `secret-tool`, which we use to force-create the default
-          # collection (gnome-keyring-daemon --unlock alone leaves
-          # libsecret with no default collection alias). The filestore
-          # backend in sandboxlib/auth/store_local.go is build-tag-gated
-          # and isn't in the released artifact, so this is the only path
-          # until that changes.
+          set -euo pipefail
           sudo apt-get update -qq
-          sudo apt-get install -y -qq gnome-keyring libsecret-tools
+          sudo apt-get install -y -qq dbus-x11 gnome-keyring
 
-      - name: Run e2e TCK for ${{ matrix.kit }}
+          # Parse `KEY='VALUE';` or `KEY=VALUE` lines from a command's
+          # stdout, strip the dbus/keyring quoting, and propagate to both
+          # the current shell and $GITHUB_ENV so the next step sees them.
+          capture_env() {
+            while IFS= read -r line; do
+              if [[ "$line" =~ ^([A-Za-z_][A-Za-z0-9_]*)=\'?(.+)$ ]]; then
+                name="${BASH_REMATCH[1]}"
+                value="${BASH_REMATCH[2]}"
+                value="${value%;}"
+                value="${value%\'}"
+                printf '%s=%s\n' "$name" "$value" >> "$GITHUB_ENV"
+                export "$name=$value"
+              fi
+            done
+          }
+
+          # 1. Start a persistent dbus session bus.
+          dbus-launch --sh-syntax | capture_env
+
+          # 2. Unlock gnome-keyring with an empty passphrase. echo ''
+          #    sends a newline-terminated empty string, which the daemon
+          #    treats as "empty password" instead of falling through to
+          #    gcr-prompter.
+          echo '' | /usr/bin/gnome-keyring-daemon --unlock | capture_env
+
+      - name: Sign in to Docker Hub via sbx
         env:
           DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
           DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
-          # detect-changes emits bare directory names; go test cd's into the
-          # package dir, so anchor against $GITHUB_WORKSPACE to resolve to
-          # the repo-root kit directory rather than ./tck/<kit>.
-          KIT_UNDER_TEST: ${{ github.workspace }}/${{ matrix.kit }}
         run: |
           if [ -z "${DOCKERHUB_USERNAME}" ] || [ -z "${DOCKERHUB_TOKEN}" ]; then
             echo "DOCKERHUB_USERNAME / DOCKERHUB_TOKEN not configured; cannot run e2e."
@@ -201,41 +233,19 @@ jobs:
           # secret editor, and sbx's readPasswordStdin only strips trailing
           # \r\n. Hub usernames and PATs are alphanumeric + hyphens, so
           # stripping all whitespace can't corrupt a legitimate value.
-          export USER_CLEAN=$(printf '%s' "$DOCKERHUB_USERNAME" | tr -d '[:space:]')
-          export TOKEN_CLEAN=$(printf '%s' "$DOCKERHUB_TOKEN"    | tr -d '[:space:]')
-
-          # Bundle login + test + logout inside one dbus session so every
-          # sbx command sees the same unlocked keyring. Splitting into
-          # separate steps would put each command in its own shell, losing
-          # the daemon. -e exits the heredoc on the first failure, which
-          # surfaces login/test failures clearly even though they share a
-          # step in the GHA UI.
-          # Nuke any pre-existing keyring state from the runner image
-          # before starting the daemon. Without this, a locked keyring
-          # file causes the daemon to launch gcr-prompter for interactive
-          # unlock, which can't open a display on headless CI and
-          # crashes the unlock flow.
-          rm -rf "$HOME/.local/share/keyrings"
-          mkdir -p "$HOME/.local/share/keyrings"
-
-          dbus-run-session -- bash -e <<'EOF'
-          # Start daemonized gnome-keyring with the secrets component;
-          # --unlock reads the passphrase from stdin (empty here, which is
-          # fine for a throwaway runner). --start cannot be combined with
-          # --unlock — they're mutually exclusive.
-          printf '' | gnome-keyring-daemon --daemonize --unlock --components=secrets >/dev/null
-
-          # --unlock alone leaves libsecret with no default collection
-          # alias, so sbx's later s.Upsert fails with "Object does not
-          # exist at path /". Force the alias by storing+clearing a dummy
-          # secret via secret-tool, which materialises the default keyring
-          # as a side effect.
-          printf 'init' | secret-tool store --label='init' init init
-          secret-tool clear init init
-
+          USER_CLEAN=$(printf '%s' "$DOCKERHUB_USERNAME" | tr -d '[:space:]')
+          TOKEN_CLEAN=$(printf '%s' "$DOCKERHUB_TOKEN"    | tr -d '[:space:]')
           printf '%s' "$TOKEN_CLEAN" | sbx login --username "$USER_CLEAN" --password-stdin
 
+      - name: Run e2e TCK for ${{ matrix.kit }}
+        env:
+          # detect-changes emits bare directory names; go test cd's into the
+          # package dir, so anchor against $GITHUB_WORKSPACE to resolve to
+          # the repo-root kit directory rather than ./tck/<kit>.
+          KIT_UNDER_TEST: ${{ github.workspace }}/${{ matrix.kit }}
+        run: |
           go test -tags=e2e -v -timeout 25m -count=1 -run TestE2ECreateSandbox ./tck/...
 
-          sbx logout --yes || true
-          EOF
+      - name: Sign out of Docker Hub
+        if: always()
+        run: sbx logout --yes || true
