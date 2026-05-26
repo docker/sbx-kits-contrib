@@ -7,10 +7,16 @@ description: Runs code-server on port 8080, opened on the sandbox workspace, wit
 
 network:
   allowedDomains:
+    # `https://code-server.dev/install.sh` is a Cloudflare 302 redirect to
+    # `https://raw.githubusercontent.com/cdr/code-server/main/install.sh` —
+    # the install hook's `curl -fsSL https://code-server.dev/install.sh`
+    # transparently follows the redirect, so the kit needs both hosts
+    # allowed for the install script to even download.
     - code-server.dev
+    - raw.githubusercontent.com
     - github.com
-    # The code-server install.sh resolves the latest release via the
-    # GitHub REST API before downloading the asset, then follows the
+    # The code-server install.sh resolves the latest release via a
+    # `github.com/.../releases/latest` redirect, then follows the
     # `github.com` release URL to the asset host. GitHub recently
     # rotated asset downloads from `objects.githubusercontent.com` to
     # `release-assets.githubusercontent.com`; both must be allowed.
