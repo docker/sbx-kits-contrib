@@ -167,68 +167,66 @@ jobs:
       - name: Verify sbx installation
         run: sbx version
 
-      - name: Unlock keyring (Secret Service for sbx login)
-        # sbx's released Linux binary persists credentials via libsecret
-        # (the OS keychain on Linux), which needs a running Secret Service
-        # provider on D-Bus. GHA's ubuntu-latest is headless, so we install
-        # gnome-keyring + dbus-x11, start a persistent dbus session, unlock
-        # gnome-keyring-daemon with an empty passphrase, and write
-        # DBUS_SESSION_BUS_ADDRESS, GNOME_KEYRING_CONTROL, and SSH_AUTH_SOCK
-        # to $GITHUB_ENV so subsequent steps can reach the daemon.
+      - name: Set up Secret Service for sbx login
+        # sbx's released Linux binary persists credentials via libsecret,
+        # which talks to org.freedesktop.secrets over D-Bus. GHA's
+        # ubuntu-latest is headless, so no Secret Service is running and
+        # `sbx login` blocks. The recipe below mirrors the maintainers'
+        # own CI script in docker/secrets-engine
+        # (store/scripts/gnome-keyring), which is the canonical reference:
         #
-        # Three earlier-iteration traps this avoids:
-        #   1. `dbus-run-session` instead of `dbus-launch`: dbus-run-session
-        #      kills the bus when its wrapped command exits; dbus-launch
-        #      leaves a persistent bus behind.
-        #   2. `printf ''` instead of `echo ''`: printf '' sends raw EOF
-        #      with no newline, and the daemon falls through to launching
-        #      gcr-prompter for interactive entry. echo '' sends a newline,
-        #      which the daemon accepts as "empty password, terminated".
-        #   3. Not propagating the daemon's env vars to subsequent steps:
-        #      without GNOME_KEYRING_CONTROL exported, sbx can't find the
-        #      running daemon and `s.Upsert` fails with a D-Bus path error.
+        #   1. Install gnome-keyring + dbus-daemon.
+        #   2. Pre-create ~/.local/share/keyrings/login.keyring as a
+        #      passwordless ini stanza. With the file already on disk,
+        #      `gnome-keyring-daemon --start` adopts it instead of
+        #      prompting via gcr-prompter for a password — that prompt
+        #      activation was the root cause of every earlier iteration
+        #      failing on headless runners.
+        #   3. Start a dbus session bus (dbus-daemon, not dbus-launch or
+        #      dbus-run-session — the former leaves no persistent bus,
+        #      the latter dies when its wrapped command exits).
+        #   4. Start gnome-keyring-daemon's secrets component.
+        #   5. Poll until org.freedesktop.secrets is owned on D-Bus
+        #      before letting the next step run sbx.
         #
-        # This is the same shape as the t1m0thyj/unlock-keyring action,
-        # inlined here so the dependency stays first-party.
+        # Both DBUS_SESSION_BUS_ADDRESS and the daemon's env are exported
+        # to $GITHUB_ENV so the sbx login + go test steps inherit them.
         run: |
           set -euo pipefail
           sudo apt-get update -qq
-          sudo apt-get install -y -qq dbus-x11 gnome-keyring libsecret-tools
+          sudo apt-get install -y -qq gnome-keyring dbus
 
-          # Parse `KEY='VALUE';` or `KEY=VALUE` lines from a command's
-          # stdout, strip the dbus/keyring quoting, and propagate to both
-          # the current shell and $GITHUB_ENV so the next step sees them.
-          capture_env() {
-            while IFS= read -r line; do
-              if [[ "$line" =~ ^([A-Za-z_][A-Za-z0-9_]*)=\'?(.+)$ ]]; then
-                name="${BASH_REMATCH[1]}"
-                value="${BASH_REMATCH[2]}"
-                value="${value%;}"
-                value="${value%\'}"
-                printf '%s=%s\n' "$name" "$value" >> "$GITHUB_ENV"
-                export "$name=$value"
-              fi
-            done
-          }
+          mkdir -p "$HOME/.local/share/keyrings"
+          cat > "$HOME/.local/share/keyrings/login.keyring" <<'KEYRING'
+          [keyring]
+          display-name=login
+          ctime=1750965549
+          mtime=0
+          lock-on-idle=false
+          lock-after=false
+          KEYRING
 
-          # 1. Start a persistent dbus session bus.
-          dbus-launch --sh-syntax | capture_env
+          DBUS_SESSION_BUS_ADDRESS=$(dbus-daemon --session --print-address --fork)
+          echo "DBUS_SESSION_BUS_ADDRESS=$DBUS_SESSION_BUS_ADDRESS" >> "$GITHUB_ENV"
+          export DBUS_SESSION_BUS_ADDRESS
 
-          # 2. Unlock gnome-keyring with an empty passphrase. echo ''
-          #    sends a newline-terminated empty string, which the daemon
-          #    treats as "empty password" instead of falling through to
-          #    gcr-prompter.
-          echo '' | /usr/bin/gnome-keyring-daemon --unlock | capture_env
+          gnome-keyring-daemon --start --components=secrets >/dev/null
 
-          # 3. Force the default-collection alias to exist before sbx
-          #    tries to Upsert into it. gnome-keyring-daemon --unlock
-          #    unlocks the "login" keyring but on Ubuntu 24.04+ doesn't
-          #    automatically alias it to libsecret's "default" collection,
-          #    so sbx's first write hangs waiting on a prompt that never
-          #    arrives and times out after 10s. A throwaway secret-tool
-          #    write materialises the alias as a side effect.
-          printf 'init' | secret-tool store --label='init' init init
-          secret-tool clear init init
+          # Poll until the daemon registers on the bus. 5s is what the
+          # secrets-engine reference script uses.
+          for _ in $(seq 1 50); do
+            if gdbus call --session \
+                --dest org.freedesktop.DBus \
+                --object-path /org/freedesktop/DBus \
+                --method org.freedesktop.DBus.GetNameOwner \
+                org.freedesktop.secrets >/dev/null 2>&1; then
+              echo "Secret Service registered on D-Bus"
+              exit 0
+            fi
+            sleep 0.1
+          done
+          echo "Timed out waiting for org.freedesktop.secrets to register"
+          exit 1
 
       - name: Sign in to Docker Hub via sbx
         env:
