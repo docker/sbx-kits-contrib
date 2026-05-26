@@ -208,7 +208,12 @@ jobs:
           # surfaces login/test failures clearly even though they share a
           # step in the GHA UI.
           dbus-run-session -- bash -e <<'EOF'
-          printf '\n' | gnome-keyring-daemon --start --unlock --components=secrets >/dev/null
+          # --unlock reads the passphrase from stdin, creates the default
+          # "login" keyring if missing, unlocks it, and daemonizes. Passing
+          # an empty stdin gives the keyring an empty passphrase, which is
+          # fine for a throwaway runner. --start cannot be combined with
+          # --unlock (they're mutually exclusive in gnome-keyring-daemon).
+          printf '' | gnome-keyring-daemon --unlock --components=secrets >/dev/null
 
           printf '%s' "$TOKEN_CLEAN" | sbx login --username "$USER_CLEAN" --password-stdin
 
