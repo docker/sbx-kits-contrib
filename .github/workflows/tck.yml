@@ -138,16 +138,19 @@ jobs:
           ls -la /dev/kvm
           sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
 
-      - name: Download latest sbx release
+      - name: Download sbx release
         run: |
           set -euo pipefail
           # docker/sbx-releases is a public repo; no auth needed to read.
-          # Resolve the latest stable tag via the redirect target of
-          # /releases/latest so we don't hardcode a version.
-          LATEST_URL=$(curl -fsSLI -o /dev/null -w '%{url_effective}' \
-            https://github.com/docker/sbx-releases/releases/latest)
-          VERSION="${LATEST_URL##*/}"
-          echo "Resolved latest sbx version: ${VERSION}"
+          #
+          # Pinned to v0.31.0-rc1 because the latest stable (v0.30.0) ships
+          # the JWKS-verifier path of `sbx login`, which rejects every Docker
+          # Hub PAT-issued JWT with "docker hub token is invalid". Fixed in
+          # docker/sandboxes#2969, first reachable from v0.31.0-rc1. Revisit
+          # this pin once a stable release with the fix ships and bump back
+          # to /releases/latest resolution.
+          VERSION="v0.31.0-rc1"
+          echo "Pinned sbx version: ${VERSION}"
           echo "SBX_VERSION=${VERSION}" >> "$GITHUB_ENV"
 
           curl -fsSL \
