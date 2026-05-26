@@ -210,6 +210,14 @@ jobs:
           # the daemon. -e exits the heredoc on the first failure, which
           # surfaces login/test failures clearly even though they share a
           # step in the GHA UI.
+          # Nuke any pre-existing keyring state from the runner image
+          # before starting the daemon. Without this, a locked keyring
+          # file causes the daemon to launch gcr-prompter for interactive
+          # unlock, which can't open a display on headless CI and
+          # crashes the unlock flow.
+          rm -rf "$HOME/.local/share/keyrings"
+          mkdir -p "$HOME/.local/share/keyrings"
+
           dbus-run-session -- bash -e <<'EOF'
           # Start daemonized gnome-keyring with the secrets component;
           # --unlock reads the passphrase from stdin (empty here, which is
