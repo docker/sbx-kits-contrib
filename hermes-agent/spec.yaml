@@ -7,7 +7,6 @@ description: "The self-improving AI agent by Nous Research — creates skills fr
 agent:
   image: "docker/sandbox-templates:shell-docker"
   aiFilename: AGENTS.md
-  persistence: persistent
   entrypoint:
     run: ["/usr/local/bin/hermes-start"]
 
