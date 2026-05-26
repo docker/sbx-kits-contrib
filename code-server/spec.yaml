@@ -9,7 +9,12 @@ network:
   allowedDomains:
     - code-server.dev
     - github.com
+    # GitHub recently rotated release-asset downloads from
+    # `objects.githubusercontent.com` to `release-assets.githubusercontent.com`.
+    # The code-server installer fetches its tarball from a `github.com`
+    # release URL that redirects here, so both need to be allowed.
     - objects.githubusercontent.com
+    - release-assets.githubusercontent.com
     - open-vsx.org
     - openvsx.eclipsecontent.org
 

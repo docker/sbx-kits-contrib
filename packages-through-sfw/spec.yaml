@@ -13,6 +13,11 @@ network:
     - "registry.npmjs.org:443"
     - "pypi.org:443"
     - "files.pythonhosted.org:443"
+    # Base Ubuntu apt mirrors used by the first install hook
+    # (`apt-get install ca-certificates curl nodejs npm python3-pip`).
+    # Ubuntu's default sources.list uses HTTP (port 80) for these.
+    - "archive.ubuntu.com:80"
+    - "security.ubuntu.com:80"
 
 commands:
   install:

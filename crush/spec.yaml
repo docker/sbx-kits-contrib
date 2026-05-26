@@ -130,6 +130,12 @@ network:
       valueFormat: "AWS4-HMAC-SHA256 Credential=%s/"
   allowedDomains:
     - repo.charm.sh
+    # Base Ubuntu apt mirrors used by the install hooks for
+    # `apt-get update && apt-get install crush`. shell-docker (and every
+    # other sbx template) is built on `ubuntu:*` whose default sources.list
+    # points at these two hosts.
+    - archive.ubuntu.com
+    - security.ubuntu.com
     - api.anthropic.com
     - api.openai.com
     - "*.openai.azure.com"
