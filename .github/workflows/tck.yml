@@ -174,12 +174,15 @@ jobs:
           # graphical session, so no org.freedesktop.secrets provider exists
           # and `sbx login` fails when it tries to upsert. We install
           # gnome-keyring and unlock it with an empty passphrase inside a
-          # dbus-run-session in the next step. The filestore backend in
-          # sandboxlib/auth/store_local.go is build-tag-gated and isn't in
-          # the released artifact, so this is the only path until that
-          # changes.
+          # dbus-run-session in the next step. libsecret-tools provides
+          # `secret-tool`, which we use to force-create the default
+          # collection (gnome-keyring-daemon --unlock alone leaves
+          # libsecret with no default collection alias). The filestore
+          # backend in sandboxlib/auth/store_local.go is build-tag-gated
+          # and isn't in the released artifact, so this is the only path
+          # until that changes.
           sudo apt-get update -qq
-          sudo apt-get install -y -qq gnome-keyring
+          sudo apt-get install -y -qq gnome-keyring libsecret-tools
 
       - name: Run e2e TCK for ${{ matrix.kit }}
         env:
@@ -208,12 +211,19 @@ jobs:
           # surfaces login/test failures clearly even though they share a
           # step in the GHA UI.
           dbus-run-session -- bash -e <<'EOF'
-          # --unlock reads the passphrase from stdin, creates the default
-          # "login" keyring if missing, unlocks it, and daemonizes. Passing
-          # an empty stdin gives the keyring an empty passphrase, which is
-          # fine for a throwaway runner. --start cannot be combined with
-          # --unlock (they're mutually exclusive in gnome-keyring-daemon).
-          printf '' | gnome-keyring-daemon --unlock --components=secrets >/dev/null
+          # Start daemonized gnome-keyring with the secrets component;
+          # --unlock reads the passphrase from stdin (empty here, which is
+          # fine for a throwaway runner). --start cannot be combined with
+          # --unlock — they're mutually exclusive.
+          printf '' | gnome-keyring-daemon --daemonize --unlock --components=secrets >/dev/null
+
+          # --unlock alone leaves libsecret with no default collection
+          # alias, so sbx's later s.Upsert fails with "Object does not
+          # exist at path /". Force the alias by storing+clearing a dummy
+          # secret via secret-tool, which materialises the default keyring
+          # as a side effect.
+          printf 'init' | secret-tool store --label='init' init init
+          secret-tool clear init init
 
           printf '%s' "$TOKEN_CLEAN" | sbx login --username "$USER_CLEAN" --password-stdin
 
