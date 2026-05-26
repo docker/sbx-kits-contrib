@@ -135,10 +135,17 @@ network:
     # exit 100 even if the kit's package would come from a different
     # repo. The shell-docker template ships with three sources, so all
     # three must be allowed for the kit's install to succeed under
-    # `deny-all`.
-    - archive.ubuntu.com        # default Ubuntu archive
-    - security.ubuntu.com       # Ubuntu security updates
+    # `deny-all`. Ubuntu hosts amd64 packages on archive/security and
+    # arm64 packages on ports.ubuntu.com, so all three Ubuntu hosts are
+    # listed to keep the kit working cross-arch.
+    - archive.ubuntu.com        # Ubuntu archive (amd64 main)
+    - security.ubuntu.com       # Ubuntu security updates (amd64)
+    - ports.ubuntu.com          # Ubuntu archive/security (arm64)
     - download.docker.com       # Docker's apt repo, pre-added by shell-docker
+    # Charm distributes the actual `crush` .deb via Gemfury's S3-accelerated
+    # bucket — `repo.charm.sh` only serves the apt index; package payloads
+    # are signed-URL redirects to this host.
+    - gemfury.s3-accelerate.dualstack.amazonaws.com
     - api.anthropic.com
     - api.openai.com
     - "*.openai.azure.com"

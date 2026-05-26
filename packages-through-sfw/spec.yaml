@@ -17,8 +17,12 @@ network:
     # for every configured apt source. The shell-docker base template
     # ships three sources, all of which must succeed for the update to
     # exit 0, regardless of which one our install actually fetches from.
-    - "archive.ubuntu.com:80"        # default Ubuntu archive (HTTP)
-    - "security.ubuntu.com:80"       # Ubuntu security updates (HTTP)
+    # Ubuntu hosts amd64 packages on archive/security and arm64 packages
+    # on ports.ubuntu.com, so all three Ubuntu hosts are listed for
+    # cross-arch coverage.
+    - "archive.ubuntu.com:80"        # Ubuntu archive (amd64 main, HTTP)
+    - "security.ubuntu.com:80"       # Ubuntu security updates (amd64, HTTP)
+    - "ports.ubuntu.com:80"          # Ubuntu archive/security (arm64, HTTP)
     - "download.docker.com:443"      # Docker's apt repo, pre-added by shell-docker
 
 commands:
