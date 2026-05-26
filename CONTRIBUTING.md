@@ -39,6 +39,17 @@ $ sbx run --kit ./my-kit/ <agent>
 
 The first two are what CI runs. The third catches things the TCK doesn't — install scripts hitting unexpected hosts, startup wrappers crashing silently, agents not authenticating.
 
+For an automated check that the engine actually materialises the kit's content inside a real sandbox (env vars, container files, tmpfs, rendered memory), opt into the e2e layer:
+
+```console
+$ KIT_UNDER_TEST="$PWD/my-kit" \
+    go test -tags=e2e -v -timeout 25m -count=1 -run TestE2ECreateSandbox ./tck/...
+```
+
+`KIT_UNDER_TEST` must be an absolute path — `go test` cd's into the package directory, so a relative path resolves against `./tck/`, not the repo root.
+
+See [End-to-end (e2e) Tests](./README.md#end-to-end-e2e-tests) in the README for prerequisites and what each subtest verifies.
+
 ## Sign-off and signing
 
 Every commit needs **two** things, which are unrelated:

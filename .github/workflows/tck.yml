@@ -104,3 +104,87 @@ jobs:
 
       - name: Run TCK self-tests
         run: go test -v -timeout 30m -count=1 ./spec/... ./tck/...
+
+  test-kit-e2e:
+    # End-to-end test: install the latest released sbx, authenticate against
+    # Docker Hub non-interactively, and run `sbx create --kit <kit> claude <tmp>`
+    # to prove the kit composes with a real CLI. Skipped for fork PRs because
+    # the Docker Hub secrets are not exposed there.
+    needs: detect-changes
+    if: >-
+      (github.event_name == 'push' ||
+       github.event.pull_request.head.repo.full_name == github.repository) &&
+      needs.detect-changes.outputs.kits != '[]' &&
+      needs.detect-changes.outputs.kits != 'null' &&
+      needs.detect-changes.outputs.kits != ''
+    strategy:
+      fail-fast: false
+      matrix:
+        kit: ${{ fromJson(needs.detect-changes.outputs.kits) }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
+        with:
+          go-version-file: go.mod
+
+      - name: Enable KVM access
+        run: |
+          sudo chmod 666 /dev/kvm
+          ls -la /dev/kvm
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+
+      - name: Download latest sbx release
+        run: |
+          set -euo pipefail
+          # docker/sbx-releases is a public repo; no auth needed to read.
+          # Resolve the latest stable tag via the redirect target of
+          # /releases/latest so we don't hardcode a version.
+          LATEST_URL=$(curl -fsSLI -o /dev/null -w '%{url_effective}' \
+            https://github.com/docker/sbx-releases/releases/latest)
+          VERSION="${LATEST_URL##*/}"
+          echo "Resolved latest sbx version: ${VERSION}"
+          echo "SBX_VERSION=${VERSION}" >> "$GITHUB_ENV"
+
+          curl -fsSL \
+            "https://github.com/docker/sbx-releases/releases/download/${VERSION}/DockerSandboxes-linux.tar.gz" \
+            -o /tmp/DockerSandboxes-linux.tar.gz
+          tar xzf /tmp/DockerSandboxes-linux.tar.gz -C /tmp
+
+      - name: Install sbx
+        run: |
+          set -euo pipefail
+          sudo PREFIX="${HOME}/.docker/sbx" /tmp/docker-sbx/install.sh
+          echo "${HOME}/.docker/sbx/bin" >> "$GITHUB_PATH"
+
+      - name: Verify sbx installation
+        run: sbx version
+
+      - name: Sign in to Docker Hub via sbx
+        env:
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+        run: |
+          if [ -z "${DOCKERHUB_USERNAME}" ] || [ -z "${DOCKERHUB_TOKEN}" ]; then
+            echo "DOCKERHUB_USERNAME / DOCKERHUB_TOKEN not configured; cannot run e2e."
+            exit 1
+          fi
+          printf '%s' "${DOCKERHUB_TOKEN}" | sbx login --username "${DOCKERHUB_USERNAME}" --password-stdin
+
+      - name: Run e2e TCK for ${{ matrix.kit }}
+        env:
+          # detect-changes emits bare directory names (`dirname "$f"`), and
+          # `go test ./tck/...` runs the binary with cwd set to the package
+          # dir. Anchor against $GITHUB_WORKSPACE so the test resolves to the
+          # repo-root kit directory rather than ./tck/<kit>.
+          KIT_UNDER_TEST: ${{ github.workspace }}/${{ matrix.kit }}
+        run: |
+          go test -tags=e2e -v -timeout 25m -count=1 -run TestE2ECreateSandbox ./tck/...
+
+      - name: Sign out of Docker Hub
+        if: always()
+        run: sbx logout --yes || true
