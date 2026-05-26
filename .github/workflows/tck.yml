@@ -193,7 +193,7 @@ jobs:
         run: |
           set -euo pipefail
           sudo apt-get update -qq
-          sudo apt-get install -y -qq dbus-x11 gnome-keyring
+          sudo apt-get install -y -qq dbus-x11 gnome-keyring libsecret-tools
 
           # Parse `KEY='VALUE';` or `KEY=VALUE` lines from a command's
           # stdout, strip the dbus/keyring quoting, and propagate to both
@@ -219,6 +219,16 @@ jobs:
           #    treats as "empty password" instead of falling through to
           #    gcr-prompter.
           echo '' | /usr/bin/gnome-keyring-daemon --unlock | capture_env
+
+          # 3. Force the default-collection alias to exist before sbx
+          #    tries to Upsert into it. gnome-keyring-daemon --unlock
+          #    unlocks the "login" keyring but on Ubuntu 24.04+ doesn't
+          #    automatically alias it to libsecret's "default" collection,
+          #    so sbx's first write hangs waiting on a prompt that never
+          #    arrives and times out after 10s. A throwaway secret-tool
+          #    write materialises the alias as a side effect.
+          printf 'init' | secret-tool store --label='init' init init
+          secret-tool clear init init
 
       - name: Sign in to Docker Hub via sbx
         env:
