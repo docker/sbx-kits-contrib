@@ -9,6 +9,7 @@ import (
 // Non-fatal validation issues (typically v1 → v2 deprecation warnings) are
 // collected on w; callers surface them via Artifact.Warnings.
 func (s *specFile) normalize(w *warnings) error {
+	s.normalizeKind(w)
 	if err := s.normalizeAgent(); err != nil {
 		return err
 	}
@@ -20,6 +21,15 @@ func (s *specFile) normalize(w *warnings) error {
 	}
 	s.normalizeAgentContext(w)
 	return nil
+}
+
+// normalizeKind maps the v1 `kind: agent` value to `sandbox`. The v2 value
+// is the canonical form; the v1 value triggers a deprecation warning.
+func (s *specFile) normalizeKind(w *warnings) {
+	if s.Manifest.Kind == KindAgent {
+		s.Manifest.Kind = KindSandbox
+		w.deprecate("kind: agent", "use 'kind: sandbox' instead (kit-spec v2)")
+	}
 }
 
 // normalizeAgentContext maps the v1 `memory:` field onto AgentContext.
@@ -37,7 +47,7 @@ func (s *specFile) normalizeAgentContext(w *warnings) {
 
 // normalizeAgent populates Manifest fields from the agent: block.
 func (s *specFile) normalizeAgent() error {
-	isAgent := s.Kind == KindAgent
+	isSandbox := s.Kind == KindSandbox
 
 	if s.Template != "" || s.Binary != "" || len(s.RunOptions) > 0 {
 		return fmt.Errorf("use the 'agent:' block instead of flat 'template'/'binary'/'runOptions' fields")
@@ -46,13 +56,13 @@ func (s *specFile) normalizeAgent() error {
 		return fmt.Errorf("use 'agent.aiFilename' instead of flat 'aiFilename' field")
 	}
 
-	if s.Agent != nil && !isAgent {
-		return fmt.Errorf("'agent:' block is only valid for kind %q, not %q", KindAgent, s.Kind)
+	if s.Agent != nil && !isSandbox {
+		return fmt.Errorf("'agent:' block is only valid for kind %q, not %q", KindSandbox, s.Kind)
 	}
 
 	if s.Agent == nil {
-		if isAgent {
-			return fmt.Errorf("kind %q requires an 'agent:' block with at least 'agent.image'", KindAgent)
+		if isSandbox {
+			return fmt.Errorf("kind %q requires an 'agent:' block with at least 'agent.image'", KindSandbox)
 		}
 		return nil
 	}

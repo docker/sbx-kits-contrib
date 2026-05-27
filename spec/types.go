@@ -25,8 +25,15 @@ var SupportedSchemaVersions = []string{"1", "2"}
 
 // Kind constants for manifest types.
 const (
-	// KindAgent defines a complete agent (must have a template).
-	// Only one agent is allowed per sandbox.
+	// KindSandbox defines a sandbox kit (must have a sandbox image source).
+	// Only one sandbox kit is allowed per sandbox. Renamed from KindAgent
+	// in schemaVersion "2"; v1 `kind: agent` is mapped to this value at
+	// load time with a deprecation warning.
+	KindSandbox = "sandbox"
+
+	// KindAgent is the v1 alias for KindSandbox. Accepted at load time
+	// with a deprecation warning. Drop in the Phase 4 schema-cutover
+	// commit.
 	KindAgent = "agent"
 
 	// KindMixin defines an extension that adds capabilities.

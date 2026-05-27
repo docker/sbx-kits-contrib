@@ -1,5 +1,5 @@
 schemaVersion: "1"
-kind: agent
+kind: sandbox
 name: amp
 displayName: Amp
 description: The frontier coding agent.

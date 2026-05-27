@@ -1,5 +1,5 @@
 schemaVersion: "1"
-kind: agent
+kind: sandbox
 name: trivy
 displayName: Trivy
 description: "Aqua's open source vulnerability scanner — sandboxed because security scanners shouldn't be able to compromise their hosts (TeamPCP, March 2026)."

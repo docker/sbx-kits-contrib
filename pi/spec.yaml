@@ -1,5 +1,5 @@
 schemaVersion: "1"
-kind: agent
+kind: sandbox
 name: pi
 displayName: Pi
 description: "Minimal terminal coding agent with extensible tools, skills, and TUI"

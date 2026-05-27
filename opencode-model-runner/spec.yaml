@@ -1,5 +1,5 @@
 schemaVersion: "1"
-kind: agent
+kind: sandbox
 name: opencode-model-runner
 displayName: OpenCode (Docker Model Runner)
 description: OpenCode wired to a local Docker Model Runner instance via its OpenAI-compatible API, with automatic model discovery.

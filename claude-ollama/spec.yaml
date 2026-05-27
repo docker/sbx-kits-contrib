@@ -1,5 +1,5 @@
 schemaVersion: "1"
-kind: agent
+kind: sandbox
 name: claude-ollama
 displayName: Claude Code (Ollama)
 description: Claude Code wired to Ollama Anthropic-compatible API, with configurable model.

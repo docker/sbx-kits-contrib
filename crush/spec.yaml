@@ -1,5 +1,5 @@
 schemaVersion: "1"
-kind: agent
+kind: sandbox
 name: crush
 displayName: Crush
 description: Multi-provider AI coding agent from Charm, with proxy-mediated auth for 15 model providers.

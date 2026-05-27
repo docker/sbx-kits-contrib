@@ -1,5 +1,5 @@
 schemaVersion: "1"
-kind: agent
+kind: sandbox
 name: sample-agent
 version: "1.0.0"
 displayName: Sample Agent
