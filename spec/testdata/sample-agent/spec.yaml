@@ -6,7 +6,7 @@ displayName: Sample Agent
 description: "A test-only agent that exercises agent-specific spec fields"
 sourceURL: https://example.com/sample-agent
 
-agent:
+sandbox:
   image: "docker/sandbox-templates:shell-docker"
   aiFilename: SAMPLE.md
   entrypoint:

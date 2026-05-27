@@ -10,7 +10,7 @@ import (
 // collected on w; callers surface them via Artifact.Warnings.
 func (s *specFile) normalize(w *warnings) error {
 	s.normalizeKind(w)
-	if err := s.normalizeAgent(); err != nil {
+	if err := s.normalizeSandbox(w); err != nil {
 		return err
 	}
 	if err := s.normalizeSecrets(); err != nil {
@@ -45,41 +45,52 @@ func (s *specFile) normalizeAgentContext(w *warnings) {
 	s.LegacyMemory = ""
 }
 
-// normalizeAgent populates Manifest fields from the agent: block.
-func (s *specFile) normalizeAgent() error {
+// normalizeSandbox populates Manifest fields from the sandbox: block.
+// Renamed from normalizeAgent in v2 alongside the YAML rename. v1
+// `agent:` is migrated onto Sandbox at load time with a deprecation
+// warning.
+func (s *specFile) normalizeSandbox(w *warnings) error {
+	if s.LegacyAgent != nil {
+		if s.Sandbox == nil {
+			s.Sandbox = s.LegacyAgent
+		}
+		w.deprecate("agent:", "use 'sandbox:' block instead (kit-spec v2)")
+		s.LegacyAgent = nil
+	}
+
 	isSandbox := s.Kind == KindSandbox
 
 	if s.Template != "" || s.Binary != "" || len(s.RunOptions) > 0 {
-		return fmt.Errorf("use the 'agent:' block instead of flat 'template'/'binary'/'runOptions' fields")
+		return fmt.Errorf("use the 'sandbox:' block instead of flat 'template'/'binary'/'runOptions' fields")
 	}
 	if s.AIFilename != "" {
-		return fmt.Errorf("use 'agent.aiFilename' instead of flat 'aiFilename' field")
+		return fmt.Errorf("use 'sandbox.aiFilename' instead of flat 'aiFilename' field")
 	}
 
-	if s.Agent != nil && !isSandbox {
-		return fmt.Errorf("'agent:' block is only valid for kind %q, not %q", KindSandbox, s.Kind)
+	if s.Sandbox != nil && !isSandbox {
+		return fmt.Errorf("'sandbox:' block is only valid for kind %q, not %q", KindSandbox, s.Kind)
 	}
 
-	if s.Agent == nil {
+	if s.Sandbox == nil {
 		if isSandbox {
-			return fmt.Errorf("kind %q requires an 'agent:' block with at least 'agent.image'", KindSandbox)
+			return fmt.Errorf("kind %q requires a 'sandbox:' block with at least 'sandbox.image'", KindSandbox)
 		}
 		return nil
 	}
 
-	s.Template = s.Agent.Image
-	s.AIFilename = s.Agent.AIFilename
-	s.Resources = s.Agent.Resources
+	s.Template = s.Sandbox.Image
+	s.AIFilename = s.Sandbox.AIFilename
+	s.Resources = s.Sandbox.Resources
 
-	if s.Agent.Entrypoint != nil {
-		if len(s.Agent.Entrypoint.Run) > 0 {
-			s.Binary = s.Agent.Entrypoint.Run[0]
-			if len(s.Agent.Entrypoint.Run) > 1 {
-				s.RunOptions = s.Agent.Entrypoint.Run[1:]
+	if s.Sandbox.Entrypoint != nil {
+		if len(s.Sandbox.Entrypoint.Run) > 0 {
+			s.Binary = s.Sandbox.Entrypoint.Run[0]
+			if len(s.Sandbox.Entrypoint.Run) > 1 {
+				s.RunOptions = s.Sandbox.Entrypoint.Run[1:]
 			}
 		}
-		if len(s.Agent.Entrypoint.Args) > 0 {
-			s.RunOptions = append(s.RunOptions, s.Agent.Entrypoint.Args...)
+		if len(s.Sandbox.Entrypoint.Args) > 0 {
+			s.RunOptions = append(s.RunOptions, s.Sandbox.Entrypoint.Args...)
 		}
 	}
 

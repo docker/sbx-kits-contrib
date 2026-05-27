@@ -120,3 +120,60 @@ agent:
 		}
 	}
 }
+
+func TestV1AgentBlock_MapsToSandbox(t *testing.T) {
+	dir := t.TempDir()
+	specYAML := `schemaVersion: "1"
+kind: agent
+name: test
+agent:
+  image: example/test:latest
+  aiFilename: TEST.md
+`
+	if err := os.WriteFile(filepath.Join(dir, "spec.yaml"), []byte(specYAML), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	art, err := LoadFromDirectory(dir)
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if art.Manifest.Template != "example/test:latest" {
+		t.Errorf("Template = %q; want example/test:latest", art.Manifest.Template)
+	}
+	foundWarning := false
+	for _, w := range art.Warnings {
+		if strings.Contains(w, "agent:") || (strings.Contains(w, "agent") && strings.Contains(w, "sandbox")) {
+			foundWarning = true
+			break
+		}
+	}
+	if !foundWarning {
+		t.Errorf("expected deprecation warning for agent: block, got %v", art.Warnings)
+	}
+}
+
+func TestV2SandboxBlock_Accepted(t *testing.T) {
+	dir := t.TempDir()
+	specYAML := `schemaVersion: "2"
+kind: sandbox
+name: test
+sandbox:
+  image: example/test:latest
+  aiFilename: TEST.md
+`
+	if err := os.WriteFile(filepath.Join(dir, "spec.yaml"), []byte(specYAML), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	art, err := LoadFromDirectory(dir)
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if art.Manifest.Template != "example/test:latest" {
+		t.Errorf("Template = %q; want example/test:latest", art.Manifest.Template)
+	}
+	for _, w := range art.Warnings {
+		if strings.Contains(w, "agent:") {
+			t.Errorf("unexpected deprecation warning for v2 sandbox block: %s", w)
+		}
+	}
+}

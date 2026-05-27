@@ -4,7 +4,7 @@ name: amp
 displayName: Amp
 description: The frontier coding agent.
 
-agent:
+sandbox:
   image: "docker/sandbox-templates:shell-docker"
   aiFilename: AGENTS.md
   entrypoint:

@@ -6,11 +6,11 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestNormalizeAgent(t *testing.T) {
-	t.Run("populates_manifest_from_agent_block", func(t *testing.T) {
+func TestNormalizeSandbox(t *testing.T) {
+	t.Run("populates_manifest_from_sandbox_block", func(t *testing.T) {
 		s := specFile{
-			Manifest: Manifest{Kind: KindAgent, SchemaVersion: SchemaVersion, Name: "a"},
-			Agent: &agentBlock{
+			Manifest: Manifest{Kind: KindSandbox, SchemaVersion: SchemaVersion, Name: "a"},
+			Sandbox: &sandboxBlock{
 				Image:      "my-image",
 				AIFilename: "AI.md",
 				Resources:  &Resources{CPU: 4, MemoryMB: 8192, GPU: "1"},
@@ -31,26 +31,26 @@ func TestNormalizeAgent(t *testing.T) {
 		require.Equal(t, "1", s.Resources.GPU)
 	})
 
-	t.Run("rejects_agent_block_on_mixin", func(t *testing.T) {
+	t.Run("rejects_sandbox_block_on_mixin", func(t *testing.T) {
 		s := specFile{
 			Manifest: Manifest{Kind: KindMixin, SchemaVersion: SchemaVersion, Name: "m"},
-			Agent:    &agentBlock{Image: "img"},
+			Sandbox:  &sandboxBlock{Image: "img"},
 		}
 		require.ErrorContains(t, s.normalize(&warnings{}), "only valid for kind")
 	})
 
 	t.Run("rejects_flat_template_field", func(t *testing.T) {
 		s := specFile{
-			Manifest: Manifest{Kind: KindAgent, SchemaVersion: SchemaVersion, Name: "a", Template: "img"},
+			Manifest: Manifest{Kind: KindSandbox, SchemaVersion: SchemaVersion, Name: "a", Template: "img"},
 		}
-		require.ErrorContains(t, s.normalize(&warnings{}), "agent:")
+		require.ErrorContains(t, s.normalize(&warnings{}), "sandbox:")
 	})
 
-	t.Run("agent_requires_agent_block", func(t *testing.T) {
+	t.Run("sandbox_requires_sandbox_block", func(t *testing.T) {
 		s := specFile{
-			Manifest: Manifest{Kind: KindAgent, SchemaVersion: SchemaVersion, Name: "a"},
+			Manifest: Manifest{Kind: KindSandbox, SchemaVersion: SchemaVersion, Name: "a"},
 		}
-		require.ErrorContains(t, s.normalize(&warnings{}), "requires an 'agent:' block")
+		require.ErrorContains(t, s.normalize(&warnings{}), "requires a 'sandbox:' block")
 	})
 }
 

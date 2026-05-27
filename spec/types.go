@@ -421,7 +421,11 @@ type specFile struct {
 	Manifest    `yaml:",inline"`
 	Extends     string             `yaml:"extends,omitempty"`
 	Locked      []string           `yaml:"locked,omitempty"`
-	Agent       *agentBlock        `yaml:"agent,omitempty"`
+	Sandbox *sandboxBlock `yaml:"sandbox,omitempty"`
+	// LegacyAgent holds the v1 `agent:` block. The normalize step
+	// migrates its contents to Sandbox with a deprecation warning. Drop
+	// in the Phase 4 schema-cutover commit.
+	LegacyAgent *sandboxBlock `yaml:"agent,omitempty"`
 	Secrets     []string           `yaml:"secrets,omitempty"`
 	Egress      map[string]string  `yaml:"egress,omitempty"`
 	Network     *NetworkPolicy     `yaml:"network,omitempty"`
@@ -437,8 +441,10 @@ type specFile struct {
 	LegacyMemory string            `yaml:"memory,omitempty"`
 }
 
-// agentBlock groups agent-specific configuration.
-type agentBlock struct {
+// sandboxBlock groups sandbox-specific configuration (formerly the
+// `agent:` block in v1). The Go type was renamed alongside the YAML
+// field rename to keep call sites legible.
+type sandboxBlock struct {
 	Image      string           `yaml:"image,omitempty"`
 	Entrypoint *entrypointBlock `yaml:"entrypoint,omitempty"`
 	AIFilename string           `yaml:"aiFilename,omitempty"`

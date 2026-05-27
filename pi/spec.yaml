@@ -4,7 +4,7 @@ name: pi
 displayName: Pi
 description: "Minimal terminal coding agent with extensible tools, skills, and TUI"
 
-agent:
+sandbox:
   image: "docker/sandbox-templates:shell-docker"
   aiFilename: AGENTS.md
   entrypoint:

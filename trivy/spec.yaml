@@ -4,7 +4,7 @@ name: trivy
 displayName: Trivy
 description: "Aqua's open source vulnerability scanner — sandboxed because security scanners shouldn't be able to compromise their hosts (TeamPCP, March 2026)."
 
-agent:
+sandbox:
   image: "docker/sandbox-templates:shell-docker"
   aiFilename: AGENTS.md
   # Drop into bash with trivy on PATH and the workspace as cwd. Run `trivy fs .` to scan.
