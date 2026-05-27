@@ -27,7 +27,7 @@ commands:
       user: "1000"
       description: Install Amp
 
-memory: |
+agentContext: |
   ## Sandbox environment
 
   You are running inside a Docker sandbox. The workspace is mounted at

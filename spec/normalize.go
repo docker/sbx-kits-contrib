@@ -6,7 +6,9 @@ import (
 )
 
 // normalize converts sugar fields in specFile into canonical Artifact fields.
-func (s *specFile) normalize() error {
+// Non-fatal validation issues (typically v1 → v2 deprecation warnings) are
+// collected on w; callers surface them via Artifact.Warnings.
+func (s *specFile) normalize(w *warnings) error {
 	if err := s.normalizeAgent(); err != nil {
 		return err
 	}
@@ -16,7 +18,21 @@ func (s *specFile) normalize() error {
 	if err := s.normalizeEgress(); err != nil {
 		return err
 	}
+	s.normalizeAgentContext(w)
 	return nil
+}
+
+// normalizeAgentContext maps the v1 `memory:` field onto AgentContext.
+// The v2 field wins if both are set.
+func (s *specFile) normalizeAgentContext(w *warnings) {
+	if s.LegacyMemory == "" {
+		return
+	}
+	if s.AgentContext == "" {
+		s.AgentContext = s.LegacyMemory
+	}
+	w.deprecate("memory", "use 'agentContext' instead (kit-spec v2)")
+	s.LegacyMemory = ""
 }
 
 // normalizeAgent populates Manifest fields from the agent: block.

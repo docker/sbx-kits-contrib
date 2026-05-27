@@ -20,7 +20,7 @@ func TestNormalizeAgent(t *testing.T) {
 				},
 			},
 		}
-		require.NoError(t, s.normalize())
+		require.NoError(t, s.normalize(&warnings{}))
 		require.Equal(t, "my-image", s.Template)
 		require.Equal(t, "bin", s.Binary)
 		require.Equal(t, []string{"--flag", "--extra"}, s.RunOptions)
@@ -36,21 +36,21 @@ func TestNormalizeAgent(t *testing.T) {
 			Manifest: Manifest{Kind: KindMixin, SchemaVersion: SchemaVersion, Name: "m"},
 			Agent:    &agentBlock{Image: "img"},
 		}
-		require.ErrorContains(t, s.normalize(), "only valid for kind")
+		require.ErrorContains(t, s.normalize(&warnings{}), "only valid for kind")
 	})
 
 	t.Run("rejects_flat_template_field", func(t *testing.T) {
 		s := specFile{
 			Manifest: Manifest{Kind: KindAgent, SchemaVersion: SchemaVersion, Name: "a", Template: "img"},
 		}
-		require.ErrorContains(t, s.normalize(), "agent:")
+		require.ErrorContains(t, s.normalize(&warnings{}), "agent:")
 	})
 
 	t.Run("agent_requires_agent_block", func(t *testing.T) {
 		s := specFile{
 			Manifest: Manifest{Kind: KindAgent, SchemaVersion: SchemaVersion, Name: "a"},
 		}
-		require.ErrorContains(t, s.normalize(), "requires an 'agent:' block")
+		require.ErrorContains(t, s.normalize(&warnings{}), "requires an 'agent:' block")
 	})
 }
 
@@ -60,7 +60,7 @@ func TestNormalizeSecrets(t *testing.T) {
 			Manifest: Manifest{Kind: KindMixin, SchemaVersion: SchemaVersion, Name: "m"},
 			Secrets:  []string{"ANTHROPIC_API_KEY", "GH_TOKEN"},
 		}
-		require.NoError(t, s.normalize())
+		require.NoError(t, s.normalize(&warnings{}))
 		require.NotNil(t, s.Credentials)
 		require.Contains(t, s.Credentials.Sources, "anthropic")
 		require.Contains(t, s.Credentials.Sources, "github")
@@ -77,7 +77,7 @@ func TestNormalizeSecrets(t *testing.T) {
 				},
 			},
 		}
-		require.ErrorContains(t, s.normalize(), "conflicts")
+		require.ErrorContains(t, s.normalize(&warnings{}), "conflicts")
 	})
 }
 
@@ -87,7 +87,7 @@ func TestNormalizeEgress(t *testing.T) {
 			Manifest: Manifest{Kind: KindMixin, SchemaVersion: SchemaVersion, Name: "m"},
 			Egress:   map[string]string{"api.anthropic.com": "anthropic"},
 		}
-		require.NoError(t, s.normalize())
+		require.NoError(t, s.normalize(&warnings{}))
 		require.NotNil(t, s.Network)
 		require.Equal(t, "anthropic", s.Network.ServiceDomains["api.anthropic.com"])
 		require.Equal(t, "x-api-key", s.Network.ServiceAuth["anthropic"].HeaderName)
@@ -98,7 +98,7 @@ func TestNormalizeEgress(t *testing.T) {
 			Manifest: Manifest{Kind: KindMixin, SchemaVersion: SchemaVersion, Name: "m"},
 			Egress:   map[string]string{"custom.example.com": "custom"},
 		}
-		require.NoError(t, s.normalize())
+		require.NoError(t, s.normalize(&warnings{}))
 		_, hasAuth := s.Network.ServiceAuth["custom"]
 		require.False(t, hasAuth, "unknown services should not get default auth")
 	})

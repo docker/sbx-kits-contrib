@@ -42,7 +42,7 @@ commands:
 
         exec claude "$@"
 
-memory: |
+agentContext: |
   ## Sandbox environment
 
   You are running inside a Docker sandbox. All API calls are routed to a local

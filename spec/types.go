@@ -322,8 +322,11 @@ type Artifact struct {
 	// Files are static files from the files/ directory to copy into the container.
 	Files []ArtifactFile `json:"files,omitempty"`
 
-	// Memory is optional agent-specific markdown content.
-	Memory string `json:"memory,omitempty"`
+	// AgentContext is optional agent-specific markdown content appended to
+	// the AI profile file. Renamed from `Memory` in schemaVersion "2";
+	// v1 `memory:` is mapped to this field at load time with a deprecation
+	// warning.
+	AgentContext string `json:"agentContext,omitempty"`
 
 	// Warnings is the list of non-fatal validation issues collected during
 	// load (typically v1 → v2 deprecation warnings). Empty slice when the
@@ -420,7 +423,11 @@ type specFile struct {
 	Settings    *SettingsPolicy    `yaml:"settings,omitempty"`
 	Commands    *CommandsPolicy    `yaml:"commands,omitempty"`
 	OAuth       *OAuthPolicy       `yaml:"oauth,omitempty"`
-	Memory      string             `yaml:"memory,omitempty"`
+	AgentContext string            `yaml:"agentContext,omitempty"`
+	// LegacyMemory holds the v1 `memory:` field. The normalize step
+	// migrates it to AgentContext with a deprecation warning. Drop in
+	// the Phase 4 schema-cutover commit.
+	LegacyMemory string            `yaml:"memory,omitempty"`
 }
 
 // agentBlock groups agent-specific configuration.

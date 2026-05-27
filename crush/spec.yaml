@@ -181,7 +181,7 @@ commands:
       user: "0"
       description: Install Crush from Charm apt repository
 
-memory: |
+agentContext: |
   ## Crush
 
   Crush is a multi-provider AI coding agent from Charm. It is installed

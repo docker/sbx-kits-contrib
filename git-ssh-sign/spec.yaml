@@ -48,7 +48,7 @@ commands:
       user: "0"
       description: Configure SSH commit signing with a dynamic key command
 
-memory: |
+agentContext: |
   ## Git commit signing
 
   This sandbox is configured to sign git commits with your host's SSH key.

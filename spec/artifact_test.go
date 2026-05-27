@@ -39,7 +39,7 @@ func TestLoadFromDirectory(t *testing.T) {
 		require.Equal(t, "sample-bin", a.Manifest.Binary)
 		require.Equal(t, []string{"--verbose", "--task-mode"}, a.Manifest.RunOptions)
 		require.Equal(t, "SAMPLE.md", a.Manifest.AIFilename)
-		require.NotEmpty(t, a.Memory)
+		require.NotEmpty(t, a.AgentContext)
 	})
 
 	t.Run("missing_directory", func(t *testing.T) {

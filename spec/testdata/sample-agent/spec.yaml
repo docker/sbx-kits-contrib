@@ -34,5 +34,5 @@ commands:
       background: true
       description: Sample agent startup
 
-memory: |
+agentContext: |
   This is sample agent memory content for TCK testing.

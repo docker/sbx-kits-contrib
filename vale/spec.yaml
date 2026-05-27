@@ -34,7 +34,7 @@ commands:
       user: "0"
       description: "Install latest Vale CLI"
 
-memory: |
+agentContext: |
   ## Vale prose linter
 
   The `vale` CLI is installed and available on `PATH`. Use it to lint

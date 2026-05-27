@@ -23,7 +23,7 @@ commands:
       user: "0"
       description: Fetch and install GitHub host keys from api.github.com/meta
 
-memory: |
+agentContext: |
   ## GitHub SSH authentication
 
   GitHub's host keys are pre-populated in `~/.ssh/known_hosts`, so SSH

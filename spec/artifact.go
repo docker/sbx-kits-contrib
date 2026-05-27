@@ -120,21 +120,23 @@ func parseArtifactBytes(data []byte) (*Artifact, error) {
 		return nil, fmt.Errorf("artifact: invalid %s: %w", specFileName, err)
 	}
 
-	if err := spec.normalize(); err != nil {
+	w := &warnings{}
+	if err := spec.normalize(w); err != nil {
 		return nil, fmt.Errorf("artifact: %w", err)
 	}
 
 	return &Artifact{
-		Manifest:    spec.Manifest,
-		Extends:     spec.Extends,
-		Locked:      spec.Locked,
-		Network:     spec.Network,
-		Credentials: spec.Credentials,
-		Environment: spec.Environment,
-		Settings:    spec.Settings,
-		Commands:    spec.Commands,
-		OAuth:       spec.OAuth,
-		Memory:      spec.Memory,
+		Manifest:     spec.Manifest,
+		Extends:      spec.Extends,
+		Locked:       spec.Locked,
+		Network:      spec.Network,
+		Credentials:  spec.Credentials,
+		Environment:  spec.Environment,
+		Settings:     spec.Settings,
+		Commands:     spec.Commands,
+		OAuth:        spec.OAuth,
+		AgentContext: spec.AgentContext,
+		Warnings:     w.messages,
 	}, nil
 }
 
