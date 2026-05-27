@@ -37,13 +37,13 @@ const sandboxWorkDir = "/home/agent/workspace"
 // real sbx daemon, asserts that `sbx create` succeeds, then verifies the kit
 // content is present inside the running container: env vars, container files
 // (from `files/home` and `commands.initFiles`), tmpfs mounts, and — when the
-// kit declares a `memory:` block — the rendered memory file. The sandbox is
+// kit declares an `agentContext:` block — the rendered file. The sandbox is
 // removed in cleanup.
 //
 // The agent passed to `sbx create` depends on the kit's manifest:
 //
-//   - kind: agent  → the kit's own name (sbx enforces this match).
-//   - kind: mixin  → "claude" (the default agent kit-author exercised).
+//   - kind: sandbox → the kit's own name (sbx enforces this match).
+//   - kind: mixin   → "claude" (the default agent kit-author exercised).
 //
 // KIT_UNDER_TEST is read from the environment; the CI matrix sets it per-kit.
 func TestE2ECreateSandbox(t *testing.T) {
@@ -98,7 +98,7 @@ func TestE2ECreateSandbox(t *testing.T) {
 		assertSbxEnv(t, ctx, name, suite.ExpectedEnvVars)
 		assertSbxFiles(t, ctx, name, expectedSandboxFiles(suite.Artifact))
 		assertSbxTmpfs(t, ctx, name, suite.ExpectedTmpfs)
-		assertSbxMemory(t, ctx, name, suite.Artifact)
+		assertSbxAgentContext(t, ctx, name, suite.Artifact)
 	})
 }
 
@@ -177,29 +177,29 @@ func assertSbxTmpfs(t *testing.T, ctx context.Context, name string, expected map
 	})
 }
 
-// assertSbxMemory verifies that a kit's `memory:` content was rendered into a
-// file inside the sandbox. For `kind: agent` kits the memory is inlined in
-// the AI memory file (Manifest.AIFilename); for `kind: mixin` kits the engine
-// writes a per-kit memory file as `kits-memory/<kit-name>.md` next to the
-// parent agent's AI file. The exact directory varies per template, so we
-// locate candidate files by name first, then grep each one for a stable
-// substring of the declared memory.
-func assertSbxMemory(t *testing.T, ctx context.Context, name string, a *spec.Artifact) {
-	if a.Memory == "" {
+// assertSbxAgentContext verifies that a kit's `agentContext:` content was
+// rendered into a file inside the sandbox. For `kind: sandbox` kits the
+// agentContext is inlined in the AI profile file (Manifest.AIFilename); for
+// `kind: mixin` kits the engine writes a per-kit file as
+// `kits-agent-context/<kit-name>.md` next to the parent agent's AI file. The
+// exact directory varies per template, so we locate candidate files by name
+// first, then grep each one for a stable substring of the declared content.
+func assertSbxAgentContext(t *testing.T, ctx context.Context, name string, a *spec.Artifact) {
+	if a.AgentContext == "" {
 		return
 	}
-	target := memoryFilename(a)
+	target := agentContextFilename(a)
 	if target == "" {
-		t.Logf("memory check skipped: kit %s declares memory but has no aiFilename (kind=%s)",
+		t.Logf("agentContext check skipped: kit %s declares agentContext but has no aiFilename (kind=%s)",
 			a.Manifest.Name, a.Manifest.Kind)
 		return
 	}
-	needle := memoryNeedle(a.Memory)
+	needle := agentContextNeedle(a.AgentContext)
 	if needle == "" {
-		t.Logf("memory check skipped: no usable line in declared memory")
+		t.Logf("agentContext check skipped: no usable line in declared agentContext")
 		return
 	}
-	t.Run("memory", func(t *testing.T) {
+	t.Run("agentContext", func(t *testing.T) {
 		// Find candidates by filename in writable trees. Prune pseudo-fs to
 		// keep the traversal fast and avoid permission noise. `|| true`
 		// hides find's non-zero exit when it bumps into unreadable
@@ -214,26 +214,27 @@ func assertSbxMemory(t *testing.T, ctx context.Context, name string, a *spec.Art
 
 		paths := strings.Fields(findOut)
 		require.NotEmptyf(t, paths,
-			"no memory file %q found anywhere in sandbox (kind=%s, name=%s)",
+			"no agentContext file %q found anywhere in sandbox (kind=%s, name=%s)",
 			target, a.Manifest.Kind, a.Manifest.Name)
 
 		for _, p := range paths {
 			grepCmd := fmt.Sprintf("grep -qF -- %s %s", shellQuote(needle), shellQuote(p))
 			if _, err := runSbx(t, ctx, "exec", name, "--", "sh", "-c", grepCmd); err == nil {
-				t.Logf("memory matched in %s", p)
+				t.Logf("agentContext matched in %s", p)
 				return
 			}
 		}
-		t.Fatalf("memory needle %q not found in any candidate %v (kind=%s, name=%s)",
+		t.Fatalf("agentContext needle %q not found in any candidate %v (kind=%s, name=%s)",
 			needle, paths, a.Manifest.Kind, a.Manifest.Name)
 	})
 }
 
-// memoryFilename returns the filename the engine writes a kit's memory into.
-// kind: agent  → Manifest.AIFilename (inlined memory)
-// kind: mixin  → "<kit-name>.md" under .../kits-memory/
-func memoryFilename(a *spec.Artifact) string {
-	if a.Manifest.Kind == spec.KindAgent {
+// agentContextFilename returns the filename the engine writes a kit's
+// agentContext into.
+//   kind: sandbox → Manifest.AIFilename (inlined agentContext)
+//   kind: mixin   → "<kit-name>.md" under .../kits-agent-context/
+func agentContextFilename(a *spec.Artifact) string {
+	if a.Manifest.Kind == spec.KindSandbox {
 		return a.Manifest.AIFilename
 	}
 	if a.Manifest.Kind == spec.KindMixin {
@@ -242,13 +243,13 @@ func memoryFilename(a *spec.Artifact) string {
 	return ""
 }
 
-// memoryNeedle picks the longest non-empty, non-fenced, no-backtick line from
-// the declared memory to use as a grep target. Avoiding backticks keeps the
-// quoting story simple; picking the longest line minimizes the chance the
-// substring collides with boilerplate.
-func memoryNeedle(memory string) string {
+// agentContextNeedle picks the longest non-empty, non-fenced, no-backtick
+// line from the declared agentContext to use as a grep target. Avoiding
+// backticks keeps the quoting story simple; picking the longest line
+// minimizes the chance the substring collides with boilerplate.
+func agentContextNeedle(agentContext string) string {
 	var best string
-	for _, raw := range strings.Split(memory, "\n") {
+	for _, raw := range strings.Split(agentContext, "\n") {
 		line := strings.TrimSpace(raw)
 		if line == "" || strings.HasPrefix(line, "```") || strings.ContainsAny(line, "`'") {
 			continue
@@ -263,11 +264,12 @@ func memoryNeedle(memory string) string {
 	return best
 }
 
-// agentForKit picks the positional agent argument for `sbx create`. Agent
-// kits must be invoked with their own name as the agent; mixin kits piggy-back
-// on whichever agent kit-author wants to exercise — claude is the default.
+// agentForKit picks the positional agent argument for `sbx create`. Sandbox
+// kits must be invoked with their own name as the agent; mixin kits
+// piggy-back on whichever agent kit-author wants to exercise — claude is
+// the default.
 func agentForKit(a *spec.Artifact) string {
-	if a.Manifest.Kind == spec.KindAgent {
+	if a.Manifest.Kind == spec.KindSandbox {
 		return a.Manifest.Name
 	}
 	return "claude"
