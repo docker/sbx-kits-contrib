@@ -324,6 +324,11 @@ type Artifact struct {
 
 	// Memory is optional agent-specific markdown content.
 	Memory string `json:"memory,omitempty"`
+
+	// Warnings is the list of non-fatal validation issues collected during
+	// load (typically v1 → v2 deprecation warnings). Empty slice when the
+	// spec uses only canonical v2 fields.
+	Warnings []string `json:"warnings,omitempty"`
 }
 
 // OAuthPolicy defines OAuth configuration for agents that use OAuth-based
