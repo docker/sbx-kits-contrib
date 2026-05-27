@@ -18,6 +18,14 @@ network:
     example:
       headerName: Authorization
       valueFormat: "Bearer %s"
+  publishedPorts:
+    - container: 9418
+    - container: 8080
+      protocol: tcp
+      name: web
+    - container: 53
+      protocol: udp
+      name: dns
 
 credentials:
   sources:
