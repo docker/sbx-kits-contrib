@@ -157,54 +157,29 @@ The non-obvious trap is **package managers refreshing every configured source**,
 - Ubuntu hosts amd64 packages on `archive.ubuntu.com` + `security.ubuntu.com` and arm64 packages on `ports.ubuntu.com`. List all three for cross-arch coverage; CI is amd64, your Mac is likely arm64.
 - `npm install`, `pip install`, `cargo`, `go get`, etc. each have their own registry/mirror hosts — declare them too.
 
-If you're not sure what your install hooks reach, probe locally under `deny-all`. From an isolated `--app-name` daemon you can read the daemon log for the exact set of denied domains:
+If you're not sure what your install hooks reach, probe locally under `deny-all` and read `sbx policy log` to see exactly what the proxy blocked. The recipe is cross-platform (no daemon-log greping, no OS-specific paths):
 
 ```bash
-APP=kitprobe-$(uuidgen | tr -dc 'a-z0-9' | head -c 6)
-sbx --app-name "$APP" daemon start
-printf '%s' "$DOCKERHUB_TOKEN" | sbx --app-name "$APP" login --username "$DOCKERHUB_USERNAME" --password-stdin
-sbx --app-name "$APP" policy set-default deny-all
-sbx --app-name "$APP" create --name probe --kit "$PWD/my-kit" <agent> /tmp/sbx-kit-debug || true
+# 1. Switch to the strict baseline. `sbx policy reset` drops any local
+#    rules you've added — if you have customisations, list them first
+#    with `sbx policy ls` so you can restore them later.
+sbx policy reset -f
+sbx policy set-default deny-all
+
+# 2. Run your kit. The install hooks fire during `sbx create`.
+sbx create --name probe-my-kit --kit "$PWD/my-kit" <agent> /tmp/sbx-kit-debug || true
+
+# 3. See what the proxy blocked (and what got through). Filter by the
+#    sandbox name so you only see this kit's requests.
+sbx policy log probe-my-kit
+
+# 4. Clean up the probe sandbox and restore your previous default policy.
+sbx rm -f probe-my-kit
+sbx policy reset -f
+sbx policy set-default balanced   # or whichever preset you were on
 ```
 
-Now find the daemon log. `sbx daemon status` prints its path under `Logs:` regardless of OS — easiest to ask sbx than to guess:
-
-```bash
-# macOS / Linux / Git Bash / WSL
-LOG=$(sbx --app-name "$APP" daemon status | sed -n 's/^Logs:[[:space:]]*//p')
-grep 'governance policy evaluation' "$LOG"
-```
-
-```powershell
-# Windows PowerShell
-$LOG = (sbx --app-name $env:APP daemon status | Select-String '^Logs:').Line -replace '^Logs:\s*', ''
-Select-String -Pattern 'governance policy evaluation' -Path $LOG
-```
-
-If you'd rather hardcode, the per-platform state directory layouts are:
-
-| Platform | Daemon log path |
-|---|---|
-| macOS | `~/Library/Application Support/com.docker.sandboxes/sandboxes-<APP>/sandboxd/daemon.log` |
-| Linux | `~/.local/state/com.docker.sandboxes/sandboxes-<APP>/sandboxd/daemon.log` (or the storagekit XDG equivalent) |
-| Windows | `%LOCALAPPDATA%\com.docker.sandboxes\sandboxes-<APP>\sandboxd\daemon.log` |
-
-Every `governance policy evaluation` line with `"allowed":false` is a domain your install hook reached for. Add them to `allowedDomains` until the list is empty.
-
-When you're done, tear the isolated daemon down so it doesn't leak state:
-
-```bash
-# macOS / Linux / Git Bash / WSL
-sbx --app-name "$APP" daemon stop
-# Then delete the per-app-name state dir (path from `sbx daemon status` before stopping,
-# or substitute the row from the table above).
-```
-
-```powershell
-# Windows PowerShell
-sbx --app-name $env:APP daemon stop
-# Then Remove-Item -Recurse -Force "$env:LOCALAPPDATA\com.docker.sandboxes\sandboxes-$env:APP"
-```
+Every `Blocked requests` row is a domain your install or startup hook reached for under `deny-all`. Add the host (column `HOST`, e.g. `download.docker.com:443`) to `allowedDomains` and re-probe until the block list is empty.
 
 ## TCK Test Coverage
 
