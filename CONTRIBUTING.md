@@ -27,6 +27,14 @@ Every kit should ship a `README.md`. The structure isn't mandatory, but the exis
 
 For kits that have a corresponding tutorial on [docs.docker.com](https://docs.docker.com/), link to it instead of duplicating the design rationale.
 
+## Network policy: declare every domain
+
+Your kit's `network.allowedDomains` is the **complete** outbound contract — the CI e2e job runs under `deny-all`, so anything you don't list is blocked.
+
+Watch out for package managers: `apt-get update`, `npm install`, `pip install`, etc. each refresh metadata for every configured source, not just yours. For kits built on `shell-docker` / `*-docker` templates that means `download.docker.com` must be in your list even if you only `apt-get install` from Ubuntu's main archive — `apt-get update` fails the install otherwise. List `archive.ubuntu.com`, `security.ubuntu.com`, **and** `ports.ubuntu.com` so the kit works on both amd64 (CI) and arm64 (Apple Silicon).
+
+See [Declare every domain your kit needs](./README.md#declare-every-domain-your-kit-needs) in the README for the probe recipe that surfaces the exact set of domains your install hooks reach for under `deny-all`.
+
 ## Verifying locally
 
 Before opening a PR:

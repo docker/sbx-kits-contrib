@@ -147,6 +147,65 @@ working directory set to the package directory (`./tck/`).
 
 **Windows users**: the wrapper is a bash script — run it from **Git Bash** (ships with Git for Windows) or **WSL**, not from `cmd.exe` or PowerShell. If you'd rather skip the wrapper, the direct `go test` invocation above works in PowerShell too — just substitute `$env:KIT = "$PWD\my-kit"` for the env-var syntax.
 
+## Declare every domain your kit needs
+
+A kit's `network.allowedDomains` is its **complete** outbound network contract. The CI e2e job runs with a `deny-all` default policy, so anything not in your `allowedDomains` is blocked at request time — and any failed request inside an install hook surfaces as `sbx create` failing.
+
+The non-obvious trap is **package managers refreshing every configured source**, not just the one you added:
+
+- `apt-get update` re-fetches metadata for every file in `/etc/apt/sources.list[.d/]` — including sources the base template added. If *any* of those returns non-2xx, `apt-get` exits non-zero even if the package you want is in a different source. For kits built on `shell-docker` / `*-docker` templates that means `download.docker.com` (Docker's apt repo, pre-added by the template) needs to be in your `allowedDomains` even if you're only installing something from Ubuntu's main archive.
+- Ubuntu hosts amd64 packages on `archive.ubuntu.com` + `security.ubuntu.com` and arm64 packages on `ports.ubuntu.com`. List all three for cross-arch coverage; CI is amd64, your Mac is likely arm64.
+- `npm install`, `pip install`, `cargo`, `go get`, etc. each have their own registry/mirror hosts — declare them too.
+
+If you're not sure what your install hooks reach, probe locally under `deny-all`. From an isolated `--app-name` daemon you can read the daemon log for the exact set of denied domains:
+
+```bash
+APP=kitprobe-$(uuidgen | tr -dc 'a-z0-9' | head -c 6)
+sbx --app-name "$APP" daemon start
+printf '%s' "$DOCKERHUB_TOKEN" | sbx --app-name "$APP" login --username "$DOCKERHUB_USERNAME" --password-stdin
+sbx --app-name "$APP" policy set-default deny-all
+sbx --app-name "$APP" create --name probe --kit "$PWD/my-kit" <agent> /tmp/sbx-kit-debug || true
+```
+
+Now find the daemon log. `sbx daemon status` prints its path under `Logs:` regardless of OS — easiest to ask sbx than to guess:
+
+```bash
+# macOS / Linux / Git Bash / WSL
+LOG=$(sbx --app-name "$APP" daemon status | sed -n 's/^Logs:[[:space:]]*//p')
+grep 'governance policy evaluation' "$LOG"
+```
+
+```powershell
+# Windows PowerShell
+$LOG = (sbx --app-name $env:APP daemon status | Select-String '^Logs:').Line -replace '^Logs:\s*', ''
+Select-String -Pattern 'governance policy evaluation' -Path $LOG
+```
+
+If you'd rather hardcode, the per-platform state directory layouts are:
+
+| Platform | Daemon log path |
+|---|---|
+| macOS | `~/Library/Application Support/com.docker.sandboxes/sandboxes-<APP>/sandboxd/daemon.log` |
+| Linux | `~/.local/state/com.docker.sandboxes/sandboxes-<APP>/sandboxd/daemon.log` (or the storagekit XDG equivalent) |
+| Windows | `%LOCALAPPDATA%\com.docker.sandboxes\sandboxes-<APP>\sandboxd\daemon.log` |
+
+Every `governance policy evaluation` line with `"allowed":false` is a domain your install hook reached for. Add them to `allowedDomains` until the list is empty.
+
+When you're done, tear the isolated daemon down so it doesn't leak state:
+
+```bash
+# macOS / Linux / Git Bash / WSL
+sbx --app-name "$APP" daemon stop
+# Then delete the per-app-name state dir (path from `sbx daemon status` before stopping,
+# or substitute the row from the table above).
+```
+
+```powershell
+# Windows PowerShell
+sbx --app-name $env:APP daemon stop
+# Then Remove-Item -Recurse -Force "$env:LOCALAPPDATA\com.docker.sandboxes\sandboxes-$env:APP"
+```
+
 ## TCK Test Coverage
 
 The TCK validates your kit automatically:
