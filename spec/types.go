@@ -160,6 +160,37 @@ type NetworkPolicy struct {
 	// kit can lock its sandbox out of specific domains regardless of presets or
 	// other allow lists contributed by composed kits.
 	DeniedDomains []string `json:"deniedDomains,omitempty" yaml:"deniedDomains,omitempty"`
+
+	// PublishedPorts is a list of in-container ports the kit wants the
+	// sandbox runtime to expose on the host so external tooling can reach
+	// services the kit runs inside the sandbox (a git-daemon, code-server,
+	// a Jupyter kernel, …). Each entry is published to an ephemeral host
+	// port on 127.0.0.1 when the sandbox starts; the binding is released
+	// automatically when the sandbox is deleted.
+	//
+	// Users who want a fixed host port keep using `sbx ports --publish`
+	// on top of the kit's declaration — this field is for the
+	// "publish-on-start" UX, not for pinning a specific host port.
+	PublishedPorts []PublishedPort `json:"publishedPorts,omitempty" yaml:"publishedPorts,omitempty"`
+}
+
+// PublishedPort declares an in-container port that the sandbox runtime
+// should publish on the host when the sandbox starts. Host port allocation
+// is always ephemeral; callers wire the assigned port at runtime by
+// listing the sandbox's published bindings.
+type PublishedPort struct {
+	// Container is the in-container TCP/UDP port the service listens on.
+	// Required. Must be in 1..65535.
+	Container int `json:"container" yaml:"container"`
+
+	// Protocol is "tcp" or "udp". Optional; defaults to "tcp" if empty.
+	Protocol string `json:"protocol,omitempty" yaml:"protocol,omitempty"`
+
+	// Name is an optional human-readable label for the port, surfaced by
+	// tools that list a sandbox's published ports (`sbx ports`). Two kits
+	// may declare ports with the same name without conflict — the name
+	// is informational, not an identifier.
+	Name string `json:"name,omitempty" yaml:"name,omitempty"`
 }
 
 // ServiceAuth defines how to format authentication headers for a service.

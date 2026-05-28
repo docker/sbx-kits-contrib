@@ -18,6 +18,10 @@ network:
     - sample-agent.example.com
   deniedDomains:
     - telemetry.sample-agent.example.com
+  publishedPorts:
+    - container: 8080
+      protocol: tcp
+      name: web
 
 environment:
   variables:

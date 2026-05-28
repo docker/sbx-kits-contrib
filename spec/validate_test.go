@@ -158,6 +158,43 @@ func TestValidateNetworkPolicy(t *testing.T) {
 		}
 		require.ErrorContains(t, ValidateNetworkPolicy(n), "in both allowedDomains and deniedDomains")
 	})
+
+	t.Run("publishedPorts_minimal", func(t *testing.T) {
+		// Only Container is required; empty Protocol is accepted (consumers
+		// default it to "tcp" at use-site to keep this struct ergonomic).
+		n := &NetworkPolicy{
+			PublishedPorts: []PublishedPort{{Container: 8080}},
+		}
+		require.NoError(t, ValidateNetworkPolicy(n))
+	})
+
+	t.Run("publishedPorts_full", func(t *testing.T) {
+		n := &NetworkPolicy{
+			PublishedPorts: []PublishedPort{
+				{Container: 9418, Protocol: "tcp", Name: "git-daemon"},
+				{Container: 8080, Protocol: "tcp", Name: "code-server"},
+				{Container: 53, Protocol: "udp", Name: "dns"},
+			},
+		}
+		require.NoError(t, ValidateNetworkPolicy(n))
+	})
+
+	t.Run("publishedPorts_container_out_of_range", func(t *testing.T) {
+		for _, p := range []int{0, -1, 65536, 70000} {
+			n := &NetworkPolicy{PublishedPorts: []PublishedPort{{Container: p}}}
+			require.ErrorContains(t, ValidateNetworkPolicy(n),
+				"publishedPorts[0].container must be in 1..65535",
+				"container=%d", p)
+		}
+	})
+
+	t.Run("publishedPorts_invalid_protocol", func(t *testing.T) {
+		n := &NetworkPolicy{
+			PublishedPorts: []PublishedPort{{Container: 8080, Protocol: "sctp"}},
+		}
+		require.ErrorContains(t, ValidateNetworkPolicy(n),
+			"publishedPorts[0].protocol must be empty, \"tcp\" or \"udp\"")
+	})
 }
 
 func TestValidateCredentialPolicy(t *testing.T) {

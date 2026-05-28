@@ -110,6 +110,18 @@ func ValidateNetworkPolicy(n *NetworkPolicy) error {
 		}
 	}
 
+	for i, p := range n.PublishedPorts {
+		if p.Container < 1 || p.Container > 65535 {
+			return fmt.Errorf("network: publishedPorts[%d].container must be in 1..65535 (got %d)", i, p.Container)
+		}
+		switch p.Protocol {
+		case "", "tcp", "udp":
+			// "" is accepted and defaults to "tcp" at consumption time.
+		default:
+			return fmt.Errorf("network: publishedPorts[%d].protocol must be empty, \"tcp\" or \"udp\" (got %q)", i, p.Protocol)
+		}
+	}
+
 	return nil
 }
 

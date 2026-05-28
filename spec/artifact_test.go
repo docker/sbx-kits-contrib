@@ -102,6 +102,49 @@ description: "loaded from spec.yml"
 	require.Equal(t, "yml-kit", a.Manifest.Name)
 }
 
+func TestLoadFromFS_NetworkPublishedPorts(t *testing.T) {
+	// YAML round-trip for the new network.publishedPorts field: the
+	// minimal form (just container) and the full form (container +
+	// protocol + name) must both parse, defaulting protocol at use-site
+	// rather than at decode-time (the spec keeps zero values).
+	fsys := fstest.MapFS{
+		"port-kit/spec.yaml": &fstest.MapFile{
+			Data: []byte(`schemaVersion: "1"
+kind: mixin
+name: port-kit
+displayName: Port Kit
+description: "exercises network.publishedPorts"
+network:
+  publishedPorts:
+    - container: 9418
+    - container: 8080
+      protocol: tcp
+      name: web
+    - container: 53
+      protocol: udp
+      name: dns
+`),
+		},
+	}
+
+	a, err := LoadFromFS(fsys, "port-kit")
+	require.NoError(t, err)
+	require.NotNil(t, a.Network)
+	require.Len(t, a.Network.PublishedPorts, 3)
+
+	require.Equal(t, 9418, a.Network.PublishedPorts[0].Container)
+	require.Empty(t, a.Network.PublishedPorts[0].Protocol, "minimal form leaves protocol empty; consumers default it")
+	require.Empty(t, a.Network.PublishedPorts[0].Name)
+
+	require.Equal(t, 8080, a.Network.PublishedPorts[1].Container)
+	require.Equal(t, "tcp", a.Network.PublishedPorts[1].Protocol)
+	require.Equal(t, "web", a.Network.PublishedPorts[1].Name)
+
+	require.Equal(t, 53, a.Network.PublishedPorts[2].Container)
+	require.Equal(t, "udp", a.Network.PublishedPorts[2].Protocol)
+	require.Equal(t, "dns", a.Network.PublishedPorts[2].Name)
+}
+
 func TestParseArtifact_NoSpecFile(t *testing.T) {
 	dir := t.TempDir()
 	_, err := LoadFromDirectory(dir)
