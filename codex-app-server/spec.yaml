@@ -1,0 +1,99 @@
+schemaVersion: "1"
+kind: mixin
+name: codex-app-server
+extends: codex
+displayName: Codex app-server (via SSH)
+description: Runs sshd in the sandbox and pre-populates `authorized_keys` from the host's forwarded SSH agent, so the Codex Mac GUI can add the sandbox as an SSH Connection and drive `codex app-server` remotely. Pair with `sbx ports --publish 2222:22/tcp`.
+
+network:
+  allowedDomains:
+    - archive.ubuntu.com
+    - security.ubuntu.com
+    - ports.ubuntu.com
+
+commands:
+  initFiles:
+    - path: /home/agent/.local/bin/refresh-authorized-keys
+      mode: "0755"
+      description: Refresh /home/agent/.ssh/authorized_keys from the forwarded SSH agent. Invoked by the startup hook; safe to invoke manually too.
+      content: |
+        #!/bin/sh
+        # sbx runs startup hooks with a clean env (no SSH_AUTH_SOCK), so
+        # naïve `ssh-add -L` fails on every wake. Snapshot SSH_AUTH_SOCK
+        # from PID 1's environ — the socket file itself is available at
+        # startup time, just not the env var pointing at it.
+        if [ -z "$SSH_AUTH_SOCK" ]; then
+            SSH_AUTH_SOCK=$(tr '\0' '\n' < /proc/1/environ | grep -m1 '^SSH_AUTH_SOCK=' | cut -d= -f2-)
+            export SSH_AUTH_SOCK
+        fi
+        if [ ! -S "$SSH_AUTH_SOCK" ]; then
+            echo "[sbx-codex] no agent socket; keeping existing authorized_keys" >&2
+            exit 0
+        fi
+        keys=$(ssh-add -L 2>&1)
+        if [ $? -ne 0 ] || [ -z "$keys" ]; then
+            echo "[sbx-codex] ssh-add returned no keys; keeping existing authorized_keys" >&2
+            exit 0
+        fi
+        printf '%s\n' "$keys" > /home/agent/.ssh/authorized_keys
+        chmod 600 /home/agent/.ssh/authorized_keys
+  install:
+    - command: apt-get update -qq && apt-get install -y -qq openssh-server
+      user: "0"
+      description: Install openssh-server
+    - command: ssh-keygen -A
+      user: "0"
+      description: Generate sshd host keys
+    - command: install -d -m 0700 -o agent -g agent /home/agent/.ssh
+      user: "0"
+      description: Ensure /home/agent/.ssh exists with correct ownership
+    - command: |
+        cat > /usr/local/bin/codex <<'EOF'
+        #!/bin/bash
+        # sshd starts processes with a clean env, so codex spawned via SSH
+        # (which is how the Codex Mac GUI's Connections flow drives it)
+        # doesn't see HTTPS_PROXY, PROXY_CA_CERT_B64, the chatgpt-proxy
+        # bearer-token sentinel mechanism, SSH_AUTH_SOCK (which git-ssh-sign
+        # needs at signing time), etc. Snapshot the relevant vars from
+        # PID 1's environment and re-export them before handing off to
+        # the real codex binary.
+        while IFS= read -rd '' kv; do
+          case "$kv" in
+            HTTP_PROXY=*|HTTPS_PROXY=*|NO_PROXY=*|\
+            http_proxy=*|https_proxy=*|no_proxy=*|\
+            PROXY_CA_CERT_B64=*|NODE_USE_ENV_PROXY=*|NODE_EXTRA_CA_CERTS=*|\
+            SSL_CERT_FILE=*|REQUESTS_CA_BUNDLE=*|JAVA_TOOL_OPTIONS=*|\
+            CODEX_HOME=*|GH_TOKEN=*|SSH_AUTH_SOCK=*)
+              export "$kv"
+              ;;
+          esac
+        done < /proc/1/environ
+        exec /usr/local/share/npm-global/bin/codex "$@"
+        EOF
+        chmod 0755 /usr/local/bin/codex
+      user: "0"
+      description: Shadow `codex` on PATH with a bridge that imports PID 1's proxy env before exec'ing the real binary
+  startup:
+    - command: ["/home/agent/.local/bin/refresh-authorized-keys"]
+      user: "1000"
+      description: Refresh authorized_keys from the forwarded SSH agent
+    - command: ["sh", "-c", "pgrep -x sshd >/dev/null || { mkdir -p /var/run/sshd && /usr/sbin/sshd > /tmp/sshd.log 2>&1; }"]
+      user: "0"
+      description: Start sshd if not already running (recreates /var/run/sshd which is tmpfs-cleared on container restart)
+
+memory: |
+  ## Codex app-server over SSH
+
+  sshd is running inside the sandbox on port 22, and your host's SSH
+  identities (from the forwarded agent socket) are pre-populated in
+  `/home/agent/.ssh/authorized_keys`. Publish the port from your host
+  with `sbx ports <sandbox> --publish 2222:22/tcp`, then add an SSH
+  connection in the Codex Mac app:
+
+      Host: localhost
+      Port: 2222
+      User: agent
+
+  The Codex GUI will SSH in and run `codex app-server` over stdio.
+  Model traffic continues to route through the codex agent's OpenAI
+  credential proxy, so no API key lives in the sandbox.

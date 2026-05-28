@@ -1,12 +1,12 @@
 schemaVersion: "1"
-kind: agent
+kind: sandbox
 name: sample-agent
 version: "1.0.0"
 displayName: Sample Agent
 description: "A test-only agent that exercises agent-specific spec fields"
 sourceURL: https://example.com/sample-agent
 
-agent:
+sandbox:
   image: "docker/sandbox-templates:shell-docker"
   aiFilename: SAMPLE.md
   entrypoint:
@@ -38,5 +38,5 @@ commands:
       background: true
       description: Sample agent startup
 
-memory: |
+agentContext: |
   This is sample agent memory content for TCK testing.

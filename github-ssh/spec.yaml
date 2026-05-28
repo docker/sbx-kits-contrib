@@ -1,0 +1,32 @@
+schemaVersion: "1"
+kind: mixin
+name: github-ssh
+displayName: GitHub SSH
+description: Pre-populates GitHub host keys so SSH operations work without interactive host verification prompts.
+
+network:
+  allowedDomains:
+    - github.com
+    - api.github.com
+
+commands:
+  install:
+    - command: |
+        mkdir -p /home/agent/.ssh
+        chmod 700 /home/agent/.ssh
+        chown agent:agent /home/agent/.ssh
+        curl -s https://api.github.com/meta \
+          | jq -r '.ssh_keys[] | "github.com " + .' \
+          >> /home/agent/.ssh/known_hosts
+        chmod 644 /home/agent/.ssh/known_hosts
+        chown agent:agent /home/agent/.ssh/known_hosts
+      user: "0"
+      description: Fetch and install GitHub host keys from api.github.com/meta
+
+memory: |
+  ## GitHub SSH authentication
+
+  GitHub's host keys are pre-populated in `~/.ssh/known_hosts`, so SSH
+  operations to GitHub (clone, push, pull) work without interactive host
+  verification prompts.
+

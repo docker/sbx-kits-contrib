@@ -6,11 +6,11 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestNormalizeAgent(t *testing.T) {
-	t.Run("populates_manifest_from_agent_block", func(t *testing.T) {
+func TestNormalizeSandbox(t *testing.T) {
+	t.Run("populates_manifest_from_sandbox_block", func(t *testing.T) {
 		s := specFile{
-			Manifest: Manifest{Kind: KindAgent, SchemaVersion: SchemaVersion, Name: "a"},
-			Agent: &agentBlock{
+			Manifest: Manifest{Kind: KindSandbox, SchemaVersion: SchemaVersion, Name: "a"},
+			Sandbox: &sandboxBlock{
 				Image:      "my-image",
 				AIFilename: "AI.md",
 				Resources:  &Resources{CPU: 4, MemoryMB: 8192, GPU: "1"},
@@ -20,7 +20,7 @@ func TestNormalizeAgent(t *testing.T) {
 				},
 			},
 		}
-		require.NoError(t, s.normalize())
+		require.NoError(t, s.normalize(&warnings{}))
 		require.Equal(t, "my-image", s.Template)
 		require.Equal(t, "bin", s.Binary)
 		require.Equal(t, []string{"--flag", "--extra"}, s.RunOptions)
@@ -31,26 +31,26 @@ func TestNormalizeAgent(t *testing.T) {
 		require.Equal(t, "1", s.Resources.GPU)
 	})
 
-	t.Run("rejects_agent_block_on_mixin", func(t *testing.T) {
+	t.Run("rejects_sandbox_block_on_mixin", func(t *testing.T) {
 		s := specFile{
 			Manifest: Manifest{Kind: KindMixin, SchemaVersion: SchemaVersion, Name: "m"},
-			Agent:    &agentBlock{Image: "img"},
+			Sandbox:  &sandboxBlock{Image: "img"},
 		}
-		require.ErrorContains(t, s.normalize(), "only valid for kind")
+		require.ErrorContains(t, s.normalize(&warnings{}), "only valid for kind")
 	})
 
 	t.Run("rejects_flat_template_field", func(t *testing.T) {
 		s := specFile{
-			Manifest: Manifest{Kind: KindAgent, SchemaVersion: SchemaVersion, Name: "a", Template: "img"},
+			Manifest: Manifest{Kind: KindSandbox, SchemaVersion: SchemaVersion, Name: "a", Template: "img"},
 		}
-		require.ErrorContains(t, s.normalize(), "agent:")
+		require.ErrorContains(t, s.normalize(&warnings{}), "sandbox:")
 	})
 
-	t.Run("agent_requires_agent_block", func(t *testing.T) {
+	t.Run("sandbox_requires_sandbox_block", func(t *testing.T) {
 		s := specFile{
-			Manifest: Manifest{Kind: KindAgent, SchemaVersion: SchemaVersion, Name: "a"},
+			Manifest: Manifest{Kind: KindSandbox, SchemaVersion: SchemaVersion, Name: "a"},
 		}
-		require.ErrorContains(t, s.normalize(), "requires an 'agent:' block")
+		require.ErrorContains(t, s.normalize(&warnings{}), "requires a 'sandbox:' block")
 	})
 }
 
@@ -60,7 +60,7 @@ func TestNormalizeSecrets(t *testing.T) {
 			Manifest: Manifest{Kind: KindMixin, SchemaVersion: SchemaVersion, Name: "m"},
 			Secrets:  []string{"ANTHROPIC_API_KEY", "GH_TOKEN"},
 		}
-		require.NoError(t, s.normalize())
+		require.NoError(t, s.normalize(&warnings{}))
 		require.NotNil(t, s.Credentials)
 		require.Contains(t, s.Credentials.Sources, "anthropic")
 		require.Contains(t, s.Credentials.Sources, "github")
@@ -77,7 +77,7 @@ func TestNormalizeSecrets(t *testing.T) {
 				},
 			},
 		}
-		require.ErrorContains(t, s.normalize(), "conflicts")
+		require.ErrorContains(t, s.normalize(&warnings{}), "conflicts")
 	})
 }
 
@@ -87,7 +87,7 @@ func TestNormalizeEgress(t *testing.T) {
 			Manifest: Manifest{Kind: KindMixin, SchemaVersion: SchemaVersion, Name: "m"},
 			Egress:   map[string]string{"api.anthropic.com": "anthropic"},
 		}
-		require.NoError(t, s.normalize())
+		require.NoError(t, s.normalize(&warnings{}))
 		require.NotNil(t, s.Network)
 		require.Equal(t, "anthropic", s.Network.ServiceDomains["api.anthropic.com"])
 		require.Equal(t, "x-api-key", s.Network.ServiceAuth["anthropic"].HeaderName)
@@ -98,7 +98,7 @@ func TestNormalizeEgress(t *testing.T) {
 			Manifest: Manifest{Kind: KindMixin, SchemaVersion: SchemaVersion, Name: "m"},
 			Egress:   map[string]string{"custom.example.com": "custom"},
 		}
-		require.NoError(t, s.normalize())
+		require.NoError(t, s.normalize(&warnings{}))
 		_, hasAuth := s.Network.ServiceAuth["custom"]
 		require.False(t, hasAuth, "unknown services should not get default auth")
 	})

@@ -331,9 +331,9 @@ func (s *Suite) RunValidationTests(t *testing.T) {
 			})
 		}
 
-		if s.Artifact.Memory != "" {
-			t.Run("memory", func(t *testing.T) {
-				require.NotEmpty(t, s.Artifact.Memory, "memory content should not be empty when declared")
+		if s.Artifact.AgentContext != "" {
+			t.Run("agentContext", func(t *testing.T) {
+				require.NotEmpty(t, s.Artifact.AgentContext, "agentContext content should not be empty when declared")
 			})
 		}
 	})

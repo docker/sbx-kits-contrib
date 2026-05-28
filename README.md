@@ -159,6 +159,59 @@ The TCK validates your kit automatically:
 - **Container files** — files from `files/` are injected at the correct paths
 - **Security** — tmpfs mounts (e.g., `/run/secrets`) are present
 
+## End-to-end (e2e) Tests
+
+The default TCK runs every kit assertion against a fabricated `testcontainers-go` container — fast, deterministic, no `sbx` needed. The optional e2e layer goes further: it boots a **real `sbx` sandbox** from the kit, then verifies the kit's content actually landed inside the running container. It catches things the default TCK can't — install commands that fail under the non-root agent user, `${WORKDIR}` placeholders that resolve differently than expected, agent-kit name mismatches, or memory blocks the engine never writes out.
+
+### What the e2e test does
+
+`tck/e2e_test.go` (build-tag `e2e`, function `TestE2ECreateSandbox`) drives one kit per run:
+
+1. Loads the kit at `$KIT_UNDER_TEST` and picks the agent argument — kit name for `kind: agent`, `claude` for `kind: mixin`.
+2. Runs `sbx create --kit <kit> --name <unique> <agent> <tmpdir>` against a temporary workspace.
+3. Verifies, via `sbx exec`, that the running sandbox contains:
+   - every `environment.variables` entry,
+   - every file under `files/home` and every `commands.initFiles` (with `${WORKDIR}` resolved to `/home/agent/workspace`, the real sandbox workdir),
+   - every declared `tmpfs` mount (plus the implicit `/run/secrets`),
+   - the rendered memory file — `Manifest.AIFilename` for agent kits (inlined memory) or `kits-memory/<kit-name>.md` for mixin kits.
+4. Cleans up with `sbx rm -f <name>`.
+
+### Prerequisites
+
+- `sbx` on `PATH`. Install the latest release from [`docker/sbx-releases`](https://github.com/docker/sbx-releases/releases/latest).
+- An authenticated `sbx` session against Docker Hub. The non-interactive form:
+  ```bash
+  printf '%s' "$DOCKERHUB_TOKEN" | sbx login --username "$DOCKERHUB_USERNAME" --password-stdin
+  ```
+- Linux with `/dev/kvm` accessible (for the sailor microVM). On Linux runners and most workstations this is already the case; in CI the workflow does `sudo chmod 666 /dev/kvm` to relax permissions.
+
+### Running locally
+
+The test is hidden behind the `e2e` build tag so kit authors running `go test ./...` see no behavior change. Opt in explicitly:
+
+```bash
+# From the repo root, pointing at one kit
+KIT_UNDER_TEST="$PWD/code-server" \
+  go test -tags=e2e -v -timeout 25m -count=1 -run TestE2ECreateSandbox ./tck/...
+```
+
+`KIT_UNDER_TEST` must be an **absolute path**: `go test` runs each binary with its working directory set to the package directory (`./tck/`), so a relative path resolves against `./tck/`, not the repo root. Prefix with `$PWD` (or use `realpath`) when calling from the repo root.
+
+To run every kit, use `find` (works in both bash and zsh; raw globs error under zsh's default `nomatch` when no `.yml` kits exist):
+
+```bash
+for spec in $(find "$PWD" -mindepth 2 -maxdepth 2 \( -name spec.yaml -o -name spec.yml \)); do
+  KIT_UNDER_TEST="$(dirname "$spec")" \
+    go test -tags=e2e -v -timeout 25m -count=1 -run TestE2ECreateSandbox ./tck/...
+done
+```
+
+Each subtest (`env`, `files/<path>`, `tmpfs/<path>`, `memory`) reports independently, so a failure pinpoints which piece of kit content didn't make it into the container.
+
+### Running in CI
+
+The `test-kit-e2e` job in [`.github/workflows/tck.yml`](.github/workflows/tck.yml) runs alongside the default `test-kit` job. It downloads the latest `sbx` release, signs in to Docker Hub using `DOCKERHUB_USERNAME` / `DOCKERHUB_TOKEN` repo secrets, then runs the e2e test once per detected kit. The job is skipped on fork PRs because the secrets aren't exposed there.
+
 ## Extending a Parent Agent
 
 By default, mixins use the `shell` template image. To extend a specific agent (e.g., Claude, Gemini), add the `extends` field:
@@ -207,6 +260,7 @@ Pull requests trigger TCK tests automatically:
 - **Kit changes**: only the modified kit is tested
 - **TCK/spec changes**: all kits are tested
 - Each kit runs in a separate CI runner on Linux
+- The optional `test-kit-e2e` job exercises every detected kit against a real `sbx` CLI — see [End-to-end (e2e) Tests](#end-to-end-e2e-tests). Skipped on fork PRs (no Docker Hub secrets).
 
 ## Prerequisites
 

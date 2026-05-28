@@ -32,14 +32,14 @@ func TestLoadFromDirectory(t *testing.T) {
 		require.NoError(t, err)
 
 		require.Equal(t, "sample-agent", a.Manifest.Name)
-		require.Equal(t, KindAgent, a.Manifest.Kind)
+		require.Equal(t, KindSandbox, a.Manifest.Kind)
 		require.Equal(t, "1.0.0", a.Manifest.Version)
 		require.Equal(t, "https://example.com/sample-agent", a.Manifest.SourceURL)
 		require.NotEmpty(t, a.Manifest.Template, "agents must have a template")
 		require.Equal(t, "sample-bin", a.Manifest.Binary)
 		require.Equal(t, []string{"--verbose", "--task-mode"}, a.Manifest.RunOptions)
 		require.Equal(t, "SAMPLE.md", a.Manifest.AIFilename)
-		require.NotEmpty(t, a.Memory)
+		require.NotEmpty(t, a.AgentContext)
 	})
 
 	t.Run("missing_directory", func(t *testing.T) {

@@ -78,3 +78,15 @@ Git hooks for signing.
 This kit does not set `core.hooksPath` and does not install a
 pre-commit hook. Project-level hooks, hook managers, and repo-local
 `core.hooksPath` settings can run independently of commit signing.
+
+## Composing with github-ssh
+
+To also enable SSH push/pull to GitHub from the sandbox, combine this kit
+with [github-ssh](../github-ssh/):
+
+```console
+$ sbx run \
+  --kit "git+https://github.com/docker/sbx-kits-contrib.git#dir=git-ssh-sign" \
+  --kit "git+https://github.com/docker/sbx-kits-contrib.git#dir=github-ssh" \
+  claude
+```

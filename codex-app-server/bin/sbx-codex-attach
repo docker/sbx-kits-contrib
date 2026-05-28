@@ -1,0 +1,97 @@
+#!/bin/bash
+# sbx-codex-attach <sandbox-name>
+#
+# Wires a sandbox started with the codex-app-server kit into the Codex Mac
+# GUI: publishes sshd's port ephemerally (if not already published), writes
+# a per-sandbox ~/.sbx/ssh/codex/<name>.conf snippet, and bootstraps a
+# per-sandbox known_hosts file. After running this, the user adds an SSH
+# Connection in the Codex app using the alias `<name>`.
+#
+# The generated ssh config uses ProxyCommand + HostKeyAlias so the alias
+# keeps working across sandbox restarts (host port may change, host keys
+# don't).
+
+set -euo pipefail
+
+if [ $# -ne 1 ]; then
+    echo "usage: sbx-codex-attach <sandbox-name>" >&2
+    exit 64
+fi
+
+sandbox="$1"
+
+require() {
+    if ! command -v "$1" >/dev/null 2>&1; then
+        echo "sbx-codex-attach: required tool '$1' not on PATH" >&2
+        exit 127
+    fi
+    command -v "$1"
+}
+
+sbx="$(require sbx)"
+nc="$(require nc)"
+jq="$(require jq)"
+
+if ! "$sbx" ls 2>/dev/null | awk 'NR>1 {print $1}' | grep -qx "$sandbox"; then
+    echo "sbx-codex-attach: sandbox '$sandbox' not found" >&2
+    echo "  (sbx ls shows the sandboxes you've created)" >&2
+    exit 1
+fi
+
+# Publish sandbox port 22 ephemerally if not already published. Idempotent
+# on re-runs because we check first.
+if ! "$sbx" ports "$sandbox" --json 2>/dev/null \
+        | "$jq" -e '.[]|select(.sandbox_port==22 and .host_ip=="127.0.0.1")' >/dev/null; then
+    "$sbx" ports "$sandbox" --publish 22/tcp >/dev/null
+fi
+
+dir="$HOME/.sbx/ssh/codex"
+mkdir -p "$dir"
+chmod 700 "$dir"
+
+conf="$dir/${sandbox}.conf"
+khf="$dir/${sandbox}.known_hosts"
+
+# Truncate the per-sandbox known_hosts so the next connect TOFUs cleanly
+# (handles sandbox recreate, which generates new host keys).
+: > "$khf"
+chmod 600 "$khf"
+
+cat > "$conf" <<EOF
+# Auto-managed by sbx-codex-attach for sandbox '${sandbox}'.
+# Use sbx-codex-detach ${sandbox} to remove.
+Host ${sandbox}
+    HostName localhost
+    User agent
+    ProxyCommand sh -c 'exec ${nc} localhost \$(${sbx} ports ${sandbox} --json | ${jq} -r ".[]|select(.sandbox_port==22 and .host_ip==\"127.0.0.1\").host_port")'
+    HostKeyAlias ${sandbox}
+    UserKnownHostsFile ${khf}
+    StrictHostKeyChecking accept-new
+EOF
+chmod 600 "$conf"
+
+# Sweep orphan attachments — files for sandboxes that no longer exist.
+# Best-effort: if `sbx ls` fails we skip pruning rather than risk
+# deleting files we can't verify are orphaned.
+if existing="$("$sbx" ls -q 2>/dev/null)"; then
+    for orphan_conf in "$dir"/*.conf; do
+        [ -e "$orphan_conf" ] || continue
+        orphan_name="${orphan_conf##*/}"
+        orphan_name="${orphan_name%.conf}"
+        if ! printf '%s\n' "$existing" | grep -qx "$orphan_name"; then
+            rm -f -- "$orphan_conf" "$dir/${orphan_name}.known_hosts"
+            echo "pruned orphan: ${orphan_name}"
+        fi
+    done
+fi
+
+cat <<EOF
+attached: ${sandbox}
+  config:       ${conf}
+  known_hosts:  ${khf}
+
+In the Codex Mac app, add an SSH Connection with:
+  Host: ${sandbox}
+
+(Ensure ~/.ssh/config contains: Include ~/.sbx/ssh/codex/*.conf)
+EOF

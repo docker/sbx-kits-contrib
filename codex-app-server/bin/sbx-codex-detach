@@ -1,0 +1,33 @@
+#!/bin/bash
+# sbx-codex-detach <sandbox-name>
+#
+# Reverses sbx-codex-attach: removes the per-sandbox ssh config snippet and
+# known_hosts file under ~/.sbx/ssh/codex/. Does NOT unpublish the sshd
+# port or touch the sandbox itself — port publishing follows the sandbox
+# lifecycle.
+
+set -euo pipefail
+
+if [ $# -ne 1 ]; then
+    echo "usage: sbx-codex-detach <sandbox-name>" >&2
+    exit 64
+fi
+
+sandbox="$1"
+dir="$HOME/.sbx/ssh/codex"
+conf="$dir/${sandbox}.conf"
+khf="$dir/${sandbox}.known_hosts"
+
+removed=0
+for f in "$conf" "$khf"; do
+    if [ -e "$f" ]; then
+        rm -- "$f"
+        echo "removed: $f"
+        removed=1
+    fi
+done
+
+if [ "$removed" = 0 ]; then
+    echo "sbx-codex-detach: no attachment found for sandbox '${sandbox}'" >&2
+    exit 1
+fi

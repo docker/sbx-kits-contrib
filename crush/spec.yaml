@@ -1,10 +1,8 @@
 schemaVersion: "1"
 kind: agent
 name: crush
-version: "1.0.0"
 displayName: Crush
 description: Multi-provider AI coding agent from Charm, with proxy-mediated auth for 15 model providers.
-sourceURL: https://github.com/docker/sbx-kits-contrib/tree/main/crush
 
 agent:
   image: "docker/sandbox-templates:shell-docker"
@@ -132,6 +130,22 @@ network:
       valueFormat: "AWS4-HMAC-SHA256 Credential=%s/"
   allowedDomains:
     - repo.charm.sh
+    # `apt-get update` (run by the install hooks) refreshes metadata for
+    # every configured apt source — failing on any one of them returns
+    # exit 100 even if the kit's package would come from a different
+    # repo. The shell-docker template ships with three sources, so all
+    # three must be allowed for the kit's install to succeed under
+    # `deny-all`. Ubuntu hosts amd64 packages on archive/security and
+    # arm64 packages on ports.ubuntu.com, so all three Ubuntu hosts are
+    # listed to keep the kit working cross-arch.
+    - archive.ubuntu.com        # Ubuntu archive (amd64 main)
+    - security.ubuntu.com       # Ubuntu security updates (amd64)
+    - ports.ubuntu.com          # Ubuntu archive/security (arm64)
+    - download.docker.com       # Docker's apt repo, pre-added by shell-docker
+    # Charm distributes the actual `crush` .deb via Gemfury's S3-accelerated
+    # bucket — `repo.charm.sh` only serves the apt index; package payloads
+    # are signed-URL redirects to this host.
+    - gemfury.s3-accelerate.dualstack.amazonaws.com
     - api.anthropic.com
     - api.openai.com
     - "*.openai.azure.com"

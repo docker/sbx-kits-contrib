@@ -47,8 +47,11 @@ func ValidateManifest(m *Manifest) error {
 	if m.Kind == "" {
 		return fmt.Errorf("manifest: kind is required")
 	}
-	if m.Kind != KindAgent && m.Kind != KindMixin {
-		return fmt.Errorf("manifest: invalid kind %q (must be %q or %q)", m.Kind, KindAgent, KindMixin)
+	// KindAgent is the v1 alias for KindSandbox and is still accepted at
+	// validation time (the normalize step migrates it to KindSandbox with
+	// a deprecation warning before this code runs in the load path).
+	if m.Kind != KindSandbox && m.Kind != KindAgent && m.Kind != KindMixin {
+		return fmt.Errorf("manifest: invalid kind %q (must be %q or %q)", m.Kind, KindSandbox, KindMixin)
 	}
 
 	if m.Name == "" {
@@ -58,9 +61,9 @@ func ValidateManifest(m *Manifest) error {
 		return fmt.Errorf("manifest: invalid name %q (must be lowercase alphanumeric with hyphens, 1-64 chars)", m.Name)
 	}
 
-	if m.Kind == KindAgent {
+	if m.Kind == KindSandbox || m.Kind == KindAgent {
 		if m.Template == "" {
-			return fmt.Errorf("manifest: template is required for kind %q", KindAgent)
+			return fmt.Errorf("manifest: template is required for kind %q", KindSandbox)
 		}
 	}
 
