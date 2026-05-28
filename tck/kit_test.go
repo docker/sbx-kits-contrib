@@ -27,7 +27,13 @@ import (
 // against $PWD or $GITHUB_WORKSPACE when calling from the repo root.
 func TestKitTCK(t *testing.T) {
 	kitPath := os.Getenv("KIT")
-	require.NotEmpty(t, kitPath, "KIT must point at a kit directory")
+	if kitPath == "" {
+		// The self-test job in tck.yml runs `go test ./spec/... ./tck/...`
+		// with no KIT — it's exercising the TCK package's own tests, not
+		// any kit. Skip cleanly there. The wrapper scripts and per-kit CI
+		// matrix always set KIT, so this only fires in the self-test path.
+		t.Skip("KIT not set — set via scripts/test-kit.sh or the per-kit CI matrix")
+	}
 
 	absKit, err := filepath.Abs(kitPath)
 	require.NoError(t, err, "resolve KIT=%q", kitPath)
