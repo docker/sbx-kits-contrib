@@ -1,10 +1,10 @@
 schemaVersion: "1"
-kind: sandbox
+kind: agent
 name: pi
 displayName: Pi
 description: "Minimal terminal coding agent with extensible tools, skills, and TUI"
 
-sandbox:
+agent:
   image: "docker/sandbox-templates:shell-docker"
   aiFilename: AGENTS.md
   entrypoint:

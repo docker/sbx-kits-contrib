@@ -1,10 +1,10 @@
 schemaVersion: "1"
-kind: sandbox
+kind: agent
 name: crush
 displayName: Crush
 description: Multi-provider AI coding agent from Charm, with proxy-mediated auth for 15 model providers.
 
-sandbox:
+agent:
   image: "docker/sandbox-templates:shell-docker"
   aiFilename: AGENTS.md
   entrypoint:
@@ -181,7 +181,7 @@ commands:
       user: "0"
       description: Install Crush from Charm apt repository
 
-agentContext: |
+memory: |
   ## Crush
 
   Crush is a multi-provider AI coding agent from Charm. It is installed
