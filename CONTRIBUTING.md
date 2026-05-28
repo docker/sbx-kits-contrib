@@ -33,22 +33,23 @@ Before opening a PR:
 
 ```console
 $ sbx kit validate ./my-kit/
-$ cd my-kit && go test -v -count=1 -timeout 10m ./...
+$ cd my-kit && ../scripts/test-kit.sh
 $ sbx run --kit ./my-kit/ <agent>
 ```
 
 The first two are what CI runs. The third catches things the TCK doesn't — install scripts hitting unexpected hosts, startup wrappers crashing silently, agents not authenticating.
 
+`scripts/test-kit.sh` resolves the kit directory (default: `$PWD`), sets `KIT` to its absolute path, and runs `go test -run TestKitTCK ./tck/...` against the repo-root `tck` package. Forwards extra flags to `go test`, so `../scripts/test-kit.sh -v -run TestKitTCK/my-kit/validation` works.
+
 For an automated check that the engine actually materialises the kit's content inside a real sandbox (env vars, container files, tmpfs, rendered memory), opt into the e2e layer:
 
 ```console
-$ KIT_UNDER_TEST="$PWD/my-kit" \
-    go test -tags=e2e -v -timeout 25m -count=1 -run TestE2ECreateSandbox ./tck/...
+$ cd my-kit && ../scripts/test-kit-e2e.sh
 ```
 
-`KIT_UNDER_TEST` must be an absolute path — `go test` cd's into the package directory, so a relative path resolves against `./tck/`, not the repo root.
+Or, from the repo root: `./scripts/test-kit-e2e.sh my-kit`. The wrapper checks `sbx` is on PATH and the kit dir has a `spec.yaml`, then runs `go test -tags=e2e -run TestE2ECreateSandbox ./tck/...`.
 
-See [End-to-end (e2e) Tests](./README.md#end-to-end-e2e-tests) in the README for prerequisites and what each subtest verifies.
+See [End-to-end (e2e) Tests](./README.md#end-to-end-e2e-tests) in the README for prerequisites (`sbx login`, default policy, etc.) and what each subtest verifies.
 
 ## Sign-off and signing
 

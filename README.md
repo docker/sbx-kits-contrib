@@ -84,11 +84,12 @@ sbx-kits-contrib/
 ```
 my-kit/
 ├── spec.yaml
-├── my_kit_tck_test.go
 └── files/
     └── home/          # Files copied to /home/agent/ in the container
         └── config.json
 ```
+
+There's no per-kit test file to write — the shared `TestKitTCK` in `tck/kit_test.go` reads a `KIT` env var pointing at the kit directory and runs the full TCK suite against it.
 
 2. Write your `spec.yaml`:
 
@@ -121,31 +122,30 @@ commands:
       description: Start my-tool
 ```
 
-3. Write a TCK test file (`my_kit_tck_test.go`):
-
-```go
-package my_kit_test
-
-import (
-    "testing"
-
-    "github.com/docker/sbx-kits-contrib/tck"
-    "github.com/stretchr/testify/require"
-)
-
-func TestMyKitTCK(t *testing.T) {
-    suite, err := tck.NewSuiteFromDir(".")
-    require.NoError(t, err)
-    suite.RunAll(t)
-}
-```
-
-4. Run the TCK locally:
+3. Run the TCK locally — from inside the kit's directory:
 
 ```bash
 cd my-kit
-go test -v -count=1 -timeout 10m ./...
+../scripts/test-kit.sh
 ```
+
+Or from the repo root, naming the kit:
+
+```bash
+./scripts/test-kit.sh my-kit
+```
+
+Extra flags are forwarded to `go test`, so `../scripts/test-kit.sh -v -run …`
+works as expected. If you'd rather invoke `go test` directly, the equivalent is:
+
+```bash
+KIT="$PWD/my-kit" go test -v -count=1 -timeout 10m -run TestKitTCK ./tck/...
+```
+
+`KIT` must be an absolute path because `go test` runs the binary with its
+working directory set to the package directory (`./tck/`).
+
+**Windows users**: the wrapper is a bash script — run it from **Git Bash** (ships with Git for Windows) or **WSL**, not from `cmd.exe` or PowerShell. If you'd rather skip the wrapper, the direct `go test` invocation above works in PowerShell too — just substitute `$env:KIT = "$PWD\my-kit"` for the env-var syntax.
 
 ## TCK Test Coverage
 
@@ -187,22 +187,31 @@ The default TCK runs every kit assertion against a fabricated `testcontainers-go
 
 ### Running locally
 
-The test is hidden behind the `e2e` build tag so kit authors running `go test ./...` see no behavior change. Opt in explicitly:
+The test is hidden behind the `e2e` build tag so kit authors running `go test ./...` see no behavior change. Opt in via the wrapper:
 
 ```bash
-# From the repo root, pointing at one kit
-KIT_UNDER_TEST="$PWD/code-server" \
+# From inside the kit's directory:
+cd my-kit
+../scripts/test-kit-e2e.sh
+
+# Or from the repo root, naming the kit:
+./scripts/test-kit-e2e.sh my-kit
+```
+
+Extra flags are forwarded to `go test`. The wrapper checks `sbx` is on PATH and validates the kit directory has a `spec.yaml`/`spec.yml` before invoking. If you'd rather drop to `go test` directly:
+
+```bash
+KIT_UNDER_TEST="$PWD/my-kit" \
   go test -tags=e2e -v -timeout 25m -count=1 -run TestE2ECreateSandbox ./tck/...
 ```
 
-`KIT_UNDER_TEST` must be an **absolute path**: `go test` runs each binary with its working directory set to the package directory (`./tck/`), so a relative path resolves against `./tck/`, not the repo root. Prefix with `$PWD` (or use `realpath`) when calling from the repo root.
+`KIT_UNDER_TEST` must be an **absolute path**: `go test` runs each binary with its working directory set to the package directory (`./tck/`), so a relative path resolves against `./tck/`, not the repo root.
 
-To run every kit, use `find` (works in both bash and zsh; raw globs error under zsh's default `nomatch` when no `.yml` kits exist):
+To run every kit locally:
 
 ```bash
 for spec in $(find "$PWD" -mindepth 2 -maxdepth 2 \( -name spec.yaml -o -name spec.yml \)); do
-  KIT_UNDER_TEST="$(dirname "$spec")" \
-    go test -tags=e2e -v -timeout 25m -count=1 -run TestE2ECreateSandbox ./tck/...
+  ./scripts/test-kit-e2e.sh "$(dirname "$spec")"
 done
 ```
 

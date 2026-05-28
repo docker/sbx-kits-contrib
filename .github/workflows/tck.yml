@@ -83,11 +83,11 @@ jobs:
           go-version-file: go.mod
 
       - name: Run TCK for ${{ matrix.kit }}
-        env:
-          KIT: ${{ matrix.kit }}
-        run: |
-          cd "$KIT"
-          go test -v -timeout 30m -count=1 ./...
+        # Invoke the same wrapper kit authors use locally so CI and the
+        # local workflow stay 1:1. Pass the matrix kit name as a positional
+        # arg (the script resolves it against the repo root) and forward
+        # `-timeout 30m` to `go test`.
+        run: ./scripts/test-kit.sh "${{ matrix.kit }}" -timeout 30m
 
   test-tck:
     needs: detect-changes
@@ -265,13 +265,11 @@ jobs:
         run: sbx policy set-default deny-all
 
       - name: Run e2e TCK for ${{ matrix.kit }}
-        env:
-          # detect-changes emits bare directory names; go test cd's into the
-          # package dir, so anchor against $GITHUB_WORKSPACE to resolve to
-          # the repo-root kit directory rather than ./tck/<kit>.
-          KIT_UNDER_TEST: ${{ github.workspace }}/${{ matrix.kit }}
-        run: |
-          go test -tags=e2e -v -timeout 25m -count=1 -run TestE2ECreateSandbox ./tck/...
+        # Invoke the same wrapper kit authors use locally so CI and the
+        # local workflow stay 1:1. matrix.kit is a bare directory name from
+        # detect-changes (`dirname "$f"`); the script resolves it against
+        # the repo root.
+        run: ./scripts/test-kit-e2e.sh "${{ matrix.kit }}"
 
       - name: Sign out of Docker Hub
         if: always()
