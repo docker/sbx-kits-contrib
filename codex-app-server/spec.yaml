@@ -7,9 +7,18 @@ description: Runs sshd in the sandbox and pre-populates `authorized_keys` from t
 
 network:
   allowedDomains:
-    - archive.ubuntu.com
-    - security.ubuntu.com
-    - ports.ubuntu.com
+    # `apt-get update` (run by commands.install[0]) refreshes metadata for
+    # every configured apt source. The codex-docker base template
+    # pre-configures Docker's apt repo, so `download.docker.com` must be
+    # allowed even though this kit only installs `openssh-server` from
+    # Ubuntu's main archive — apt-get exits 100 on the first source
+    # metadata fetch that returns non-2xx. Ubuntu hosts amd64 packages on
+    # archive/security and arm64 packages on ports.ubuntu.com, so all
+    # three Ubuntu hosts are listed for cross-arch coverage.
+    - archive.ubuntu.com        # Ubuntu archive (amd64 main)
+    - security.ubuntu.com       # Ubuntu security updates (amd64)
+    - ports.ubuntu.com          # Ubuntu archive/security (arm64)
+    - download.docker.com       # Docker's apt repo, pre-added by codex-docker
 
 commands:
   initFiles:
