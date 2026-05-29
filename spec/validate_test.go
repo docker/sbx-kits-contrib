@@ -17,11 +17,11 @@ func TestValidateManifest(t *testing.T) {
 		require.NoError(t, ValidateManifest(&valid))
 	})
 
-	t.Run("valid_agent", func(t *testing.T) {
+	t.Run("valid_sandbox", func(t *testing.T) {
 		m := Manifest{
 			SchemaVersion: SchemaVersion,
-			Kind:          KindAgent,
-			Name:          "test-agent",
+			Kind:          KindSandbox,
+			Name:          "test-sandbox",
 			Template:      "docker/sandbox-templates:shell-docker",
 		}
 		require.NoError(t, ValidateManifest(&m))
@@ -85,11 +85,11 @@ func TestValidateManifest(t *testing.T) {
 		require.ErrorContains(t, ValidateManifest(&m), "invalid name")
 	})
 
-	t.Run("agent_missing_template", func(t *testing.T) {
+	t.Run("sandbox_missing_template", func(t *testing.T) {
 		m := Manifest{
 			SchemaVersion: SchemaVersion,
-			Kind:          KindAgent,
-			Name:          "test-agent",
+			Kind:          KindSandbox,
+			Name:          "test-sandbox",
 		}
 		require.ErrorContains(t, ValidateManifest(&m), "template is required")
 	})

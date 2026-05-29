@@ -6,11 +6,10 @@ import (
 )
 
 // normalize converts sugar fields in specFile into canonical Artifact fields.
-// Non-fatal validation issues (typically v1 → v2 deprecation warnings) are
-// collected on w; callers surface them via Artifact.Warnings.
+// Non-fatal validation issues are collected on w; callers surface them via
+// Artifact.Warnings.
 func (s *specFile) normalize(w *warnings) error {
-	s.normalizeKind(w)
-	if err := s.normalizeSandbox(w); err != nil {
+	if err := s.normalizeSandbox(); err != nil {
 		return err
 	}
 	if err := s.normalizeSecrets(); err != nil {
@@ -19,45 +18,11 @@ func (s *specFile) normalize(w *warnings) error {
 	if err := s.normalizeEgress(); err != nil {
 		return err
 	}
-	s.normalizeAgentContext(w)
 	return nil
 }
 
-// normalizeKind maps the v1 `kind: agent` value to `sandbox`. The v2 value
-// is the canonical form; the v1 value triggers a deprecation warning.
-func (s *specFile) normalizeKind(w *warnings) {
-	if s.Manifest.Kind == KindAgent {
-		s.Manifest.Kind = KindSandbox
-		w.deprecate("kind: agent", "use 'kind: sandbox' instead (kit-spec v2)")
-	}
-}
-
-// normalizeAgentContext maps the v1 `memory:` field onto AgentContext.
-// The v2 field wins if both are set.
-func (s *specFile) normalizeAgentContext(w *warnings) {
-	if s.LegacyMemory == "" {
-		return
-	}
-	if s.AgentContext == "" {
-		s.AgentContext = s.LegacyMemory
-	}
-	w.deprecate("memory", "use 'agentContext' instead (kit-spec v2)")
-	s.LegacyMemory = ""
-}
-
 // normalizeSandbox populates Manifest fields from the sandbox: block.
-// Renamed from normalizeAgent in v2 alongside the YAML rename. v1
-// `agent:` is migrated onto Sandbox at load time with a deprecation
-// warning.
-func (s *specFile) normalizeSandbox(w *warnings) error {
-	if s.LegacyAgent != nil {
-		if s.Sandbox == nil {
-			s.Sandbox = s.LegacyAgent
-		}
-		w.deprecate("agent:", "use 'sandbox:' block instead (kit-spec v2)")
-		s.LegacyAgent = nil
-	}
-
+func (s *specFile) normalizeSandbox() error {
 	isSandbox := s.Kind == KindSandbox
 
 	if s.Template != "" || s.Binary != "" || len(s.RunOptions) > 0 {

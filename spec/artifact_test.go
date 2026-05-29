@@ -177,10 +177,10 @@ persistence: persistent
 
 	t.Run("unknown_nested_key_rejected", func(t *testing.T) {
 		dir := t.TempDir()
-		require.NoError(t, os.WriteFile(filepath.Join(dir, "spec.yaml"), []byte(`schemaVersion: "1"
-kind: agent
+		require.NoError(t, os.WriteFile(filepath.Join(dir, "spec.yaml"), []byte(`schemaVersion: "2"
+kind: sandbox
 name: bogus-nested
-agent:
+sandbox:
   image: docker/sandbox-templates:shell-docker
   persistence: persistent
 `), 0o644))

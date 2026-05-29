@@ -259,8 +259,8 @@ func (s *Suite) RunValidationTests(t *testing.T) {
 				require.Empty(t, m.Template, "mixins should not define their own template")
 				require.Empty(t, m.Binary, "mixins should not define a binary")
 			}
-			if m.Kind == spec.KindAgent {
-				require.NotEmpty(t, m.Template, "agents must define a template")
+			if m.Kind == spec.KindSandbox {
+				require.NotEmpty(t, m.Template, "sandbox kits must define a template")
 			}
 		})
 
@@ -552,9 +552,9 @@ func readOutput(t *testing.T, r io.Reader) string {
 // containerImage returns the image to use for container tests,
 // resolving well-known agent templates for mixins with extends.
 func containerImage(a *spec.Artifact) (string, error) {
-	if a.Manifest.Kind == spec.KindAgent {
+	if a.Manifest.Kind == spec.KindSandbox {
 		if a.Manifest.Template == "" {
-			return "", fmt.Errorf("agent artifact %q has no template", a.Manifest.Name)
+			return "", fmt.Errorf("sandbox artifact %q has no template", a.Manifest.Name)
 		}
 		return a.Manifest.Template, nil
 	}

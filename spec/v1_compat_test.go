@@ -7,12 +7,17 @@ import (
 	"testing"
 )
 
-func TestV1Memory_MapsToAgentContext(t *testing.T) {
+// TestV1Memory_StrictRejected confirms that the v1 `memory:` field is
+// no longer accepted at load. v1 kits get a strict-decode error naming
+// the offending field; authors migrate by renaming `memory:` →
+// `agentContext:` (and running the migration script in
+// sbx-kits-contrib/scripts/migrate-v1-to-v2.go).
+func TestV1Memory_StrictRejected(t *testing.T) {
 	dir := t.TempDir()
-	specYAML := `schemaVersion: "1"
-kind: agent
-name: test-agent
-agent:
+	specYAML := `schemaVersion: "2"
+kind: sandbox
+name: legacy-memory
+sandbox:
   image: example/test:latest
 memory: |
   Legacy v1 memory content
@@ -20,112 +25,44 @@ memory: |
 	if err := os.WriteFile(filepath.Join(dir, "spec.yaml"), []byte(specYAML), 0o644); err != nil {
 		t.Fatal(err)
 	}
-
-	art, err := LoadFromDirectory(dir)
-	if err != nil {
-		t.Fatalf("load: %v", err)
+	_, err := LoadFromDirectory(dir)
+	if err == nil {
+		t.Fatal("expected strict-decode error for removed `memory:` field, got nil")
 	}
-
-	if !strings.Contains(art.AgentContext, "Legacy v1 memory content") {
-		t.Errorf("AgentContext not populated from v1 memory: got %q", art.AgentContext)
-	}
-
-	foundWarning := false
-	for _, w := range art.Warnings {
-		if strings.Contains(w, "memory") && strings.Contains(w, "agentContext") {
-			foundWarning = true
-			break
-		}
-	}
-	if !foundWarning {
-		t.Errorf("expected deprecation warning for memory→agentContext, got %v", art.Warnings)
+	if !strings.Contains(err.Error(), "memory") {
+		t.Errorf("error should name the rejected field; got %v", err)
 	}
 }
 
-func TestV2AgentContext_WinsOverV1Memory(t *testing.T) {
+// TestV1Kind_Agent_StrictRejected confirms that `kind: agent` is no
+// longer accepted at load — kit authors must use `kind: sandbox`.
+func TestV1Kind_Agent_StrictRejected(t *testing.T) {
 	dir := t.TempDir()
 	specYAML := `schemaVersion: "2"
 kind: agent
-name: test-agent
-agent:
-  image: example/test:latest
-memory: "v1 content"
-agentContext: "v2 content"
-`
-	if err := os.WriteFile(filepath.Join(dir, "spec.yaml"), []byte(specYAML), 0o644); err != nil {
-		t.Fatal(err)
-	}
-
-	art, err := LoadFromDirectory(dir)
-	if err != nil {
-		t.Fatalf("load: %v", err)
-	}
-
-	if art.AgentContext != "v2 content" {
-		t.Errorf("AgentContext = %q; want v2 content (v2 wins on conflict)", art.AgentContext)
-	}
-}
-
-func TestV1Kind_Agent_MapsToSandbox(t *testing.T) {
-	dir := t.TempDir()
-	specYAML := `schemaVersion: "1"
-kind: agent
-name: test
-agent:
+name: legacy-kind
+sandbox:
   image: example/test:latest
 `
 	if err := os.WriteFile(filepath.Join(dir, "spec.yaml"), []byte(specYAML), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	art, err := LoadFromDirectory(dir)
-	if err != nil {
-		t.Fatalf("load: %v", err)
+	_, err := LoadFromDirectory(dir)
+	if err == nil {
+		t.Fatal("expected error for `kind: agent`, got nil")
 	}
-	if art.Manifest.Kind != KindSandbox {
-		t.Errorf("Kind = %q; want %q (v1 'agent' normalized to v2 'sandbox')", art.Manifest.Kind, KindSandbox)
-	}
-	foundWarning := false
-	for _, w := range art.Warnings {
-		if strings.Contains(w, "kind") && strings.Contains(w, "agent") {
-			foundWarning = true
-			break
-		}
-	}
-	if !foundWarning {
-		t.Errorf("expected deprecation warning for kind: agent, got %v", art.Warnings)
+	if !strings.Contains(err.Error(), "kind") {
+		t.Errorf("error should name the rejected kind value; got %v", err)
 	}
 }
 
-func TestV2Kind_Sandbox_Accepted(t *testing.T) {
+// TestV1AgentBlock_StrictRejected confirms that the v1 `agent:` block
+// is no longer accepted at load. Kit authors must use `sandbox:`.
+func TestV1AgentBlock_StrictRejected(t *testing.T) {
 	dir := t.TempDir()
 	specYAML := `schemaVersion: "2"
 kind: sandbox
-name: test
-agent:
-  image: example/test:latest
-`
-	if err := os.WriteFile(filepath.Join(dir, "spec.yaml"), []byte(specYAML), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	art, err := LoadFromDirectory(dir)
-	if err != nil {
-		t.Fatalf("load: %v", err)
-	}
-	if art.Manifest.Kind != KindSandbox {
-		t.Errorf("Kind = %q; want %q", art.Manifest.Kind, KindSandbox)
-	}
-	for _, w := range art.Warnings {
-		if strings.Contains(w, "kind") {
-			t.Errorf("unexpected deprecation warning for v2 kind: %s", w)
-		}
-	}
-}
-
-func TestV1AgentBlock_MapsToSandbox(t *testing.T) {
-	dir := t.TempDir()
-	specYAML := `schemaVersion: "1"
-kind: agent
-name: test
+name: legacy-agent
 agent:
   image: example/test:latest
   aiFilename: TEST.md
@@ -133,25 +70,16 @@ agent:
 	if err := os.WriteFile(filepath.Join(dir, "spec.yaml"), []byte(specYAML), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	art, err := LoadFromDirectory(dir)
-	if err != nil {
-		t.Fatalf("load: %v", err)
+	_, err := LoadFromDirectory(dir)
+	if err == nil {
+		t.Fatal("expected strict-decode error for removed `agent:` block, got nil")
 	}
-	if art.Manifest.Template != "example/test:latest" {
-		t.Errorf("Template = %q; want example/test:latest", art.Manifest.Template)
-	}
-	foundWarning := false
-	for _, w := range art.Warnings {
-		if strings.Contains(w, "agent:") || (strings.Contains(w, "agent") && strings.Contains(w, "sandbox")) {
-			foundWarning = true
-			break
-		}
-	}
-	if !foundWarning {
-		t.Errorf("expected deprecation warning for agent: block, got %v", art.Warnings)
+	if !strings.Contains(err.Error(), "agent") {
+		t.Errorf("error should name the rejected field; got %v", err)
 	}
 }
 
+// TestV2SandboxBlock_Accepted exercises the v2 sandbox block end-to-end.
 func TestV2SandboxBlock_Accepted(t *testing.T) {
 	dir := t.TempDir()
 	specYAML := `schemaVersion: "2"
@@ -171,25 +99,30 @@ sandbox:
 	if art.Manifest.Template != "example/test:latest" {
 		t.Errorf("Template = %q; want example/test:latest", art.Manifest.Template)
 	}
-	for _, w := range art.Warnings {
-		if strings.Contains(w, "agent:") {
-			t.Errorf("unexpected deprecation warning for v2 sandbox block: %s", w)
-		}
-	}
 }
 
-func TestVolumesType_TmpfsAccepted(t *testing.T) {
+// TestV2_FullShape_Phase1Renames asserts that a v2-spelled spec.yaml
+// using every field renamed in Phase 1 (`kind: sandbox`, `sandbox:`
+// block, `agentContext:`) decodes correctly into the canonical
+// Artifact representation. This is the positive counterpart to the
+// three v1 strict-rejection tests above and locks in the full
+// post-Phase-1 acceptance contract.
+func TestV2_FullShape_Phase1Renames(t *testing.T) {
 	dir := t.TempDir()
-	specYAML := `schemaVersion: "1"
+	specYAML := `schemaVersion: "2"
 kind: sandbox
-name: vol-tmpfs
+name: phase1-full-shape
+displayName: Phase 1 Full Shape
+description: exercises every Phase 1 renamed field at once
 sandbox:
-  image: docker/sandbox-templates:shell-docker
-volumes:
-  - path: /tmp/scratch
-    type: tmpfs
-    size: 512m
-    mode: "1777"
+  image: example/test:latest
+  aiFilename: TEST.md
+  entrypoint:
+    run: ["test-bin"]
+    args: ["--flag"]
+agentContext: |
+  This is the kit's agent-context content. Renamed from the v1
+  memory field; v1 spellings now strict-reject.
 `
 	if err := os.WriteFile(filepath.Join(dir, "spec.yaml"), []byte(specYAML), 0o644); err != nil {
 		t.Fatal(err)
@@ -198,34 +131,36 @@ volumes:
 	if err != nil {
 		t.Fatalf("load: %v", err)
 	}
-	if len(art.Manifest.Volumes) != 1 {
-		t.Fatalf("expected 1 volume, got %d", len(art.Manifest.Volumes))
-	}
-	v := art.Manifest.Volumes[0]
-	if v.Type != "tmpfs" || v.Path != "/tmp/scratch" || v.Size != "512m" || v.Mode != "1777" {
-		t.Errorf("volume mismatch: %#v", v)
-	}
-}
 
-func TestV1TmpfsBlock_StrictRejected(t *testing.T) {
-	dir := t.TempDir()
-	specYAML := `schemaVersion: "1"
-kind: sandbox
-name: legacy-tmpfs
-sandbox:
-  image: docker/sandbox-templates:shell-docker
-tmpfs:
-  - path: /tmp/scratch
-    size: 512m
-`
-	if err := os.WriteFile(filepath.Join(dir, "spec.yaml"), []byte(specYAML), 0o644); err != nil {
-		t.Fatal(err)
+	// Renamed top-level: `kind: sandbox`.
+	if art.Manifest.Kind != KindSandbox {
+		t.Errorf("Manifest.Kind = %q; want %q", art.Manifest.Kind, KindSandbox)
 	}
-	_, err := LoadFromDirectory(dir)
-	if err == nil {
-		t.Fatal("expected strict-decode error for removed `tmpfs:` block, got nil")
+
+	// Renamed block: `sandbox:` populates Manifest.Template / Binary / RunOptions / AIFilename.
+	if art.Manifest.Template != "example/test:latest" {
+		t.Errorf("Manifest.Template = %q; want example/test:latest", art.Manifest.Template)
 	}
-	if !strings.Contains(err.Error(), "tmpfs") {
-		t.Errorf("error should name the rejected field; got %v", err)
+	if art.Manifest.AIFilename != "TEST.md" {
+		t.Errorf("Manifest.AIFilename = %q; want TEST.md", art.Manifest.AIFilename)
+	}
+	if art.Manifest.Binary != "test-bin" {
+		t.Errorf("Manifest.Binary = %q; want test-bin", art.Manifest.Binary)
+	}
+	wantRunOptions := []string{"--flag"}
+	if len(art.Manifest.RunOptions) != len(wantRunOptions) || art.Manifest.RunOptions[0] != wantRunOptions[0] {
+		t.Errorf("Manifest.RunOptions = %v; want %v", art.Manifest.RunOptions, wantRunOptions)
+	}
+
+	// Renamed field: `agentContext:` populates Artifact.AgentContext.
+	if !strings.Contains(art.AgentContext, "Renamed from the v1") {
+		t.Errorf("Artifact.AgentContext missing expected content; got %q", art.AgentContext)
+	}
+
+	// No deprecation warnings — v2 spelling throughout means clean load.
+	for _, w := range art.Warnings {
+		if strings.Contains(w, "memory") || strings.Contains(w, "agent:") || strings.Contains(w, "kind: agent") {
+			t.Errorf("unexpected deprecation warning on clean v2 load: %s", w)
+		}
 	}
 }

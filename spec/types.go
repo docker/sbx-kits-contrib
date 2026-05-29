@@ -26,15 +26,10 @@ var SupportedSchemaVersions = []string{"1", "2"}
 // Kind constants for manifest types.
 const (
 	// KindSandbox defines a sandbox kit (must have a sandbox image source).
-	// Only one sandbox kit is allowed per sandbox. Renamed from KindAgent
-	// in schemaVersion "2"; v1 `kind: agent` is mapped to this value at
-	// load time with a deprecation warning.
+	// Only one sandbox kit is allowed per sandbox. Renamed from the v1
+	// value "agent" in schemaVersion "2"; the v1 spelling is strict-
+	// rejected at load time as part of the v2 breaking-change posture.
 	KindSandbox = "sandbox"
-
-	// KindAgent is the v1 alias for KindSandbox. Accepted at load time
-	// with a deprecation warning. Drop in the Phase 4 schema-cutover
-	// commit.
-	KindAgent = "agent"
 
 	// KindMixin defines an extension that adds capabilities.
 	// Multiple mixins can coexist in a single sandbox.
@@ -399,13 +394,11 @@ type Artifact struct {
 
 	// AgentContext is optional agent-specific markdown content appended to
 	// the AI profile file. Renamed from `Memory` in schemaVersion "2";
-	// v1 `memory:` is mapped to this field at load time with a deprecation
-	// warning.
+	// the v1 `memory:` spelling strict-decode-rejects at load time.
 	AgentContext string `json:"agentContext,omitempty"`
 
 	// Warnings is the list of non-fatal validation issues collected during
-	// load (typically v1 → v2 deprecation warnings). Empty slice when the
-	// spec uses only canonical v2 fields.
+	// load. Empty slice when the spec is clean.
 	Warnings []string `json:"warnings,omitempty"`
 }
 
@@ -486,14 +479,10 @@ func (p *OAuthPolicy) ResolvedResponseFields() OAuthResponseFields {
 
 // specFile is the on-disk YAML schema for spec.yaml.
 type specFile struct {
-	Manifest `yaml:",inline"`
-	Extends  string        `yaml:"extends,omitempty"`
-	Locked   []string      `yaml:"locked,omitempty"`
-	Sandbox  *sandboxBlock `yaml:"sandbox,omitempty"`
-	// LegacyAgent holds the v1 `agent:` block. The normalize step
-	// migrates its contents to Sandbox with a deprecation warning. Drop
-	// in the Phase 4 schema-cutover commit.
-	LegacyAgent  *sandboxBlock      `yaml:"agent,omitempty"`
+	Manifest     `yaml:",inline"`
+	Extends      string             `yaml:"extends,omitempty"`
+	Locked       []string           `yaml:"locked,omitempty"`
+	Sandbox      *sandboxBlock      `yaml:"sandbox,omitempty"`
 	Secrets      []string           `yaml:"secrets,omitempty"`
 	Egress       map[string]string  `yaml:"egress,omitempty"`
 	Network      *NetworkPolicy     `yaml:"network,omitempty"`
@@ -503,10 +492,6 @@ type specFile struct {
 	Commands     *CommandsPolicy    `yaml:"commands,omitempty"`
 	OAuth        *OAuthPolicy       `yaml:"oauth,omitempty"`
 	AgentContext string             `yaml:"agentContext,omitempty"`
-	// LegacyMemory holds the v1 `memory:` field. The normalize step
-	// migrates it to AgentContext with a deprecation warning. Drop in
-	// the Phase 4 schema-cutover commit.
-	LegacyMemory string `yaml:"memory,omitempty"`
 }
 
 // sandboxBlock groups sandbox-specific configuration (formerly the
