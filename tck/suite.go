@@ -280,9 +280,9 @@ func (s *Suite) RunValidationTests(t *testing.T) {
 			})
 		}
 
-		if len(m.Tmpfs) > 0 {
+		if tmpfsVolumes := m.TmpfsVolumes(); len(tmpfsVolumes) > 0 {
 			t.Run("tmpfs", func(t *testing.T) {
-				for i, mnt := range m.Tmpfs {
+				for i, mnt := range tmpfsVolumes {
 					require.True(t, strings.HasPrefix(mnt.Path, "/"),
 						"tmpfs[%d].path %q must be absolute", i, mnt.Path)
 				}

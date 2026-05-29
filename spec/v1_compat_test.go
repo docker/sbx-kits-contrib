@@ -177,3 +177,55 @@ sandbox:
 		}
 	}
 }
+
+func TestVolumesType_TmpfsAccepted(t *testing.T) {
+	dir := t.TempDir()
+	specYAML := `schemaVersion: "1"
+kind: sandbox
+name: vol-tmpfs
+sandbox:
+  image: docker/sandbox-templates:shell-docker
+volumes:
+  - path: /tmp/scratch
+    type: tmpfs
+    size: 512m
+    mode: "1777"
+`
+	if err := os.WriteFile(filepath.Join(dir, "spec.yaml"), []byte(specYAML), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	art, err := LoadFromDirectory(dir)
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if len(art.Manifest.Volumes) != 1 {
+		t.Fatalf("expected 1 volume, got %d", len(art.Manifest.Volumes))
+	}
+	v := art.Manifest.Volumes[0]
+	if v.Type != "tmpfs" || v.Path != "/tmp/scratch" || v.Size != "512m" || v.Mode != "1777" {
+		t.Errorf("volume mismatch: %#v", v)
+	}
+}
+
+func TestV1TmpfsBlock_StrictRejected(t *testing.T) {
+	dir := t.TempDir()
+	specYAML := `schemaVersion: "1"
+kind: sandbox
+name: legacy-tmpfs
+sandbox:
+  image: docker/sandbox-templates:shell-docker
+tmpfs:
+  - path: /tmp/scratch
+    size: 512m
+`
+	if err := os.WriteFile(filepath.Join(dir, "spec.yaml"), []byte(specYAML), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_, err := LoadFromDirectory(dir)
+	if err == nil {
+		t.Fatal("expected strict-decode error for removed `tmpfs:` block, got nil")
+	}
+	if !strings.Contains(err.Error(), "tmpfs") {
+		t.Errorf("error should name the rejected field; got %v", err)
+	}
+}

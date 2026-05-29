@@ -41,7 +41,7 @@ func NewSuiteFromDir(dir string, opts ...Option) (*Suite, error) {
 		Image:                  image,
 		ExpectedEnvVars:        deriveEnvVars(artifact.Environment),
 		ExpectedContainerFiles: deriveContainerFiles(artifact.Files, artifact.Commands),
-		ExpectedTmpfs:          deriveTmpfs(artifact.Manifest.Tmpfs),
+		ExpectedTmpfs:          deriveTmpfs(artifact.Manifest.TmpfsVolumes()),
 	}
 
 	// Derive network expectations
@@ -107,9 +107,10 @@ func resolveWorkdir(s string) string {
 }
 
 // deriveTmpfs builds the expected tmpfs mounts from the manifest's tmpfs
-// entries, always including /run/secrets for the secrets tmpfs. The result
-// is a path→option-string map suitable for testcontainers-go's WithTmpfs
-// (Size and Mode compose into the comma-separated value Docker expects).
+// volumes (those entries on Manifest.Volumes with Type == "tmpfs"), always
+// including /run/secrets for the secrets tmpfs. The result is a path→
+// option-string map suitable for testcontainers-go's WithTmpfs (Size and
+// Mode compose into the comma-separated value Docker expects).
 func deriveTmpfs(manifestTmpfs []spec.MountSpec) map[string]string {
 	tmpfs := map[string]string{
 		"/run/secrets": "rw,noexec,nosuid",
