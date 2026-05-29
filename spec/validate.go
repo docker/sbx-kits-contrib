@@ -228,12 +228,12 @@ func ValidateSecurity(_ *Security) error {
 }
 
 // ValidateVolumes validates Manifest.Volumes mount entries. Each entry's
-// Type selects the backing storage (omit or "" for block-backed, "tmpfs"
-// for RAM-backed); any other value is rejected.
+// Type selects the backing storage (MountTypeBlock — encoded as "" — for
+// block-backed, MountTypeTmpfs for RAM-backed); any other value is rejected.
 func ValidateVolumes(volumes []MountSpec) error {
 	for i, m := range volumes {
-		if m.Type != "" && m.Type != "tmpfs" {
-			return fmt.Errorf("manifest: volumes[%d].type %q is invalid (must be omitted or \"tmpfs\")", i, m.Type)
+		if m.Type != MountTypeBlock && m.Type != MountTypeTmpfs {
+			return fmt.Errorf("manifest: volumes[%d].type %q is invalid (must be omitted or %q)", i, m.Type, MountTypeTmpfs)
 		}
 		if m.Path == "" {
 			return fmt.Errorf("manifest: volumes[%d].path must not be empty", i)

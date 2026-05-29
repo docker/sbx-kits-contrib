@@ -104,16 +104,16 @@ type Manifest struct {
 	Volumes []MountSpec `json:"volumes,omitempty" yaml:"volumes,omitempty"`
 }
 
-// TmpfsVolumes returns the subset of m.Volumes whose Type is "tmpfs".
-// Convenience for call-sites that previously read the separate
-// Manifest.Tmpfs field.
+// TmpfsVolumes returns the subset of m.Volumes whose Type is
+// MountTypeTmpfs. Convenience for call-sites that previously read the
+// separate Manifest.Tmpfs field.
 func (m *Manifest) TmpfsVolumes() []MountSpec {
 	if len(m.Volumes) == 0 {
 		return nil
 	}
 	out := make([]MountSpec, 0, len(m.Volumes))
 	for _, v := range m.Volumes {
-		if v.Type == "tmpfs" {
+		if v.Type == MountTypeTmpfs {
 			out = append(out, v)
 		}
 	}
@@ -129,17 +129,33 @@ type Security struct {
 	Privileged bool `json:"privileged,omitempty" yaml:"privileged,omitempty"`
 }
 
+// MountType selects the backing storage for a MountSpec entry. Defined
+// as a named type so downstream tooling (kit-generation helpers, etc.)
+// can declare typed parameters instead of passing raw strings.
+type MountType string
+
+// Recognized MountType values.
+const (
+	// MountTypeBlock is the default block-backed volume. Encoded as the
+	// empty string in YAML/JSON so existing entries that omit `type:`
+	// continue to decode unchanged.
+	MountTypeBlock MountType = ""
+
+	// MountTypeTmpfs is a RAM-backed mount.
+	MountTypeTmpfs MountType = "tmpfs"
+)
+
 // MountSpec is a single mount entry on Manifest.Volumes. Type selects
-// the backing storage: omit or set "" for the default block-backed
-// volume; set "tmpfs" for a RAM-backed mount.
+// the backing storage.
 type MountSpec struct {
 	// Path is the absolute mount path in the container.
 	Path string `json:"path" yaml:"path"`
 
-	// Type selects the backing storage. Omit (or set "") for the default
-	// block-backed volume; set "tmpfs" for a RAM-backed mount. Added in
-	// schemaVersion "2" to replace the separate top-level `tmpfs:` block.
-	Type string `json:"type,omitempty" yaml:"type,omitempty"`
+	// Type selects the backing storage. Defaults to MountTypeBlock
+	// (block-backed); set MountTypeTmpfs for a RAM-backed mount. Added
+	// in schemaVersion "2" to replace the separate top-level `tmpfs:`
+	// block.
+	Type MountType `json:"type,omitempty" yaml:"type,omitempty"`
 
 	// Size is the mount size as a byte-size string (e.g., "100m", "4g",
 	// "512m"). Optional.
