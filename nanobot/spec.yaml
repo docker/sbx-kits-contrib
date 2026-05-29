@@ -1,10 +1,10 @@
 schemaVersion: "1"
-kind: agent
+kind: sandbox
 name: nanobot
 displayName: Nanobot
 description: "Lightweight personal AI assistant with multi-platform chat and multi-provider LLM support"
 
-agent:
+sandbox:
   image: "docker/sandbox-templates:shell-docker"
   aiFilename: AGENTS.md
   entrypoint:

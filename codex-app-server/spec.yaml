@@ -90,7 +90,7 @@ commands:
       user: "0"
       description: Start sshd if not already running (recreates /var/run/sshd which is tmpfs-cleared on container restart)
 
-memory: |
+agentContext: |
   ## Codex app-server over SSH
 
   sshd is running inside the sandbox on port 22, and your host's SSH

@@ -1,10 +1,10 @@
 schemaVersion: "1"
-kind: agent
+kind: sandbox
 name: nanoclaw
 displayName: NanoClaw
 description: "Lightweight AI assistant runtime driven by Claude Code; ships the CLI channel — chat platforms (WhatsApp, Telegram, Discord, …) add via upstream skills"
 
-agent:
+sandbox:
   image: "docker/sandbox-templates:claude-code-docker"
   aiFilename: CLAUDE.md
   entrypoint:

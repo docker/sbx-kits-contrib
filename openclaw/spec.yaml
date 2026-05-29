@@ -1,10 +1,10 @@
 schemaVersion: "1"
-kind: agent
+kind: sandbox
 name: openclaw
 displayName: OpenClaw
 description: "Personal AI assistant with multi-platform chat, skills, and gateway support"
 
-agent:
+sandbox:
   image: "docker/sandbox-templates:shell-docker"
   aiFilename: AGENTS.md
   entrypoint:
