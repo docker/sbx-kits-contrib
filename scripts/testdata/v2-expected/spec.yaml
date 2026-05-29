@@ -1,0 +1,16 @@
+schemaVersion: "1"
+kind: sandbox
+name: legacy-kit
+displayName: Legacy Kit
+description: exercises every Phase 1 renamed field at once
+
+sandbox:
+  image: "example/test:latest"
+  aiFilename: TEST.md
+  entrypoint:
+    run: ["test-bin"]
+    args: ["--flag"]
+
+agentContext: |
+  Some legacy memory content.
+  Should be carried over verbatim under agentContext after migration.

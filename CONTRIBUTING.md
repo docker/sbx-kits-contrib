@@ -9,6 +9,16 @@ If you're new to sandbox customization, start with the docs:
 
 The [`README.md`](./README.md) covers the mechanical setup — directory layout, `spec.yaml` skeleton, TCK boilerplate, how CI runs. This page covers the conventions for getting a contribution accepted.
 
+## Migrating an existing kit to v2
+
+If you maintain a kit that was authored against schemaVersion 1, the [`scripts/migrate-v1-to-v2.go`](./scripts/migrate-v1-to-v2.go) helper rewrites your `spec.yaml` mechanically:
+
+```bash
+go run scripts/migrate-v1-to-v2.go <path-to-your-kit>
+```
+
+It applies the v2 renames (`memory:` → `agentContext:`, `kind: agent` → `kind: sandbox`, `agent:` → `sandbox:`), writes a `spec.yaml.bak` of the original, and prints a summary of what changed. The script grows as later phases of the v2 migration land — see [`scripts/README.md`](./scripts/README.md) for the current scope and the [v2 migration roadmap](https://github.com/docker/sandboxes/blob/main/docs/specs/2026-05-27-unified-kit-spec-v2.md) for what's still pending.
+
 ## Before you start
 
 Pick an existing kit closest in shape to what you want to build and read it end-to-end as a template:
