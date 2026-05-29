@@ -26,17 +26,22 @@ network:
       headerName: Authorization
       valueFormat: "Bearer %s"
   allowedDomains:
-    - "github.com:443"
-    - "raw.githubusercontent.com:443"
-    - "objects.githubusercontent.com:443"
-    - "pypi.org:443"
-    - "files.pythonhosted.org:443"
-    - "astral.sh:443"
-    - "openrouter.ai:443"
-    - "*.openrouter.ai:443"
-    - "api.openai.com:443"
-    - "api.anthropic.com:443"
-    - "portal.nousresearch.com:443"
+    - github.com
+    - raw.githubusercontent.com
+    - objects.githubusercontent.com
+    - pypi.org
+    - files.pythonhosted.org
+    - astral.sh
+    - openrouter.ai
+    - "*.openrouter.ai"
+    - api.openai.com
+    - api.anthropic.com
+    - portal.nousresearch.com
+    - duckduckgo.com        # install.sh connectivity probe alongside pypi.org
+    - archive.ubuntu.com    # Ubuntu archive (amd64 main)
+    - security.ubuntu.com   # Ubuntu security updates (amd64)
+    - ports.ubuntu.com      # Ubuntu archive/security (arm64)
+    - download.docker.com   # Docker's apt repo
 
 credentials:
   sources:
