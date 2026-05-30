@@ -227,34 +227,27 @@ func ValidateSecurity(_ *Security) error {
 	return nil
 }
 
-// ValidateVolumes validates block-volume mount entries.
+// ValidateVolumes validates Manifest.Volumes mount entries. Each entry's
+// Type selects the backing storage (MountTypeBlock — encoded as "" — for
+// block-backed, MountTypeTmpfs for RAM-backed); any other value is rejected.
 func ValidateVolumes(volumes []MountSpec) error {
-	return validateMounts("volumes", volumes)
-}
-
-// ValidateTmpfs validates tmpfs mount entries.
-func ValidateTmpfs(tmpfs []MountSpec) error {
-	return validateMounts("tmpfs", tmpfs)
-}
-
-// validateMounts checks the shared MountSpec invariants: absolute Path,
-// parseable Size if set, octal Mode if set. field is used as the error
-// prefix so volume and tmpfs failures are distinguishable.
-func validateMounts(field string, mounts []MountSpec) error {
-	for i, m := range mounts {
+	for i, m := range volumes {
+		if m.Type != MountTypeBlock && m.Type != MountTypeTmpfs {
+			return fmt.Errorf("manifest: volumes[%d].type %q is invalid (must be omitted or %q)", i, m.Type, MountTypeTmpfs)
+		}
 		if m.Path == "" {
-			return fmt.Errorf("manifest: %s[%d].path must not be empty", field, i)
+			return fmt.Errorf("manifest: volumes[%d].path must not be empty", i)
 		}
 		if !strings.HasPrefix(m.Path, "/") {
-			return fmt.Errorf("manifest: %s[%d].path %q must be an absolute path", field, i, m.Path)
+			return fmt.Errorf("manifest: volumes[%d].path %q must be an absolute path", i, m.Path)
 		}
 		if m.Size != "" {
 			if _, err := units.RAMInBytes(m.Size); err != nil {
-				return fmt.Errorf("manifest: %s[%d].size %q is not a valid size: %w", field, i, m.Size, err)
+				return fmt.Errorf("manifest: volumes[%d].size %q is not a valid size: %w", i, m.Size, err)
 			}
 		}
 		if m.Mode != "" && !octalModePattern.MatchString(m.Mode) {
-			return fmt.Errorf("manifest: %s[%d].mode %q must be octal (e.g. \"1777\")", field, i, m.Mode)
+			return fmt.Errorf("manifest: volumes[%d].mode %q must be octal (e.g. \"1777\")", i, m.Mode)
 		}
 	}
 	return nil
@@ -269,9 +262,6 @@ func ValidateArtifact(a *Artifact) error {
 		return err
 	}
 	if err := ValidateVolumes(a.Manifest.Volumes); err != nil {
-		return err
-	}
-	if err := ValidateTmpfs(a.Manifest.Tmpfs); err != nil {
 		return err
 	}
 	if err := ValidateLocked(a.Locked); err != nil {

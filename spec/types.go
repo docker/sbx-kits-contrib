@@ -97,13 +97,30 @@ type Manifest struct {
 	// Security defines container security settings.
 	Security *Security `json:"security,omitempty" yaml:"security,omitempty"`
 
-	// Volumes are block-volume mounts in dash-style list form. Entries are
-	// applied by Path.
+	// Volumes are mount entries in dash-style list form. Entries are
+	// applied by Path. Each entry's Type selects the backing storage
+	// (omit or set "" for the default block-backed volume; set "tmpfs"
+	// for a RAM-backed mount).
 	Volumes []MountSpec `json:"volumes,omitempty" yaml:"volumes,omitempty"`
+}
 
-	// Tmpfs are tmpfs mounts in dash-style list form. Entries are applied
-	// by Path.
-	Tmpfs []MountSpec `json:"tmpfs,omitempty" yaml:"tmpfs,omitempty"`
+// TmpfsVolumes returns the subset of m.Volumes whose Type is
+// MountTypeTmpfs. Convenience for call-sites that previously read the
+// separate Manifest.Tmpfs field.
+func (m *Manifest) TmpfsVolumes() []MountSpec {
+	if len(m.Volumes) == 0 {
+		return nil
+	}
+	out := make([]MountSpec, 0, len(m.Volumes))
+	for _, v := range m.Volumes {
+		if v.Type == MountTypeTmpfs {
+			out = append(out, v)
+		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
 }
 
 // Security defines container security settings for the sandbox.
@@ -112,13 +129,33 @@ type Security struct {
 	Privileged bool `json:"privileged,omitempty" yaml:"privileged,omitempty"`
 }
 
-// MountSpec is a single mount entry shared by Manifest.Volumes (persistent
-// block volumes) and Manifest.Tmpfs (in-memory tmpfs). The fields are
-// identical; the semantic distinction lives on the field that holds the
-// slice, not on the entry type.
+// MountType selects the backing storage for a MountSpec entry. Defined
+// as a named type so downstream tooling (kit-generation helpers, etc.)
+// can declare typed parameters instead of passing raw strings.
+type MountType string
+
+// Recognized MountType values.
+const (
+	// MountTypeBlock is the default block-backed volume. Encoded as the
+	// empty string in YAML/JSON so existing entries that omit `type:`
+	// continue to decode unchanged.
+	MountTypeBlock MountType = ""
+
+	// MountTypeTmpfs is a RAM-backed mount.
+	MountTypeTmpfs MountType = "tmpfs"
+)
+
+// MountSpec is a single mount entry on Manifest.Volumes. Type selects
+// the backing storage.
 type MountSpec struct {
 	// Path is the absolute mount path in the container.
 	Path string `json:"path" yaml:"path"`
+
+	// Type selects the backing storage. Defaults to MountTypeBlock
+	// (block-backed); set MountTypeTmpfs for a RAM-backed mount. Added
+	// in schemaVersion "2" to replace the separate top-level `tmpfs:`
+	// block.
+	Type MountType `json:"type,omitempty" yaml:"type,omitempty"`
 
 	// Size is the mount size as a byte-size string (e.g., "100m", "4g",
 	// "512m"). Optional.
@@ -375,13 +412,13 @@ type Artifact struct {
 // OAuthPolicy defines OAuth configuration for agents that use OAuth-based
 // authentication through the proxy.
 type OAuthPolicy struct {
-	Service             string              `json:"service" yaml:"service"`
-	TokenEndpoint       OAuthTokenEndpoint  `json:"tokenEndpoint" yaml:"tokenEndpoint"`
-	Sentinels           OAuthSentinels      `json:"sentinels" yaml:"sentinels"`
+	Service             string               `json:"service" yaml:"service"`
+	TokenEndpoint       OAuthTokenEndpoint   `json:"tokenEndpoint" yaml:"tokenEndpoint"`
+	Sentinels           OAuthSentinels       `json:"sentinels" yaml:"sentinels"`
 	CredentialFile      *OAuthCredentialFile `json:"credentialFile,omitempty" yaml:"credentialFile,omitempty"`
-	SkipIfEnv           []string            `json:"skipIfEnv,omitempty" yaml:"skipIfEnv,omitempty"`
+	SkipIfEnv           []string             `json:"skipIfEnv,omitempty" yaml:"skipIfEnv,omitempty"`
 	ResponseFields      *OAuthResponseFields `json:"responseFields,omitempty" yaml:"responseFields,omitempty"`
-	PassthroughResponse bool                `json:"passthroughResponse,omitempty" yaml:"passthroughResponse,omitempty"`
+	PassthroughResponse bool                 `json:"passthroughResponse,omitempty" yaml:"passthroughResponse,omitempty"`
 }
 
 // OAuthResponseFields maps logical OAuth token field names to the actual
@@ -449,27 +486,27 @@ func (p *OAuthPolicy) ResolvedResponseFields() OAuthResponseFields {
 
 // specFile is the on-disk YAML schema for spec.yaml.
 type specFile struct {
-	Manifest    `yaml:",inline"`
-	Extends     string             `yaml:"extends,omitempty"`
-	Locked      []string           `yaml:"locked,omitempty"`
-	Sandbox *sandboxBlock `yaml:"sandbox,omitempty"`
+	Manifest `yaml:",inline"`
+	Extends  string        `yaml:"extends,omitempty"`
+	Locked   []string      `yaml:"locked,omitempty"`
+	Sandbox  *sandboxBlock `yaml:"sandbox,omitempty"`
 	// LegacyAgent holds the v1 `agent:` block. The normalize step
 	// migrates its contents to Sandbox with a deprecation warning. Drop
 	// in the Phase 4 schema-cutover commit.
-	LegacyAgent *sandboxBlock `yaml:"agent,omitempty"`
-	Secrets     []string           `yaml:"secrets,omitempty"`
-	Egress      map[string]string  `yaml:"egress,omitempty"`
-	Network     *NetworkPolicy     `yaml:"network,omitempty"`
-	Credentials *CredentialPolicy  `yaml:"credentials,omitempty"`
-	Environment *EnvironmentPolicy `yaml:"environment,omitempty"`
-	Settings    *SettingsPolicy    `yaml:"settings,omitempty"`
-	Commands    *CommandsPolicy    `yaml:"commands,omitempty"`
-	OAuth       *OAuthPolicy       `yaml:"oauth,omitempty"`
-	AgentContext string            `yaml:"agentContext,omitempty"`
+	LegacyAgent  *sandboxBlock      `yaml:"agent,omitempty"`
+	Secrets      []string           `yaml:"secrets,omitempty"`
+	Egress       map[string]string  `yaml:"egress,omitempty"`
+	Network      *NetworkPolicy     `yaml:"network,omitempty"`
+	Credentials  *CredentialPolicy  `yaml:"credentials,omitempty"`
+	Environment  *EnvironmentPolicy `yaml:"environment,omitempty"`
+	Settings     *SettingsPolicy    `yaml:"settings,omitempty"`
+	Commands     *CommandsPolicy    `yaml:"commands,omitempty"`
+	OAuth        *OAuthPolicy       `yaml:"oauth,omitempty"`
+	AgentContext string             `yaml:"agentContext,omitempty"`
 	// LegacyMemory holds the v1 `memory:` field. The normalize step
 	// migrates it to AgentContext with a deprecation warning. Drop in
 	// the Phase 4 schema-cutover commit.
-	LegacyMemory string            `yaml:"memory,omitempty"`
+	LegacyMemory string `yaml:"memory,omitempty"`
 }
 
 // sandboxBlock groups sandbox-specific configuration (formerly the

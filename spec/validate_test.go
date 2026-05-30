@@ -314,29 +314,30 @@ func TestValidateVolumes(t *testing.T) {
 	})
 }
 
-func TestValidateTmpfs(t *testing.T) {
-	t.Run("valid", func(t *testing.T) {
-		require.NoError(t, ValidateTmpfs([]MountSpec{{Path: "/tmp", Size: "1g", Mode: "1777"}}))
-	})
+func TestValidateArtifact_MountSpecType(t *testing.T) {
+	base := Manifest{
+		SchemaVersion: SchemaVersion,
+		Kind:          KindSandbox,
+		Name:          "vol-type-test",
+		Template:      "docker/sandbox-templates:shell-docker",
+	}
 
-	t.Run("path_only_is_valid", func(t *testing.T) {
-		require.NoError(t, ValidateTmpfs([]MountSpec{{Path: "/tmp"}}))
+	t.Run("empty type accepted", func(t *testing.T) {
+		m := base
+		m.Volumes = []MountSpec{{Path: "/data"}}
+		require.NoError(t, ValidateArtifact(&Artifact{Manifest: m}))
 	})
-
-	t.Run("empty_path", func(t *testing.T) {
-		require.ErrorContains(t, ValidateTmpfs([]MountSpec{{Path: ""}}), "tmpfs[0].path must not be empty")
+	t.Run("tmpfs type accepted", func(t *testing.T) {
+		m := base
+		m.Volumes = []MountSpec{{Path: "/tmp/scratch", Type: "tmpfs"}}
+		require.NoError(t, ValidateArtifact(&Artifact{Manifest: m}))
 	})
-
-	t.Run("relative_path", func(t *testing.T) {
-		require.ErrorContains(t, ValidateTmpfs([]MountSpec{{Path: "tmp"}}), "tmpfs[0].path \"tmp\" must be an absolute path")
-	})
-
-	t.Run("invalid_size", func(t *testing.T) {
-		require.ErrorContains(t, ValidateTmpfs([]MountSpec{{Path: "/tmp", Size: "huge"}}), "tmpfs[0].size \"huge\" is not a valid size")
-	})
-
-	t.Run("invalid_mode", func(t *testing.T) {
-		require.ErrorContains(t, ValidateTmpfs([]MountSpec{{Path: "/tmp", Mode: "rwx"}}), "tmpfs[0].mode \"rwx\" must be octal")
+	t.Run("invalid type rejected", func(t *testing.T) {
+		m := base
+		m.Volumes = []MountSpec{{Path: "/data", Type: "bogus"}}
+		err := ValidateArtifact(&Artifact{Manifest: m})
+		require.ErrorContains(t, err, "type")
+		require.ErrorContains(t, err, "bogus")
 	})
 }
 
