@@ -70,10 +70,7 @@ $ sbx run --kit ./code-server/ claude
 sbx-kits-contrib/
 ├── spec/          # Kit artifact types, loading, and validation (importable library)
 ├── tck/           # Technology Compatibility Kit — test suite using testcontainers-go
-├── pi/            # Pi coding agent kit
-├── nanobot/       # Nanobot assistant kit
-├── openclaw/      # OpenClaw assistant kit
-├── nanoclaw/      # NanoClaw WhatsApp bridge kit
+├── <kit-name>/    # Individual kits (amp, code-server, pi, etc.)
 └── .github/       # CI workflows
 ```
 
