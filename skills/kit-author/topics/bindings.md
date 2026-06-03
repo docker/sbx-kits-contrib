@@ -1,7 +1,5 @@
 # Credential Bindings (`~/.config/sbx/credentials.yaml`)
 
-> **Status**: lands with the v2 unified credentials migration (PR #64). The file is loaded by the engine's credential resolver to discover where credentials live on the user's host.
-
 A **kit** declares what it needs:
 
 ```yaml
@@ -19,18 +17,13 @@ credentials:
 A **user** declares where it lives on their host:
 
 ```yaml
-# ~/.config/sbx/credentials.yaml (Linux/macOS)
-# %APPDATA%\sbx\credentials.yaml (Windows)
+# ~/.config/sbx/credentials.yaml
 bindings:
   anthropic:
     discovery:
       - env: [ANTHROPIC_API_KEY]
       - file:
           path: "~/.anthropic/api_key.txt"
-          # parser: ""  (raw — full file contents, trailing whitespace trimmed)
-      - file:
-          path: "~/.config/anthropic/credentials.json"
-          parser: "json:primary.api_key"        # dotted-path JSON extraction
     allowedDomains:
       - api.anthropic.com
       - "*.anthropic.com"
@@ -38,24 +31,39 @@ bindings:
 
 The split keeps the kit minimal and lets each user point `sbx` at whatever credential storage they already use.
 
+## Configuration file location
+
+| Platform | Path |
+|---|---|
+| macOS / Linux | `~/.config/sbx/credentials.yaml` |
+| Linux with `$XDG_CONFIG_HOME` set | `$XDG_CONFIG_HOME/sbx/credentials.yaml` |
+| Windows | `%APPDATA%\sbx\credentials.yaml` |
+
+This file is **user-controlled** and MUST NOT be modified by kits or automated tooling without explicit user consent.
+
 ## File shape
 
 ```yaml
 bindings:
   <service-id>:
-    discovery:                                # ordered list — first hit wins
+    discovery:                                # required, ordered — first hit wins
       - env: [VAR1, VAR2, …]                 # priority order within the entry
       - file:
           path: "<path>"                     # ~ expands to $HOME
           parser: ""                         # see Parsers below
-    allowedDomains:                          # required when discovery is empty;
-      - <domain>                             # additional domains the engine may
-      - <domain>                             # inject this credential into
+    allowedDomains:                          # required — domains the engine may inject this credential into
+      - <domain>
+      - <domain>
+
+remembered:                                  # P2 — workspace path → variant association
+  "/Users/me/work/org-a":
+    github: github@work-org-a
+  "/Users/me/personal/oss":
+    github: github
 ```
 
-- `<service-id>` matches the kit's `credentials[].service`.
-- Each `discovery` entry has **exactly one** of `env` or `file` (validate-time check).
-- `discovery` may be empty when the value already lives in `sbx`'s secret store (see "Scenario 1c" below).
+- `<service-id>` matches the kit's `credentials[].service`. For named variants (P2), the form is `<service>@<variant>` — e.g. `github@work-org-a`.
+- Each `discovery` entry has **exactly one** of `env` or `file`.
 
 ## Parsers
 
@@ -68,88 +76,145 @@ bindings:
 
 Misses (key not present, non-string leaf) cause the resolver to skip the entry and try the next one. Malformed parser specs (e.g. `"json:"` with no path) surface as a logged warning.
 
+## Named variants (P2)
+
+When a user has multiple credentials for the same service — e.g. a personal GitHub token and a work-org one — they're declared as named variants:
+
+```yaml
+bindings:
+  github:                                    # the default
+    discovery:
+      - env: [GITHUB_TOKEN, GH_TOKEN]
+    allowedDomains:
+      - api.github.com
+      - github.com
+
+  github@work-org-a:                         # P2: named variant
+    discovery:
+      - env: [ORG_A_GITHUB_TOKEN]
+    allowedDomains:
+      - api.github.com
+      - github.com
+
+  github@work-org-b:
+    discovery:
+      - env: [ORG_B_GITHUB_TOKEN]
+    allowedDomains:
+      - api.github.com
+```
+
+The kit always references `service: github`; the variant is selected at runtime via remembered associations or the CLI override.
+
 ## Resolution order
 
-When the engine needs a credential for `service: X`:
+When the engine needs a credential for `service: X` at sandbox-create time:
 
-1. Check `sbx`'s secret store (set via `sbx secret set X ...`).
-2. Walk `bindings[X].discovery` in order; first entry that yields a value wins.
-3. If nothing matched and the credential is `required: true`, fail fast.
+1. **CLI override** (P2): `sbx run --credential X=variant ...` selects the variant explicitly for this run.
+2. **Workspace-remembered** (P2): `remembered[<workspace-path>][X]` resolves a recorded variant association.
+3. **Default binding**: `bindings[X]`.
+4. **No binding, multiple variants exist** → prompt the user to select a variant (and offer to remember the choice for this workspace).
+5. **No binding at all** → prompt the user to set one up interactively.
 
-## Injection-domain intersection
+Within step 3 / 4, once a binding is chosen, the engine walks the binding's `discovery[]` in order and uses the first entry that yields a value.
+
+## Domain intersection
 
 The engine **only** injects a credential into a domain that appears in **both**:
 
 - the kit's `credentials[].apiKey.inject[].domain`, **and**
 - the user's `bindings[<service>].allowedDomains`.
 
-This is the user's veto: a kit can declare it wants the credential injected into `api.anthropic.com`, but if the user's bindings file doesn't list that domain, the engine drops the injection (with a one-line warning in interactive contexts) and the request goes through without the header.
-
-## Scenarios
-
-**Scenario 1a — env var on the host**:
-
-```yaml
-bindings:
-  anthropic:
-    discovery:
-      - env: [ANTHROPIC_API_KEY]
-    allowedDomains:
-      - api.anthropic.com
+```
+Kit requests:  [api.github.com, evil.com]
+User allows:   [api.github.com, github.com]
+Result:        [api.github.com]              ← credential injected here only
 ```
 
-**Scenario 1b — file on disk**:
+Domains the kit requests but the user hasn't allowed trigger the **domain-expansion approval prompt** at sandbox-create time (next section).
 
-```yaml
-bindings:
-  github:
-    discovery:
-      - file:
-          path: "~/.config/gh/hosts.yml"
-          parser: "yaml:github.com.oauth_token"  # (parser shipped as engine extension)
-    allowedDomains:
-      - api.github.com
-      - github.com
+## Approval flows
+
+The engine drives three interactive prompts when something is missing or new:
+
+**First-time credential setup** — no binding exists for a service the kit needs:
+
+```
+The kit 'claude' requires a credential for 'github'.
+The credential will be sent to: api.github.com, github.com
+
+Approve? [Y/n]: Y
+
+Where do you want to source the 'github' credential from?
+  1. Environment variable
+  2. File on disk
+  3. Done adding sources
+
+> 1
+Environment variable name [GITHUB_TOKEN]: GITHUB_TOKEN
+
+Add another source as fallback? [y/N]: n
+
+✓ Binding saved to ~/.config/sbx/credentials.yaml
 ```
 
-**Scenario 1c — value already in the sbx secret store**:
+**Binding selection** (P2) — multiple variants exist for the service:
 
-```yaml
-bindings:
-  myservice:
-    discovery: []                              # empty — value comes from sbx secret store
-    allowedDomains:
-      - api.myservice.com
+```
+You have multiple 'github' bindings:
+  1. github (env: GITHUB_TOKEN)
+  2. github@work-org-a (env: ORG_A_GITHUB_TOKEN)
+  3. github@work-org-b (env: ORG_B_GITHUB_TOKEN)
+
+Select [1]: 2
+
+Remember this choice for workspace /Users/me/work/org-a? [Y/n]: Y
+
+✓ Saved to ~/.config/sbx/credentials.yaml
 ```
 
-Set the value once with `sbx secret set myservice <value>`. The empty discovery list says "trust these domains; the value is wherever `sbx secret set` put it."
+The "remember this choice" step writes a `remembered[<workspace-path>][github] = github@work-org-a` entry.
 
-**Scenario 2 — multi-source fallback**:
+**Domain-expansion approval** — a kit or mixin requests injection into a domain the user hasn't approved yet:
 
-```yaml
-bindings:
-  openai:
-    discovery:
-      - env: [OPENAI_API_KEY]                  # checked first
-      - file:                                  # used if the env var is unset
-          path: "~/.openai/api_key"
-    allowedDomains:
-      - api.openai.com
+```
+The mixin 'analytics-tools' wants to send the 'github' credential to: analytics.example.com
+
+Currently approved domains for 'github':
+  - api.github.com
+  - github.com
+
+Trust 'analytics.example.com'? [y/N]: N
+
+✗ Domain not approved. The 'github' credential will not be sent to analytics.example.com.
 ```
 
-## Setting bindings via the CLI
+A declined domain doesn't fail sandbox creation — the credential just isn't injected into that domain, and the request proceeds unauthenticated.
+
+## CLI shortcuts
 
 For the common case, you don't edit YAML by hand:
 
 ```bash
-# Store the secret in sbx's secret store (sets the binding's discovery: [])
+# Set the default binding for a service
 sbx secret set anthropic <token>
 
-# Or use the interactive binding flow that prompts for service + source
-sbx credential bind
+# Set a named variant (P2)
+sbx secret set -g github@work-org-a <token>
+
+# Override the binding for a single run (P2)
+sbx run --credential github=work-org-a --kit ./my-kit/ shell .
 ```
 
-The CLI writes both the secret store entry and the corresponding binding entry in `credentials.yaml`. Direct edits to the YAML are fine for power users.
+Direct YAML edits are fine for power users — the file is the authoritative state.
+
+## Security properties
+
+| Threat | Mitigation |
+|---|---|
+| Kit reads arbitrary env vars | Kit cannot declare discovery — user controls which env vars are read |
+| Kit reads arbitrary files | Kit cannot declare file paths — user controls which files are read |
+| Kit injects to malicious domain | User's `allowedDomains` constrains injection; new domains require approval |
+| Kit update silently adds a domain | Domain expansion triggers approval prompt at sandbox-create time |
 
 ## Why split kit and user concerns?
 

@@ -97,11 +97,26 @@ Merge is **additive** — child inherits the parent's configuration and adds to 
 
 Implication: child kits **inherit** parent configuration and extend it. Naming an entry that already exists in the parent — e.g. a `credentials[].service` the parent already declares — is an error, because the merge can't decide which shape wins.
 
-## 6. Composition (`--kit`)
+## 6. Composition (`mixins:` + `--kit`)
 
-`sbx run <agent> --kit A --kit B` resolves each kit, then merges them on top of the base sandbox in declaration order.
+Mixins reach the artifact two ways:
 
-Splitting rule: exactly one `kind: sandbox` and N `kind: mixin` across the base sandbox + all `--kit` flags. Two sandboxes in the stack is an error. Every artifact's `name` must be unique across the composition — including a mixin whose name collides with the base sandbox.
+- **Author-time**: `mixins:` list inside a sandbox kit's `spec.yaml` — declared statically by the kit author. Sandbox kits only; mixin kits cannot declare `mixins:`.
+- **Runtime**: `--kit` CLI flag — picked at sandbox-create time by the user.
+
+Both apply additively, in declaration order. When a kit uses both, the resolution order is:
+
+1. Resolve the `extends:` chain — recursively merge parent → child.
+2. Apply the kit's own fields — merge with the resolved base.
+3. Apply declared mixins from the `mixins:` field, in declaration order.
+4. Apply runtime `--kit` flags, in declaration order.
+
+Splitting rule: exactly one `kind: sandbox` and N `kind: mixin` across the base sandbox + all mixins (declared + runtime). Two sandboxes in the stack is an error. Every artifact's `name` must be unique across the composition — including a mixin whose name collides with the base sandbox.
+
+Error conditions:
+- Duplicate kit name → `duplicate kit name X — each kit must have a unique name`.
+- Credential conflict → `credential X defined in both A and B`.
+- A `mixins:` entry whose `kind` is `sandbox` → `kit X must be kind mixin, got sandbox`.
 
 Merge rules (per section):
 
@@ -120,14 +135,17 @@ Order of `--kit` flags is the merge order.
 
 ## 7. Credential resolution + bindings
 
-Independent of the customizer chain. When the engine needs a credential for a `credentials[]` entry, it consults:
+Independent of the customizer chain. When the engine needs a credential for a `credentials[]` entry, it walks (in order):
 
-1. `sbx`'s secret store (set via `sbx secret set <service> <value>`).
-2. The user-side bindings file `~/.config/sbx/credentials.yaml` — per-service `discovery` entries in priority order.
+1. CLI override — `sbx run --credential <service>=<variant> ...` (P2).
+2. Workspace-remembered — `remembered[<workspace-path>][<service>]` in `credentials.yaml` (P2).
+3. Default binding — `bindings[<service>]`.
+4. If multiple variants exist and no binding is selected, prompt the user to pick one.
+5. If no binding exists at all, prompt the user for first-time setup.
 
-The bindings file declares **where** credentials live on the host; the kit declares **what** (service identity, injection target). See [`bindings.md`](bindings.md).
+Once a binding is chosen, the engine walks the binding's `discovery[]` in order and uses the first entry that yields a value. See [`bindings.md`](bindings.md).
 
-The engine only injects a credential into a domain that appears in **both** `credentials[].apiKey.inject[].domain` (kit-side) and `bindings[<service>].allowedDomains` (user-side). Missing intersection drops the injection silently (with a warning in interactive contexts).
+The engine only injects a credential into a domain that appears in **both** `credentials[].apiKey.inject[].domain` (kit-side) and `bindings[<service>].allowedDomains` (user-side). A domain the kit requests but the user hasn't approved triggers a **domain-expansion approval prompt** at sandbox-create time; a declined domain doesn't fail creation, the injection is just skipped.
 
 ## 8. Configuration / injection
 

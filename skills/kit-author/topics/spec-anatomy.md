@@ -7,19 +7,54 @@ This page documents the **v2** form (`schemaVersion: "2"`). For the legacy v1 sp
 ## Top-level
 
 ```yaml
-schemaVersion: "2"          # required
-kind: sandbox               # required: "sandbox" | "mixin"
-name: claude                # required: lowercase, alphanumeric + hyphen, 1-64 chars
+schemaVersion: "2"          # required, must be exactly "2" (string, not integer)
+kind: sandbox               # required: "sandbox" | "mixin" (case-sensitive)
+name: claude                # required, must match ^[a-z0-9]([a-z0-9-]{0,62}[a-z0-9])?$
 displayName: Claude Code    # optional
 description: "..."          # optional
+licenses:                   # optional, SPDX identifiers (P2)
+  - MIT
+  - Apache-2.0
 version: "1.0.0"            # optional release version → OCI annotation at pack time
 sourceURL: "https://..."    # optional → org.opencontainers.image.source annotation
 extends: shell              # optional, single-parent inheritance (opt-in resolution)
+mixins:                     # optional, multi-parent composition (sandbox kits only)
+  - my-org-tools
+  - "oci://ghcr.io/org/auditor@sha256:<digest>"
 locked:                     # optional, list of dotted paths child kits may not override
   - sandbox.image
+  - credentials[service=anthropic]
 ```
 
 `kind: sandbox` requires the `sandbox:` block. `kind: mixin` must not have a `sandbox:` block. Exactly one `sandbox` is allowed in a composition; mixins stack freely.
+
+The `name` constraint is exactly: starts and ends with `[a-z0-9]`, may contain `-` in between, 1–64 characters.
+
+### `licenses`
+
+Optional SPDX license list. Non-empty list of strings if present. Implementations should warn on unrecognized SPDX identifiers. In composition, licenses union across the parent chain and declared mixins.
+
+### `mixins`
+
+Multi-parent composition for `kind: sandbox` kits. Only valid for sandbox kits — mixins themselves cannot use `mixins:` (or `extends:`).
+
+```yaml
+mixins:
+  - shell-tools                                  # bare name → built-in mixin
+  - ./local-mixin/                               # local directory
+  - "git+https://github.com/org/repo.git#ref=<40-hex-sha>&dir=<subdir>"
+  - "oci://ghcr.io/org/mixin@sha256:<digest>"
+```
+
+Same reference formats as `extends:` and the same pinning rule (Git: full commit SHA; OCI: digest). See [`distribution.md`](distribution.md).
+
+Resolution order when a kit uses both `extends` and `mixins`:
+
+1. Resolve `extends` chain — recursively merge parent → child using additive semantics.
+2. Apply kit's own fields — merge with the resolved base.
+3. Apply declared mixins in declaration order, using the same additive semantics.
+
+The `--kit` CLI flag is the runtime equivalent — see [composition.md](composition.md).
 
 ## `sandbox:` (only for `kind: sandbox`)
 
@@ -73,11 +108,25 @@ Use `build:` when you need custom binaries, complex setup, or full control over 
 
 A list. Each entry describes **what the kit needs** (a service identity, where to inject the resolved value); the user-side [bindings file](bindings.md) declares **where the credential lives**.
 
+Per-entry fields:
+
+| Field | Required | Notes |
+|---|---|---|
+| `service` | yes | Must match `^[a-z0-9]([a-z0-9-]{0,62}[a-z0-9])?$`. Auto-detects the provider when the name matches a known provider registry entry (anthropic, openai, github, …). |
+| `description` | no | Surfaced in interactive prompts (first-time setup, binding selection). |
+| `required` | no | Default `false`. When `true`, sandbox creation fails if no binding is available. |
+| `provider` | conditional | Explicit provider registry entry. Only needed when `service` doesn't match a known provider — sets the auth defaults the registry would otherwise derive from the name. |
+| `apiKey` | conditional | api-key shape (see below). |
+| `oauth` | conditional | OAuth shape (see below). |
+| `sshAgent` | no | SSH-agent forwarding (P2 — see below). |
+
+For custom services not in the provider registry, **at least one** of `apiKey.inject`, `oauth`, or `sshAgent` MUST be specified.
+
 ### api-key shape
 
 ```yaml
 credentials:
-  - service: anthropic                         # lowercase-kebab id
+  - service: anthropic                         # auto-detects provider "anthropic"
     description: "Anthropic API key"           # surfaced in interactive prompts
     required: false                            # resolver fails fast if true and unbound
     apiKey:
@@ -101,6 +150,8 @@ credentials:
 
 `apiKey.name` is set to the literal `proxy-managed` inside the container by the engine — the sentinel-swap proxy replaces it on outbound requests. Authors **don't** put real values in the spec.
 
+**Validation:** every `apiKey.inject[].domain` MUST appear in `caps.network.allow`. The spec library rejects a kit whose injection domain isn't allow-listed — there is no auto-derived egress from credentials.
+
 ### OAuth shape
 
 ```yaml
@@ -108,26 +159,58 @@ credentials:
   - service: anthropic
     oauth:
       tokenEndpoint:
-        host: platform.claude.com
-        path: /v1/oauth/token
+        host: platform.claude.com                  # required
+        path: /v1/oauth/token                      # required
       sentinels:
-        accessToken: sk-ant-oat01-proxy-managed
-        refreshToken: sk-ant-ort01-proxy-managed
-      credentialFile:
+        accessToken: sk-ant-oat01-proxy-managed    # required unless passthrough is set
+        refreshToken: sk-ant-ort01-proxy-managed   # required unless passthrough is set
+      credentialFile:                              # optional
         path: "~/.claude/.credentials.json"
-        structure:                             # declarative JSON shape
+        structure:                                 # declarative JSON shape (preferred)
           claudeAiOauth:
             accessToken: "{{.AccessToken}}"
             refreshToken: "{{.RefreshToken}}"
-      skipIfEnv:
+      responseFields:                              # optional — for non-standard OAuth responses
+        accessToken: "access_token"                # default values shown; override for camelCase / non-standard names
+        refreshToken: "refresh_token"
+        expiresIn: "expires_in"
+        scope: "scope"
+      skipIfEnv:                                   # optional — skip OAuth flow when these env vars are set
         - ANTHROPIC_API_KEY
+      # passthrough: true                          # opt-out of sentinel masking — see below
+      # passthroughReason: "..."                   # REQUIRED when passthrough is set
 ```
 
-`credentialFile.structure` is a declarative JSON map with `{{.AccessToken}}` / `{{.RefreshToken}}` / `{{.ExpiresAt}}` / `{{.Scopes}}` / `{{.ScopesJSON}}` placeholders. The engine encodes the map as JSON, then substitutes placeholders — output is guaranteed well-formed.
+**`credentialFile.structure`** is a declarative JSON map with `{{.AccessToken}}` / `{{.RefreshToken}}` / `{{.ExpiresAt}}` / `{{.Scopes}}` placeholders. `ExpiresAt` is a Unix-millisecond timestamp. The engine encodes the map as JSON, then substitutes placeholders — output is guaranteed well-formed.
 
-`passthrough: true` opts a credential out of sentinel masking (security downgrade — emits a load-time warning).
+**`responseFields`** maps logical OAuth token field names to the actual JSON field names returned by the token endpoint. Defaults match the OAuth 2.0 RFC (`access_token`, `refresh_token`, `expires_in`, `scope`); set explicit overrides for providers that use camelCase or vendor-specific names.
+
+**`passthrough: true`** bypasses sentinel masking — the proxy returns the real OAuth response to the container instead of swapping in sentinels. This is a security downgrade (the container sees the real token). Required companion: `passthroughReason` — a non-empty string explaining why passthrough is needed (typically: provider returns a JWT the agent must inspect locally). The spec library validates that `passthroughReason` is set whenever `passthrough: true`.
 
 A credential entry can declare **both** `apiKey` and `oauth`. The precedence rule is: **api key wins when found**. If no API key value is present on the host, the user can authenticate via OAuth (e.g. `/login`). Setting both lets the kit support either auth method without the kit author choosing one.
+
+### SSH-agent shape (P2)
+
+For services that authenticate via SSH (e.g. `git push` over SSH). Keys remain on the host — the container can request SSH operations through the agent socket but cannot extract key material.
+
+```yaml
+credentials:
+  - service: github-ssh
+    sshAgent:
+      hosts:                                       # required — SSH destinations, format host:port
+        - github.com:22
+        - github.com:443                           # GitHub's HTTPS-over-SSH port
+      identities:                                  # optional — restrict to specific key fingerprints
+        - "SHA256:abc123..."
+
+caps:
+  network:
+    allow:                                         # MUST include every host listed in sshAgent.hosts
+      - github.com:22
+      - github.com:443
+```
+
+Every `sshAgent.hosts` entry MUST also appear in `caps.network.allow` — the spec validator rejects mismatches.
 
 ## `caps` — capabilities
 
@@ -178,6 +261,20 @@ environment:
 Composition: `variables` union with last-wins.
 
 The proxy-managed env-var semantic that lived under `environment.proxyManaged` in v1 is now implicit on `credentials[].apiKey.name`. There's no `proxyManaged` list to maintain separately.
+
+### Reserved env-var prefixes
+
+Kits MUST NOT declare environment variables — neither in `environment.variables` nor as `credentials[].apiKey.name` — that start with these prefixes. They're reserved for the host runtime:
+
+| Prefix | Reserved for |
+|---|---|
+| `DASH_*` | dash runtime internals |
+| `SBX_*` | sandboxes runtime internals |
+| `DOCKER_*` | Docker runtime |
+
+Setting one is a validation error.
+
+The runtime also **warns** (not rejects) on `HOME`, `USER`, `SHELL`, `LD_PRELOAD`, `LD_LIBRARY_PATH`, and `PATH` because the runtime may override these values. Set them only when you know what you're doing.
 
 ## `commands`
 

@@ -1,13 +1,16 @@
 # Composition & Inheritance
 
-Two different mechanisms — don't confuse them.
+Three mechanisms — don't confuse them.
 
-| | `extends:` | `--kit` |
-|---|---|---|
-| Direction | Author-time inheritance | Runtime composition |
-| Cardinality | Single parent | N kits (any number) |
-| Resolution | Opt-in (callers invoke the resolver) | Automatic on `sbx run` |
-| Strategy | Additive per field type | Per-section merge rules |
+| | `extends:` | `mixins:` | `--kit` |
+|---|---|---|---|
+| Direction | Author-time inheritance | Author-time composition | Runtime composition |
+| Cardinality | Single parent | N mixins | N kits |
+| Where declared | Sandbox kit's `spec.yaml` | Sandbox kit's `spec.yaml` | CLI flag |
+| Resolution | Opt-in (callers invoke the resolver) | Automatic on load | Automatic on `sbx run` |
+| Strategy | Additive per field type | Additive per field type | Additive per field type |
+
+When all three are present, the resolution order is: extends chain → kit's own fields → declared `mixins:` (in order) → runtime `--kit` (in order). All apply the same additive merge rules.
 
 ## `extends:` (single-parent inheritance)
 
@@ -40,7 +43,29 @@ When to use: forking a built-in agent with a small tweak — adding a credential
 
 When **not** to use: stacking multiple independent capabilities. That's composition (`--kit`).
 
-## `--kit` (composition)
+## `mixins:` (author-time composition)
+
+```yaml
+# in the sandbox kit's spec.yaml
+schemaVersion: "2"
+kind: sandbox
+name: claude
+extends: shell
+
+mixins:
+  - my-org-tools                                          # bare name → built-in mixin
+  - "git+https://github.com/org/repo.git#ref=<sha>&dir=auditor"
+  - "oci://ghcr.io/org/mcp-postgres@sha256:<digest>"
+```
+
+- Sandbox kits only. `kind: mixin` artifacts cannot declare `mixins:` (or `extends:`).
+- Same reference formats as `extends:` and the same pinning rule (Git: 40-hex SHA; OCI: digest).
+- Resolved automatically on load — no opt-in needed.
+- Applied in declaration order, after the `extends:` chain and the kit's own fields.
+
+`mixins:` is the right place for *intrinsic* composition — bundles a kit's author chose to depend on. `--kit` (below) is for *extrinsic* composition — bundles the user adds at runtime.
+
+## `--kit` (runtime composition)
 
 ```bash
 sbx run claude --kit ./mcp-postgres/ --kit ./rust-toolchain/ --kit "oci://ghcr.io/org/auditor@sha256:<digest>" .
