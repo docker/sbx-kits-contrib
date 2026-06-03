@@ -282,16 +282,16 @@ Three lists. All optional.
 
 ```yaml
 commands:
-  install:                                     # sh -c, synchronous, runs before startup
-    - command: "curl -fsSL https://claude.ai/install.sh | bash"
+  install:                                     # runs once before startup, synchronous
+    - command: "curl -fsSL https://claude.ai/install.sh | bash"   # string ONLY
       user: "0"                                # default "0" (root)
       description: Install Claude Code
-  startup:                                     # argv form, run at container startup
-    - command: ["sh", "-c", "apt-get update -qq -y &"]
+  startup:                                     # runs at every container start
+    - command: ["sh", "-c", "apt-get update -qq -y &"]            # string OR list[string]
       user: "1000"                             # default "1000" (agent)
       background: false                        # default false
       description: ...
-  initFiles:                                   # written at startup via shell exec
+  initFiles:                                   # files written at startup via shell exec
     - path: /home/agent/.copilot/config.json   # absolute
       content: '{"trusted_folders": ["${WORKDIR}"]}'
       mode: "0644"                             # octal string
@@ -299,7 +299,19 @@ commands:
       description: ...
 ```
 
-Placeholders supported only in `initFiles.content`: **`${WORKDIR}`**. Anything else fails validation.
+### Command-type contract
+
+| Field | Type | How it executes |
+|---|---|---|
+| `install[].command` | **`string` only** | Runs via `sh -c <string>`. Shell metachars (`&&`, `\|\|`, `;`, `\|`, redirects) work as written. A list form is a validation error. |
+| `startup[].command` | **`string` OR `list[string]`** | String form runs via `sh -c`; list form runs as `exec`-style argv with no shell processing. Use the list form when you need to avoid shell quoting issues; do **not** put shell metachars as bare argv tokens (e.g. `["apt-get", "update", "&&", "apt-get", "install", …]` will pass `&&` to `apt-get` literally). The canonical pattern for "list form but I need a shell" is `["sh", "-c", "<shell command>"]`. |
+| `initFiles[].path` / `content` / `mode` / `onlyIfMissing` | strings / bool | No command runs — these are file writes. |
+
+### Other rules
+
+- Placeholders supported only in `initFiles.content`: **`${WORKDIR}`**. Anything else fails validation.
+- `install` user defaults to `"0"` (root); `startup` user defaults to `"1000"` (agent).
+- `startup.background: true` detaches the command; the runtime moves on without waiting.
 
 Composition: all three lists **concatenate** in `--kit` order. Base agent's `install` is skipped when the base is a built-in agent; kit-supplied agent installs always run.
 
