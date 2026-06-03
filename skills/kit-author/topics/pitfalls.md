@@ -97,9 +97,9 @@ For kits built on `shell-docker` / `*-docker` templates that means `download.doc
 
 For Ubuntu cross-arch coverage, list all three: `archive.ubuntu.com` and `security.ubuntu.com` (amd64) + `ports.ubuntu.com` (arm64). CI is amd64; many developer Macs are arm64.
 
-## 16. Sugar fields don't round-trip
+## 16. Legacy v1 fields don't round-trip
 
-`sandbox.image`, `sandbox.entrypoint.run`, `secrets:`, `egress:` get normalized into `Manifest.Template`, `Manifest.Binary` + `Manifest.RunOptions`, `credentials[]` (with derived service), `credentials[]` injection rules. After loading, the sugar fields are gone. `sbx kit inspect --output json` shows the canonical form.
+v1 surfaces (`kind: agent`, `agent:` block, `memory:`, `credentials.sources`, `network.serviceAuth/serviceDomains/allowedDomains/deniedDomains/publishedPorts`, `environment.proxyManaged`, standalone `oauth:`, top-level `tmpfs:`, `settings:`) load via the normalize-layer shims and produce one `Artifact.Warnings` entry per legacy block touched. After loading they're folded into the canonical v2 fields — they do **not** round-trip. `sbx kit inspect --output json` shows the canonical form. Run `scripts/migrate-v1-to-v2.go` to rewrite v1 source files into v2.
 
 ## 17. `files/workspace/<path>` overlays the user's repo on every restart
 
@@ -112,15 +112,29 @@ When the CLI detects a kit `files/workspace/<path>` whose relative path matches 
 
 If overlay isn't what you want, rename the file or move it under `files/home/<path>`.
 
+### Sensitive-path overlay warnings
+
+Implementations warn (loudly) when a mixin's `files/` or `commands.initFiles` writes to paths the user almost certainly didn't expect a mixin to touch:
+
+- `~/.ssh/**` — anything under the agent's SSH config.
+- `credentials[].oauth.credentialFile.path` already declared by the parent kit — a mixin overwriting the parent's OAuth credential file is suspicious.
+- Shell rc files — `.bashrc`, `.bash_profile`, `.zshrc`, `.zprofile`, `.profile`.
+
+The warning is informational (not a refusal); a mixin that legitimately needs to touch one of these paths should call it out in `description:`.
+
 ## 18. `commands.initFiles` cannot target the in-container clone directory
 
 Under `sbx run --clone`, the in-container working copy is populated by a `git clone` startup command. `commands.initFiles` runs as a post-start hook in the same phase; if its path resolves under the clone target, the initFile's `mkdir -p && printf > path` creates the workspace dir and writes a file inside it, and then `git clone` refuses the non-empty target.
 
 The CLI catches this up front: a kit whose `initFiles[i].path` resolves at or under the clone target is rejected at sandbox-create time with an actionable error pointing you at `files/workspace/<path>`. See [`authoring.md`](authoring.md) for the decision rule between `files/workspace/` and `commands.initFiles`.
 
-## 19. `caps.network.allow` middle-position wildcards don't match
+## 19. `caps.network.allow` wildcard semantics
 
-Today's host matcher recognizes `*` only in the **leading** label position (`*.example.com`). A middle-position wildcard (`bedrock-runtime.*.amazonaws.com`) is parsed as a literal label, will never match a real hostname, and the kit will silently fail at request time. Use the explicit list of regions (`bedrock-runtime.us-east-1.amazonaws.com`, …) until double-wildcard support lands.
+`*.example.com` matches **exactly one** DNS label — `api.example.com` ✓, `cdn.example.com` ✓; `example.com` ✗ (zero labels), `a.b.example.com` ✗ (two labels).
+
+`**.example.com` (matches one or more labels, crossing dots) is **P3 — deferred**, pending sbx support. Until it ships, multi-label wildcards aren't usable.
+
+Middle-position wildcards like `bedrock-runtime.*.amazonaws.com` aren't part of the spec at all. List the regions explicitly until the spec adds an entry format for them.
 
 ## 20. Missing-domain stories worth knowing
 

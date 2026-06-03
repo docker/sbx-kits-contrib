@@ -4,6 +4,19 @@ Single source of truth: the Go types in [`github.com/docker/sbx-kits-contrib/spe
 
 This page documents the **v2** form (`schemaVersion: "2"`). For the legacy v1 spelling and how it folds into v2, see [`v1-migration.md`](v1-migration.md).
 
+### A note on priority labels
+
+Fields below are tagged with their RFC delivery priority — P1 / P2 / P3 / P4. They mean:
+
+| Tag | Meaning |
+|---|---|
+| **P1** | Baseline v2 — must ship to call something v2. |
+| **P2** | Ships in v2, lower priority than P1. |
+| **P3** | **Pending sbx support** — declared in the spec for forward compatibility; loads without error but runtime enforcement is a no-op until sbx implements. |
+| **P4** | Niche / cloud workloads (`sandbox.lifecycle` is the only one today). |
+
+Untagged fields are P1 or carried forward from v1 with no change.
+
 ## Top-level
 
 ```yaml
@@ -12,16 +25,14 @@ kind: sandbox               # required: "sandbox" | "mixin" (case-sensitive)
 name: claude                # required, must match ^[a-z0-9]([a-z0-9-]{0,62}[a-z0-9])?$
 displayName: Claude Code    # optional
 description: "..."          # optional
-licenses:                   # optional, SPDX identifiers (P2)
+licenses:                   # optional (P2), SPDX identifiers
   - MIT
   - Apache-2.0
-version: "1.0.0"            # optional release version → OCI annotation at pack time
-sourceURL: "https://..."    # optional → org.opencontainers.image.source annotation
 extends: shell              # optional, single-parent inheritance (opt-in resolution)
-mixins:                     # optional, multi-parent composition (sandbox kits only)
+mixins:                     # optional (P1), multi-parent composition (sandbox kits only)
   - my-org-tools
   - "oci://ghcr.io/org/auditor@sha256:<digest>"
-locked:                     # optional, list of dotted paths child kits may not override
+locked:                     # optional (P2), dotted paths child kits may not override
   - sandbox.image
   - credentials[service=anthropic]
 ```
@@ -64,26 +75,40 @@ A sandbox kit MUST specify **exactly one** of `image` or `build` — they are mu
 
 ```yaml
 sandbox:
-  image: docker/sandbox-templates:claude-code   # → Manifest.Template
-  aiFilename: CLAUDE.md                         # → Manifest.AIFilename
-  resources:                                    # optional container limits
-    cpu: 4                                      # float64 cores (must be positive if set)
+  image: docker/sandbox-templates:claude-code
+  aiFilename: CLAUDE.md
+  resources:                                    # optional (P3) — container limits
+    cpu: 4.0                                    # float, cores (must be positive if set)
     memory_mb: 8192                             # int, mebibytes (must be positive if set)
     gpu: "1"                                    # consumer-defined string
+  lifecycle:                                    # optional (P4) — checkpoint/restore
+    checkpoint_aware: true                      # agent supports checkpoint/restore
+    task_on_restore: true                       # re-inject task on restore
+    shutdown_timeout: 30s                       # grace period before SIGKILL after SIGTERM
   entrypoint:
-    run: [claude, "--dangerously-skip-permissions"]   # [0]→Binary, [1:]→RunOptions
-    args: ["-l"]                                # appended when --task given
+    run: [claude, "--dangerously-skip-permissions"]   # binary + initial args
+    args: ["-l"]                                # appended when --task is given
     ttyArgs: []                                 # appended in interactive mode
-    pipeMode: ""                                # how piped stdin combines with --task
+    pipeMode: ""                                # one of: "" | "prepend" | "append" | "stream" | "ignore"
 ```
 
 Use `image:` when you can layer the kit's behaviour onto an existing base image via `commands.install` and `commands.initFiles`.
+
+`entrypoint.pipeMode` controls how piped stdin combines with `--task`:
+
+| Value | Behaviour |
+|---|---|
+| `""` (unset) | Implementation default. |
+| `prepend` | Pipe content goes before the `--task` argument. |
+| `append` | Pipe content goes after the `--task` argument. |
+| `stream` | Pipe content streams to the binary's stdin while it runs. |
+| `ignore` | Pipe content discarded. |
 
 ### Use `build:` to build from a Dockerfile
 
 ```yaml
 sandbox:
-  build:
+  build:                                        # P1
     context: .                                  # default ".", relative to spec.yaml
     dockerfile: Dockerfile                      # default "Dockerfile", relative to context
     args:                                       # passed as --build-arg
@@ -103,6 +128,7 @@ Use `build:` when you need custom binaries, complex setup, or full control over 
 - `sandbox.image` and `sandbox.build` are mutually exclusive — exactly one MUST be present for `kind: sandbox` (unless inherited via `extends:`).
 - `sandbox.resources.cpu` MUST be positive if specified.
 - `sandbox.resources.memory_mb` MUST be a positive integer if specified.
+- `sandbox.lifecycle.shutdown_timeout` MUST parse as a valid Go duration string (e.g. `30s`, `2m`).
 
 ## `credentials`
 
@@ -175,8 +201,6 @@ credentials:
         refreshToken: "refresh_token"
         expiresIn: "expires_in"
         scope: "scope"
-      skipIfEnv:                                   # optional — skip OAuth flow when these env vars are set
-        - ANTHROPIC_API_KEY
       # passthrough: true                          # opt-out of sentinel masking — see below
       # passthroughReason: "..."                   # REQUIRED when passthrough is set
 ```
@@ -214,7 +238,11 @@ Every `sshAgent.hosts` entry MUST also appear in `caps.network.allow` — the sp
 
 ## `caps` — capabilities
 
-The top-level capabilities block. `caps.network` declares the egress allow/deny lists.
+The top-level capabilities block.
+
+### `caps.network` (P2 / P3 extended)
+
+Declares the egress allow / deny lists. Replaces the v1 `network` block entirely.
 
 ```yaml
 caps:
@@ -224,12 +252,45 @@ caps:
       - "registry.npmjs.org"
       - "api.example.com:443"                  # exact + port also accepted
     deny:
-      - "telemetry.example.com"                # deny wins over allow at request time
+      - "telemetry.example.com"
 ```
 
-Entry formats supported today: exact host (`api.example.com`), exact host + port (`api.example.com:443`), leading-label wildcard (`*.example.com`). Middle-position wildcards (`bedrock-runtime.*.amazonaws.com`) and CIDR/port ranges are deferred.
+Entry formats:
 
-Composition: allow/deny lists append across kits; deny takes precedence over allow at policy evaluation time. Use `sbx policy log <sandbox>` to see what got through.
+| Pattern | Example | Matches | Status |
+|---|---|---|---|
+| `<domain>` | `api.example.com` | Exact host, default port 443 | **P2 — implemented** |
+| `<domain>:<port>` | `api.example.com:8080` | Exact host, specific port | **P2 — implemented** |
+| `*.<domain>` | `*.example.com` | Exactly one DNS label (e.g. `api.example.com`, `cdn.example.com`). Does **not** match `example.com` itself or `a.b.example.com`. | **P2 — implemented** |
+| `**.<domain>` | `**.example.com` | One or more DNS labels (e.g. `api.example.com`, `a.b.example.com`). | **P3 — pending** |
+| `<domain>:<lo>-<hi>` | `api.example.com:80-443` | Port range | **P3 — pending** |
+| `<domain>:*` | `api.example.com:*` | Port wildcard | **P3 — pending** |
+| CIDR | `10.0.0.0/8` | IP block | **P3 — pending** |
+
+**Deny precedence.** When the same host matches both `allow` and `deny`, **deny wins** — the request is rejected. Overlap is legal (and intentional: a parent kit can allow `*.example.com` while a child or mixin denies `telemetry.example.com`).
+
+**All-domains-declared rule.** Every domain a credential injects into MUST appear in `caps.network.allow`. There is no auto-derived egress — see the `credentials` validation note above.
+
+Composition: allow / deny lists append across kits. Use `sbx policy log <sandbox>` to see what got through.
+
+### `caps.filesystem` (P3 — pending sbx support)
+
+Defined for forward compatibility; not yet enforceable at runtime.
+
+```yaml
+caps:
+  filesystem:
+    read:                                       # paths the sandbox may read from the host
+      - /data/shared
+      - ~/reference-docs
+    write:                                      # paths the sandbox may write to on the host
+      - /tmp/scratch
+    deny:                                       # explicit denies, take precedence over read/write
+      - ~/.ssh
+      - ~/.aws
+```
+
+Until sbx implements this, the spec library still parses and validates the block — declaring it now lets a kit ship a forward-compatible spec. Composition follows the same rules as `caps.network`: set union with deny precedence.
 
 ## `publishedPorts` (top-level)
 
@@ -337,7 +398,7 @@ volumes:
     mode: "1777"
 ```
 
-`Manifest.TmpfsVolumes()` is a helper for code that needs just the tmpfs subset.
+Composition: union by `path`; same `path` in two kits with different shapes follows last-wins.
 
 ## `agentContext`
 
@@ -370,27 +431,13 @@ my-kit/
 
 For user kits, packed into the artifact and copied into the container at create time. Absolute paths and `..` traversal are rejected at validation. Symlinks must stay inside the artifact root.
 
+Only `files/home/` and `files/workspace/` are recognized targets. Any other subdirectory under `files/` (e.g. `files/etc/`, `files/tmp/`) is **ignored with a warning** — kits cannot write outside the agent home or workspace.
+
 Composition: overlay map keyed by `target:relativePath`. Later kits override earlier at the same path.
 
 **Timing:** `files/home/<path>` writes alongside the other kit customizers at container start. `files/workspace/<path>` writes **after** the workspace is populated — including the in-container `git clone` under `sbx run --clone` — so the file always lands inside the materialised working copy. See [lifecycle step 7](lifecycle.md) for the underlying mechanism.
 
 A `files/workspace/<path>` whose relative path matches a real file in the user's repo overlays that file — silently overwriting it on every sandbox start. Overlay is the intended semantic, but see [`pitfalls.md`](pitfalls.md) for the data-loss consideration.
-
-## Sugar fields (normalized away)
-
-These appear in source but are not in the canonical `Artifact` after normalization:
-
-| Sugar | Becomes |
-|---|---|
-| `sandbox.image` | `Manifest.Template` |
-| `sandbox.entrypoint.run[0]` | `Manifest.Binary` |
-| `sandbox.entrypoint.run[1:]` | `Manifest.RunOptions` |
-| `sandbox.aiFilename` | `Manifest.AIFilename` |
-| `sandbox.resources` | `Manifest.Resources` |
-| `secrets: [NAME]` | `credentials[]` entry with derived service |
-| `egress: {domain: hook}` | `credentials[]` injection rules with well-known defaults |
-
-Prefer the canonical form in new kits.
 
 ## Validation cheat sheet
 
@@ -401,6 +448,10 @@ sbx kit validate ./my-kit/
 ```
 
 Or in tests, `spec.LoadFromDirectory(...)` calls `ValidateArtifact` internally; failure returns a descriptive error.
+
+**Unknown-fields rule.** Unknown fields cause a validation error **everywhere** in the spec — implementations MUST NOT silently ignore unrecognized fields. A typo like `credenta:` or `caps.netwrok:` is rejected at load time. This is by design: it catches typos early and consistently.
+
+Validation errors include the field path, the invalid value, and an actionable suggestion when one applies.
 
 ## Loading a v1 spec.yaml
 

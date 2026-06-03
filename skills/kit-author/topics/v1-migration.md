@@ -52,6 +52,16 @@ agentContext: |
 
 Normalize: v1 `agent:` decodes into the LegacyAgent shim, then folds into Sandbox. v1 `memory:` decodes into LegacyMemory, then folds into AgentContext.
 
+### Removed fields (no v2 equivalent)
+
+A handful of v1 fields are removed outright with no v2 home. Strip them by hand:
+
+| v1 field | Reason | What to do |
+|---|---|---|
+| `kitDir` | Never used; confusing semantics. | Delete the field. |
+| `sandbox.persistence` | Parsed but never wired to runtime behavior in v1. | Declare volumes explicitly via `volumes:` instead. |
+| `settings` | Hardcoded agent-specific logic; replaced by `commands.initFiles`. | Move the agent-specific setup logic into `commands.initFiles` entries. |
+
 ### Volumes redesign (Phase 2) — **manual**, **strict-rejected**
 
 The top-level `tmpfs:` block is **gone**. v1 spec.yaml files that declare it fail strict YAML decoding:
@@ -78,7 +88,7 @@ volumes:
     size: 512m
 ```
 
-`Manifest.TmpfsVolumes()` is a helper for code that needs just the tmpfs subset.
+Composition of v2 `volumes:` is union by `path` with last-wins on conflicts.
 
 ### `publishedPorts` promotion — handled by normalize
 
@@ -178,8 +188,6 @@ oauth:
   credentialFile:
     path: "~/.claude/.credentials.json"
     template: '{"claudeAiOauth":{"accessToken":"{{.AccessToken}}","refreshToken":"{{.RefreshToken}}"}}'
-  skipIfEnv:
-    - ANTHROPIC_API_KEY
 ```
 
 ```yaml
@@ -199,9 +207,9 @@ credentials:
           claudeAiOauth:
             accessToken: "{{.AccessToken}}"
             refreshToken: "{{.RefreshToken}}"
-      skipIfEnv:
-        - ANTHROPIC_API_KEY
 ```
+
+> The v1 `oauth.skipIfEnv` list was a sandboxes-specific extension and is **not** part of the v2 unified spec. Implementations that still ship `skipIfEnv` accept it on the v1 path during load; the field does not exist in the v2 form. If you need conditional-OAuth behaviour ("skip OAuth setup when this env var is set"), use a `credentials[]` entry with both `apiKey` and `oauth` — api-key wins when found and OAuth is the fallback.
 
 Normalize matches the v1 standalone `oauth:` block by `service:` to a `credentials[]` entry; if no entry exists yet for that service, normalize synthesizes one.
 

@@ -5,7 +5,7 @@ Four ways a kit can be delivered. The engine picks the right loader from the ref
 | Source | Reference example |
 |---|---|
 | Embedded built-in agent | `claude` (by name) |
-| Local directory | `./mcp-postgres/` |
+| Local directory | `./mcp-postgres/` or `file://./mcp-postgres` (explicit scheme) |
 | Git repo | `git+https://github.com/org/repo.git#ref=<40-hex-commit-sha>&dir=mcp-postgres` |
 | OCI artifact | `oci://ghcr.io/org/mcp-postgres@sha256:<digest>` |
 

@@ -8,7 +8,7 @@ Stages reflect the v2 spec form. v1 spec.yaml files take the same path; the lega
 
 A kit reference is one of:
 
-- Local directory: `./mcp-postgres/`
+- Local path: `./mcp-postgres/` or `file://./mcp-postgres` (explicit scheme).
 - Git: `git+https://github.com/org/repo.git#ref=<40-hex-sha>&dir=subdir`, `git+ssh://...` — **MUST** be a full 40-character commit SHA; branches and tags are rejected.
 - OCI: `oci://ghcr.io/org/kit@sha256:<digest>` — **MUST** be a digest; `:latest` and any tag is rejected.
 - Embedded built-in agent: by name only (`claude`, `gemini`, …) — these ship inside the `sbx` binary.
@@ -37,16 +37,7 @@ YAML decoding is strict: unknown top-level fields fail. Once a field is removed 
 
 ## 3. Normalization
 
-The spec library translates the on-disk form into the canonical `Artifact`:
-
-- `sandbox.image` → `Manifest.Template`
-- `sandbox.entrypoint.run[0]` → `Manifest.Binary`; `run[1:]` → `Manifest.RunOptions`
-- `sandbox.aiFilename` → `Manifest.AIFilename`
-- `sandbox.resources` → `Manifest.Resources`
-- `secrets: [NAME]` → `credentials[]` entries keyed by derived service name
-- `egress: {domain: hook}` → `credentials[]` injection rules using well-known defaults (anthropic, openai, github, …)
-
-For v1 spec.yaml files, the normalize layer also folds:
+For v1 spec.yaml files, the normalize layer folds legacy fields into their v2 canonical homes:
 
 - `kind: agent` → `kind: sandbox`
 - `agent:` → `sandbox:`
@@ -55,16 +46,16 @@ For v1 spec.yaml files, the normalize layer also folds:
 - `network.allowedDomains` / `deniedDomains` → `caps.network.allow` / `deny`
 - `network.publishedPorts` → top-level `publishedPorts`
 
-Each fold appends one deprecation entry to `Artifact.Warnings`.
+Each fold appends one deprecation entry to `Artifact.Warnings`. See [`v1-migration.md`](v1-migration.md) for the per-surface migration recipes.
 
-After normalization, only the canonical fields are populated. The sugar and legacy fields are dropped — they do **not** round-trip. `sbx kit inspect --output json` shows the canonical form.
+After normalization, only the canonical v2 fields are populated. The legacy fields are dropped — they do **not** round-trip. `sbx kit inspect --output json` shows the canonical form.
 
 ## 4. Validation
 
 `spec.ValidateArtifact` runs from each `Load*` path:
 
 - **Manifest** — `schemaVersion ∈ {"1", "2"}`, `kind ∈ {sandbox, mixin}` (also accepts v1 `agent` alias), `name` is lowercase alphanumeric + hyphen (1–64 chars), exactly one of `sandbox.image` / `sandbox.build` required for sandbox kits, `resources.cpu` / `resources.memory_mb` must be positive if set.
-- **Caps.Network** — entry strings are exact, exact+port, or leading-label wildcard; no domain appears in both `allow` and `deny`.
+- **Caps.Network** — entry strings are exact host, exact host+port, or leading-label wildcard (`*.example.com`). Overlap between `allow` and `deny` is **legal** — at request time, deny wins.
 - **Credentials** — each entry has `service` set; `apiKey.inject[].format` (when set) is well-formed; `oauth.tokenEndpoint` has host+path.
 - **Volumes** — every entry has an absolute `path`; `type ∈ {"", "tmpfs"}`; `size` if set must parse as a byte-size string; `mode` if set must be octal.
 - **PublishedPorts** — `container` in 1..65535; `protocol ∈ {"", "tcp", "udp"}`.
@@ -137,13 +128,17 @@ Order of `--kit` flags is the merge order.
 
 Independent of the customizer chain. When the engine needs a credential for a `credentials[]` entry, it walks (in order):
 
-1. CLI override — `sbx run --credential <service>=<variant> ...` (P2).
-2. Workspace-remembered — `remembered[<workspace-path>][<service>]` in `credentials.yaml` (P2).
-3. Default binding — `bindings[<service>]`.
-4. If multiple variants exist and no binding is selected, prompt the user to pick one.
-5. If no binding exists at all, prompt the user for first-time setup.
+1. **CLI override** (P2) — `sbx run --credential <service>=<variant> ...` selects a binding for this run only.
+2. **Workspace-remembered** (P2) — `remembered[<workspace-path>][<service>]` in `credentials.yaml`.
+3. **Default binding** — `bindings[<service>]`. If multiple variants exist and no binding is selected, the engine prompts; if no binding exists at all, it prompts for first-time setup.
 
-Once a binding is chosen, the engine walks the binding's `discovery[]` in order and uses the first entry that yields a value. See [`bindings.md`](bindings.md).
+Once a binding is chosen, the engine looks up the actual credential value in this order:
+
+1. **Secret store, sandbox-scoped** — `sbx secret get <service>` scoped to the current sandbox.
+2. **Secret store, global** — `sbx secret get <service>` in global scope.
+3. **`discovery[]`** — entries are walked in order; the first that yields a value wins.
+
+See [`bindings.md`](bindings.md) for the full file shape, named variants (`<service>@<variant>`), and approval flows.
 
 The engine only injects a credential into a domain that appears in **both** `credentials[].apiKey.inject[].domain` (kit-side) and `bindings[<service>].allowedDomains` (user-side). A domain the kit requests but the user hasn't approved triggers a **domain-expansion approval prompt** at sandbox-create time; a declined domain doesn't fail creation, the injection is just skipped.
 

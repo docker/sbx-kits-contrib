@@ -107,7 +107,9 @@ The kit always references `service: github`; the variant is selected at runtime 
 
 ## Resolution order
 
-When the engine needs a credential for `service: X` at sandbox-create time:
+Two stages, both ordered. **Stage 1** selects which binding entry applies to a credential lookup; **stage 2** resolves the actual value within that binding.
+
+**Stage 1 — Which binding?**
 
 1. **CLI override** (P2): `sbx run --credential X=variant ...` selects the variant explicitly for this run.
 2. **Workspace-remembered** (P2): `remembered[<workspace-path>][X]` resolves a recorded variant association.
@@ -115,7 +117,15 @@ When the engine needs a credential for `service: X` at sandbox-create time:
 4. **No binding, multiple variants exist** → prompt the user to select a variant (and offer to remember the choice for this workspace).
 5. **No binding at all** → prompt the user to set one up interactively.
 
-Within step 3 / 4, once a binding is chosen, the engine walks the binding's `discovery[]` in order and uses the first entry that yields a value.
+**Stage 2 — Where's the value?**
+
+Once a binding is chosen, the engine looks for the actual credential value in this order:
+
+1. **Secret store, sandbox-scoped** — `sbx secret get <service>` scoped to the current sandbox. Use this when a credential should only exist for one sandbox.
+2. **Secret store, global** — `sbx secret get <service>` in global scope. Use this when the credential should apply to every sandbox on the host.
+3. **`discovery[]`** — the binding's discovery array, walked in order. The first entry that yields a value wins.
+
+The secret-store layers fire **before** discovery: an env-var binding doesn't get consulted if `sbx secret set` has already stored a value for that service. This is why a binding with `discovery: []` and just `allowedDomains:` is still useful — the value comes from the secret store, the binding just declares which domains the engine may inject into.
 
 ## Domain intersection
 
