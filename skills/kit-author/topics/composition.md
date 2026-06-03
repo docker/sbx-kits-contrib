@@ -7,7 +7,7 @@ Two different mechanisms — don't confuse them.
 | Direction | Author-time inheritance | Runtime composition |
 | Cardinality | Single parent | N kits (any number) |
 | Resolution | Opt-in (callers invoke the resolver) | Automatic on `sbx run` |
-| Strategy | Replace-wholesale per section | Per-section merge rules |
+| Strategy | Additive per field type | Per-section merge rules |
 
 ## `extends:` (single-parent inheritance)
 
@@ -22,22 +22,33 @@ extends: claude
 
 - Resolved by an explicit `ResolveExtends(artifact, resolver)` call — **callers opt in**. Loaders do not auto-resolve.
 - The default resolver looks up names like `claude` from the built-in agent set. Custom resolvers can fetch from anywhere.
-- Walks the chain up to a small depth with circular-reference detection.
-- Merge rule: **child's non-zero scalar fields win**; **policy sections (`Caps`, `Credentials`, `Environment`, …) are replaced wholesale** when the child sets them. No gap-filling within a section.
+- Walks the chain up to **5 levels** with circular-reference detection.
+- Parent kit MUST be `kind: sandbox` — mixins cannot use `extends:`.
+- Merge is **additive**: child inherits the parent's configuration and adds to it. The rules per field type:
 
-When to use: forking a built-in agent with a small tweak (e.g., different binary flags or an extra credential). When you'd otherwise copy-paste the parent's spec, use `extends:`.
+| Field type | Strategy | On conflict |
+|---|---|---|
+| Scalars | Child wins if set | Child overrides parent |
+| Maps | Recursive merge | Child wins for conflicting keys |
+| Named arrays (identity key, e.g. `credentials[].service`, `volumes[].path`) | Union by identity | Matching key: **error**; new key: appended |
+| Primitive arrays (e.g. `caps.network.allow`) | Set union | Deduplicated, parent order preserved first |
+| Commands (`install`, `startup`, `initFiles`) | Concatenate | Parent first, then child |
+| Files | Overlay | Child overrides at same path |
+| `security.privileged` | OR semantics | Any `true` → `true` |
 
-When **not** to use: stacking multiple capabilities. That's composition.
+When to use: forking a built-in agent with a small tweak — adding a credential, a domain, or an install step that builds on the parent's. The additive merge means you keep everything the parent had and layer on top.
+
+When **not** to use: stacking multiple independent capabilities. That's composition (`--kit`).
 
 ## `--kit` (composition)
 
 ```bash
-sbx run claude --kit ./mcp-postgres/ --kit ./rust-toolchain/ --kit oci://ghcr.io/org/auditor:1.0 .
+sbx run claude --kit ./mcp-postgres/ --kit ./rust-toolchain/ --kit "oci://ghcr.io/org/auditor@sha256:<digest>" .
 ```
 
 Pipeline:
 
-1. Each `--kit` ref is resolved (local dir, zip, OCI, git).
+1. Each `--kit` ref is resolved (local dir, OCI digest, git commit SHA, or built-in name).
 2. The list is split into exactly one `kind: sandbox` and N `kind: mixin`. Two sandboxes → error.
 3. Every artifact's `name` must be unique across the base sandbox + all mixins. Two kits sharing a name — including a mixin whose name matches the base sandbox — fail with `compose: duplicate kit name "X"`. No partial state is created.
 4. Artifacts are merged in `--kit` order on top of the base sandbox.
@@ -50,7 +61,6 @@ Pipeline:
 | `caps.network.deny` | Append | Always succeeds; deny wins at request time |
 | `credentials[]` | Union by `service` | Same service in two kits → **error** |
 | `environment.variables` | Union | Last wins (later `--kit` overrides earlier) |
-| `settings.containerSettings` | Union | Same key in two kits → **error** |
 | `commands.install` | Concatenate in order | — |
 | `commands.startup` | Concatenate in order | — |
 | `commands.initFiles` | Concatenate in order | — |
@@ -69,7 +79,7 @@ Implication: if you fork a built-in agent via a user-supplied `kind: sandbox` ki
 
 For `environment.variables`, later kits silently overwrite earlier ones — useful for letting downstream kits override defaults.
 
-For `settings.containerSettings` and `credentials[]` (per service), "same key" is a **hard error**. If two kits both want to opt in `claude: true`, that's fine (same value). Two kits with `claude: true` and `claude: false` would error.
+For `credentials[]` (per `service`), "same key" is a **hard error**. Two kits both declaring `credentials[].service: anthropic` with different shapes is rejected at compose time.
 
 ### Order matters
 

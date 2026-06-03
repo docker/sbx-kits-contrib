@@ -44,21 +44,21 @@ Loaders return an `Artifact` with `Extends` set as a string. They do **not** wal
 
 The `sbx` CLI does resolve extends in its kit-loading paths; this trap is mostly for tests and tooling that load artifacts directly.
 
-## 7. `extends` merge replaces sections wholesale
+## 7. `extends` merge is additive, but matching identity keys collide
 
-When a child sets `caps:`, it does **not** gap-fill the parent's `caps.network.allow` etc. — the whole `Caps` block is replaced. Same for `Credentials`, `Environment`, `Settings`, `Commands`.
+A child kit using `extends:` inherits the parent's configuration **additively** — the child does not replace the parent's sections wholesale. Maps merge recursively, primitive arrays union, named arrays union by identity key (e.g. `credentials[].service`, `volumes[].path`), and commands concatenate.
 
-If you want to add one entry to a parent's allowlist, use composition (`--kit`) with a mixin, not `extends:`.
+The trap: when the child declares an entry whose identity key **matches** one the parent already declares, the merge fails with an error rather than picking a winner. For example, two `credentials[]` entries with `service: anthropic` (one in the parent, one in the child) is an error — you must rename the child's service to something distinct, or drop the duplicate.
 
-## 8. Composition conflicts on credentials and settings are errors
+If you want to add a network domain or an install step to a parent's existing configuration, just declare the new entry in the child — the merge appends it.
 
-For `credentials[]` and `settings.containerSettings`, two kits writing the same key (`service` for credentials, the setting key for settings) with **different** values is a hard error from compose. The error surfaces at `sbx run` time, not at `sbx kit validate` time, because validation runs per-artifact and composition is the cross-artifact step.
+## 8. Composition conflicts on credentials are errors
 
-Two kits writing the **same** value for the same key is fine — the merger detects equality.
+For `credentials[]`, two kits writing the same `service` with different shapes is a hard error from compose. The error surfaces at `sbx run` time, not at `sbx kit validate` time, because validation runs per-artifact and composition is the cross-artifact step.
 
 ## 9. `environment.variables` last-wins is silent
 
-Unlike credentials/settings, conflicting `environment.variables` does not error — later `--kit` flags silently override earlier ones. Useful for downstream override, dangerous if you didn't intend it. Document override semantics in your mixin's `description`.
+Unlike credentials, conflicting `environment.variables` does not error — later `--kit` flags silently override earlier ones. Useful for downstream override, dangerous if you didn't intend it. Document override semantics in your mixin's `description`.
 
 ## 10. `initFiles.content` placeholders
 

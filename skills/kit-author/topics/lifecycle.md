@@ -8,10 +8,10 @@ Stages reflect the v2 spec form. v1 spec.yaml files take the same path; the lega
 
 A kit reference is one of:
 
-- Local directory or zip: `./mcp-postgres/`, `./mcp-postgres.zip`
-- Git: `git+https://github.com/org/repo.git#ref=v1.0&dir=subdir`, `git+ssh://...`
-- OCI: `oci://ghcr.io/org/kit:1.0`
-- Embedded built-in agent: by name only (`claude`, `gemini`, …) — these ship inside the `sbx` binary
+- Local directory: `./mcp-postgres/`
+- Git: `git+https://github.com/org/repo.git#ref=<40-hex-sha>&dir=subdir`, `git+ssh://...` — **MUST** be a full 40-character commit SHA; branches and tags are rejected.
+- OCI: `oci://ghcr.io/org/kit@sha256:<digest>` — **MUST** be a digest; `:latest` and any tag is rejected.
+- Embedded built-in agent: by name only (`claude`, `gemini`, …) — these ship inside the `sbx` binary.
 
 `extends:` is **not** auto-resolved during load. Tools that load artifacts directly (e.g. tests, custom inspectors) must opt in explicitly via the spec library's resolver helpers.
 
@@ -19,9 +19,8 @@ A kit reference is one of:
 
 The CLI classifies the reference string and picks a loader:
 
-- `git+https://` / `git+ssh://` — git clone of the repo at `ref`, into `dir`
-- `oci://...` — pulled via ORAS from the registry
-- path ending in `.zip` — extracted to a temp directory
+- `git+https://` / `git+ssh://` — git clone of the repo at the pinned commit SHA, into `dir`
+- `oci://...@sha256:<digest>` — pulled via ORAS from the registry
 - anything else that exists on disk — loaded as a directory
 - bare name — resolved against the built-in agent set
 
@@ -32,10 +31,9 @@ For `sbx run` / `sbx create`, each `--kit` flag is resolved in declaration order
 The spec library reads `spec.yaml`, walks `files/home/` and `files/workspace/`, and builds an in-memory artifact. Safety:
 
 - Symlinks must resolve inside the artifact root — escape attempts are rejected.
-- ZIP loaders extract to a temp directory and load as a directory.
 - Absolute static-file paths (`/etc/passwd`) and `..` traversal are rejected.
 
-YAML decoding is strict: unknown top-level fields fail. Once a field is removed (e.g. v2's removal of the top-level `tmpfs:` block), spec.yaml files that still use it stop loading.
+YAML decoding is strict: unknown top-level fields fail. Once a field is removed (e.g. v2's removal of the top-level `tmpfs:` and `settings:` blocks), spec.yaml files that still use it stop loading.
 
 ## 3. Normalization
 
@@ -65,7 +63,7 @@ After normalization, only the canonical fields are populated. The sugar and lega
 
 `spec.ValidateArtifact` runs from each `Load*` path:
 
-- **Manifest** — `schemaVersion ∈ {"1", "2"}`, `kind ∈ {sandbox, mixin}` (also accepts v1 `agent` alias), `name` is lowercase alphanumeric + hyphen (1–64 chars), `template` required for sandbox kits, `resources.cpu`/`resources.memoryMB` must be non-negative if set.
+- **Manifest** — `schemaVersion ∈ {"1", "2"}`, `kind ∈ {sandbox, mixin}` (also accepts v1 `agent` alias), `name` is lowercase alphanumeric + hyphen (1–64 chars), exactly one of `sandbox.image` / `sandbox.build` required for sandbox kits, `resources.cpu` / `resources.memory_mb` must be positive if set.
 - **Caps.Network** — entry strings are exact, exact+port, or leading-label wildcard; no domain appears in both `allow` and `deny`.
 - **Credentials** — each entry has `service` set; `apiKey.inject[].format` (when set) is well-formed; `oauth.tokenEndpoint` has host+path.
 - **Volumes** — every entry has an absolute `path`; `type ∈ {"", "tmpfs"}`; `size` if set must parse as a byte-size string; `mode` if set must be octal.
@@ -80,11 +78,24 @@ Validation **never errors on legacy fields**; that's normalization's job. A v1 s
 
 Single-parent inheritance for authoring convenience.
 
-- Walks the parent chain up to a small depth, with circular-reference detection.
+- Walks the parent chain up to **5 levels**, with circular-reference detection.
 - The default resolver looks up built-in agent names; alternate resolvers can pull from any source.
-- Merge rule: **child's non-zero scalar fields win**; **policy sections (`Caps`, `Credentials`, `Environment`, …) are replaced wholesale** when the child sets them. No gap-filling within a section.
+- Parent kit MUST be `kind: sandbox` — mixins cannot use `extends:`.
+- Remote parents follow the [reference-pinning rule](#0-reference-shape): Git refs need a 40-hex commit SHA, OCI refs need a digest.
 
-If you want to add one entry to a parent's allowlist, use composition (`--kit`) with a mixin — not `extends:`.
+Merge is **additive** — child inherits the parent's configuration and adds to it. The rules per field type:
+
+| Field type | Strategy | On conflict |
+|---|---|---|
+| Scalars (strings, numbers, booleans) | Child wins if set | Child overrides parent |
+| Maps (key-value objects) | Recursive merge | Child wins for conflicting keys |
+| Named arrays (objects with an identity key, e.g. `credentials[].service`, `volumes[].path`) | Union by identity key | Matching key: **error**; new key: appended |
+| Primitive arrays (e.g. `caps.network.allow`) | Set union | Deduplicated, order preserved (parent first) |
+| Commands (`install`, `startup`, `initFiles`) | Concatenate | Parent commands first, then child |
+| Files | Overlay | Child overrides at same path |
+| `security.privileged` | OR semantics | Any `true` → `true` |
+
+Implication: child kits **inherit** parent configuration and extend it. Naming an entry that already exists in the parent — e.g. a `credentials[].service` the parent already declares — is an error, because the merge can't decide which shape wins.
 
 ## 6. Composition (`--kit`)
 
@@ -99,7 +110,6 @@ Merge rules (per section):
 | `caps.network.allow` / `deny` | Append (deny wins at policy time) |
 | `credentials[]` | Union by `service`; same service in two kits with different shapes is an error |
 | `environment.variables` | Union; later kits override earlier (last-wins) |
-| `settings.containerSettings` | Union; same key in two kits is an error |
 | `commands.install` | Concatenate; **base install is skipped when the base sandbox is built-in (`Embedded == true`)**; kit installs always run |
 | `commands.startup` / `initFiles` | Concatenate |
 | `files` | Overlay map by `target:relativePath` — later kits override earlier |
@@ -195,7 +205,7 @@ The alternative — container-resident credentials — is necessary for signatur
 ```
 ref string
   │
-  ▼ resolve            local | zip | oci | git | embedded
+  ▼ resolve            local | oci@digest | git@commit-sha | embedded
   │
   ▼ load               read spec.yaml + walk files/ (strict YAML decode)
   │

@@ -17,7 +17,7 @@ Use this skill when:
 - Writing a new kit (mixin or agent) from scratch
 - Editing an existing kit in this repository
 - Debugging why a kit's commands, files, network rules, or credentials are not taking effect
-- Packaging, publishing, or consuming kits from OCI, git, or zip sources
+- Packaging, publishing, or consuming kits from OCI or git sources
 - Reviewing kit PRs in this repository
 
 ## References
@@ -31,12 +31,12 @@ Use this skill when:
 
 Primary topics describe the **v2** spec form (`schemaVersion: "2"`):
 
-- [Spec anatomy](topics/spec-anatomy.md) — `spec.yaml` top-level fields and every section (`sandbox`, `credentials[]`, `caps.network`, `publishedPorts`, `environment`, `commands`, `settings`, `volumes`, `agentContext`, `files/`).
+- [Spec anatomy](topics/spec-anatomy.md) — `spec.yaml` top-level fields and every section (`sandbox` with `image:` or `build:`, `credentials[]`, `caps.network`, `publishedPorts`, `environment`, `commands`, `volumes`, `agentContext`, `files/`).
 - [Lifecycle](topics/lifecycle.md) — Sourcing → load → normalize → validate → extends → compose → configure → hooks → container → runtime. What happens at each stage as observed by the kit author.
 - [Composition](topics/composition.md) — `extends:` inheritance vs `--kit` composition. Merge strategies per section, conflict rules, what "last wins" means.
 - [Authoring guide](topics/authoring.md) — Step-by-step recipes for a minimal mixin and a full sandbox kit. Where to put files. When to use `files/` vs `initFiles`.
 - [Bindings](topics/bindings.md) — The user-side `~/.config/sbx/credentials.yaml` file: how kits and users split the credential contract.
-- [Distribution](topics/distribution.md) — Local dir, ZIP, OCI artifact, git repo references. Schema-version compatibility. `sbx kit pack/push/pull/inspect/validate`.
+- [Distribution](topics/distribution.md) — Local dir, OCI digests, git commit-SHA references. Strict pinning rule. Schema-version compatibility. `sbx kit push/pull/inspect/validate/delete`.
 - [Testing](topics/testing.md) — TCK suite, manual `sbx kit add` verification, proving allow-list enforcement.
 - [Pitfalls](topics/pitfalls.md) — Surprises seen in practice: install-completed is exit-code only, `commands.startup` runs on **every** container start (idempotency required), `kit add` cannot apply immutable settings, embedded vs user-supplied install differences, inject/binding domain intersection.
 

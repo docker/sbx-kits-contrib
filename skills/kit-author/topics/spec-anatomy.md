@@ -23,13 +23,17 @@ locked:                     # optional, list of dotted paths child kits may not 
 
 ## `sandbox:` (only for `kind: sandbox`)
 
+A sandbox kit MUST specify **exactly one** of `image` or `build` — they are mutually exclusive. Specifying both is a hard validation error. (The constraint is relaxed when the missing field is inherited via `extends:`.)
+
+### Use `image:` to layer onto a pre-built image
+
 ```yaml
 sandbox:
-  image: docker/sandbox-templates:claude-code   # required, → Manifest.Template
+  image: docker/sandbox-templates:claude-code   # → Manifest.Template
   aiFilename: CLAUDE.md                         # → Manifest.AIFilename
   resources:                                    # optional container limits
-    cpu: 4                                      # float64 cores
-    memoryMB: 8192                              # int64 mebibytes
+    cpu: 4                                      # float64 cores (must be positive if set)
+    memory_mb: 8192                             # int, mebibytes (must be positive if set)
     gpu: "1"                                    # consumer-defined string
   entrypoint:
     run: [claude, "--dangerously-skip-permissions"]   # [0]→Binary, [1:]→RunOptions
@@ -38,7 +42,32 @@ sandbox:
     pipeMode: ""                                # how piped stdin combines with --task
 ```
 
-`sandbox.image` is **required for sandbox kits**. Without it, validation rejects the artifact.
+Use `image:` when you can layer the kit's behaviour onto an existing base image via `commands.install` and `commands.initFiles`.
+
+### Use `build:` to build from a Dockerfile
+
+```yaml
+sandbox:
+  build:
+    context: .                                  # default ".", relative to spec.yaml
+    dockerfile: Dockerfile                      # default "Dockerfile", relative to context
+    args:                                       # passed as --build-arg
+      AGENT_VERSION: "1.4.2"
+    target: runtime                             # optional Dockerfile build stage
+    platforms:                                  # default [linux/amd64, linux/arm64]
+      - linux/amd64
+      - linux/arm64
+  entrypoint:
+    run: [my-agent, "--yolo"]
+```
+
+Use `build:` when you need custom binaries, complex setup, or full control over the container contents. `sbx kit push` transforms a `build:` source spec into a distribution form: it runs the build, pins the resulting image by digest, and rewrites `sandbox.build` away. The source `spec.yaml` is never modified; the published kit consumers see only `sandbox.image: <ref>@sha256:<digest>`.
+
+### Validation
+
+- `sandbox.image` and `sandbox.build` are mutually exclusive — exactly one MUST be present for `kind: sandbox` (unless inherited via `extends:`).
+- `sandbox.resources.cpu` MUST be positive if specified.
+- `sandbox.resources.memory_mb` MUST be a positive integer if specified.
 
 ## `credentials`
 
@@ -98,7 +127,7 @@ credentials:
 
 `passthrough: true` opts a credential out of sentinel masking (security downgrade — emits a load-time warning).
 
-A credential entry can declare **both** `apiKey` and `oauth`. The resolver's precedence rule picks one based on host material: OAuth wins when both have host material.
+A credential entry can declare **both** `apiKey` and `oauth`. The precedence rule is: **api key wins when found**. If no API key value is present on the host, the user can authenticate via OAuth (e.g. `/login`). Setting both lets the kit support either auth method without the kit author choosing one.
 
 ## `caps` — capabilities
 
@@ -177,15 +206,11 @@ Placeholders supported only in `initFiles.content`: **`${WORKDIR}`**. Anything e
 
 Composition: all three lists **concatenate** in `--kit` order. Base agent's `install` is skipped when the base is a built-in agent; kit-supplied agent installs always run.
 
-## `settings`
+## `settings` — **removed in v2**
 
-```yaml
-settings:
-  containerSettings:
-    claude: true                               # opt into agent-container settings file
-```
+The v1 `settings` block (with its `containerSettings` map) hardcoded agent-specific setup. v2 removes it entirely. If you need to write an agent-specific configuration file at startup, use `commands.initFiles` instead — that's the migration path.
 
-Composition: union; same key in two artifacts is an error.
+A v1 kit that still ships `settings:` will load via the legacy shims, but the field has no v2 home; see [`v1-migration.md`](v1-migration.md) for the recipe.
 
 ## `volumes`
 
