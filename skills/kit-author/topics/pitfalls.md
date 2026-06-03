@@ -2,6 +2,8 @@
 
 Things that have bitten kit authors in practice. Read this before debugging a "why isn't my kit doing X" issue.
 
+Items below describe v2 behavior. For the analogous v1 surfaces and how they fold during load, see [`v1-migration.md`](v1-migration.md).
+
 ## 1. `Install commands completed` is an exit-code message
 
 The CLI prints `Install commands completed` after every install block. It only means the commands exited 0. It does **not** mean the install did what it was supposed to.
@@ -21,26 +23,18 @@ Author startup commands to be **idempotent** — they will run again. Common pat
 
 ## 3. `sbx kit add` of a mixin does not write kit memory (known gap)
 
-The engine's kit-memory write is gated on the artifact's own `AIFilename`. Mixins intentionally don't carry their own `AIFilename` (a mixin contributes _to_ the base agent's AI file, it doesn't define one), so the gate always trips for `kind: mixin` artifacts during `sbx kit add`. The kit memory file under `kits-memory/<name>.md` is silently not written, and the `## Kits` section is not refreshed.
+The engine's kit-memory write is gated on the artifact's own `aiFilename`. Mixins intentionally don't carry their own `aiFilename` (a mixin contributes _to_ the base sandbox's AI file, it doesn't define one), so the gate always trips for `kind: mixin` artifacts during `sbx kit add`. The kit memory file under `kits-memory/<name>.md` is silently not written, and the `## Kits` section is not refreshed.
 
 Workaround until the gate is fixed: recreate the sandbox with `--kit <mixin>` instead of adding it at runtime. The create-time path writes the per-kit files correctly.
 
 ## 4. `sbx kit add` cannot apply immutable settings
 
-Container labels, privileged mode, named volumes, and tmpfs mounts are fixed at container creation. `sbx kit add` warns and skips them — but applies everything else. If your kit requires those, the user must recreate the sandbox with `--kit`.
+Container labels, privileged mode, volumes (block-backed or `type: tmpfs`), and `publishedPorts` are fixed at container creation. `sbx kit add` warns and skips them — but applies everything else. If your kit requires those, the user must recreate the sandbox with `--kit`.
 
-The warning looks like:
-
-```
-⚠️  Kit "xyz" requires container settings (e.g., privileged mode, tmpfs)
-   that cannot be applied to a running container.
-   Recreate the sandbox with --kit xyz to apply these settings.
-```
-
-## 5. Embedded vs user-supplied agent install behavior differs
+## 5. Embedded vs user-supplied sandbox install behavior differs
 
 - Built-in agents (shipped inside the `sbx` binary) have `Embedded == true`. Their `commands.install` is **skipped** at create time — the binary is baked into the template image.
-- User-supplied `kind: agent` kits (via `--kit`) have `Embedded == false`. Their `commands.install` **always runs** on top of the base image.
+- User-supplied `kind: sandbox` kits (via `--kit`) have `Embedded == false`. Their `commands.install` **always runs** on top of the base image.
 
 Implication: if you fork a built-in agent's `spec.yaml` to use as a user-supplied kit, the install commands you copied will execute. Make them idempotent or guard with `command -v <binary>`.
 
@@ -52,13 +46,13 @@ The `sbx` CLI does resolve extends in its kit-loading paths; this trap is mostly
 
 ## 7. `extends` merge replaces sections wholesale
 
-When a child sets `network:`, it does **not** gap-fill the parent's `serviceDomains` etc. — the whole `Network` policy is replaced. Same for `Credentials`, `Environment`, `Settings`, `Commands`.
+When a child sets `caps:`, it does **not** gap-fill the parent's `caps.network.allow` etc. — the whole `Caps` block is replaced. Same for `Credentials`, `Environment`, `Settings`, `Commands`.
 
-If you want to add one domain to a parent's allowlist, use composition (`--kit`) with a mixin, not `extends:`.
+If you want to add one entry to a parent's allowlist, use composition (`--kit`) with a mixin, not `extends:`.
 
 ## 8. Composition conflicts on credentials and settings are errors
 
-For `credentials.sources` and `settings.containerSettings`, two kits writing the same key with **different** values is a hard error from compose. The error surfaces at `sbx run` time, not at `sbx kit validate` time, because validation runs per-artifact and composition is the cross-artifact step.
+For `credentials[]` and `settings.containerSettings`, two kits writing the same key (`service` for credentials, the setting key for settings) with **different** values is a hard error from compose. The error surfaces at `sbx run` time, not at `sbx kit validate` time, because validation runs per-artifact and composition is the cross-artifact step.
 
 Two kits writing the **same** value for the same key is fine — the merger detects equality.
 
@@ -78,32 +72,36 @@ This is by design — kits are sandbox-scoped and must not write outside the age
 
 ## 12. Use `sbx policy log` to confirm enforcement
 
-When verifying `network.allowedDomains` enforcement, run `sbx policy log <sandbox>` after triggering a request. The output lists allowed and blocked requests with the host/port, and is the authoritative view of what the proxy actually evaluated. Don't try to read daemon logs directly — the policy log is the user-facing surface and is stable.
+When verifying `caps.network.allow` enforcement, run `sbx policy log <sandbox>` after triggering a request. The output lists allowed and blocked requests with the host/port, and is the authoritative view of what the proxy actually evaluated. Don't try to read daemon logs directly — the policy log is the user-facing surface and is stable.
 
 ## 13. Credential delivery: sentinel-swap vs container-resident
 
 Two models:
 
-- **Sentinel-swap (proxy)**: `environment.proxyManaged` sets a sentinel in the container; proxy swaps the real value into the outbound request. The container never sees the credential. Used by Anthropic, OpenAI, GitHub.
-- **Container-resident (egress-bounded)**: real credential lives in the container, restricted by `network.allowedDomains`. Used when signatures must be computed in-container — **AWS SigV4 forces this**, because the signature is over canonical headers the proxy doesn't see.
+- **Sentinel-swap (proxy)** — the default for `credentials[].apiKey`. The engine sets `apiKey.name` inside the container to the literal `proxy-managed`; the proxy swaps the real value into the outbound request based on `apiKey.inject[]`. The container never sees the credential. Used by Anthropic, OpenAI, GitHub.
+- **Container-resident (egress-bounded)** — the real credential lives in the container, restricted by `caps.network.allow`. Used when signatures must be computed in-container — **AWS SigV4 forces this**, because the signature is over canonical headers the proxy doesn't see.
 
 Pick the right model for your service. Sentinel-swap is stricter; container-resident is necessary for SigV4-style auth.
 
-## 14. Package managers refresh **every** configured source
+## 14. Inject-domain ∩ binding-allowedDomains intersection
 
-A subtle network trap from the repository README, worth restating here: `apt-get update` re-fetches metadata for every file in `/etc/apt/sources.list[.d/]` — including sources the base template added. If *any* of those returns non-2xx (because it's not in your `allowedDomains`), `apt-get` exits non-zero even if the package you want is in a different source.
+The engine **only** injects a credential into a domain that appears in **both** the kit's `credentials[].apiKey.inject[].domain` and the user's `bindings[<service>].allowedDomains`. If the user's bindings don't list one of the kit's inject domains, the engine drops that injection silently (with a one-line warning in interactive contexts) and the request goes through unauthenticated.
 
-For kits built on `shell-docker` / `*-docker` templates that means `download.docker.com` (Docker's apt repo, pre-added by the template) needs to be in your `allowedDomains` even if you're only installing something from Ubuntu's main archive.
+When debugging "auth header isn't appearing": confirm the user's `~/.config/sbx/credentials.yaml` lists every domain the kit wants to inject into. See [`bindings.md`](bindings.md).
+
+## 15. Package managers refresh **every** configured source
+
+A subtle network trap from the repository README, worth restating here: `apt-get update` re-fetches metadata for every file in `/etc/apt/sources.list[.d/]` — including sources the base template added. If *any* of those returns non-2xx (because it's not in your `caps.network.allow`), `apt-get` exits non-zero even if the package you want is in a different source.
+
+For kits built on `shell-docker` / `*-docker` templates that means `download.docker.com` (Docker's apt repo, pre-added by the template) needs to be in your `caps.network.allow` even if you're only installing something from Ubuntu's main archive.
 
 For Ubuntu cross-arch coverage, list all three: `archive.ubuntu.com` and `security.ubuntu.com` (amd64) + `ports.ubuntu.com` (arm64). CI is amd64; many developer Macs are arm64.
 
-## 15. Sugar fields don't round-trip
+## 16. Sugar fields don't round-trip
 
-`agent.image`, `agent.entrypoint.run`, `secrets:`, `egress:` get normalized into `Manifest.Template`, `Manifest.Binary` + `Manifest.RunOptions`, `Credentials.Sources`, `Network.ServiceDomains` + `ServiceAuth`. After loading, the sugar fields are gone. `sbx kit inspect --output json` shows the canonical form.
+`sandbox.image`, `sandbox.entrypoint.run`, `secrets:`, `egress:` get normalized into `Manifest.Template`, `Manifest.Binary` + `Manifest.RunOptions`, `credentials[]` (with derived service), `credentials[]` injection rules. After loading, the sugar fields are gone. `sbx kit inspect --output json` shows the canonical form.
 
-Prefer the canonical form in new kits.
-
-## 16. `files/workspace/<path>` overlays the user's repo on every restart
+## 17. `files/workspace/<path>` overlays the user's repo on every restart
 
 A workspace-target file whose relative path matches a real file in the user's repo will silently overwrite that file on **every** sandbox start. Overlay is the intended semantic — that's why `files/workspace/` exists — but the consequence is worth surfacing:
 
@@ -114,13 +112,17 @@ When the CLI detects a kit `files/workspace/<path>` whose relative path matches 
 
 If overlay isn't what you want, rename the file or move it under `files/home/<path>`.
 
-## 17. `commands.initFiles` cannot target the in-container clone directory
+## 18. `commands.initFiles` cannot target the in-container clone directory
 
 Under `sbx run --clone`, the in-container working copy is populated by a `git clone` startup command. `commands.initFiles` runs as a post-start hook in the same phase; if its path resolves under the clone target, the initFile's `mkdir -p && printf > path` creates the workspace dir and writes a file inside it, and then `git clone` refuses the non-empty target.
 
 The CLI catches this up front: a kit whose `initFiles[i].path` resolves at or under the clone target is rejected at sandbox-create time with an actionable error pointing you at `files/workspace/<path>`. See [`authoring.md`](authoring.md) for the decision rule between `files/workspace/` and `commands.initFiles`.
 
-## 18. Missing-domain stories worth knowing
+## 19. `caps.network.allow` middle-position wildcards don't match
+
+Today's host matcher recognizes `*` only in the **leading** label position (`*.example.com`). A middle-position wildcard (`bedrock-runtime.*.amazonaws.com`) is parsed as a literal label, will never match a real hostname, and the kit will silently fail at request time. Use the explicit list of regions (`bedrock-runtime.us-east-1.amazonaws.com`, …) until double-wildcard support lands.
+
+## 20. Missing-domain stories worth knowing
 
 Common allowlist gaps that have caught real kits:
 
@@ -129,3 +131,7 @@ Common allowlist gaps that have caught real kits:
 - **Package mirrors**: `registry.npmjs.org` for npm; `pypi.org` + `files.pythonhosted.org` for pip; `crates.io` + `static.crates.io` for cargo. The metadata host and the content host are usually different.
 
 When debugging "this thing can't fetch X," run under `sbx policy log` and add what shows up in the blocked list, one domain at a time. The repository README has the full recipe.
+
+## 21. `Artifact.Warnings` is a TODO list
+
+If `sbx kit inspect --output json | jq '.warnings'` returns a non-empty list, your kit is using v1 surfaces that fold cleanly today but will stop loading at the Phase 6 schema cutover. Run `scripts/migrate-v1-to-v2.go` and fix the remaining manual surfaces per [`v1-migration.md`](v1-migration.md) before then.

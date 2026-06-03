@@ -18,12 +18,13 @@ Validation runs automatically inside every `spec.Load*` path. If a kit cannot pa
 This repository ships a TCK package at [`tck/`](../../../tck/). It validates:
 
 1. Spec parses with required fields
-2. Network policy (allowed domains, service auth)
-3. Credential policy (sources are well-formed)
+2. Network policy (`caps.network` allow/deny entries are well-formed)
+3. Credentials (each `credentials[]` entry is well-formed; injection rules valid)
 4. Environment variables (declared, set in container)
 5. Commands (install/startup are well-formed)
 6. Container files (files from `files/` are injected at the correct paths)
-7. Security customizers (tmpfs mounts e.g. `/run/secrets`)
+7. Volumes (block-backed and `type: tmpfs` entries — plus the implicit `/run/secrets` tmpfs)
+8. Published ports (`publishedPorts[]` entries validate)
 
 ### Writing a TCK test
 
@@ -36,6 +37,12 @@ suite, err := tck.NewSuiteFromDir("./my-kit")
 require.NoError(t, err)
 suite.RunAll(t)
 ```
+
+### Schema version awareness
+
+The TCK loads via `spec.LoadFromDirectory`, so it accepts both v1 and v2 spec.yaml. For v1 kits, `Artifact.Warnings` is populated during load — the TCK does **not** fail on warnings, but a clean kit should aim for an empty warnings slice. The e2e wrapper script asserts a green run end-to-end including warning cleanup.
+
+### Extending a non-default parent
 
 For mixins that `extends:` a non-default parent agent, pass the parent's template image explicitly:
 
@@ -110,7 +117,7 @@ sbx kit add probe ./my-kit/
 
 Faster iteration loop, but immutable settings (privileged, volumes, tmpfs) won't apply — recreate for those.
 
-## Verifying `network.allowedDomains`
+## Verifying `caps.network.allow`
 
 The proxy enforces allow/deny at request time. To **prove** what's getting through and what's blocked, use `sbx policy log`:
 
@@ -118,7 +125,7 @@ The proxy enforces allow/deny at request time. To **prove** what's getting throu
 sbx policy log <sandbox>
 ```
 
-The output lists allowed and blocked requests with their host/port. Every entry in the "Blocked requests" section is a domain your install or startup hook reached for. Add it to `allowedDomains` (or accept the block) and re-probe.
+The output lists allowed and blocked requests with their host/port. Every entry in the "Blocked requests" section is a domain your install or startup hook reached for. Add it to `caps.network.allow` (or accept the block) and re-probe.
 
 The repository [README](../../../README.md#declare-every-domain-your-kit-needs) has a full recipe for probing a kit against a `deny-all` baseline, including the cross-arch gotchas (`archive.ubuntu.com`, `security.ubuntu.com`, `ports.ubuntu.com`) and the package-manager refresh trap (e.g. `apt-get update` re-fetches every configured source).
 

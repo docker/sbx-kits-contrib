@@ -10,7 +10,7 @@ globs:
 
 # Kit Author Skill
 
-How to design, write, validate, and distribute kit artifacts (`kind: agent` and `kind: mixin`) for Docker Sandboxes. Kits are declarative — a `spec.yaml` plus an optional `files/` tree — and the `sbx` engine translates them into container customizations at sandbox creation or `kit add` time.
+How to design, write, validate, and distribute kit artifacts (`kind: sandbox` and `kind: mixin`) for Docker Sandboxes. Kits are declarative — a `spec.yaml` plus an optional `files/` tree — and the `sbx` engine translates them into container customizations at sandbox creation or `kit add` time.
 
 Use this skill when:
 
@@ -29,10 +29,17 @@ Use this skill when:
 
 ## Topics
 
+Primary topics describe the **v2** spec form (`schemaVersion: "2"`):
+
+- [Spec anatomy](topics/spec-anatomy.md) — `spec.yaml` top-level fields and every section (`sandbox`, `credentials[]`, `caps.network`, `publishedPorts`, `environment`, `commands`, `settings`, `volumes`, `agentContext`, `files/`).
 - [Lifecycle](topics/lifecycle.md) — Sourcing → load → normalize → validate → extends → compose → configure → hooks → container → runtime. What happens at each stage as observed by the kit author.
-- [Spec anatomy](topics/spec-anatomy.md) — `spec.yaml` top-level fields and every section (`agent`, `network`, `credentials`, `environment`, `commands`, `settings`, `oauth`, `memory`, `files/`).
 - [Composition](topics/composition.md) — `extends:` inheritance vs `--kit` composition. Merge strategies per section, conflict rules, what "last wins" means.
-- [Authoring guide](topics/authoring.md) — Step-by-step recipes for a minimal mixin and a full agent kit. Where to put files. When to use `files/` vs `initFiles`.
-- [Distribution](topics/distribution.md) — Local dir, ZIP, OCI artifact, git repo references. `sbx kit pack/push/pull/inspect/validate`.
-- [Testing](topics/testing.md) — TCK suite, manual `sbx kit add` verification, proving allowed-domains enforcement.
-- [Pitfalls](topics/pitfalls.md) — Surprises seen in practice: install-completed is exit-code only, `commands.startup` runs on **every** container start (idempotency required), `kit add` cannot apply immutable settings, embedded vs user-supplied install differences.
+- [Authoring guide](topics/authoring.md) — Step-by-step recipes for a minimal mixin and a full sandbox kit. Where to put files. When to use `files/` vs `initFiles`.
+- [Bindings](topics/bindings.md) — The user-side `~/.config/sbx/credentials.yaml` file: how kits and users split the credential contract.
+- [Distribution](topics/distribution.md) — Local dir, ZIP, OCI artifact, git repo references. Schema-version compatibility. `sbx kit pack/push/pull/inspect/validate`.
+- [Testing](topics/testing.md) — TCK suite, manual `sbx kit add` verification, proving allow-list enforcement.
+- [Pitfalls](topics/pitfalls.md) — Surprises seen in practice: install-completed is exit-code only, `commands.startup` runs on **every** container start (idempotency required), `kit add` cannot apply immutable settings, embedded vs user-supplied install differences, inject/binding domain intersection.
+
+Legacy reference:
+
+- [v1 → v2 migration](topics/v1-migration.md) — Every v1 surface, its v2 equivalent, the `migrate-v1-to-v2.go` script's coverage, and what to migrate by hand. Phase 6 cutover removes the v1 shims; until then v1 keeps loading with deprecation warnings on `Artifact.Warnings`.

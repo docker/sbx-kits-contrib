@@ -46,6 +46,18 @@ The loader clones, checks out `ref`, and reads from `dir`. Pin a tag or commit S
 
 For this repository specifically, see the [README](../../../README.md#using-a-kit) for the common `git+https://github.com/docker/sbx-kits-contrib.git#dir=<kit>` form and clone-depth behaviour for each ref shape (default branch and tag/branch refs are shallow; full commit SHAs require a full clone).
 
+## Schema version compatibility
+
+A v2 spec.yaml only loads when the consumer's `sbx` is v2-aware (or newer). Releases shipped before the v2 spec library landed reject v2 fields via strict YAML decoding:
+
+```
+artifact: invalid spec.yaml: yaml: unmarshal errors:
+  line N: field sandbox not found in type spec.specFile
+  line N: field agentContext not found in type spec.specFile
+```
+
+If you must publish a kit that older `sbx` releases consume, ship the v1 form for now. The `migrate-v1-to-v2` script is one-way; keep a v1 source branch if you need to publish both.
+
 ## OCI artifacts
 
 Pushed and pulled via ORAS. The artifact media type is kit-specific; standard registries (GHCR, ECR, Docker Hub) accept them. Authentication uses your existing docker login.
