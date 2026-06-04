@@ -63,7 +63,7 @@ remembered:                                  # P2 — workspace path → variant
 ```
 
 - `<service-id>` matches the kit's `credentials[].service`. For named variants (P2), the form is `<service>@<variant>` — e.g. `github@work-org-a`.
-- The `discovery:` field MUST be present (omitting the key entirely is a validation error). The list itself MAY be empty — when it is, the credential value must come from the secret store (stage 2 below); see also "Bindings without discovery" later in this page.
+- `discovery:` is a required field. See "Bindings without an env/file source" later in this page for the shape used when the credential value lives in the secret store rather than at a discoverable host location.
 - Each `discovery` entry has **exactly one** of `env` or `file`.
 
 ## Parsers
@@ -128,21 +128,19 @@ Once a binding is chosen, the engine looks for the actual credential value in th
 
 The secret-store layers fire **before** discovery: an env-var binding doesn't get consulted if `sbx secret set` has already stored a value for that service.
 
-### Bindings without discovery
+### Bindings without an env/file source
 
-`discovery:` is a required field, but the list itself may be empty:
+When the credential value is already in the secret store (set via `sbx secret set <service> ...`), use an empty-list discovery to declare that fact while keeping the binding well-formed:
 
 ```yaml
 bindings:
   myservice:
-    discovery: []                              # explicit empty list
+    discovery: []
     allowedDomains:
       - api.myservice.com
 ```
 
-Use this shape when the credential value is already in the secret store (set via `sbx secret set myservice ...`) and the binding's only job is to declare which domains the engine may inject into. Stage 2 resolution finds the value in the sandbox-scoped or global secret store; discovery has nothing to add.
-
-Omitting the `discovery:` key entirely is a validation error — the spec library requires the key, even when the list is empty.
+Stage-2 resolution finds the value in the sandbox-scoped or global secret store; the empty `discovery` list just says "no env vars or files to consult — the secret store is the source of truth." The binding's job is then to declare the `allowedDomains`.
 
 ## Domain intersection
 

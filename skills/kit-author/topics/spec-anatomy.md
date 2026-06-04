@@ -312,7 +312,9 @@ Host port allocation is **always ephemeral** on `127.0.0.1`. Users wanting a pin
 
 Port publishing is **inbound service exposure** — a separate concern from outbound egress under `caps.network`.
 
-## `environment`
+## `environment` (P2)
+
+The block is **P2** because v2 removed its `proxyManaged` field as part of the credentials redesign — the proxy-managed semantic now lives implicitly on `credentials[].apiKey.name`.
 
 ```yaml
 environment:
