@@ -89,20 +89,21 @@ sandbox:
     run: [claude, "--dangerously-skip-permissions"]   # binary + initial args
     args: ["-l"]                                # appended when --task is given
     ttyArgs: []                                 # appended in interactive mode
-    pipeMode: ""                                # one of: "" | "prepend" | "append" | "stream" | "ignore"
+    pipeMode: prepend                           # one of: "prepend" | "append" | "stream" | "ignore"
 ```
 
 Use `image:` when you can layer the kit's behaviour onto an existing base image via `commands.install` and `commands.initFiles`.
 
-`entrypoint.pipeMode` controls how piped stdin combines with `--task`:
+`entrypoint.pipeMode` controls how piped stdin combines with `--task`. The field is optional; if you set it, it must be one of:
 
 | Value | Behaviour |
 |---|---|
-| `""` (unset) | Implementation default. |
 | `prepend` | Pipe content goes before the `--task` argument. |
 | `append` | Pipe content goes after the `--task` argument. |
 | `stream` | Pipe content streams to the binary's stdin while it runs. |
 | `ignore` | Pipe content discarded. |
+
+Omit `pipeMode:` to get the implementation default.
 
 ### Use `build:` to build from a Dockerfile
 

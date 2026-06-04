@@ -36,7 +36,7 @@ The split keeps the kit minimal and lets each user point `sbx` at whatever crede
 | Platform | Path |
 |---|---|
 | macOS / Linux | `~/.config/sbx/credentials.yaml` |
-| Linux with `$XDG_CONFIG_HOME` set | `$XDG_CONFIG_HOME/sbx/credentials.yaml` |
+| Unix with `$XDG_CONFIG_HOME` set | `$XDG_CONFIG_HOME/sbx/credentials.yaml` |
 | Windows | `%APPDATA%\sbx\credentials.yaml` |
 
 This file is **user-controlled** and MUST NOT be modified by kits or automated tooling without explicit user consent.
@@ -46,7 +46,7 @@ This file is **user-controlled** and MUST NOT be modified by kits or automated t
 ```yaml
 bindings:
   <service-id>:
-    discovery:                                # required, ordered — first hit wins
+    discovery:                                # required — list (may be empty)
       - env: [VAR1, VAR2, …]                 # priority order within the entry
       - file:
           path: "<path>"                     # ~ expands to $HOME
@@ -63,6 +63,7 @@ remembered:                                  # P2 — workspace path → variant
 ```
 
 - `<service-id>` matches the kit's `credentials[].service`. For named variants (P2), the form is `<service>@<variant>` — e.g. `github@work-org-a`.
+- The `discovery:` field MUST be present (omitting the key entirely is a validation error). The list itself MAY be empty — when it is, the credential value must come from the secret store (stage 2 below); see also "Bindings without discovery" later in this page.
 - Each `discovery` entry has **exactly one** of `env` or `file`.
 
 ## Parsers
@@ -125,7 +126,23 @@ Once a binding is chosen, the engine looks for the actual credential value in th
 2. **Secret store, global** — `sbx secret get <service>` in global scope. Use this when the credential should apply to every sandbox on the host.
 3. **`discovery[]`** — the binding's discovery array, walked in order. The first entry that yields a value wins.
 
-The secret-store layers fire **before** discovery: an env-var binding doesn't get consulted if `sbx secret set` has already stored a value for that service. This is why a binding with `discovery: []` and just `allowedDomains:` is still useful — the value comes from the secret store, the binding just declares which domains the engine may inject into.
+The secret-store layers fire **before** discovery: an env-var binding doesn't get consulted if `sbx secret set` has already stored a value for that service.
+
+### Bindings without discovery
+
+`discovery:` is a required field, but the list itself may be empty:
+
+```yaml
+bindings:
+  myservice:
+    discovery: []                              # explicit empty list
+    allowedDomains:
+      - api.myservice.com
+```
+
+Use this shape when the credential value is already in the secret store (set via `sbx secret set myservice ...`) and the binding's only job is to declare which domains the engine may inject into. Stage 2 resolution finds the value in the sandbox-scoped or global secret store; discovery has nothing to add.
+
+Omitting the `discovery:` key entirely is a validation error — the spec library requires the key, even when the list is empty.
 
 ## Domain intersection
 
