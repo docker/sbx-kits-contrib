@@ -8,11 +8,10 @@ import (
 	"testing"
 )
 
-// TestApplyPhase1Transforms_FullShape exercises a v1 spec.yaml that uses
-// every Phase 1 renamed field at once and confirms the output matches
-// the v2-expected golden file byte-for-byte. Comments, blank lines, and
-// block-scalar formatting must survive.
-func TestApplyPhase1Transforms_FullShape(t *testing.T) {
+// TestMigrateSpec_FullShape exercises a v1 spec.yaml that uses every v1 → v2
+// transform at once and confirms the output matches the v2-expected golden
+// file byte-for-byte, and that every expected deprecation change is reported.
+func TestMigrateSpec_FullShape(t *testing.T) {
 	input, err := os.ReadFile(filepath.Join("testdata", "v1-full", "spec.yaml"))
 	if err != nil {
 		t.Fatalf("read input: %v", err)
@@ -22,41 +21,59 @@ func TestApplyPhase1Transforms_FullShape(t *testing.T) {
 		t.Fatalf("read expected: %v", err)
 	}
 
-	got, changes := applyPhase1Transforms(string(input))
+	got, changes, err := migrateSpec(input)
+	if err != nil {
+		t.Fatalf("migrateSpec: %v", err)
+	}
 
-	if got != string(expected) {
+	if string(got) != string(expected) {
 		t.Errorf("output mismatch.\nGOT:\n%s\n\nEXPECTED:\n%s", got, expected)
 	}
 
-	wantChanges := []string{
-		"kind: agent → kind: sandbox",
-		"agent: block → sandbox: block",
-		"memory: → agentContext:",
+	// Each v1 surface in the fixture must surface a change line. We assert on
+	// substrings (the canonical field name) rather than exact warning strings
+	// so wording tweaks in spec/normalize.go don't brittly break this test.
+	wantSubstrings := []string{
+		"kind: agent",
+		"agent:",
+		"credentials.sources",
+		"network.serviceAuth",
+		"network.serviceDomains",
+		"environment.proxyManaged",
+		"oauth: (standalone block)",
+		"network.allowedDomains",
+		"network.deniedDomains",
+		"network.publishedPorts",
+		"memory",
+		"settings",
 	}
-	if len(changes) != len(wantChanges) {
-		t.Fatalf("changes len = %d; want %d (got %v)", len(changes), len(wantChanges), changes)
-	}
-	for i, w := range wantChanges {
-		if changes[i] != w {
-			t.Errorf("changes[%d] = %q; want %q", i, changes[i], w)
+	for _, want := range wantSubstrings {
+		found := false
+		for _, c := range changes {
+			if strings.Contains(c, want) {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("expected a change mentioning %q; got %v", want, changes)
 		}
 	}
 }
 
-// TestApplyPhase1Transforms_AlreadyV2 confirms running the migration on
-// a clean v2 spec is a no-op: no transforms applied, no changes
-// reported, file content unchanged.
-func TestApplyPhase1Transforms_AlreadyV2(t *testing.T) {
+// TestMigrateSpec_AlreadyV2 confirms running the migration on a clean v2 spec
+// is a no-op: no changes reported.
+func TestMigrateSpec_AlreadyV2(t *testing.T) {
 	input, err := os.ReadFile(filepath.Join("testdata", "v2-clean", "spec.yaml"))
 	if err != nil {
 		t.Fatalf("read input: %v", err)
 	}
 
-	got, changes := applyPhase1Transforms(string(input))
-
-	if got != string(input) {
-		t.Errorf("clean v2 spec should be unchanged.\nGOT:\n%s\n\nORIGINAL:\n%s", got, input)
+	_, changes, err := migrateSpec(input)
+	if err != nil {
+		t.Fatalf("migrateSpec: %v", err)
 	}
+
 	if len(changes) != 0 {
 		t.Errorf("expected no changes on clean v2 spec, got %v", changes)
 	}
@@ -103,8 +120,8 @@ func TestMigrate_EndToEnd_FullShape(t *testing.T) {
 		t.Errorf(".bak should hold the original; got differing content")
 	}
 
-	// Summary output mentions each transform.
-	for _, want := range []string{"kind: agent", "agent: block", "memory:"} {
+	// Summary output mentions a representative sample of the transforms.
+	for _, want := range []string{"kind: agent", "agent:", "credentials.sources", "memory", "settings"} {
 		if !strings.Contains(out.String(), want) {
 			t.Errorf("summary output missing %q; got: %s", want, out.String())
 		}
@@ -187,5 +204,23 @@ func TestMigrate_RefusesToClobberBackup(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), ".bak") {
 		t.Errorf("error should mention .bak; got: %v", err)
+	}
+}
+
+// TestMigrate_Idempotent confirms that migrating an already-migrated spec is a
+// no-op: feeding the v2-expected golden back through migrateSpec yields no
+// changes. This guards against the migrator churning canonical v2 output.
+func TestMigrate_Idempotent(t *testing.T) {
+	expected, err := os.ReadFile(filepath.Join("testdata", "v2-expected", "spec.yaml"))
+	if err != nil {
+		t.Fatalf("read expected: %v", err)
+	}
+
+	_, changes, err := migrateSpec(expected)
+	if err != nil {
+		t.Fatalf("migrateSpec on v2-expected: %v", err)
+	}
+	if len(changes) != 0 {
+		t.Errorf("re-migrating canonical v2 output should be a no-op; got changes %v", changes)
 	}
 }

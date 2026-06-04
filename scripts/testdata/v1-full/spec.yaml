@@ -2,7 +2,7 @@ schemaVersion: "1"
 kind: agent
 name: legacy-kit
 displayName: Legacy Kit
-description: exercises every Phase 1 renamed field at once
+description: exercises every v1 → v2 transform at once
 
 agent:
   image: "example/test:latest"
@@ -10,6 +10,64 @@ agent:
   entrypoint:
     run: ["test-bin"]
     args: ["--flag"]
+    ttyArgs: ["--interactive"]
+    pipeMode: append
+
+network:
+  serviceDomains:
+    api.anthropic.com: anthropic
+    console.anthropic.com: anthropic
+  serviceAuth:
+    anthropic:
+      headerName: x-api-key
+      valueFormat: "%s"
+  allowedDomains:
+    - "api.anthropic.com:443"
+    - "registry.npmjs.org"
+  deniedDomains:
+    - "malware.example.com"
+  publishedPorts:
+    - container: 8080
+      protocol: tcp
+      name: web
+
+credentials:
+  sources:
+    anthropic:
+      env:
+        - ANTHROPIC_API_KEY
+
+environment:
+  variables:
+    IS_SANDBOX: "1"
+  proxyManaged:
+    - ANTHROPIC_API_KEY
+
+settings:
+  containerSettings:
+    claude: true
+
+commands:
+  install:
+    - command: "echo install"
+      user: "0"
+      description: Install step
+
+oauth:
+  service: anthropic
+  tokenEndpoint:
+    host: platform.claude.com
+    path: /v1/oauth/token
+  sentinels:
+    accessToken: sk-ant-oat01-proxy-managed
+    refreshToken: sk-ant-ort01-proxy-managed
+  credentialFile:
+    path: "~/.claude/.credentials.json"
+    structure:
+      claudeAiOauth:
+        accessToken: "{{.AccessToken}}"
+        refreshToken: "{{.RefreshToken}}"
+        expiresAt: "{{.ExpiresAt}}"
 
 memory: |
   Some legacy memory content.
