@@ -3,9 +3,12 @@
 A mixin that installs [code-server](https://github.com/coder/code-server)
 and runs it as a background service on port 8080, with the
 [Claude Code VS Code extension](https://code.claude.com/docs/en/vscode)
-pre-installed. Combined with `sbx ports --publish`, you get a web-based
-VS Code pointed at the sandbox workspace with a native Claude panel that
-shares credentials and conversation history with the `claude` CLI agent.
+pre-installed. The kit declares port 8080 in `network.publishedPorts`,
+so the sandbox runtime publishes it on an ephemeral host port at start
+time — no separate `sbx ports --publish` step is needed. You get a
+web-based VS Code pointed at the sandbox workspace with a native Claude
+panel that shares credentials and conversation history with the `claude`
+CLI agent.
 
 ## Usage
 
@@ -15,16 +18,20 @@ Pair it with the built-in `claude` agent:
 $ sbx run claude --kit "git+https://github.com/docker/sbx-kits-contrib.git#dir=code-server" ~/my-project
 ```
 
-Publish the port from your host:
+Once the sandbox is up, find the assigned host port:
 
 ```console
-$ sbx ports <sandbox-name> --publish 8080:8080/tcp
+$ sbx ports <sandbox-name>
 ```
 
-Open `http://localhost:8080/` in a browser. code-server opens the
-sandbox workspace on launch — no **File → Open Folder…** needed.
+Open `http://localhost:<host-port>/` in a browser. code-server opens
+the sandbox workspace on launch — no **File → Open Folder…** needed.
 Click the **Spark** icon in the editor toolbar (top-right) to open the
 Claude Code panel; it picks up the same auth the CLI uses.
+
+If you'd rather pin the host port to a fixed value, the classic
+`sbx ports <sandbox-name> --publish 8080:8080/tcp` still works
+alongside the declared ephemeral binding.
 
 If the page doesn't load, check the startup log inside the sandbox:
 
@@ -50,9 +57,10 @@ hardcoded in a static file or a shell-string command.
 ## About authentication
 
 The startup command passes `--auth none`. code-server is only reachable
-through `sbx ports`, which publishes to `localhost` on your host by
-default, so you're already behind the sandbox boundary. If you want a
-password anyway, override the startup command in a forked kit.
+through the runtime's published-port binding, which lands on `localhost`
+on your host by default, so you're already behind the sandbox boundary.
+If you want a password anyway, override the startup command in a forked
+kit.
 
 ### Claude Code extension auth
 

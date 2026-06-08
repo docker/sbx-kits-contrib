@@ -3,9 +3,13 @@ kind: mixin
 name: codex-app-server
 extends: codex
 displayName: Codex app-server (via SSH)
-description: Runs sshd in the sandbox and pre-populates `authorized_keys` from the host's forwarded SSH agent, so the Codex Mac GUI can add the sandbox as an SSH Connection and drive `codex app-server` remotely. Pair with `sbx ports --publish 2222:22/tcp`.
+description: Runs sshd in the sandbox and pre-populates `authorized_keys` from the host's forwarded SSH agent, so the Codex Mac GUI can add the sandbox as an SSH Connection and drive `codex app-server` remotely. The kit declares port 22 in `network.publishedPorts`, so the runtime exposes sshd on an ephemeral host port at sandbox start.
 
 network:
+  publishedPorts:
+    - container: 22
+      protocol: tcp
+      name: sshd
   allowedDomains:
     # `apt-get update` (run by commands.install[0]) refreshes metadata for
     # every configured apt source. The codex-docker base template
@@ -95,12 +99,14 @@ memory: |
 
   sshd is running inside the sandbox on port 22, and your host's SSH
   identities (from the forwarded agent socket) are pre-populated in
-  `/home/agent/.ssh/authorized_keys`. Publish the port from your host
-  with `sbx ports <sandbox> --publish 2222:22/tcp`, then add an SSH
-  connection in the Codex Mac app:
+  `/home/agent/.ssh/authorized_keys`. The kit declares port 22 in its
+  `publishedPorts`, so the runtime exposes sshd on an ephemeral host
+  port automatically. Discover the assigned port with
+  `sbx ports <sandbox>`, then add an SSH connection in the Codex Mac
+  app:
 
       Host: localhost
-      Port: 2222
+      Port: <host-port from sbx ports>
       User: agent
 
   The Codex GUI will SSH in and run `codex app-server` over stdio.

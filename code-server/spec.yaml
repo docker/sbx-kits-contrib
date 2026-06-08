@@ -6,6 +6,10 @@ displayName: code-server (web VS Code) with Claude Code
 description: Runs code-server on port 8080, opened on the sandbox workspace, with the Claude Code VS Code extension preinstalled. Pair with the built-in claude agent so the extension inherits the sandbox's Anthropic credentials.
 
 network:
+  publishedPorts:
+    - container: 8080
+      protocol: tcp
+      name: code-server
   allowedDomains:
     # `https://code-server.dev/install.sh` is a Cloudflare 302 redirect to
     # `https://raw.githubusercontent.com/cdr/code-server/main/install.sh` —
