@@ -58,7 +58,9 @@ sbx_codex() {
     sbx exec -u 0 "$name" -- sh -c \
         'pgrep -x sshd >/dev/null || { mkdir -p /var/run/sshd && /usr/sbin/sshd > /tmp/sshd.log 2>&1; }' || true
 
-    # Publish sandbox port 22 (ephemeral host port) if not already.
+    # The kit declares port 22 in `publishedPorts`, so the runtime publishes
+    # it on sandbox start. Fallback-publish here for sandboxes created
+    # before the kit grew that declaration.
     sbx ports "$name" --json | jq -e '.[]|select(.sandbox_port==22 and .host_ip=="127.0.0.1")' >/dev/null \
         || sbx ports "$name" --publish 22/tcp >/dev/null
 
@@ -156,8 +158,10 @@ line to `~/.ssh/config` automatically.
 
 `sbx-codex-attach <name>`:
 - Adds `Include ~/.sbx/ssh/codex/*.conf` to `~/.ssh/config` on first run.
-- Publishes sandbox port 22 to an ephemeral host port if not already
-  published.
+- Confirms sandbox port 22 is published to an ephemeral host port (the
+  kit declares it in `publishedPorts`, so the runtime publishes it on
+  every sandbox start; the helper re-publishes only as a fallback for
+  sandboxes created before that declaration landed).
 - Writes `~/.sbx/ssh/codex/<name>.conf` pointing at a shared
   self-healing `proxy.sh` wrapper:
   - **Fast path** (steady state): reads a cached host port, probes it

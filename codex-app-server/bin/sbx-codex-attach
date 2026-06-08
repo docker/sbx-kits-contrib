@@ -10,9 +10,10 @@
 #   - fast path: reads a cached host port, probes it with `nc -z`, exec's
 #     nc if it answers — no sbx round trips when the sandbox is healthy.
 #   - slow path: wakes the sandbox, fires the kit's startup hooks if they
-#     didn't (kit-added-post-create gap), re-publishes port 22 if needed
-#     (publishing doesn't survive sandbox stop), refreshes the cache, then
-#     exec's nc.
+#     didn't (kit-added-post-create gap), re-publishes port 22 as a
+#     defensive fallback (the kit declares it in `publishedPorts`, so the
+#     runtime publishes it automatically on start), refreshes the cache,
+#     then exec's nc.
 #
 # After running this, add an SSH Connection in the Codex Mac app with the
 # sandbox name as the host. Auth comes from your host SSH agent (the kit
@@ -48,8 +49,9 @@ if ! "$sbx" ls -q 2>/dev/null | grep -qx "$sandbox"; then
     exit 1
 fi
 
-# Publish sandbox port 22 ephemerally if not already published. Idempotent
-# on re-runs because we check first.
+# The kit declares port 22 in `publishedPorts`, so the runtime publishes
+# it on sandbox start. Re-publish here as a defensive fallback for
+# sandboxes created before the kit grew that declaration.
 if ! "$sbx" ports "$sandbox" --json 2>/dev/null \
         | "$jq" -e '.[]|select(.sandbox_port==22 and .host_ip=="127.0.0.1")' >/dev/null; then
     "$sbx" ports "$sandbox" --publish 22/tcp >/dev/null
