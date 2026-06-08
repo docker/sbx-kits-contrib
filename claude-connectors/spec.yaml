@@ -1,0 +1,35 @@
+schemaVersion: "1"
+kind: mixin
+name: claude-connectors
+displayName: Claude.ai Connectors
+description: "Enable claude.ai-hosted MCP connectors (Slack, Gmail, Notion, etc.) inside an sbx-sandboxed Claude Code by allowing mcp-proxy.anthropic.com through the network policy."
+
+# Why this kit exists
+# -------------------
+# Claude Code dispatches claude.ai connector tools via standard MCP JSON-RPC
+# to https://mcp-proxy.anthropic.com/v1/mcp/<server-id>. The base `claude`
+# kit in docker/sandboxes (sandboxlib/kit/agents/claude/spec.yaml) lists
+# only api.anthropic.com, console.anthropic.com, and claude.ai in its
+# network policy — mcp-proxy.anthropic.com is not allowed, so connection
+# attempts from the sandbox are blocked at the proxy. Claude Code surfaces
+# the resulting failure as "needs authentication" under /mcp, even though
+# the user's OAuth session is fine. Result: every connector appears in
+# the tool catalog but none can be invoked.
+#
+# Binding the host to the existing `anthropic` service makes the sandbox
+# proxy apply the same OAuth sentinel-swap it already does for api.anthropic.com:
+# the sandbox writes the sentinel value (sk-ant-oat01-proxy-managed) in the
+# Authorization Bearer header, the host-side proxy swaps it for the real
+# OAuth token before forwarding to mcp-proxy.anthropic.com. No real token
+# enters the container — verified by reading the rendered .credentials.json
+# inside a sandbox launched with this kit attached (see README).
+#
+# This mixin patches the gap from the consumer side. The two-line equivalent
+# change belongs in docker/sandboxes' base `claude` kit; tracking that as a
+# follow-up.
+
+network:
+  serviceDomains:
+    mcp-proxy.anthropic.com: anthropic
+  allowedDomains:
+    - "mcp-proxy.anthropic.com:443"
