@@ -9,6 +9,7 @@ package spec
 
 import (
 	"fmt"
+	"sort"
 
 	"go.yaml.in/yaml/v3"
 )
@@ -286,6 +287,36 @@ type Credential struct {
 	// A credential can declare both ApiKey and OAuth; when both resolve at
 	// runtime the API key takes precedence (per-VM key over the OAuth token).
 	OAuth *OAuth `json:"oauth,omitempty" yaml:"oauth,omitempty"`
+}
+
+// RoutingHosts returns every host the proxy must route to this credential's
+// service: apiKey injection domains, the OAuth token-refresh endpoint, and
+// OAuth resource hosts. Deduplicated and sorted for deterministic output.
+// This is the full routing set; it is NOT the binding-gate set (the gate uses
+// apiKey injection domains only).
+func (c Credential) RoutingHosts() []string {
+	seen := map[string]bool{}
+	var hosts []string
+	add := func(h string) {
+		if h == "" || seen[h] {
+			return
+		}
+		seen[h] = true
+		hosts = append(hosts, h)
+	}
+	if c.ApiKey != nil {
+		for _, inj := range c.ApiKey.Inject {
+			add(inj.Domain)
+		}
+	}
+	if c.OAuth != nil {
+		add(c.OAuth.TokenEndpoint.Host)
+		for _, h := range c.OAuth.ResourceHosts {
+			add(h)
+		}
+	}
+	sort.Strings(hosts)
+	return hosts
 }
 
 // ApiKey describes an api-key-shaped credential. Inject is the fan-out
