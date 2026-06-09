@@ -34,7 +34,37 @@ func (s *specFile) normalize(w *warnings) error {
 	s.normalizeLegacyPersistence(w)
 	s.normalizeLegacyKitDir(w)
 	s.normalizeLegacyTmpfs(w)
+	s.normalizeVolumes(w)
 	return nil
+}
+
+// normalizeVolumes folds the specFile-level volumes wrapper into the
+// canonical Manifest.Volumes slice. The wrapper accepts both the v2
+// sequence shape (List) and the v1 mapping shape (LegacyMap); the latter
+// is converted to MountSpec entries (Path from key, Size from value) and
+// emits a deprecation warning. Iteration over LegacyMap is sorted by path
+// so the resulting Volumes order is stable across runs.
+func (s *specFile) normalizeVolumes(w *warnings) {
+	if len(s.Volumes.List) > 0 {
+		s.Manifest.Volumes = append(s.Manifest.Volumes, s.Volumes.List...)
+		s.Volumes.List = nil
+	}
+	if len(s.Volumes.LegacyMap) > 0 {
+		paths := make([]string, 0, len(s.Volumes.LegacyMap))
+		for p := range s.Volumes.LegacyMap {
+			paths = append(paths, p)
+		}
+		sort.Strings(paths)
+		for _, p := range paths {
+			spec := MountSpec{Path: p}
+			if size := s.Volumes.LegacyMap[p]; size != "" {
+				spec.Size = size
+			}
+			s.Manifest.Volumes = append(s.Manifest.Volumes, spec)
+		}
+		w.deprecate("volumes (mapping form)", "use the v2 sequence form: '- path: <path>' entries instead (kit-spec v2)")
+		s.Volumes.LegacyMap = nil
+	}
 }
 
 // normalizeLegacyTmpfs folds the v1 `tmpfs: { /path: size }` mapping into

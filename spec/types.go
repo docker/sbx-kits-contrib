@@ -107,7 +107,13 @@ type Manifest struct {
 	// applied by Path. Each entry's Type selects the backing storage
 	// (omit or set "" for the default block-backed volume; set "tmpfs"
 	// for a RAM-backed mount).
-	Volumes []MountSpec `json:"volumes,omitempty" yaml:"volumes,omitempty"`
+	//
+	// The yaml tag is "-" because the `volumes:` key is decoded at the
+	// specFile level through volumesField — a polymorphic wrapper that
+	// accepts both the v2 sequence shape and the v1 mapping shape (the
+	// latter with a deprecation warning, folded into this slice by
+	// normalize). Manifest stays the canonical Go-level destination.
+	Volumes []MountSpec `json:"volumes,omitempty" yaml:"-"`
 }
 
 // TmpfsVolumes returns the subset of m.Volumes whose Type is
@@ -629,9 +635,15 @@ func (p *OAuthPolicy) ResolvedResponseFields() OAuthResponseFields {
 // specFile is the on-disk YAML schema for spec.yaml.
 type specFile struct {
 	Manifest `yaml:",inline"`
-	Extends  string        `yaml:"extends,omitempty"`
-	Locked   []string      `yaml:"locked,omitempty"`
-	Sandbox  *sandboxBlock `yaml:"sandbox,omitempty"`
+	// Volumes is the polymorphic-decode wrapper for the `volumes:` YAML
+	// key, handling both the v1 mapping shape and the v2 sequence shape.
+	// Manifest.Volumes carries `yaml:"-"` so this field owns the decode;
+	// normalize folds Volumes.List + Volumes.LegacyMap into the canonical
+	// Manifest.Volumes slice.
+	Volumes volumesField  `yaml:"volumes,omitempty"`
+	Extends string        `yaml:"extends,omitempty"`
+	Locked  []string      `yaml:"locked,omitempty"`
+	Sandbox *sandboxBlock `yaml:"sandbox,omitempty"`
 	// LegacyAgent holds the v1 `agent:` block. The normalize step
 	// migrates its contents to Sandbox with a deprecation warning. Drop
 	// in the Phase 6 schema-cutover commit.
@@ -735,6 +747,42 @@ func (c *credentialsField) UnmarshalYAML(node *yaml.Node) error {
 		return nil
 	default:
 		return fmt.Errorf("credentials: must be a list (v2) or a mapping with sources: (v1)")
+	}
+}
+
+// volumesField is the specFile-level polymorphic wrapper for the `volumes:`
+// YAML key. PR #37 replaced the v1 mapping shape
+// (`volumes: { /path: "size" }`) with the v2 sequence shape
+// (`volumes: [{ path: /path, size: "100m" }]`), then flipped on strict
+// decoding in the same commit. Strict decode hard-fails the v1 mapping
+// shape with a type-mismatch error rather than a "field not found"; this
+// wrapper accepts both shapes and lets normalize fold the legacy form into
+// Manifest.Volumes with a deprecation warning.
+type volumesField struct {
+	// List is populated when volumes: is a sequence (v2 spelling).
+	List []MountSpec
+
+	// LegacyMap is populated when volumes: is a mapping (v1 spelling):
+	// each key is the container mount path, each value is a size string
+	// (or empty when the v1 spec carried no size).
+	LegacyMap map[string]string
+}
+
+func (v *volumesField) UnmarshalYAML(node *yaml.Node) error {
+	switch node.Kind {
+	case yaml.SequenceNode:
+		return node.Decode(&v.List)
+	case yaml.MappingNode:
+		var m map[string]string
+		if err := node.Decode(&m); err != nil {
+			return err
+		}
+		v.LegacyMap = m
+		return nil
+	case 0:
+		return nil
+	default:
+		return fmt.Errorf("volumes: must be a list (v2) or a mapping (v1)")
 	}
 }
 

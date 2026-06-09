@@ -312,6 +312,93 @@ volumes:
 	}
 }
 
+// TestV1VolumesMap_Deprecated pins the v1 `volumes:` mapping shim.
+// Pre-PR #37, `volumes:` was `map[string]string` from container path to
+// (sometimes-empty) size string. The polymorphic volumesField wrapper
+// accepts this shape and normalize folds it into Manifest.Volumes as
+// MountSpec entries with Type left at its zero value (block-backed,
+// matching the v1 default), emitting a deprecation warning.
+func TestV1VolumesMap_Deprecated(t *testing.T) {
+	dir := t.TempDir()
+	specYAML := `schemaVersion: "1"
+kind: sandbox
+name: legacy-volumes
+sandbox:
+  image: docker/sandbox-templates:shell-docker
+volumes:
+  /var/lib/docker: ""
+  /opt/data: 4g
+`
+	if err := os.WriteFile(filepath.Join(dir, "spec.yaml"), []byte(specYAML), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	art, err := LoadFromDirectory(dir)
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+
+	// Sorted-by-path: /opt/data first, /var/lib/docker second. /var/lib/docker
+	// had no size in the v1 spec, so the Size field stays empty.
+	if len(art.Manifest.Volumes) != 2 {
+		t.Fatalf("expected 2 volumes, got %d", len(art.Manifest.Volumes))
+	}
+	for i, want := range []MountSpec{
+		{Path: "/opt/data", Size: "4g"},
+		{Path: "/var/lib/docker"},
+	} {
+		if art.Manifest.Volumes[i] != want {
+			t.Errorf("volume[%d] = %#v; want %#v", i, art.Manifest.Volumes[i], want)
+		}
+	}
+
+	foundWarning := false
+	for _, w := range art.Warnings {
+		if strings.Contains(w, "volumes") {
+			foundWarning = true
+			break
+		}
+	}
+	if !foundWarning {
+		t.Errorf("expected deprecation warning for volumes mapping, got %v", art.Warnings)
+	}
+}
+
+// TestV2VolumesList_Accepted is the negative case for the polymorphic
+// wrapper: the v2 sequence shape must continue to round-trip into
+// Manifest.Volumes with no deprecation warning, otherwise the wrapper has
+// broken the canonical shape that PR #37 introduced.
+func TestV2VolumesList_Accepted(t *testing.T) {
+	dir := t.TempDir()
+	specYAML := `schemaVersion: "2"
+kind: sandbox
+name: v2-volumes
+sandbox:
+  image: docker/sandbox-templates:shell-docker
+volumes:
+  - path: /opt/data
+    size: 4g
+  - path: /var/lib/docker
+`
+	if err := os.WriteFile(filepath.Join(dir, "spec.yaml"), []byte(specYAML), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	art, err := LoadFromDirectory(dir)
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if len(art.Manifest.Volumes) != 2 {
+		t.Fatalf("expected 2 volumes, got %d", len(art.Manifest.Volumes))
+	}
+	if art.Manifest.Volumes[0].Path != "/opt/data" || art.Manifest.Volumes[0].Size != "4g" {
+		t.Errorf("volume[0] = %#v; want path=/opt/data size=4g", art.Manifest.Volumes[0])
+	}
+	for _, w := range art.Warnings {
+		if strings.Contains(w, "volumes") {
+			t.Errorf("unexpected deprecation warning for v2 volumes list: %s", w)
+		}
+	}
+}
+
 // TestV1TmpfsMap_Deprecated pins the v1 `tmpfs:` mapping shim. Pre-PR #37
 // the shape was a mapping from container path to size string (e.g.
 // `{ /tmp/scratch: "512m" }`). The decoder now folds it into the canonical
