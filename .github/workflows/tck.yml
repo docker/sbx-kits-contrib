@@ -156,16 +156,19 @@ jobs:
       - name: Download sbx release
         run: |
           set -euo pipefail
-          # docker/sbx-releases is a public repo; no auth needed to read.
-          #
-          VERSION="v0.32.0"
-          echo "Pinned sbx version: ${VERSION}"
+          VERSION=$(curl -fsSL \
+            -H "Authorization: Bearer ${GITHUB_TOKEN}" \
+            https://api.github.com/repos/docker/sbx-releases/releases/latest \
+            | jq -r .tag_name)
+          echo "Resolved latest sbx version: ${VERSION}"
           echo "SBX_VERSION=${VERSION}" >> "$GITHUB_ENV"
 
           curl -fsSL \
             "https://github.com/docker/sbx-releases/releases/download/${VERSION}/DockerSandboxes-linux.tar.gz" \
             -o /tmp/DockerSandboxes-linux.tar.gz
           tar xzf /tmp/DockerSandboxes-linux.tar.gz -C /tmp
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Install sbx
         run: |
