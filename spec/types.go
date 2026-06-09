@@ -283,8 +283,8 @@ type Credential struct {
 	ApiKey *ApiKey `json:"apiKey,omitempty" yaml:"apiKey,omitempty"`
 
 	// OAuth describes the OAuth-shaped half of this credential, if any.
-	// A credential can declare both ApiKey and OAuth; the resolver's
-	// precedence rule (OAuth wins when both have host material) picks one.
+	// A credential can declare both ApiKey and OAuth; when both resolve at
+	// runtime the API key takes precedence (per-VM key over the OAuth token).
 	OAuth *OAuth `json:"oauth,omitempty" yaml:"oauth,omitempty"`
 }
 
@@ -542,7 +542,14 @@ type OAuthPolicy struct {
 // version, existing kits using only `passthrough: true` would have to add
 // the reason.
 type OAuth struct {
-	TokenEndpoint  OAuthTokenEndpoint   `json:"tokenEndpoint" yaml:"tokenEndpoint"`
+	TokenEndpoint OAuthTokenEndpoint `json:"tokenEndpoint" yaml:"tokenEndpoint"`
+	// ResourceHosts are the API hosts where the OAuth access-token bearer is
+	// used (e.g. "aiplatform.googleapis.com"). The proxy routes these hosts to
+	// this service and substitutes the sentinel bearer for the real token.
+	// Distinct from TokenEndpoint.Host (where the token is refreshed). Domains
+	// only — the bearer header is uniform (Authorization: Bearer) and supplied
+	// by the OAuth engine, not per-host config.
+	ResourceHosts  []string             `json:"resourceHosts,omitempty" yaml:"resourceHosts,omitempty"`
 	Sentinels      OAuthSentinels       `json:"sentinels" yaml:"sentinels"`
 	CredentialFile *OAuthCredentialFile `json:"credentialFile,omitempty" yaml:"credentialFile,omitempty"`
 	SkipIfEnv      []string             `json:"skipIfEnv,omitempty" yaml:"skipIfEnv,omitempty"`
