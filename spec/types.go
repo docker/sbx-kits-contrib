@@ -671,6 +671,21 @@ type specFile struct {
 	// migrates it to AgentContext with a deprecation warning. Drop in
 	// the Phase 6 schema-cutover commit.
 	LegacyMemory string `yaml:"memory,omitempty"`
+	// LegacyPersistence holds the v1 `persistence:` field. The field was
+	// declared, parsed, inherited, displayed, but never consumed by any
+	// runtime decision (see sandboxes commit 05e5b4eef adopting PR #37).
+	// It was removed from the canonical types in PR #37, but that same PR
+	// also flipped on strict YAML decoding — turning what had been a silent
+	// no-op into a hard error for any kit author whose spec still carried
+	// the line. The normalize step now drops it with a deprecation warning
+	// to give those kits one release to migrate. Drop in the Phase 6
+	// schema-cutover commit.
+	LegacyPersistence string `yaml:"persistence,omitempty"`
+	// LegacyKitDir holds the v1 `kitDir:` field. Same story as
+	// LegacyPersistence — declared but never consumed, removed in PR #37,
+	// re-admitted here as a deprecation-warning shim. Drop in the Phase 6
+	// schema-cutover commit.
+	LegacyKitDir string `yaml:"kitDir,omitempty"`
 }
 
 // credentialsField is the specFile-level polymorphic wrapper for the

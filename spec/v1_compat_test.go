@@ -180,6 +180,73 @@ sandbox:
 	}
 }
 
+// TestV1Persistence_Deprecated pins the persistence:-as-deprecation-warning
+// shim. The field was a no-op pre-v0.31 (parsed but never consumed); after
+// the strict-decode flip in PR #37 it became a hard error with no migration
+// path. This shim re-admits it as a deprecation warning, matching the
+// pattern established for memory:/kind:agent/agent: block.
+func TestV1Persistence_Deprecated(t *testing.T) {
+	dir := t.TempDir()
+	specYAML := `schemaVersion: "1"
+kind: agent
+name: test
+agent:
+  image: example/test:latest
+persistence: persistent
+`
+	if err := os.WriteFile(filepath.Join(dir, "spec.yaml"), []byte(specYAML), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	art, err := LoadFromDirectory(dir)
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+
+	foundWarning := false
+	for _, w := range art.Warnings {
+		if strings.Contains(w, "persistence") {
+			foundWarning = true
+			break
+		}
+	}
+	if !foundWarning {
+		t.Errorf("expected deprecation warning for persistence, got %v", art.Warnings)
+	}
+}
+
+// TestV1KitDir_Deprecated is the analogue of TestV1Persistence_Deprecated
+// for the v1 `kitDir:` field. Same retire-then-strict story; same shim.
+func TestV1KitDir_Deprecated(t *testing.T) {
+	dir := t.TempDir()
+	specYAML := `schemaVersion: "1"
+kind: agent
+name: test
+agent:
+  image: example/test:latest
+kitDir: /opt/whatever
+`
+	if err := os.WriteFile(filepath.Join(dir, "spec.yaml"), []byte(specYAML), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	art, err := LoadFromDirectory(dir)
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+
+	foundWarning := false
+	for _, w := range art.Warnings {
+		if strings.Contains(w, "kitDir") {
+			foundWarning = true
+			break
+		}
+	}
+	if !foundWarning {
+		t.Errorf("expected deprecation warning for kitDir, got %v", art.Warnings)
+	}
+}
+
 func TestVolumesType_TmpfsAccepted(t *testing.T) {
 	dir := t.TempDir()
 	specYAML := `schemaVersion: "1"

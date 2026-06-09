@@ -31,7 +31,34 @@ func (s *specFile) normalize(w *warnings) error {
 	}
 	s.normalizePublishedPorts(w)
 	s.normalizeAgentContext(w)
+	s.normalizeLegacyPersistence(w)
+	s.normalizeLegacyKitDir(w)
 	return nil
+}
+
+// normalizeLegacyPersistence drops the v1 `persistence:` field with a
+// deprecation warning. The field was always a no-op (never consumed by
+// any runtime decision); pre-v0.31 specs that still set it are accepted
+// here so the strict-decode flip introduced in PR #37 doesn't break them
+// outright. Authors should remove the line; the field is gone in Phase 6.
+func (s *specFile) normalizeLegacyPersistence(w *warnings) {
+	if s.LegacyPersistence == "" {
+		return
+	}
+	w.deprecate("persistence", "field has no effect and is removed in kit-spec v2; safe to delete")
+	s.LegacyPersistence = ""
+}
+
+// normalizeLegacyKitDir drops the v1 `kitDir:` field with a deprecation
+// warning. Same story as normalizeLegacyPersistence — never consumed,
+// removed alongside Persistence in PR #37, re-admitted as a deprecation
+// shim so legacy specs survive the strict-decode flip.
+func (s *specFile) normalizeLegacyKitDir(w *warnings) {
+	if s.LegacyKitDir == "" {
+		return
+	}
+	w.deprecate("kitDir", "field has no effect and is removed in kit-spec v2; safe to delete")
+	s.LegacyKitDir = ""
 }
 
 // normalizePublishedPorts promotes the v1 `network.publishedPorts`
