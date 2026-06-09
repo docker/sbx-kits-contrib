@@ -158,13 +158,7 @@ jobs:
           set -euo pipefail
           # docker/sbx-releases is a public repo; no auth needed to read.
           #
-          # Pinned to v0.31.0-rc1 because the latest stable (v0.30.0) ships
-          # the JWKS-verifier path of `sbx login`, which rejects every Docker
-          # Hub PAT-issued JWT with "docker hub token is invalid". Fixed in
-          # docker/sandboxes#2969, first reachable from v0.31.0-rc1. Revisit
-          # this pin once a stable release with the fix ships and bump back
-          # to /releases/latest resolution.
-          VERSION="v0.31.0-rc1"
+          VERSION="v0.32.0"
           echo "Pinned sbx version: ${VERSION}"
           echo "SBX_VERSION=${VERSION}" >> "$GITHUB_ENV"
 
