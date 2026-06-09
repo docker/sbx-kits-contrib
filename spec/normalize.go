@@ -404,8 +404,15 @@ func (s *specFile) normalizeLegacyOAuthBlock(w *warnings) error {
 				}
 				s.Credentials.List[i].ApiKey = nil
 			}
+			// Deterministic order, independent of the upstream inject order.
+			sort.Strings(v2.ResourceHosts)
 			if c.OAuth == nil {
 				s.Credentials.List[i].OAuth = v2
+			} else {
+				// An OAuth block is already present; merge the moved resource
+				// hosts into it so routing is never lost.
+				s.Credentials.List[i].OAuth.ResourceHosts = append(
+					s.Credentials.List[i].OAuth.ResourceHosts, v2.ResourceHosts...)
 			}
 			w.deprecate("oauth: (standalone block)", "use credentials[].oauth (kit-spec v2)")
 			return nil

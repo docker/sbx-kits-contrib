@@ -135,6 +135,7 @@ agent:
 network:
   serviceDomains:
     aiplatform.googleapis.com: vertex
+    europe-west4-aiplatform.googleapis.com: vertex
     oauth2.googleapis.com: vertex
 oauth:
   service: vertex
@@ -157,8 +158,8 @@ oauth:
 	require.NotNil(t, vertex, "vertex credential should exist")
 	require.Nil(t, vertex.ApiKey, "degenerate apiKey must be dropped for an oauth-only service")
 	require.NotNil(t, vertex.OAuth)
-	require.Equal(t, []string{"aiplatform.googleapis.com"}, vertex.OAuth.ResourceHosts,
-		"resource host moved; token endpoint NOT duplicated into resourceHosts")
+	require.Equal(t, []string{"aiplatform.googleapis.com", "europe-west4-aiplatform.googleapis.com"}, vertex.OAuth.ResourceHosts,
+		"resource hosts moved + sorted; token endpoint NOT included")
 	require.Equal(t, "oauth2.googleapis.com", vertex.OAuth.TokenEndpoint.Host)
 }
 
