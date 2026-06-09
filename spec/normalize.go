@@ -33,7 +33,35 @@ func (s *specFile) normalize(w *warnings) error {
 	s.normalizeAgentContext(w)
 	s.normalizeLegacyPersistence(w)
 	s.normalizeLegacyKitDir(w)
+	s.normalizeLegacyTmpfs(w)
 	return nil
+}
+
+// normalizeLegacyTmpfs folds the v1 `tmpfs: { /path: size }` mapping into
+// the canonical v2 Volumes list, each entry tagged with Type=Tmpfs. PR #37
+// replaced the v1 map shape with a `Tmpfs []MountSpec` list, then PR #59
+// dropped the standalone block entirely in favor of `volumes:` entries
+// with `type: tmpfs`. The strict-decode flip turned legacy specs into hard
+// rejections; this shim re-admits them with a deprecation warning.
+// Iteration order is sorted by path so the emitted Volumes order is stable.
+func (s *specFile) normalizeLegacyTmpfs(w *warnings) {
+	if len(s.LegacyTmpfs) == 0 {
+		return
+	}
+	paths := make([]string, 0, len(s.LegacyTmpfs))
+	for p := range s.LegacyTmpfs {
+		paths = append(paths, p)
+	}
+	sort.Strings(paths)
+	for _, p := range paths {
+		s.Manifest.Volumes = append(s.Manifest.Volumes, MountSpec{
+			Path: p,
+			Type: MountTypeTmpfs,
+			Size: s.LegacyTmpfs[p],
+		})
+	}
+	w.deprecate("tmpfs", "use 'volumes:' entries with 'type: tmpfs' instead (kit-spec v2)")
+	s.LegacyTmpfs = nil
 }
 
 // normalizeLegacyPersistence drops the v1 `persistence:` field with a

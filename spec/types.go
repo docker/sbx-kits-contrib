@@ -686,6 +686,15 @@ type specFile struct {
 	// re-admitted here as a deprecation-warning shim. Drop in the Phase 6
 	// schema-cutover commit.
 	LegacyKitDir string `yaml:"kitDir,omitempty"`
+	// LegacyTmpfs holds the v1 `tmpfs:` block as a mapping from container
+	// path to size string (e.g. `{ /tmp/scratch: "512m" }`). The v1 shape
+	// was first replaced by `Tmpfs []MountSpec` (PR #37) and then deleted
+	// entirely by PR #59 in favor of `volumes:` entries with `type: tmpfs`.
+	// The strict-decode flip turned a no-op into a hard rejection;
+	// normalize folds entries into Manifest.Volumes with Type=Tmpfs and
+	// emits a deprecation warning. Drop in the Phase 6 schema-cutover
+	// commit.
+	LegacyTmpfs map[string]string `yaml:"tmpfs,omitempty"`
 }
 
 // credentialsField is the specFile-level polymorphic wrapper for the

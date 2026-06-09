@@ -312,7 +312,11 @@ volumes:
 	}
 }
 
-func TestV1TmpfsBlock_StrictRejected(t *testing.T) {
+// TestV1TmpfsMap_Deprecated pins the v1 `tmpfs:` mapping shim. Pre-PR #37
+// the shape was a mapping from container path to size string (e.g.
+// `{ /tmp/scratch: "512m" }`). The decoder now folds it into the canonical
+// v2 Volumes list with Type=tmpfs and emits a deprecation warning.
+func TestV1TmpfsMap_Deprecated(t *testing.T) {
 	dir := t.TempDir()
 	specYAML := `schemaVersion: "1"
 kind: sandbox
@@ -320,18 +324,39 @@ name: legacy-tmpfs
 sandbox:
   image: docker/sandbox-templates:shell-docker
 tmpfs:
-  - path: /tmp/scratch
-    size: 512m
+  /tmp/scratch: 512m
+  /var/cache: 256m
 `
 	if err := os.WriteFile(filepath.Join(dir, "spec.yaml"), []byte(specYAML), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	_, err := LoadFromDirectory(dir)
-	if err == nil {
-		t.Fatal("expected strict-decode error for removed `tmpfs:` block, got nil")
+	art, err := LoadFromDirectory(dir)
+	if err != nil {
+		t.Fatalf("load: %v", err)
 	}
-	if !strings.Contains(err.Error(), "tmpfs") {
-		t.Errorf("error should name the rejected field; got %v", err)
+
+	// Both entries should land on Volumes with Type=tmpfs, sorted by path.
+	if len(art.Manifest.Volumes) != 2 {
+		t.Fatalf("expected 2 volumes, got %d", len(art.Manifest.Volumes))
+	}
+	for i, want := range []MountSpec{
+		{Path: "/tmp/scratch", Type: MountTypeTmpfs, Size: "512m"},
+		{Path: "/var/cache", Type: MountTypeTmpfs, Size: "256m"},
+	} {
+		if art.Manifest.Volumes[i] != want {
+			t.Errorf("volume[%d] = %#v; want %#v", i, art.Manifest.Volumes[i], want)
+		}
+	}
+
+	foundWarning := false
+	for _, w := range art.Warnings {
+		if strings.Contains(w, "tmpfs") {
+			foundWarning = true
+			break
+		}
+	}
+	if !foundWarning {
+		t.Errorf("expected deprecation warning for tmpfs, got %v", art.Warnings)
 	}
 }
 
