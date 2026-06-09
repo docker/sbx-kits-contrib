@@ -391,6 +391,19 @@ func (s *specFile) normalizeLegacyOAuthBlock(w *warnings) error {
 	// Attach to existing Credential if present.
 	for i, c := range s.Credentials.List {
 		if c.Service == o.Service {
+			// A routing-only apiKey (from the v1 serviceDomains fold for an
+			// OAuth-only service) is really OAuth routing: move its domains to
+			// resourceHosts (excluding the token endpoint, already declared)
+			// and drop the fake apiKey.
+			if isRoutingOnlyApiKey(c.ApiKey) {
+				for _, inj := range c.ApiKey.Inject {
+					if inj.Domain == "" || inj.Domain == v2.TokenEndpoint.Host {
+						continue
+					}
+					v2.ResourceHosts = append(v2.ResourceHosts, inj.Domain)
+				}
+				s.Credentials.List[i].ApiKey = nil
+			}
 			if c.OAuth == nil {
 				s.Credentials.List[i].OAuth = v2
 			}
@@ -435,6 +448,23 @@ func (s *specFile) normalizeCapsNetwork(w *warnings) error {
 	}
 
 	return nil
+}
+
+// isRoutingOnlyApiKey reports an apiKey that carries only routing domains —
+// no env-var name and no injection header on any entry. This is the shape the
+// v1 serviceDomains→inject fold produces for an OAuth-only service: it is not
+// an API key, just routing that needs a home. Such entries are moved onto the
+// OAuth block (resourceHosts) when the oauth fold runs.
+func isRoutingOnlyApiKey(a *ApiKey) bool {
+	if a == nil || a.Name != "" {
+		return false
+	}
+	for _, inj := range a.Inject {
+		if inj.Header != "" {
+			return false
+		}
+	}
+	return true
 }
 
 // sortStrings is a small helper to keep the slice sort import local.

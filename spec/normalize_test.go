@@ -125,6 +125,78 @@ func TestNormalizeEgress(t *testing.T) {
 	})
 }
 
+func TestNormalize_OAuthOnlyService_DomainsMoveToResourceHosts(t *testing.T) {
+	yaml := []byte(`
+schemaVersion: "1"
+kind: agent
+name: vertex-test
+agent:
+  image: x
+network:
+  serviceDomains:
+    aiplatform.googleapis.com: vertex
+    oauth2.googleapis.com: vertex
+oauth:
+  service: vertex
+  tokenEndpoint:
+    host: oauth2.googleapis.com
+    path: /token
+  sentinels:
+    accessToken: a-sentinel
+    refreshToken: r-sentinel
+`)
+	art, err := LoadFromBytes(yaml)
+	require.NoError(t, err)
+
+	var vertex *Credential
+	for i := range art.Credentials {
+		if art.Credentials[i].Service == "vertex" {
+			vertex = &art.Credentials[i]
+		}
+	}
+	require.NotNil(t, vertex, "vertex credential should exist")
+	require.Nil(t, vertex.ApiKey, "degenerate apiKey must be dropped for an oauth-only service")
+	require.NotNil(t, vertex.OAuth)
+	require.Equal(t, []string{"aiplatform.googleapis.com"}, vertex.OAuth.ResourceHosts,
+		"resource host moved; token endpoint NOT duplicated into resourceHosts")
+	require.Equal(t, "oauth2.googleapis.com", vertex.OAuth.TokenEndpoint.Host)
+}
+
+func TestNormalize_BothMechanisms_KeepsApiKey(t *testing.T) {
+	yaml := []byte(`
+schemaVersion: "1"
+kind: agent
+name: anthropic-test
+agent:
+  image: x
+credentials:
+  sources:
+    anthropic: {env: [ANTHROPIC_API_KEY]}
+network:
+  serviceDomains:
+    api.anthropic.com: anthropic
+  serviceAuth:
+    anthropic: {headerName: x-api-key, valueFormat: "%s"}
+oauth:
+  service: anthropic
+  tokenEndpoint: {host: platform.claude.com, path: /v1/oauth/token}
+  sentinels: {accessToken: a, refreshToken: r}
+`)
+	art, err := LoadFromBytes(yaml)
+	require.NoError(t, err)
+	var c *Credential
+	for i := range art.Credentials {
+		if art.Credentials[i].Service == "anthropic" {
+			c = &art.Credentials[i]
+		}
+	}
+	require.NotNil(t, c)
+	require.NotNil(t, c.ApiKey, "real apiKey (has env name + header) must be kept")
+	require.Equal(t, "ANTHROPIC_API_KEY", c.ApiKey.Name)
+	require.NotNil(t, c.OAuth)
+	require.Empty(t, c.OAuth.ResourceHosts, "shared hosts stay in apiKey.inject; not duplicated")
+}
+
 func TestDeriveServiceKey(t *testing.T) {
 	tests := []struct {
 		input    string
