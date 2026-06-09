@@ -737,6 +737,13 @@ type sandboxBlock struct {
 	Entrypoint *entrypointBlock `yaml:"entrypoint,omitempty"`
 	AIFilename string           `yaml:"aiFilename,omitempty"`
 	Resources  *Resources       `yaml:"resources,omitempty"`
+	// LegacyPersistence holds the v1 `persistence:` field that lived inside
+	// the (then-)agent block. PR #37 deleted it (declared but never
+	// consumed) and flipped on strict decoding in the same commit, turning
+	// the silent no-op into a hard error for any kit that still had it.
+	// normalizeSandbox drops it with a deprecation warning. Drop in the
+	// Phase 6 schema-cutover commit alongside LegacyAgent.
+	LegacyPersistence string `yaml:"persistence,omitempty"`
 }
 
 // entrypointBlock describes the agent's process launch configuration.

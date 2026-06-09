@@ -108,6 +108,15 @@ func (s *specFile) normalizeSandbox(w *warnings) error {
 		w.deprecate("agent:", "use 'sandbox:' block instead (kit-spec v2)")
 		s.LegacyAgent = nil
 	}
+	// `persistence:` lived both at the spec root (handled by
+	// normalizeLegacyPersistence) AND inside the (then-)agent block.
+	// PR #37 dropped the nested form too. Surface it as a deprecation
+	// warning here rather than letting strict decode reject Andre's
+	// kit shape.
+	if s.Sandbox != nil && s.Sandbox.LegacyPersistence != "" {
+		w.deprecate("sandbox.persistence", "field has no effect and is removed in kit-spec v2; safe to delete")
+		s.Sandbox.LegacyPersistence = ""
+	}
 
 	isSandbox := s.Kind == KindSandbox
 

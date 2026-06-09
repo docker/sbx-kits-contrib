@@ -215,6 +215,42 @@ persistence: persistent
 	}
 }
 
+// TestV1NestedAgentPersistence_Deprecated is the shape that actually shipped
+// in real-world kits — `persistence:` indented under the v1 `agent:` block
+// (now `sandboxBlock`). Andre's copilot-dotnet kit reported in
+// docker/sbx-releases#191 used this exact form, with the error pointing at
+// `spec.agentBlock` rather than the top-level Manifest. The shim folds the
+// nested form through normalizeSandbox with a deprecation warning.
+func TestV1NestedAgentPersistence_Deprecated(t *testing.T) {
+	dir := t.TempDir()
+	specYAML := `schemaVersion: "1"
+kind: agent
+name: test
+agent:
+  image: example/test:latest
+  persistence: persistent
+`
+	if err := os.WriteFile(filepath.Join(dir, "spec.yaml"), []byte(specYAML), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	art, err := LoadFromDirectory(dir)
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+
+	foundWarning := false
+	for _, w := range art.Warnings {
+		if strings.Contains(w, "sandbox.persistence") {
+			foundWarning = true
+			break
+		}
+	}
+	if !foundWarning {
+		t.Errorf("expected deprecation warning for sandbox.persistence, got %v", art.Warnings)
+	}
+}
+
 // TestV1KitDir_Deprecated is the analogue of TestV1Persistence_Deprecated
 // for the v1 `kitDir:` field. Same retire-then-strict story; same shim.
 func TestV1KitDir_Deprecated(t *testing.T) {
