@@ -133,6 +133,7 @@ func parseArtifactBytes(data []byte) (*Artifact, error) {
 	return &Artifact{
 		Manifest:       spec.Manifest,
 		Extends:        spec.Extends,
+		Mixins:         spec.Mixins,
 		Locked:         spec.Locked,
 		PublishedPorts: spec.PublishedPorts,
 		Caps:           spec.Caps,
