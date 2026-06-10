@@ -62,6 +62,8 @@ credentials:
       tokenEndpoint:
         host: api.workos.com
         path: /oauth/token
+      resourceHosts:
+        - api.workos.com
       sentinels: {}
       passthrough: true
 

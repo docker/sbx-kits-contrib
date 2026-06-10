@@ -2,6 +2,7 @@ package spec
 
 import (
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 )
@@ -505,8 +506,10 @@ func (s *specFile) normalizeLegacyOAuthBlock(w *warnings) error {
 			} else {
 				// An OAuth block is already present; merge the moved resource
 				// hosts into it so routing is never lost.
-				s.Credentials.List[i].OAuth.ResourceHosts = append(
-					s.Credentials.List[i].OAuth.ResourceHosts, v2.ResourceHosts...)
+				target := s.Credentials.List[i].OAuth
+				target.ResourceHosts = append(target.ResourceHosts, v2.ResourceHosts...)
+				sort.Strings(target.ResourceHosts)
+				target.ResourceHosts = slices.Compact(target.ResourceHosts)
 			}
 			w.deprecate("oauth: (standalone block)", "use credentials[].oauth (kit-spec v2)")
 			return nil
