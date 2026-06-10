@@ -108,7 +108,13 @@ type Manifest struct {
 	// applied by Path. Each entry's Type selects the backing storage
 	// (omit or set "" for the default block-backed volume; set "tmpfs"
 	// for a RAM-backed mount).
-	Volumes []MountSpec `json:"volumes,omitempty" yaml:"volumes,omitempty"`
+	//
+	// The yaml tag is "-" because the `volumes:` key is decoded at the
+	// specFile level through volumesField — a polymorphic wrapper that
+	// accepts both the v2 sequence shape and the v1 mapping shape (the
+	// latter with a deprecation warning, folded into this slice by
+	// normalize). Manifest stays the canonical Go-level destination.
+	Volumes []MountSpec `json:"volumes,omitempty" yaml:"-"`
 }
 
 // TmpfsVolumes returns the subset of m.Volumes whose Type is
@@ -667,9 +673,15 @@ func (p *OAuthPolicy) ResolvedResponseFields() OAuthResponseFields {
 // specFile is the on-disk YAML schema for spec.yaml.
 type specFile struct {
 	Manifest `yaml:",inline"`
-	Extends  string        `yaml:"extends,omitempty"`
-	Locked   []string      `yaml:"locked,omitempty"`
-	Sandbox  *sandboxBlock `yaml:"sandbox,omitempty"`
+	// Volumes is the polymorphic-decode wrapper for the `volumes:` YAML
+	// key, handling both the v1 mapping shape and the v2 sequence shape.
+	// Manifest.Volumes carries `yaml:"-"` so this field owns the decode;
+	// normalize folds Volumes.List + Volumes.LegacyMap into the canonical
+	// Manifest.Volumes slice.
+	Volumes volumesField  `yaml:"volumes,omitempty"`
+	Extends string        `yaml:"extends,omitempty"`
+	Locked  []string      `yaml:"locked,omitempty"`
+	Sandbox *sandboxBlock `yaml:"sandbox,omitempty"`
 	// LegacyAgent holds the v1 `agent:` block. The normalize step
 	// migrates its contents to Sandbox with a deprecation warning. Drop
 	// in the Phase 6 schema-cutover commit.
@@ -709,6 +721,30 @@ type specFile struct {
 	// migrates it to AgentContext with a deprecation warning. Drop in
 	// the Phase 6 schema-cutover commit.
 	LegacyMemory string `yaml:"memory,omitempty"`
+	// LegacyPersistence holds the v1 `persistence:` field. The field was
+	// declared, parsed, inherited, displayed, but never consumed by any
+	// runtime decision (see sandboxes commit 05e5b4eef adopting PR #37).
+	// It was removed from the canonical types in PR #37, but that same PR
+	// also flipped on strict YAML decoding — turning what had been a silent
+	// no-op into a hard error for any kit author whose spec still carried
+	// the line. The normalize step now drops it with a deprecation warning
+	// to give those kits one release to migrate. Drop in the Phase 6
+	// schema-cutover commit.
+	LegacyPersistence string `yaml:"persistence,omitempty"`
+	// LegacyKitDir holds the v1 `kitDir:` field. Same story as
+	// LegacyPersistence — declared but never consumed, removed in PR #37,
+	// re-admitted here as a deprecation-warning shim. Drop in the Phase 6
+	// schema-cutover commit.
+	LegacyKitDir string `yaml:"kitDir,omitempty"`
+	// LegacyTmpfs holds the v1 `tmpfs:` block as a mapping from container
+	// path to size string (e.g. `{ /tmp/scratch: "512m" }`). The v1 shape
+	// was first replaced by `Tmpfs []MountSpec` (PR #37) and then deleted
+	// entirely by PR #59 in favor of `volumes:` entries with `type: tmpfs`.
+	// The strict-decode flip turned a no-op into a hard rejection;
+	// normalize folds entries into Manifest.Volumes with Type=Tmpfs and
+	// emits a deprecation warning. Drop in the Phase 6 schema-cutover
+	// commit.
+	LegacyTmpfs map[string]string `yaml:"tmpfs,omitempty"`
 }
 
 // credentialsField is the specFile-level polymorphic wrapper for the
@@ -752,6 +788,42 @@ func (c *credentialsField) UnmarshalYAML(node *yaml.Node) error {
 	}
 }
 
+// volumesField is the specFile-level polymorphic wrapper for the `volumes:`
+// YAML key. PR #37 replaced the v1 mapping shape
+// (`volumes: { /path: "size" }`) with the v2 sequence shape
+// (`volumes: [{ path: /path, size: "100m" }]`), then flipped on strict
+// decoding in the same commit. Strict decode hard-fails the v1 mapping
+// shape with a type-mismatch error rather than a "field not found"; this
+// wrapper accepts both shapes and lets normalize fold the legacy form into
+// Manifest.Volumes with a deprecation warning.
+type volumesField struct {
+	// List is populated when volumes: is a sequence (v2 spelling).
+	List []MountSpec
+
+	// LegacyMap is populated when volumes: is a mapping (v1 spelling):
+	// each key is the container mount path, each value is a size string
+	// (or empty when the v1 spec carried no size).
+	LegacyMap map[string]string
+}
+
+func (v *volumesField) UnmarshalYAML(node *yaml.Node) error {
+	switch node.Kind {
+	case yaml.SequenceNode:
+		return node.Decode(&v.List)
+	case yaml.MappingNode:
+		var m map[string]string
+		if err := node.Decode(&m); err != nil {
+			return err
+		}
+		v.LegacyMap = m
+		return nil
+	case 0:
+		return nil
+	default:
+		return fmt.Errorf("volumes: must be a list (v2) or a mapping (v1)")
+	}
+}
+
 // sandboxBlock groups sandbox-specific configuration (formerly the
 // `agent:` block in v1). The Go type was renamed alongside the YAML
 // field rename to keep call sites legible.
@@ -760,6 +832,13 @@ type sandboxBlock struct {
 	Entrypoint *entrypointBlock `yaml:"entrypoint,omitempty"`
 	AIFilename string           `yaml:"aiFilename,omitempty"`
 	Resources  *Resources       `yaml:"resources,omitempty"`
+	// LegacyPersistence holds the v1 `persistence:` field that lived inside
+	// the (then-)agent block. PR #37 deleted it (declared but never
+	// consumed) and flipped on strict decoding in the same commit, turning
+	// the silent no-op into a hard error for any kit that still had it.
+	// normalizeSandbox drops it with a deprecation warning. Drop in the
+	// Phase 6 schema-cutover commit alongside LegacyAgent.
+	LegacyPersistence string `yaml:"persistence,omitempty"`
 }
 
 // entrypointBlock describes the agent's process launch configuration.

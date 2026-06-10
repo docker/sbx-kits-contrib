@@ -31,7 +31,92 @@ func (s *specFile) normalize(w *warnings) error {
 	}
 	s.normalizePublishedPorts(w)
 	s.normalizeAgentContext(w)
+	s.normalizeLegacyPersistence(w)
+	s.normalizeLegacyKitDir(w)
+	s.normalizeLegacyTmpfs(w)
+	s.normalizeVolumes(w)
 	return nil
+}
+
+// normalizeVolumes folds the specFile-level volumes wrapper into the
+// canonical Manifest.Volumes slice. The wrapper accepts both the v2
+// sequence shape (List) and the v1 mapping shape (LegacyMap); the latter
+// is converted to MountSpec entries (Path from key, Size from value) and
+// emits a deprecation warning. Iteration over LegacyMap is sorted by path
+// so the resulting Volumes order is stable across runs.
+func (s *specFile) normalizeVolumes(w *warnings) {
+	if len(s.Volumes.List) > 0 {
+		s.Manifest.Volumes = append(s.Manifest.Volumes, s.Volumes.List...)
+		s.Volumes.List = nil
+	}
+	if len(s.Volumes.LegacyMap) > 0 {
+		paths := make([]string, 0, len(s.Volumes.LegacyMap))
+		for p := range s.Volumes.LegacyMap {
+			paths = append(paths, p)
+		}
+		sort.Strings(paths)
+		for _, p := range paths {
+			spec := MountSpec{Path: p}
+			if size := s.Volumes.LegacyMap[p]; size != "" {
+				spec.Size = size
+			}
+			s.Manifest.Volumes = append(s.Manifest.Volumes, spec)
+		}
+		w.deprecate("volumes (mapping form)", "use the v2 sequence form: '- path: <path>' entries instead (kit-spec v2)")
+		s.Volumes.LegacyMap = nil
+	}
+}
+
+// normalizeLegacyTmpfs folds the v1 `tmpfs: { /path: size }` mapping into
+// the canonical v2 Volumes list, each entry tagged with Type=Tmpfs. PR #37
+// replaced the v1 map shape with a `Tmpfs []MountSpec` list, then PR #59
+// dropped the standalone block entirely in favor of `volumes:` entries
+// with `type: tmpfs`. The strict-decode flip turned legacy specs into hard
+// rejections; this shim re-admits them with a deprecation warning.
+// Iteration order is sorted by path so the emitted Volumes order is stable.
+func (s *specFile) normalizeLegacyTmpfs(w *warnings) {
+	if len(s.LegacyTmpfs) == 0 {
+		return
+	}
+	paths := make([]string, 0, len(s.LegacyTmpfs))
+	for p := range s.LegacyTmpfs {
+		paths = append(paths, p)
+	}
+	sort.Strings(paths)
+	for _, p := range paths {
+		s.Manifest.Volumes = append(s.Manifest.Volumes, MountSpec{
+			Path: p,
+			Type: MountTypeTmpfs,
+			Size: s.LegacyTmpfs[p],
+		})
+	}
+	w.deprecate("tmpfs", "use 'volumes:' entries with 'type: tmpfs' instead (kit-spec v2)")
+	s.LegacyTmpfs = nil
+}
+
+// normalizeLegacyPersistence drops the v1 `persistence:` field with a
+// deprecation warning. The field was always a no-op (never consumed by
+// any runtime decision); pre-v0.31 specs that still set it are accepted
+// here so the strict-decode flip introduced in PR #37 doesn't break them
+// outright. Authors should remove the line; the field is gone in Phase 6.
+func (s *specFile) normalizeLegacyPersistence(w *warnings) {
+	if s.LegacyPersistence == "" {
+		return
+	}
+	w.deprecate("persistence", "field has no effect and is removed in kit-spec v2; safe to delete")
+	s.LegacyPersistence = ""
+}
+
+// normalizeLegacyKitDir drops the v1 `kitDir:` field with a deprecation
+// warning. Same story as normalizeLegacyPersistence — never consumed,
+// removed alongside Persistence in PR #37, re-admitted as a deprecation
+// shim so legacy specs survive the strict-decode flip.
+func (s *specFile) normalizeLegacyKitDir(w *warnings) {
+	if s.LegacyKitDir == "" {
+		return
+	}
+	w.deprecate("kitDir", "field has no effect and is removed in kit-spec v2; safe to delete")
+	s.LegacyKitDir = ""
 }
 
 // normalizePublishedPorts promotes the v1 `network.publishedPorts`
@@ -80,6 +165,15 @@ func (s *specFile) normalizeSandbox(w *warnings) error {
 		}
 		w.deprecate("agent:", "use 'sandbox:' block instead (kit-spec v2)")
 		s.LegacyAgent = nil
+	}
+	// `persistence:` lived both at the spec root (handled by
+	// normalizeLegacyPersistence) AND inside the (then-)agent block.
+	// PR #37 dropped the nested form too. Surface it as a deprecation
+	// warning here rather than letting strict decode reject Andre's
+	// kit shape.
+	if s.Sandbox != nil && s.Sandbox.LegacyPersistence != "" {
+		w.deprecate("sandbox.persistence", "field has no effect and is removed in kit-spec v2; safe to delete")
+		s.Sandbox.LegacyPersistence = ""
 	}
 
 	isSandbox := s.Kind == KindSandbox

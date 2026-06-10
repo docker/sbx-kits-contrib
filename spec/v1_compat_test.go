@@ -180,6 +180,109 @@ sandbox:
 	}
 }
 
+// TestV1Persistence_Deprecated pins the persistence:-as-deprecation-warning
+// shim. The field was a no-op pre-v0.31 (parsed but never consumed); after
+// the strict-decode flip in PR #37 it became a hard error with no migration
+// path. This shim re-admits it as a deprecation warning, matching the
+// pattern established for memory:/kind:agent/agent: block.
+func TestV1Persistence_Deprecated(t *testing.T) {
+	dir := t.TempDir()
+	specYAML := `schemaVersion: "1"
+kind: agent
+name: test
+agent:
+  image: example/test:latest
+persistence: persistent
+`
+	if err := os.WriteFile(filepath.Join(dir, "spec.yaml"), []byte(specYAML), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	art, err := LoadFromDirectory(dir)
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+
+	foundWarning := false
+	for _, w := range art.Warnings {
+		if strings.Contains(w, "persistence") {
+			foundWarning = true
+			break
+		}
+	}
+	if !foundWarning {
+		t.Errorf("expected deprecation warning for persistence, got %v", art.Warnings)
+	}
+}
+
+// TestV1NestedAgentPersistence_Deprecated is the shape that actually shipped
+// in real-world kits — `persistence:` indented under the v1 `agent:` block
+// (now `sandboxBlock`). Andre's copilot-dotnet kit reported in
+// docker/sbx-releases#191 used this exact form, with the error pointing at
+// `spec.agentBlock` rather than the top-level Manifest. The shim folds the
+// nested form through normalizeSandbox with a deprecation warning.
+func TestV1NestedAgentPersistence_Deprecated(t *testing.T) {
+	dir := t.TempDir()
+	specYAML := `schemaVersion: "1"
+kind: agent
+name: test
+agent:
+  image: example/test:latest
+  persistence: persistent
+`
+	if err := os.WriteFile(filepath.Join(dir, "spec.yaml"), []byte(specYAML), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	art, err := LoadFromDirectory(dir)
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+
+	foundWarning := false
+	for _, w := range art.Warnings {
+		if strings.Contains(w, "sandbox.persistence") {
+			foundWarning = true
+			break
+		}
+	}
+	if !foundWarning {
+		t.Errorf("expected deprecation warning for sandbox.persistence, got %v", art.Warnings)
+	}
+}
+
+// TestV1KitDir_Deprecated is the analogue of TestV1Persistence_Deprecated
+// for the v1 `kitDir:` field. Same retire-then-strict story; same shim.
+func TestV1KitDir_Deprecated(t *testing.T) {
+	dir := t.TempDir()
+	specYAML := `schemaVersion: "1"
+kind: agent
+name: test
+agent:
+  image: example/test:latest
+kitDir: /opt/whatever
+`
+	if err := os.WriteFile(filepath.Join(dir, "spec.yaml"), []byte(specYAML), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	art, err := LoadFromDirectory(dir)
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+
+	foundWarning := false
+	for _, w := range art.Warnings {
+		if strings.Contains(w, "kitDir") {
+			foundWarning = true
+			break
+		}
+	}
+	if !foundWarning {
+		t.Errorf("expected deprecation warning for kitDir, got %v", art.Warnings)
+	}
+}
+
 func TestVolumesType_TmpfsAccepted(t *testing.T) {
 	dir := t.TempDir()
 	specYAML := `schemaVersion: "1"
@@ -209,7 +312,98 @@ volumes:
 	}
 }
 
-func TestV1TmpfsBlock_StrictRejected(t *testing.T) {
+// TestV1VolumesMap_Deprecated pins the v1 `volumes:` mapping shim.
+// Pre-PR #37, `volumes:` was `map[string]string` from container path to
+// (sometimes-empty) size string. The polymorphic volumesField wrapper
+// accepts this shape and normalize folds it into Manifest.Volumes as
+// MountSpec entries with Type left at its zero value (block-backed,
+// matching the v1 default), emitting a deprecation warning.
+func TestV1VolumesMap_Deprecated(t *testing.T) {
+	dir := t.TempDir()
+	specYAML := `schemaVersion: "1"
+kind: sandbox
+name: legacy-volumes
+sandbox:
+  image: docker/sandbox-templates:shell-docker
+volumes:
+  /var/lib/docker: ""
+  /opt/data: 4g
+`
+	if err := os.WriteFile(filepath.Join(dir, "spec.yaml"), []byte(specYAML), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	art, err := LoadFromDirectory(dir)
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+
+	// Sorted-by-path: /opt/data first, /var/lib/docker second. /var/lib/docker
+	// had no size in the v1 spec, so the Size field stays empty.
+	if len(art.Manifest.Volumes) != 2 {
+		t.Fatalf("expected 2 volumes, got %d", len(art.Manifest.Volumes))
+	}
+	for i, want := range []MountSpec{
+		{Path: "/opt/data", Size: "4g"},
+		{Path: "/var/lib/docker"},
+	} {
+		if art.Manifest.Volumes[i] != want {
+			t.Errorf("volume[%d] = %#v; want %#v", i, art.Manifest.Volumes[i], want)
+		}
+	}
+
+	foundWarning := false
+	for _, w := range art.Warnings {
+		if strings.Contains(w, "volumes") {
+			foundWarning = true
+			break
+		}
+	}
+	if !foundWarning {
+		t.Errorf("expected deprecation warning for volumes mapping, got %v", art.Warnings)
+	}
+}
+
+// TestV2VolumesList_Accepted is the negative case for the polymorphic
+// wrapper: the v2 sequence shape must continue to round-trip into
+// Manifest.Volumes with no deprecation warning, otherwise the wrapper has
+// broken the canonical shape that PR #37 introduced.
+func TestV2VolumesList_Accepted(t *testing.T) {
+	dir := t.TempDir()
+	specYAML := `schemaVersion: "2"
+kind: sandbox
+name: v2-volumes
+sandbox:
+  image: docker/sandbox-templates:shell-docker
+volumes:
+  - path: /opt/data
+    size: 4g
+  - path: /var/lib/docker
+`
+	if err := os.WriteFile(filepath.Join(dir, "spec.yaml"), []byte(specYAML), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	art, err := LoadFromDirectory(dir)
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if len(art.Manifest.Volumes) != 2 {
+		t.Fatalf("expected 2 volumes, got %d", len(art.Manifest.Volumes))
+	}
+	if art.Manifest.Volumes[0].Path != "/opt/data" || art.Manifest.Volumes[0].Size != "4g" {
+		t.Errorf("volume[0] = %#v; want path=/opt/data size=4g", art.Manifest.Volumes[0])
+	}
+	for _, w := range art.Warnings {
+		if strings.Contains(w, "volumes") {
+			t.Errorf("unexpected deprecation warning for v2 volumes list: %s", w)
+		}
+	}
+}
+
+// TestV1TmpfsMap_Deprecated pins the v1 `tmpfs:` mapping shim. Pre-PR #37
+// the shape was a mapping from container path to size string (e.g.
+// `{ /tmp/scratch: "512m" }`). The decoder now folds it into the canonical
+// v2 Volumes list with Type=tmpfs and emits a deprecation warning.
+func TestV1TmpfsMap_Deprecated(t *testing.T) {
 	dir := t.TempDir()
 	specYAML := `schemaVersion: "1"
 kind: sandbox
@@ -217,18 +411,39 @@ name: legacy-tmpfs
 sandbox:
   image: docker/sandbox-templates:shell-docker
 tmpfs:
-  - path: /tmp/scratch
-    size: 512m
+  /tmp/scratch: 512m
+  /var/cache: 256m
 `
 	if err := os.WriteFile(filepath.Join(dir, "spec.yaml"), []byte(specYAML), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	_, err := LoadFromDirectory(dir)
-	if err == nil {
-		t.Fatal("expected strict-decode error for removed `tmpfs:` block, got nil")
+	art, err := LoadFromDirectory(dir)
+	if err != nil {
+		t.Fatalf("load: %v", err)
 	}
-	if !strings.Contains(err.Error(), "tmpfs") {
-		t.Errorf("error should name the rejected field; got %v", err)
+
+	// Both entries should land on Volumes with Type=tmpfs, sorted by path.
+	if len(art.Manifest.Volumes) != 2 {
+		t.Fatalf("expected 2 volumes, got %d", len(art.Manifest.Volumes))
+	}
+	for i, want := range []MountSpec{
+		{Path: "/tmp/scratch", Type: MountTypeTmpfs, Size: "512m"},
+		{Path: "/var/cache", Type: MountTypeTmpfs, Size: "256m"},
+	} {
+		if art.Manifest.Volumes[i] != want {
+			t.Errorf("volume[%d] = %#v; want %#v", i, art.Manifest.Volumes[i], want)
+		}
+	}
+
+	foundWarning := false
+	for _, w := range art.Warnings {
+		if strings.Contains(w, "tmpfs") {
+			foundWarning = true
+			break
+		}
+	}
+	if !foundWarning {
+		t.Errorf("expected deprecation warning for tmpfs, got %v", art.Warnings)
 	}
 }
 

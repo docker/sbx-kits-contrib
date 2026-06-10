@@ -172,20 +172,21 @@ func TestParseArtifact_InvalidYAML(t *testing.T) {
 }
 
 // TestParseArtifact_StrictUnknownField guards the strict-decode behaviour:
-// unknown top-level keys (and unknown nested keys under known blocks) hard-
-// fail rather than getting silently dropped. This is the contract the
-// engine relies on so that removed fields like `persistence:` and
-// `kitDir:` produce a clear diagnostic for kit authors, not a silent no-op.
+// truly unknown top-level keys (and unknown nested keys under known blocks)
+// hard-fail rather than getting silently dropped. Fields that USED to be
+// valid pre-v2 but were retired — `persistence:`, `kitDir:` — are routed
+// through the LegacyXxx + normalize.go deprecation-warning path instead;
+// their behaviour is pinned by the tests in v1_compat_test.go.
 func TestParseArtifact_StrictUnknownField(t *testing.T) {
 	t.Run("unknown_top_level_key_rejected", func(t *testing.T) {
 		dir := t.TempDir()
 		require.NoError(t, os.WriteFile(filepath.Join(dir, "spec.yaml"), []byte(`schemaVersion: "1"
 kind: mixin
 name: bogus-toplevel
-persistence: persistent
+totallyBogus: yes
 `), 0o644))
 		_, err := LoadFromDirectory(dir)
-		require.ErrorContains(t, err, "persistence")
+		require.ErrorContains(t, err, "totallyBogus")
 	})
 
 	t.Run("unknown_nested_key_rejected", func(t *testing.T) {
@@ -195,10 +196,10 @@ kind: agent
 name: bogus-nested
 agent:
   image: docker/sandbox-templates:shell-docker
-  persistence: persistent
+  totallyBogus: yes
 `), 0o644))
 		_, err := LoadFromDirectory(dir)
-		require.ErrorContains(t, err, "persistence")
+		require.ErrorContains(t, err, "totallyBogus")
 	})
 }
 

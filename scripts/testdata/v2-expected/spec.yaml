@@ -1,16 +1,63 @@
-schemaVersion: "1"
+schemaVersion: "2"
 kind: sandbox
 name: legacy-kit
 displayName: Legacy Kit
-description: exercises every Phase 1 renamed field at once
-
+description: exercises every v1 → v2 transform at once
 sandbox:
-  image: "example/test:latest"
-  aiFilename: TEST.md
-  entrypoint:
-    run: ["test-bin"]
-    args: ["--flag"]
-
+    image: example/test:latest
+    aiFilename: TEST.md
+    entrypoint:
+        run:
+            - test-bin
+        args:
+            - --flag
+        ttyArgs:
+            - --interactive
+        pipeMode: append
+publishedPorts:
+    - container: 8080
+      protocol: tcp
+      name: web
+caps:
+    network:
+        allow:
+            - api.anthropic.com:443
+            - registry.npmjs.org
+        deny:
+            - malware.example.com
+credentials:
+    - service: anthropic
+      apiKey:
+        name: ANTHROPIC_API_KEY
+        inject:
+            - domain: api.anthropic.com
+              header: x-api-key
+              format: '%s'
+            - domain: console.anthropic.com
+              header: x-api-key
+              format: '%s'
+      oauth:
+        tokenEndpoint:
+            host: platform.claude.com
+            path: /v1/oauth/token
+        sentinels:
+            accessToken: sk-ant-oat01-proxy-managed
+            refreshToken: sk-ant-ort01-proxy-managed
+        credentialFile:
+            path: ~/.claude/.credentials.json
+            structure:
+                claudeAiOauth:
+                    accessToken: '{{.AccessToken}}'
+                    expiresAt: '{{.ExpiresAt}}'
+                    refreshToken: '{{.RefreshToken}}'
+environment:
+    variables:
+        IS_SANDBOX: "1"
+commands:
+    install:
+        - command: echo install
+          user: "0"
+          description: Install step
 agentContext: |
-  Some legacy memory content.
-  Should be carried over verbatim under agentContext after migration.
+    Some legacy memory content.
+    Should be carried over verbatim under agentContext after migration.
