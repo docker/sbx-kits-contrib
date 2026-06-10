@@ -229,7 +229,7 @@ func TestValidateEnvironmentPolicy(t *testing.T) {
 
 	t.Run("invalid_proxy_managed", func(t *testing.T) {
 		e := &EnvironmentPolicy{
-			LegacyProxyManaged: []string{"bad-name"},
+			ProxyManaged: []string{"bad-name"},
 		}
 		require.ErrorContains(t, ValidateEnvironmentPolicy(e), "not a valid shell identifier")
 	})

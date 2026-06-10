@@ -402,12 +402,12 @@ type EnvironmentPolicy struct {
 	// Variables are static environment variables to set in the container.
 	Variables map[string]string `json:"variables,omitempty" yaml:"variables,omitempty"`
 
-	// LegacyProxyManaged absorbs the v1 `environment.proxyManaged` list.
+	// ProxyManaged absorbs the v1 `environment.proxyManaged` list.
 	// The normalize step folds each entry into the matching
 	// Credentials[].ApiKey.Name (by service lookup against
 	// LegacyNetwork.ServiceAuth) and emits a deprecation warning.
 	// Removed in the Phase 6 schema cutover.
-	LegacyProxyManaged []string `json:"-" yaml:"proxyManaged,omitempty"`
+	ProxyManaged []string `json:"-" yaml:"proxyManaged,omitempty"`
 }
 
 // SettingsPolicy defines container settings that control agent-specific
@@ -691,7 +691,7 @@ type specFile struct {
 	// Credentials is the polymorphic-decode wrapper handling both v1
 	// (mapping with sources:) and v2 (sequence of Credential) shapes.
 	// normalizeLegacyCredentials folds the v1 surface plus the
-	// LegacyNetwork / LegacyOAuth / Environment.LegacyProxyManaged
+	// LegacyNetwork / LegacyOAuth / Environment.ProxyManaged
 	// shims into Artifact.Credentials.
 	Credentials credentialsField `yaml:"credentials,omitempty"`
 	// PublishedPorts is the v2 canonical top-level `publishedPorts:` list.

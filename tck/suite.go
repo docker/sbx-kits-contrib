@@ -456,7 +456,7 @@ func (s *Suite) RunEnvironmentPolicyTests(t *testing.T) {
 		}
 
 		// Note: post-Phase-3 commit 5, environment.proxyManaged is the
-		// v1-only LegacyProxyManaged shim. The canonical place to enumerate
+		// v1-only ProxyManaged shim. The canonical place to enumerate
 		// proxy-managed env-var names is Credentials[].ApiKey.Name, which
 		// is validated by RunCredentialPolicyTests above. The shim is
 		// validated by ValidateEnvironmentPolicy at load time.

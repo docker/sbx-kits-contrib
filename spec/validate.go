@@ -172,7 +172,7 @@ func ValidateEnvironmentPolicy(e *EnvironmentPolicy) error {
 		}
 	}
 
-	for _, key := range e.LegacyProxyManaged {
+	for _, key := range e.ProxyManaged {
 		if key == "" {
 			return fmt.Errorf("environment: proxyManaged entry cannot be empty")
 		}

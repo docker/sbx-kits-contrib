@@ -300,7 +300,7 @@ func (s *specFile) normalizeEgress() error {
 
 // normalizeLegacyCredentials folds the four v1 credential surfaces
 // (Credentials.LegacySources, LegacyNetwork.ServiceAuth,
-// LegacyNetwork.ServiceDomains, Environment.LegacyProxyManaged) into a
+// LegacyNetwork.ServiceDomains, Environment.ProxyManaged) into a
 // single canonical Credentials.List per service. Emits one deprecation
 // warning per legacy surface touched. v2 entries already present in
 // Credentials.List take precedence — a v2 entry for a given service
@@ -400,7 +400,7 @@ func (s *specFile) normalizeLegacyCredentials(w *warnings) error {
 	// proxyManaged: [ANTHROPIC_API_KEY], the matching service is whatever
 	// LegacySources or serviceAuth maps that env-var to). If we can't
 	// derive the service from existing data, fall back to deriveServiceKey.
-	if s.Environment != nil && len(s.Environment.LegacyProxyManaged) > 0 {
+	if s.Environment != nil && len(s.Environment.ProxyManaged) > 0 {
 		sawProxyManaged = true
 		// Build env-var -> service lookup from LegacySources first.
 		envToService := make(map[string]string)
@@ -409,7 +409,7 @@ func (s *specFile) normalizeLegacyCredentials(w *warnings) error {
 				envToService[e] = svc
 			}
 		}
-		for _, envName := range s.Environment.LegacyProxyManaged {
+		for _, envName := range s.Environment.ProxyManaged {
 			svc, ok := envToService[envName]
 			if !ok {
 				svc = deriveServiceKey(envName)
