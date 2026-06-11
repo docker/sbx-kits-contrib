@@ -1,0 +1,38 @@
+package spec
+
+import (
+	"testing"
+
+	"github.com/stretchr/testify/require"
+)
+
+// TestClaudeOllamaSettingsLift verifies the Phase 4 Stage C lift of the
+// claude-ollama kit. Shared helpers (findSettingsStartup, runStartupScript)
+// and the oracle constants live in kit_settings_lift_test.go.
+//
+// claude-ollama declares no credential service (Ollama is a local model; the
+// wrapper unsets ANTHROPIC_API_KEY and routes Claude Code at
+// host.docker.internal:11434), so SBX_CRED_ANTHROPIC_MODE is never set in the
+// real container. The lifted startup therefore always takes the unset -> none
+// path: settings.json without apiKeyHelper.
+func TestClaudeOllamaSettingsLift(t *testing.T) {
+	a, err := LoadFromDirectory("../claude-ollama")
+	require.NoError(t, err)
+
+	// (a) settings: block removed.
+	require.Nil(t, a.Settings, "claude-ollama settings block must be removed")
+
+	// (b) a commands.startup entry exists.
+	require.NotNil(t, a.Commands)
+	require.NotEmpty(t, a.Commands.Startup, "claude-ollama must have commands.startup")
+
+	sc := findSettingsStartup(t, a.Commands)
+	require.Contains(t, sc.Command[2], "SBX_CRED_ANTHROPIC_MODE")
+
+	// No credential service: both unset and explicit =none yield the none
+	// oracle (no apiKeyHelper).
+	require.Equal(t, claudeSettingsNone,
+		runStartupScript(t, sc.Command[2], "SBX_CRED_ANTHROPIC_MODE=none"))
+	require.Equal(t, claudeSettingsNone,
+		runStartupScript(t, sc.Command[2], "SBX_CRED_ANTHROPIC_MODE="))
+}
