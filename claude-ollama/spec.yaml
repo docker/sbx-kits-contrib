@@ -22,15 +22,44 @@ commands:
   # Phase 4 lifts the former `settings: { containerSettings: { claude: true } }`
   # block into the kit. ~/.claude.json carries only the credential-independent
   # bypass flags (static init file, native onlyIfMissing idempotency). The
-  # settings.json is seeded in commands.startup below. Content SYNCed with the
+  # settings.json is seeded in commands.install below. Content SYNCed with the
   # claude kit.
   #
   # This kit declares NO credential service (Ollama is a local model; the
   # claude-ollama wrapper unsets ANTHROPIC_API_KEY and points Claude Code at
   # http://host.docker.internal:11434), so the Stage B emitter never sets
-  # SBX_CRED_ANTHROPIC_MODE. The startup branch therefore always takes the
+  # SBX_CRED_ANTHROPIC_MODE. The install branch therefore always takes the
   # unset → "none" path: settings.json is written WITHOUT apiKeyHelper, which
   # is correct since there is no proxy-managed cloud credential.
+  install:
+    # Seed ~/.claude/settings.json early (install runs synchronously before the
+    # agent launches). This kit declares no credential service, so
+    # SBX_CRED_ANTHROPIC_MODE is never set in the container env and the branch
+    # always falls through to the unset → "none" path: settings.json is written
+    # WITHOUT apiKeyHelper. The test -f guard makes re-runs a no-op and never
+    # clobbers a user-edited file. settings.json content SYNCed with the claude
+    # kit (none path). root-write + chown because contrib base-image ownership
+    # of /home/agent/.claude is not guaranteed agent-owned.
+    - command: |
+        set -e
+        mkdir -p /home/agent/.claude
+        if [ ! -f /home/agent/.claude/settings.json ]; then
+          HELPER=''
+          if [ "${SBX_CRED_ANTHROPIC_MODE:-none}" != none ]; then
+            HELPER='  "apiKeyHelper": "echo proxy-managed",
+        '
+          fi
+          printf '%s' "{
+          \"themeId\": 1,
+          \"alwaysThinkingEnabled\": true,
+        ${HELPER}  \"defaultMode\": \"bypassPermissions\",
+          \"bypassPermissionsModeAccepted\": true
+        }
+        " > /home/agent/.claude/settings.json
+        fi
+        chown -R agent:agent /home/agent/.claude
+      user: "root"
+      description: Seed Claude settings.json (none path; no credential service)
   initFiles:
     - path: /home/agent/.claude.json
       content: |
@@ -62,36 +91,6 @@ commands:
         export CLAUDE_CODE_SUBAGENT_MODEL="$CLAUDE_OLLAMA_MODEL"
 
         exec claude "$@"
-  startup:
-    # Seed ~/.claude/settings.json. This kit declares no credential service, so
-    # SBX_CRED_ANTHROPIC_MODE is never set in the container env and the branch
-    # always falls through to the unset → "none" path: settings.json is written
-    # WITHOUT apiKeyHelper. The test -f guard makes resume re-runs a no-op and
-    # never clobbers a user-edited file. settings.json content SYNCed with the
-    # claude kit (none path).
-    - command:
-        - sh
-        - -c
-        - |
-          set -e
-          mkdir -p /home/agent/.claude
-          if [ ! -f /home/agent/.claude/settings.json ]; then
-            HELPER=''
-            if [ "${SBX_CRED_ANTHROPIC_MODE:-none}" != none ]; then
-              HELPER='  "apiKeyHelper": "echo proxy-managed",
-          '
-            fi
-            printf '%s' "{
-            \"themeId\": 1,
-            \"alwaysThinkingEnabled\": true,
-          ${HELPER}  \"defaultMode\": \"bypassPermissions\",
-            \"bypassPermissionsModeAccepted\": true
-          }
-          " > /home/agent/.claude/settings.json
-          fi
-          chown -R agent:agent /home/agent/.claude
-      user: "root"
-      description: Seed Claude settings.json (none path; no credential service)
 
 memory: |
   ## Sandbox environment

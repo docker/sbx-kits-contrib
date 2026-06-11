@@ -14,8 +14,8 @@ import (
 // claude-ollama declares no credential service (Ollama is a local model; the
 // wrapper unsets ANTHROPIC_API_KEY and routes Claude Code at
 // host.docker.internal:11434), so SBX_CRED_ANTHROPIC_MODE is never set in the
-// real container. The lifted startup therefore always takes the unset -> none
-// path: settings.json without apiKeyHelper.
+// real container. The lifted install command therefore always takes the unset
+// -> none path: settings.json without apiKeyHelper.
 func TestClaudeOllamaSettingsLift(t *testing.T) {
 	a, err := LoadFromDirectory("../claude-ollama")
 	require.NoError(t, err)
@@ -25,17 +25,17 @@ func TestClaudeOllamaSettingsLift(t *testing.T) {
 	require.NotContains(t, strings.Join(a.Warnings, "\n"), "settings",
 		"claude-ollama settings block must be removed; got warnings %v", a.Warnings)
 
-	// (b) a commands.startup entry exists.
+	// (b) a commands.install entry exists.
 	require.NotNil(t, a.Commands)
-	require.NotEmpty(t, a.Commands.Startup, "claude-ollama must have commands.startup")
+	require.NotEmpty(t, a.Commands.Install, "claude-ollama must have commands.install")
 
-	sc := findSettingsStartup(t, a.Commands)
-	require.Contains(t, sc.Command[2], "SBX_CRED_ANTHROPIC_MODE")
+	ic := findSettingsStartup(t, a.Commands)
+	require.Contains(t, ic.Command, "SBX_CRED_ANTHROPIC_MODE")
 
 	// No credential service: both unset and explicit =none yield the none
 	// oracle (no apiKeyHelper).
 	require.Equal(t, claudeSettingsNone,
-		runStartupScript(t, sc.Command[2], "SBX_CRED_ANTHROPIC_MODE=none"))
+		runStartupScript(t, ic.Command, "SBX_CRED_ANTHROPIC_MODE=none"))
 	require.Equal(t, claudeSettingsNone,
-		runStartupScript(t, sc.Command[2], "SBX_CRED_ANTHROPIC_MODE="))
+		runStartupScript(t, ic.Command, "SBX_CRED_ANTHROPIC_MODE="))
 }
