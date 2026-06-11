@@ -377,7 +377,7 @@ commands:
 - `install` user defaults to `"0"` (root); `startup` user defaults to `"1000"` (agent).
 - `startup.background: true` detaches the command; the runtime moves on without waiting.
 
-Composition: all three lists **concatenate** in `--kit` order. Base agent's `install` is skipped when the base is a built-in agent; kit-supplied agent installs always run.
+Composition: all three lists **concatenate** in `--kit` order. `install` runs for every kit, built-in or user-supplied — use `command -v <binary>` guards or `commands.initFiles` with `onlyIfMissing: true` to keep it idempotent.
 
 ## `settings` — **removed in v2**
 

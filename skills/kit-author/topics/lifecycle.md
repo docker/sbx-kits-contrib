@@ -116,7 +116,7 @@ Merge rules (per section):
 | `caps.network.allow` / `deny` | Append (deny wins at policy time) |
 | `credentials[]` | Union by `service`; same service in two kits with different shapes is an error |
 | `environment.variables` | Union; later kits override earlier (last-wins) |
-| `commands.install` | Concatenate; **base install is skipped when the base sandbox is built-in (`Embedded == true`)**; kit installs always run |
+| `commands.install` | Concatenate; runs for every kit, built-in or user-supplied |
 | `commands.startup` / `initFiles` | Concatenate |
 | `files` | Overlay map by `target:relativePath` — later kits override earlier |
 | `publishedPorts` | Append (each entry gets its own ephemeral host port) |
@@ -149,7 +149,7 @@ For each kit, the engine builds a chain of container customizations. The chain e
 **Bucket: customizers** — fires first, in declared order:
 
 1. **Container settings** — privileged, volumes (including `type: tmpfs`). **Creation-time only** — `sbx kit add` cannot apply these to a running container.
-2. **Install commands** (`commands.install`) — `sh -c <string>`, synchronous, default user `0`. Skipped when the base artifact is built-in.
+2. **Install commands** (`commands.install`) — `sh -c <string>`, synchronous, default user `0`, runs **once at sandbox creation** before the agent launches. Runs for every kit, built-in or user-supplied. Use it to install the agent binary (if not already baked into the base image) and for any pre-launch setup such as seeding a credential-gated settings file. See [Pitfalls §5](pitfalls.md#5-commands-install-footguns) for idempotency and duplication guidance.
 3. **Environment variables** (`environment.variables`).
 4. **Static home files** (`artifact.Files` where `target == home`) — copied to `/home/agent/`, mode preserved.
 5. **Init files** (`commands.initFiles`) — written via shell exec at startup, `${WORKDIR}` substituted **in content only**, `onlyIfMissing` wraps the write in `test -f`. *Cannot* target a path under the in-container clone directory (the CLI rejects such kits up front under `--clone`).

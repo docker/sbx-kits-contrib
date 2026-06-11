@@ -38,7 +38,7 @@ Primary topics describe the **v2** spec form (`schemaVersion: "2"`):
 - [Bindings](topics/bindings.md) — The user-side `~/.config/sbx/credentials.yaml` file: how kits and users split the credential contract.
 - [Distribution](topics/distribution.md) — Local dir, OCI digests, git commit-SHA references. Strict pinning rule. Schema-version compatibility. `sbx kit push/pull/inspect/validate/delete`.
 - [Testing](topics/testing.md) — TCK suite, manual `sbx kit add` verification, proving allow-list enforcement.
-- [Pitfalls](topics/pitfalls.md) — Surprises seen in practice: install-completed is exit-code only, `commands.startup` runs on **every** container start (idempotency required), `kit add` cannot apply immutable settings, embedded vs user-supplied install differences, inject/binding domain intersection.
+- [Pitfalls](topics/pitfalls.md) — Surprises seen in practice: install-completed is exit-code only, `commands.startup` runs on **every** container start (idempotency required), `kit add` cannot apply immutable settings, `commands.install` idempotency + duplication footguns + `SBX_CRED_<SERVICE>_MODE` contract, inject/binding domain intersection.
 
 Legacy reference:
 

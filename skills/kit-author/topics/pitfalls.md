@@ -31,12 +31,26 @@ Workaround until the gate is fixed: recreate the sandbox with `--kit <mixin>` in
 
 Container labels, privileged mode, volumes (block-backed or `type: tmpfs`), and `publishedPorts` are fixed at container creation. `sbx kit add` warns and skips them — but applies everything else. If your kit requires those, the user must recreate the sandbox with `--kit`.
 
-## 5. Embedded vs user-supplied sandbox install behavior differs
+## 5. `commands.install` footguns
 
-- Built-in agents (shipped inside the `sbx` binary) have `Embedded == true`. Their `commands.install` is **skipped** at create time — the binary is baked into the template image.
-- User-supplied `kind: sandbox` kits (via `--kit`) have `Embedded == false`. Their `commands.install` **always runs** on top of the base image.
+`commands.install` runs **once, synchronously, before the agent launches** (at sandbox creation). It runs for every kit, built-in or user-supplied. Use it to install the agent binary if your base image does not already include it, and for any pre-launch setup such as seeding a credential-gated settings file.
 
-Implication: if you fork a built-in agent's `spec.yaml` to use as a user-supplied kit, the install commands you copied will execute. Make them idempotent or guard with `command -v <binary>`.
+Three traps:
+
+**Don't duplicate an install your image already provides.** If your base image or Dockerfile bakes the agent binary in, do **not** also declare its install in `commands.install` — it runs redundantly every creation (and every recreate). Guard with `command -v <binary> || <install>` if you are unsure whether the image already has it.
+
+**`install` re-runs on recreate.** A script that writes files must guard itself (`if [ ! -f … ]`). For a *static* file with no logic, prefer `commands.initFiles` with `onlyIfMissing: true` — the engine provides the idempotency for you. Reach for an `install` script only when you need logic: conditional content, multiple files, or branching on `SBX_CRED_<SERVICE>_MODE`.
+
+**`SBX_CRED_<SERVICE>_MODE` is available at install time.** The variable is injected into the container env before install commands run and takes the value `apikey`, `oauth`, or `none`. Read it defensively: `${SBX_CRED_<SERVICE>_MODE:-none}` so an unset value is treated as `none`.
+
+```bash
+# Example: seed a settings file only when an API key is wired
+mode="${SBX_CRED_MYSERVICE_MODE:-none}"
+if [ "$mode" = "apikey" ] && [ ! -f ~/.config/myservice/settings.json ]; then
+  mkdir -p ~/.config/myservice
+  printf '{"apiKey":"proxy-managed"}\n' > ~/.config/myservice/settings.json
+fi
+```
 
 ## 6. `extends:` is not auto-resolved
 

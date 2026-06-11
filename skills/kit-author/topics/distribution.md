@@ -91,7 +91,7 @@ Multi-arch by default: `sbx kit push` builds for `linux/amd64,linux/arm64` unles
 
 ## Embedded built-in agents
 
-These ship inside the `sbx` binary. `sbx` discovers them at startup. `Artifact.Embedded` is set to `true` for built-ins, which suppresses install commands at create time (the binary is baked into the template image).
+These ship inside the `sbx` binary. `sbx` discovers them at startup. `Artifact.Embedded` is set to `true` for built-ins. Their agent binary is baked into the template image; `commands.install` still runs for built-ins and is used for pre-launch setup (e.g. seeding credential-gated settings files) rather than to install the binary.
 
 Adding a built-in agent is an engine-side change in the `sbx` core, not something a contrib kit can do. Contrib kits ship as `--kit` references.
 

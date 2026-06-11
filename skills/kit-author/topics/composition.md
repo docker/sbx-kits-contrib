@@ -94,11 +94,11 @@ Pipeline:
 | `volumes` (incl. tmpfs entries) | Union | Last wins per `path` |
 | `manifest.security` | Last wins (privileged is OR-merged in spirit) | — |
 
-### Embedded-vs-user install behavior
+### `commands.install` runs for every kit
 
-Built-in agents have their binary **baked into the template image**. When the base sandbox is built-in (`Embedded == true`), its own `commands.install` block is **skipped** at create time (no point reinstalling). Mixin and user-supplied `kind: sandbox` kits **always** run their installs.
+`commands.install` runs **once, synchronously, before the agent launches** (at sandbox creation) for every kit — built-in or user-supplied. Built-in agents have their binary baked into the template image, so they don't need `commands.install` to install the binary; instead, built-in kits use it for pre-launch setup (e.g. seeding a credential-gated settings file via `SBX_CRED_<SERVICE>_MODE`).
 
-Implication: if you fork a built-in agent via a user-supplied `kind: sandbox` kit (`Embedded == false`), its install commands **will** run on top of the base image. Make sure they're idempotent or guard them with `command -v <binary>` checks.
+Implication: if you fork a built-in agent as a user-supplied `kind: sandbox` kit, any install commands you copied will run. If the base image already provides the binary, guard with `command -v <binary> || <install>` to avoid reinstalling redundantly. See [Pitfalls §5](pitfalls.md#5-commands-install-footguns) for the full footgun checklist.
 
 ### What "last wins" actually means
 
