@@ -40,11 +40,58 @@ environment:
   variables:
     IS_SANDBOX: "1"
 
-settings:
-  containerSettings:
-    claude: true
-
 commands:
+  # ~/.claude.json carries only the bypass flags and is credential-independent,
+  # so it is a static init file (native onlyIfMissing idempotency). Phase 4
+  # lifts the former `settings: { containerSettings: { claude: true } }` block
+  # into the kit; the SBX_CRED_<SERVICE>_MODE-driven settings.json is seeded in
+  # commands.startup below. Content SYNCed with the claude kit.
+  initFiles:
+    - path: /home/agent/.claude.json
+      content: |
+        {
+          "bypassPermissionsModeAccepted": true,
+          "hasCompletedOnboarding": true,
+          "projects": {
+              "/": {
+              "hasTrustDialogAccepted": true
+            }
+          }
+        }
+      onlyIfMissing: true
+      description: Claude bypass flags (mode-independent)
+  startup:
+    # Seed ~/.claude/settings.json, branching on the auth mode surfaced via the
+    # SBX_CRED_ANTHROPIC_MODE container env var (this kit declares the
+    # "anthropic" credential service, same as the claude kit).
+    # apiKeyHelper="echo proxy-managed" is included only when a credential
+    # resolved (mode != none); without it Claude Code prompts for /login.
+    # Idempotent via test -f so resume re-runs are a no-op and never clobber a
+    # user-edited file. Replaces the former platform-side claude:true setting
+    # (Phase 4 lift). settings.json content SYNCed with the claude kit.
+    - command:
+        - sh
+        - -c
+        - |
+          set -e
+          mkdir -p /home/agent/.claude
+          if [ ! -f /home/agent/.claude/settings.json ]; then
+            HELPER=''
+            if [ "${SBX_CRED_ANTHROPIC_MODE:-none}" != none ]; then
+              HELPER='  "apiKeyHelper": "echo proxy-managed",
+          '
+            fi
+            printf '%s' "{
+            \"themeId\": 1,
+            \"alwaysThinkingEnabled\": true,
+          ${HELPER}  \"defaultMode\": \"bypassPermissions\",
+            \"bypassPermissionsModeAccepted\": true
+          }
+          " > /home/agent/.claude/settings.json
+          fi
+          chown -R agent:agent /home/agent/.claude
+      user: "root"
+      description: Seed Claude settings.json from SBX_CRED_ANTHROPIC_MODE
   install:
     - command: "npm config set proxy $HTTP_PROXY && npm config set https-proxy $HTTP_PROXY"
       user: "1000"
