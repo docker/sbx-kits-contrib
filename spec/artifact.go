@@ -138,7 +138,6 @@ func parseArtifactBytes(data []byte) (*Artifact, error) {
 		Caps:           spec.Caps,
 		Credentials:    spec.Credentials.List,
 		Environment:    spec.Environment,
-		Settings:       spec.Settings,
 		Commands:       spec.Commands,
 		AgentContext:   spec.AgentContext,
 		Warnings:       w.messages,

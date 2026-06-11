@@ -23,7 +23,6 @@ func TestLoadFromDirectory(t *testing.T) {
 		require.NotEmpty(t, a.PublishedPorts)
 		require.NotNil(t, a.Credentials)
 		require.NotNil(t, a.Environment)
-		require.NotNil(t, a.Settings)
 		require.NotNil(t, a.Commands)
 		require.NotEmpty(t, a.Files, "should have static files")
 	})
@@ -118,6 +117,20 @@ func TestLoadFromDirectory(t *testing.T) {
 		_, err := LoadFromDirectory("testdata/sample-mixin/spec.yaml")
 		require.ErrorContains(t, err, "not a directory")
 	})
+}
+
+// TestV1Settings_AbsorbedWithDeprecationWarning asserts the Phase 4 behavior:
+// a v1 `settings:` block must still PARSE under strict decoding (the
+// LegacySettings shim absorbs it) and normalize must emit a deprecation
+// warning naming `settings` — not strict-reject. The canonical
+// Artifact.Settings surface is gone (removed in Phase 4); strict-reject is the
+// Phase 6 cutover's job. The sample-mixin fixture still carries a settings:
+// block, so it exercises the shim directly.
+func TestV1Settings_AbsorbedWithDeprecationWarning(t *testing.T) {
+	a, err := LoadFromDirectory("testdata/sample-mixin")
+	require.NoError(t, err, "v1 settings: must load (absorb-and-warn), not strict-reject in Phase 4")
+	require.Contains(t, strings.Join(a.Warnings, "\n"), "settings",
+		"v1 settings: must emit a deprecation warning; got %v", a.Warnings)
 }
 
 func TestLoadFromFS(t *testing.T) {

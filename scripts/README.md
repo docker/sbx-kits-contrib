@@ -40,7 +40,7 @@ Later phases extend the script as their PRs land. See [`docs/specs/2026-05-27-un
 ### What it doesn't migrate
 
 - **Engine-side workspace state** — sandboxes you've already created will have a `kits-memory/` directory in their workspace. The sandboxes engine handles that rename transparently on the next kit add/run; no need to migrate it manually.
-- **Per-kit shell-script bodies** — settings-block code that the v2 spec moves into kit-author shell scripts. The script prints a notice when it encounters a `settings:` block but cannot auto-translate the platform-side shell logic into a kit-side equivalent. See the v2 spec doc's Phase 4 plan for the migration recipe.
+- **The `settings:` block** — in v2 the per-kit container-settings behavior is lifted into the kit's own `initFiles`/`commands.startup` entries, not a spec-level field. The script can't auto-translate it (the v2 replacement is kit-side setup, not spec data), so it prints the settings deprecation/lift notice when it encounters a `settings:` block and leaves the rest of the spec transformed. Lift it yourself using the built-in kits (e.g. `sandboxlib/kit/agents/{claude,codex}/spec.yaml`) as templates; see the v2 spec doc's Phase 4 plan for the recipe.
 
 ### Tests
 

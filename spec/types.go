@@ -411,7 +411,11 @@ type EnvironmentPolicy struct {
 }
 
 // SettingsPolicy defines container settings that control agent-specific
-// configuration file creation.
+// configuration file creation. As of Phase 4 it is no longer a canonical
+// Artifact surface — it survives only as the decode target for the
+// specFile.LegacySettings shim (the v1 `settings:` block), which
+// normalizeLegacySettings absorbs-and-drops with a deprecation warning.
+// Removed in the Phase 6 schema cutover.
 type SettingsPolicy struct {
 	// ContainerSettings controls which agent-container settings files are created.
 	ContainerSettings map[string]bool `json:"containerSettings,omitempty" yaml:"containerSettings,omitempty"`
@@ -531,9 +535,6 @@ type Artifact struct {
 
 	// Environment is the optional environment policy.
 	Environment *EnvironmentPolicy `json:"environment,omitempty"`
-
-	// Settings is the optional container settings.
-	Settings *SettingsPolicy `json:"settings,omitempty"`
 
 	// Commands is the optional startup commands and init files.
 	Commands *CommandsPolicy `json:"commands,omitempty"`
@@ -704,8 +705,14 @@ type specFile struct {
 	// into the top-level PublishedPorts. Removed in the Phase 6 schema cutover.
 	LegacyNetwork *NetworkPolicy     `yaml:"network,omitempty"`
 	Environment   *EnvironmentPolicy `yaml:"environment,omitempty"`
-	Settings      *SettingsPolicy    `yaml:"settings,omitempty"`
-	Commands      *CommandsPolicy    `yaml:"commands,omitempty"`
+	// LegacySettings absorbs the v1 `settings:` block. There is no v2 field
+	// to map it into — the container-settings behavior was lifted into each
+	// kit's initFiles/commands.startup (Phase 4) — so normalizeLegacySettings
+	// drops it with a deprecation warning. Kept only so KnownFields(true)
+	// strict decode still admits a stray `settings:` block instead of hard-
+	// rejecting it. Removed in the Phase 6 schema cutover.
+	LegacySettings *SettingsPolicy `yaml:"settings,omitempty"`
+	Commands       *CommandsPolicy `yaml:"commands,omitempty"`
 	// Caps is the v2 capabilities block (caps.network and any future
 	// caps.* surfaces). Decoded directly from YAML; the normalize step
 	// also populates Caps.Network from the v1 network.allowedDomains/

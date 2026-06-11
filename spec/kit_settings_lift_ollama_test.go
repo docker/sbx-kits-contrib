@@ -1,6 +1,7 @@
 package spec
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -19,8 +20,10 @@ func TestClaudeOllamaSettingsLift(t *testing.T) {
 	a, err := LoadFromDirectory("../claude-ollama")
 	require.NoError(t, err)
 
-	// (a) settings: block removed.
-	require.Nil(t, a.Settings, "claude-ollama settings block must be removed")
+	// (a) settings: block removed (no settings deprecation warning means the
+	// kit no longer carries a v1 settings: block for the shim to absorb).
+	require.NotContains(t, strings.Join(a.Warnings, "\n"), "settings",
+		"claude-ollama settings block must be removed; got warnings %v", a.Warnings)
 
 	// (b) a commands.startup entry exists.
 	require.NotNil(t, a.Commands)

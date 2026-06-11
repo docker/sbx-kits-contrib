@@ -35,8 +35,24 @@ func (s *specFile) normalize(w *warnings) error {
 	s.normalizeLegacyPersistence(w)
 	s.normalizeLegacyKitDir(w)
 	s.normalizeLegacyTmpfs(w)
+	s.normalizeLegacySettings(w)
 	s.normalizeVolumes(w)
 	return nil
+}
+
+// normalizeLegacySettings drops the v1 `settings:` block with a deprecation
+// warning. Unlike the other Legacy folds there is no v2 field to map into —
+// the per-kit container-settings behavior (`~/.claude/settings.json`,
+// `~/.codex/config.toml`, etc.) was lifted into each kit's
+// initFiles/commands.startup in Phase 4, so the block is absorbed-and-dropped
+// here. The canonical Artifact.Settings field is gone; the SettingsPolicy
+// decode target survives only as this shim's target until Phase 6.
+func (s *specFile) normalizeLegacySettings(w *warnings) {
+	if s.LegacySettings == nil {
+		return
+	}
+	s.LegacySettings = nil
+	w.deprecate("settings", "container settings are now lifted into kit commands.startup; remove this block (kit-spec v2)")
 }
 
 // normalizeVolumes folds the specFile-level volumes wrapper into the

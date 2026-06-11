@@ -57,7 +57,6 @@ func (s *Suite) RunAll(t *testing.T) {
 		s.RunCredentialPolicyTests(t)
 		s.RunEnvironmentPolicyTests(t)
 		s.RunCommandsValidationTests(t)
-		s.RunSettingsPolicyTests(t)
 		s.RunOAuthPolicyTests(t)
 
 		// Container tests — single container for all assertions
@@ -485,21 +484,6 @@ func (s *Suite) RunCommandsValidationTests(t *testing.T) {
 				"initFile [%d] path must not be empty", i)
 			require.True(t, strings.HasPrefix(f.Path, "/"),
 				"initFile [%d] path must be absolute (got %q)", i, f.Path)
-		}
-	})
-}
-
-// RunSettingsPolicyTests verifies the settings policy is well-formed.
-func (s *Suite) RunSettingsPolicyTests(t *testing.T) {
-	if s.Artifact.Settings == nil {
-		return
-	}
-
-	t.Run("settings_policy", func(t *testing.T) {
-		require.NotNil(t, s.Artifact.Settings.ContainerSettings,
-			"containerSettings map should not be nil when settings policy is present")
-		for key := range s.Artifact.Settings.ContainerSettings {
-			require.NotEmpty(t, key, "containerSettings key must not be empty")
 		}
 	})
 }

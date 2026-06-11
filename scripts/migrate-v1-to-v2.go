@@ -155,13 +155,11 @@ func migrateSpec(data []byte) ([]byte, []string, error) {
 
 	out := buildV2(a, srcSandbox)
 
+	// normalizeLegacySettings (in the spec package) now emits the settings:
+	// deprecation/lift notice into a.Warnings, so the dead Artifact.Settings
+	// detector that used to live here is gone — the notice flows through the
+	// warnings fold below.
 	changes := append([]string(nil), a.Warnings...)
-	// normalize() carries settings: onto Artifact.Settings but never warns:
-	// settings is removed in v2 and we drop it from the emitted spec. Surface
-	// that as a change so the author knows to re-home the behavior.
-	if a.Settings != nil {
-		changes = append(changes, `deprecated field "settings": removed in v2; move agent-specific setup to commands.initFiles (kit-spec v2)`)
-	}
 
 	if len(changes) == 0 {
 		return data, nil, nil

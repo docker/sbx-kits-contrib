@@ -78,8 +78,10 @@ func TestNanoclawSettingsLift(t *testing.T) {
 	a, err := LoadFromDirectory("../nanoclaw")
 	require.NoError(t, err)
 
-	// (a) settings: block removed.
-	require.Nil(t, a.Settings, "nanoclaw settings block must be removed")
+	// (a) settings: block removed (no settings deprecation warning means the
+	// kit no longer carries a v1 settings: block for the shim to absorb).
+	require.NotContains(t, strings.Join(a.Warnings, "\n"), "settings",
+		"nanoclaw settings block must be removed; got warnings %v", a.Warnings)
 
 	// (b) a commands.startup entry exists.
 	require.NotNil(t, a.Commands)

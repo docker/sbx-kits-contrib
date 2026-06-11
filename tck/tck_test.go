@@ -210,12 +210,6 @@ func TestRunCommandsValidationTests(t *testing.T) {
 	suite.RunCommandsValidationTests(t)
 }
 
-func TestRunSettingsPolicyTests(t *testing.T) {
-	suite, err := NewSuiteFromDir("../spec/testdata/sample-mixin")
-	require.NoError(t, err)
-	suite.RunSettingsPolicyTests(t)
-}
-
 func TestRunOAuthPolicyTests(t *testing.T) {
 	// sample-mixin has no OAuth — verify it's a no-op
 	suite, err := NewSuiteFromDir("../spec/testdata/sample-mixin")
