@@ -34,9 +34,9 @@ const (
 `
 )
 
-// findSettingsStartup returns the install command that seeds settings.json
+// findSettingsInstall returns the install command that seeds settings.json
 // (the one whose script references SBX_CRED_..._MODE).
-func findSettingsStartup(t *testing.T, c *CommandsPolicy) InstallCommand {
+func findSettingsInstall(t *testing.T, c *CommandsPolicy) InstallCommand {
 	t.Helper()
 	require.NotNil(t, c, "kit must have commands")
 	for _, ic := range c.Install {
@@ -49,11 +49,11 @@ func findSettingsStartup(t *testing.T, c *CommandsPolicy) InstallCommand {
 	return InstallCommand{}
 }
 
-// runStartupScript executes the kit's settings-seeding install script in a
-// temp dir, rewriting the absolute /home/agent paths to the temp dir and
+// runSettingsInstallScript executes the kit's settings-seeding install script
+// in a temp dir, rewriting the absolute /home/agent paths to the temp dir and
 // making chown non-fatal (the test process is not root), then returns the
 // content of the produced settings.json.
-func runStartupScript(t *testing.T, script, modeEnv string) string {
+func runSettingsInstallScript(t *testing.T, script, modeEnv string) string {
 	t.Helper()
 	tmp := t.TempDir()
 
@@ -66,7 +66,7 @@ func runStartupScript(t *testing.T, script, modeEnv string) string {
 	cmd := exec.Command("sh", "-c", script)
 	cmd.Env = append(os.Environ(), modeEnv)
 	out, err := cmd.CombinedOutput()
-	require.NoErrorf(t, err, "startup script failed: %s", out)
+	require.NoErrorf(t, err, "install script failed: %s", out)
 
 	data, err := os.ReadFile(filepath.Join(tmp, ".claude", "settings.json"))
 	require.NoError(t, err)
@@ -86,13 +86,13 @@ func TestNanoclawSettingsLift(t *testing.T) {
 	require.NotNil(t, a.Commands)
 	require.NotEmpty(t, a.Commands.Install, "nanoclaw must have commands.install")
 
-	ic := findSettingsStartup(t, a.Commands)
+	ic := findSettingsInstall(t, a.Commands)
 	require.Contains(t, ic.Command, "SBX_CRED_ANTHROPIC_MODE",
 		"nanoclaw declares the anthropic credential service")
 
 	// (c) parity: apikey -> apiKeyHelper present; none -> absent.
 	require.Equal(t, claudeSettingsAPIKey,
-		runStartupScript(t, ic.Command, "SBX_CRED_ANTHROPIC_MODE=apikey"))
+		runSettingsInstallScript(t, ic.Command, "SBX_CRED_ANTHROPIC_MODE=apikey"))
 	require.Equal(t, claudeSettingsNone,
-		runStartupScript(t, ic.Command, "SBX_CRED_ANTHROPIC_MODE=none"))
+		runSettingsInstallScript(t, ic.Command, "SBX_CRED_ANTHROPIC_MODE=none"))
 }

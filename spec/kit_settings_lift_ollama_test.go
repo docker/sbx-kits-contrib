@@ -8,7 +8,7 @@ import (
 )
 
 // TestClaudeOllamaSettingsLift verifies the Phase 4 Stage C lift of the
-// claude-ollama kit. Shared helpers (findSettingsStartup, runStartupScript)
+// claude-ollama kit. Shared helpers (findSettingsInstall, runSettingsInstallScript)
 // and the oracle constants live in kit_settings_lift_test.go.
 //
 // claude-ollama declares no credential service (Ollama is a local model; the
@@ -29,13 +29,13 @@ func TestClaudeOllamaSettingsLift(t *testing.T) {
 	require.NotNil(t, a.Commands)
 	require.NotEmpty(t, a.Commands.Install, "claude-ollama must have commands.install")
 
-	ic := findSettingsStartup(t, a.Commands)
+	ic := findSettingsInstall(t, a.Commands)
 	require.Contains(t, ic.Command, "SBX_CRED_ANTHROPIC_MODE")
 
 	// No credential service: both unset and explicit =none yield the none
 	// oracle (no apiKeyHelper).
 	require.Equal(t, claudeSettingsNone,
-		runStartupScript(t, ic.Command, "SBX_CRED_ANTHROPIC_MODE=none"))
+		runSettingsInstallScript(t, ic.Command, "SBX_CRED_ANTHROPIC_MODE=none"))
 	require.Equal(t, claudeSettingsNone,
-		runStartupScript(t, ic.Command, "SBX_CRED_ANTHROPIC_MODE="))
+		runSettingsInstallScript(t, ic.Command, "SBX_CRED_ANTHROPIC_MODE="))
 }
