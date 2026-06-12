@@ -224,3 +224,28 @@ func TestMigrate_Idempotent(t *testing.T) {
 		t.Errorf("re-migrating canonical v2 output should be a no-op; got changes %v", changes)
 	}
 }
+
+// TestMigrateEmitsProxyManaged confirms a v1 environment.proxyManaged entry
+// folds onto credentials[].apiKey.proxyManaged: true in the migrated output.
+func TestMigrateEmitsProxyManaged(t *testing.T) {
+	v1 := []byte(`schemaVersion: "1"
+kind: agent
+name: t
+agent: {image: x}
+network:
+  serviceDomains: {api.openai.com: openai}
+  serviceAuth: {openai: {headerName: Authorization, valueFormat: "Bearer %s"}}
+credentials: {sources: {openai: {env: [OPENAI_API_KEY]}}}
+environment: {proxyManaged: [OPENAI_API_KEY]}
+`)
+	out, changes, err := migrateSpec(v1)
+	if err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+	if len(changes) == 0 {
+		t.Fatalf("expected migration changes")
+	}
+	if !strings.Contains(string(out), "proxyManaged: true") {
+		t.Fatalf("migrated output missing 'proxyManaged: true':\n%s", out)
+	}
+}
