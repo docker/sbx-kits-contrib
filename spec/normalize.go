@@ -371,9 +371,10 @@ func (s *specFile) normalizeLegacyCredentials(w *warnings) error {
 	// LegacySources.required, then fold proxyManaged as the apiKey.Name
 	// fallback if LegacySources didn't supply one.
 	type pending struct {
-		required bool
-		envName  string // becomes ApiKey.Name
-		inject   []ApiKeyInject
+		required     bool
+		envName      string // becomes ApiKey.Name
+		proxyManaged bool   // becomes ApiKey.ProxyManaged
+		inject       []ApiKeyInject
 	}
 	byService := make(map[string]*pending)
 
@@ -465,6 +466,7 @@ func (s *specFile) normalizeLegacyCredentials(w *warnings) error {
 			if p.envName == "" {
 				p.envName = envName
 			}
+			p.proxyManaged = true
 		}
 	}
 
@@ -480,7 +482,7 @@ func (s *specFile) normalizeLegacyCredentials(w *warnings) error {
 		p := byService[svc]
 		c := Credential{Service: svc, Required: p.required}
 		if p.envName != "" || len(p.inject) > 0 {
-			c.ApiKey = &ApiKey{Name: p.envName, Inject: p.inject}
+			c.ApiKey = &ApiKey{Name: p.envName, ProxyManaged: p.proxyManaged, Inject: p.inject}
 		}
 		s.Credentials.List = append(s.Credentials.List, c)
 	}

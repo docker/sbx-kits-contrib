@@ -259,6 +259,36 @@ oauth:
 		"merged resourceHosts should be sorted and deduped")
 }
 
+func TestNormalizeFoldsProxyManagedToMarker(t *testing.T) {
+	in := []byte(`schemaVersion: "1"
+kind: agent
+name: t
+agent: {image: x}
+network:
+  serviceDomains: {generativelanguage.googleapis.com: google, api.github.com: github}
+  serviceAuth:
+    google: {headerName: x-goog-api-key, valueFormat: "%s"}
+    github: {headerName: Authorization, valueFormat: "Bearer %s"}
+credentials:
+  sources:
+    google: {env: [GOOGLE_API_KEY, GEMINI_API_KEY]}
+    github: {env: [GH_TOKEN]}
+environment:
+  proxyManaged: [GOOGLE_API_KEY, GEMINI_API_KEY]
+`)
+	a, err := LoadFromBytes(in)
+	require.NoError(t, err)
+	bySvc := map[string]*ApiKey{}
+	for i := range a.Credentials {
+		bySvc[a.Credentials[i].Service] = a.Credentials[i].ApiKey
+	}
+	require.NotNil(t, bySvc["google"])
+	require.Equal(t, "GOOGLE_API_KEY", bySvc["google"].Name) // primary; GEMINI not preserved
+	require.True(t, bySvc["google"].ProxyManaged)            // marked
+	require.NotNil(t, bySvc["github"])
+	require.False(t, bySvc["github"].ProxyManaged) // not in proxyManaged → unmarked
+}
+
 func TestDeriveServiceKey(t *testing.T) {
 	tests := []struct {
 		input    string
