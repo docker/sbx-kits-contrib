@@ -2,24 +2,36 @@ schemaVersion: "1"
 kind: mixin
 name: vale
 displayName: Vale
-description: Installs the latest Vale prose linter from GitHub releases.
+description: Installs the Vale prose linter from a pinned GitHub release.
 
 network:
   allowedDomains:
-    - api.github.com
+    # Release tarball download (install time, one-shot).
+    # github.com 302-redirects to release-assets.githubusercontent.com for binary downloads.
     - github.com
     - release-assets.githubusercontent.com
 
 commands:
   install:
+    # Install Vale from a pinned, SHA256-verified GitHub release. We deliberately
+    # do NOT query api.github.com for `releases/latest`: unauthenticated API calls
+    # from shared CI runner IPs hit the 60-req/hr rate limit and 403, making installs
+    # flaky. Pinning by version + SHA256 (in the kit, in git) is also the safer supply
+    # chain. To bump: change VALE_VERSION plus the per-arch SHA256 below (sourced from
+    # the release's checksums.txt).
     - command: |
         set -euo pipefail
-        VALE_VERSION=$(curl -fsSL https://api.github.com/repos/vale-cli/vale/releases/latest \
-          | grep -o '"tag_name": *"[^"]*"' | grep -o '[0-9][^"]*')
+        VALE_VERSION=3.14.2
         ARCH=$(dpkg --print-architecture)
         case "$ARCH" in
-          amd64) TARBALL="vale_${VALE_VERSION}_Linux_64-bit.tar.gz" ;;
-          arm64) TARBALL="vale_${VALE_VERSION}_Linux_arm64.tar.gz" ;;
+          amd64)
+            TARBALL="vale_${VALE_VERSION}_Linux_64-bit.tar.gz"
+            SHA256="469cf88ec58a374dca14b2564c4391d2c9a1c632210aa0b642758b794082e05f"
+            ;;
+          arm64)
+            TARBALL="vale_${VALE_VERSION}_Linux_arm64.tar.gz"
+            SHA256="b11fa9955b93814f993442568b9b922604cc4b574643037b84900e9514860802"
+            ;;
           *)
             echo "unsupported arch: $ARCH" >&2
             exit 1
@@ -28,11 +40,12 @@ commands:
         curl --proto '=https' --tlsv1.2 -fsSL \
           -o /tmp/vale.tgz \
           "https://github.com/vale-cli/vale/releases/download/v${VALE_VERSION}/${TARBALL}"
+        echo "${SHA256}  /tmp/vale.tgz" | sha256sum -c -
         tar -C /usr/local/bin -xzf /tmp/vale.tgz vale
         rm /tmp/vale.tgz
         vale --version
       user: "0"
-      description: "Install latest Vale CLI"
+      description: "Install pinned Vale CLI"
 
 memory: |
   ## Vale prose linter
