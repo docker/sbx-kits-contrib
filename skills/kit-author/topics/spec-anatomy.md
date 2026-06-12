@@ -88,13 +88,11 @@ sandbox:
   entrypoint:
     run: [claude, "--dangerously-skip-permissions"]   # binary + initial args
     args: ["-l"]                                # appended when --task is given
-    ttyArgs: []                                 # appended in interactive mode (P3 — pending sbx support)
-    pipeMode: prepend                           # "prepend"|"append"|"stream"|"ignore" (P3 — pending sbx support)
+    ttyArgs: []                                 # appended in interactive mode
+    pipeMode: prepend                           # one of: "prepend" | "append" | "stream" | "ignore"
 ```
 
 Use `image:` when you can layer the kit's behaviour onto an existing base image via `commands.install` and `commands.initFiles`.
-
-> **Pending sbx support (P3).** `entrypoint.run` and `entrypoint.args` are fully wired. `entrypoint.ttyArgs` and `entrypoint.pipeMode` are parsed and accepted today for forward compatibility but **not yet consumed by the runtime** — declare them now and they become enforceable once sbx wires them.
 
 `entrypoint.pipeMode` controls how piped stdin combines with `--task`. The field is optional; if you set it, it must be one of:
 
@@ -174,14 +172,12 @@ credentials:
         - domain: github.com                   # HTTPS git clone over HTTP Basic
           header: Authorization
           format: "Basic %s"
-          username: x-access-token             # literal HTTP Basic username (P3 — pending sbx support)
+          username: x-access-token             # literal HTTP Basic username
 ```
 
 `apiKey.name` is set to the literal `proxy-managed` inside the container by the engine — the sentinel-swap proxy replaces it on outbound requests. Authors **don't** put real values in the spec.
 
 **Validation:** every `apiKey.inject[].domain` MUST appear in `caps.network.allow`. The spec library rejects a kit whose injection domain isn't allow-listed — there is no auto-derived egress from credentials.
-
-> **Pending sbx support (P3).** `apiKey.inject[].username` (the HTTP Basic auth username) is parsed and accepted today for forward compatibility but **not yet propagated to the proxy** — for the built-in `github` service the proxy uses a hardcoded `x-access-token`. Declare it now for forward-compatible specs; custom-username injection becomes effective once sbx wires it.
 
 ### OAuth shape
 
@@ -385,7 +381,7 @@ Composition: all three lists **concatenate** in `--kit` order. `install` runs fo
 
 ## `settings` — **removed in v2**
 
-The v1 `settings` block (with its `containerSettings` map) hardcoded agent-specific setup. v2 removes it entirely. To write an agent-specific configuration file, use `commands.initFiles` for a **static** file, or `commands.install` when the file's contents depend on runtime state (e.g. a credential-gated settings file that branches on `SBX_CRED_<SERVICE>_MODE`) — `initFiles` writes fixed content and cannot branch. That's the migration path.
+The v1 `settings` block (with its `containerSettings` map) hardcoded agent-specific setup. v2 removes it entirely. If you need to write an agent-specific configuration file at startup, use `commands.initFiles` instead — that's the migration path.
 
 A v1 kit that still ships `settings:` will load via the legacy shims, but the field has no v2 home; see [`v1-migration.md`](v1-migration.md) for the recipe.
 

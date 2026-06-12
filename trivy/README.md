@@ -1,6 +1,6 @@
 # trivy
 
-A standalone agent kit (`kind: sandbox`) for the [Trivy](https://trivy.dev/)
+A standalone agent kit (`kind: agent`) for the [Trivy](https://trivy.dev/)
 open-source vulnerability scanner from [Aqua Security](https://aquasec.com/).
 The kit installs `trivy` from a pinned, digest-verified GitHub release at
 sandbox creation time and drops you into a bash shell with the binary on
@@ -41,9 +41,9 @@ launches reuse the sandbox; the vuln DB is cached on a persistent volume.
 Trivy is fully open source — **no API key needed** for the standard scan
 flows (`fs`, `repo`, plain `image`). Aqua's commercial feeds (premium
 indicators, SaaS reporting) are out of scope for this kit; if you need
-them, fork and add the appropriate `credentials[].apiKey.inject[].domain` and `credentials`.
+them, fork and add the appropriate `serviceDomains` and `credentials`.
 
-The kit's `caps.network.allow` covers exactly five hosts:
+The kit's `allowedDomains` covers exactly five hosts:
 
 | Host | Why |
 | --- | --- |

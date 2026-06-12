@@ -1,6 +1,6 @@
 # pi
 
-A standalone agent kit (`kind: sandbox`) for the
+A standalone agent kit (`kind: agent`) for the
 [`@earendil-works/pi-coding-agent`](https://www.npmjs.com/package/@earendil-works/pi-coding-agent)
 CLI — a minimal terminal coding agent with extensible tools, skills, and
 TUI. The kit installs `pi` via npm at sandbox creation time and runs
@@ -31,5 +31,5 @@ sentinel that's already in the default sandbox environment. The agent
 never sees the real key.
 
 `registry.npmjs.org` is the only domain the kit adds to
-`caps.network.allow` — it's needed for the install. `api.anthropic.com`
+`allowedDomains` — it's needed for the install. `api.anthropic.com`
 is reached via default sandbox policy, not a kit allowlist entry.

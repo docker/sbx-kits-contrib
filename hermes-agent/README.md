@@ -1,6 +1,6 @@
 # hermes-agent
 
-A standalone agent kit (`kind: sandbox`) for
+A standalone agent kit (`kind: agent`) for
 [Hermes Agent](https://github.com/NousResearch/hermes-agent) — the
 self-improving AI agent by [Nous Research](https://nousresearch.com). It
 creates skills from experience, improves them during use, maintains persistent
@@ -68,7 +68,7 @@ start chatting.
 
 ## How auth works
 
-The kit's `credentials[]` block maps each provider's API host to a named service and
+The kit's `network` block maps each provider's API host to a named service and
 declares how the proxy should inject the credential:
 
 - `api.anthropic.com` → injects `x-api-key: <key>`

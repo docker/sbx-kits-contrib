@@ -1,6 +1,6 @@
 # nanobot
 
-A standalone agent kit (`kind: sandbox`) for
+A standalone agent kit (`kind: agent`) for
 [nanobot](https://pypi.org/project/nanobot-ai/) — a lightweight
 personal AI assistant with multi-platform chat (Telegram, Discord,
 WhatsApp, Slack, Feishu) and multi-provider LLM support. The kit
@@ -50,12 +50,12 @@ The kit drops `/home/agent/.nanobot/config.json` configured with:
 }
 ```
 
-The kit declares the Anthropic auth wiring (`credentials[].apiKey.inject[].domain`,
-`credentials[].apiKey.inject[].header`, `credentials[].service: anthropic`, and
-`credentials[].apiKey.name: ANTHROPIC_API_KEY`) so the sandbox proxy
+The kit declares the Anthropic auth wiring (`serviceDomains`,
+`serviceAuth`, `credentials.sources.anthropic`, and
+`environment.proxyManaged: ANTHROPIC_API_KEY`) so the sandbox proxy
 substitutes the real Anthropic credential on outbound requests to
 `api.anthropic.com`.
 
-The kit's `caps.network.allow` covers PyPI (for the install) and the
+The kit's `allowedDomains` covers PyPI (for the install) and the
 chat-platform hosts (Telegram, Discord, WhatsApp, Slack, Feishu)
 for any chat adapters the user later enables.

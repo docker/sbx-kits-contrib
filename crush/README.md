@@ -1,6 +1,6 @@
 # crush
 
-A standalone agent kit (`kind: sandbox`) for [Crush](https://github.com/charmbracelet/crush),
+A standalone agent kit (`kind: agent`) for [Crush](https://github.com/charmbracelet/crush),
 Charm's multi-provider AI coding agent. The kit installs Crush from the
 official Charm apt repository, wires API auth for 15 model providers
 through the sandbox proxy, and runs `crush --yolo` as the entrypoint when
@@ -46,24 +46,22 @@ sandbox.
 
 ## How auth works
 
-The kit's `credentials[]` block declares one entry per supported
-provider, each with an `apiKey.inject` entry for that provider's API
-host describing the auth header (`Authorization: Bearer …`,
-`x-api-key: …`, etc). The user-side bindings file
-(`~/.config/sbx/credentials.yaml`) tells the proxy which host env var
-holds each provider's secret.
+The kit's `network` block declares a `serviceDomain` for every supported
+provider's API host and a matching `serviceAuth` entry describing the
+auth header (`Authorization: Bearer …`, `x-api-key: …`, etc). The
+`credentials.sources` block tells the proxy which host env var holds
+each provider's secret.
 
 When Crush makes a request to (say) `api.openai.com`, the proxy:
 
 1. Looks up the service for the domain (`openai`).
-2. Looks up the credential binding for that service (`OPENAI_API_KEY` on
+2. Looks up the credential source for that service (`OPENAI_API_KEY` on
    the host).
 3. Injects `Authorization: Bearer <real-key>` on the outbound request.
 
-The real key never enters the sandbox. The proxy-managed semantic on
-each `credentials[].apiKey.name` exposes a placeholder value for each
-`*_API_KEY` env var inside the container so Crush sees the variables it
-expects to find.
+The real key never enters the sandbox. The `environment.proxyManaged`
+list exposes a placeholder value for each `*_API_KEY` env var inside the
+container so Crush sees the variables it expects to find.
 
-`caps.network.allow` covers the install repo (`repo.charm.sh`) and every
+`allowedDomains` covers the install repo (`repo.charm.sh`) and every
 provider API host.

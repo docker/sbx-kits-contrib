@@ -1,6 +1,6 @@
 # nanoclaw
 
-A standalone agent kit (`kind: sandbox`) for
+A standalone agent kit (`kind: agent`) for
 [nanoclaw](https://github.com/qwibitai/nanoclaw) — a lightweight
 AI assistant runtime driven by Claude Code. The kit clones and
 builds the upstream repo at sandbox creation time and runs Claude
@@ -48,12 +48,12 @@ $ nanoclaw
 ## How auth works
 
 The kit declares the same Anthropic auth wiring as the built-in
-`claude` agent kit: `credentials[].apiKey.inject[].domain`/`credentials[].apiKey.inject[].header` for
+`claude` agent kit: `serviceDomains`/`serviceAuth` for
 `api.anthropic.com`, the OAuth flow against `platform.claude.com`,
 and the `proxy-managed` sentinel pattern. Credentials never enter
 the container — the sandbox proxy substitutes the real value on
 egress.
 
-The kit's `caps.network.allow` adds `registry.npmjs.org` (for the
+The kit's `allowedDomains` adds `registry.npmjs.org` (for the
 install), the WhatsApp hosts the bridge connects to (when the
 WhatsApp adapter is later added), and `nanoclaw.dev`.

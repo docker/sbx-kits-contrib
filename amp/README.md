@@ -1,6 +1,6 @@
 # amp
 
-A standalone agent kit (`kind: sandbox`) for the
+A standalone agent kit (`kind: agent`) for the
 [Amp](https://ampcode.com/) coding agent. The kit installs Amp into the
 sandbox at creation time, wires its API auth through the sandbox proxy,
 and runs `amp --dangerously-allow-all` as the entrypoint when you
@@ -61,16 +61,16 @@ sandbox.
 
 ## How auth works
 
-The kit's `credentials[]` and `caps.network` blocks declare two things:
+The kit's `network` block declares two things:
 
-- The `amp` service's `apiKey.inject` entry for `ampcode.com` tells the
+- `serviceDomains: ampcode.com -> amp` and `serviceAuth.amp` tell the
   proxy to inject `Authorization: Bearer <key>` on outbound requests
   to `ampcode.com`. The `<key>` value comes from the secret store
   entry registered above, matched by host.
-- `caps.network.allow` covers both the apex (`ampcode.com`) and the
+- `allowedDomains` covers both the apex (`ampcode.com`) and the
   install/CDN subdomains (`*.ampcode.com`).
 
-The injection `domain` is intentionally narrow: a wildcard there would push
+`serviceDomains` is intentionally narrow: a wildcard there would push
 the proxy into TLS-intercepting mode for every `*.ampcode.com` host,
 including the binary CDN the install script downloads from, which
 corrupts the install. List only the host that needs auth injection.

@@ -60,7 +60,7 @@ A handful of v1 fields are removed outright with no v2 home. Strip them by hand:
 |---|---|---|
 | `kitDir` | Never used; confusing semantics. | Delete the field. |
 | `sandbox.persistence` | Parsed but never wired to runtime behavior in v1. | Declare volumes explicitly via `volumes:` instead. |
-| `settings` | Hardcoded agent-specific logic; replaced by kit `commands`. | Move **static** setup into `commands.initFiles` entries; move **credential/mode-dependent** setup (a script that branches on `SBX_CRED_<SERVICE>_MODE`) into `commands.install`, which runs before launch and can branch — `initFiles` writes fixed content only. |
+| `settings` | Hardcoded agent-specific logic; replaced by `commands.initFiles`. | Move the agent-specific setup logic into `commands.initFiles` entries. |
 
 ### Volumes redesign (Phase 2) — **manual**, **strict-rejected**
 

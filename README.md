@@ -94,18 +94,17 @@ There's no per-kit test file to write — the shared `TestKitTCK` in `tck/kit_te
 2. Write your `spec.yaml`:
 
 ```yaml
-schemaVersion: "2"
+schemaVersion: "1"
 kind: mixin
 name: my-kit
 displayName: My Kit
 description: "Short description of what this kit does"
 
-caps:
-  network:
-    allow:
-      - example.com
-    deny:
-      - tracker.example.com
+network:
+  allowedDomains:
+    - example.com
+  deniedDomains:
+    - tracker.example.com
 
 environment:
   variables:
@@ -150,11 +149,11 @@ working directory set to the package directory (`./tck/`).
 
 ## Declare every domain your kit needs
 
-A kit's `caps.network.allow` is its **complete** outbound network contract. The CI e2e job runs with a `deny-all` default policy, so anything not in your `caps.network.allow` is blocked at request time — and any failed request inside an install hook surfaces as `sbx create` failing.
+A kit's `network.allowedDomains` is its **complete** outbound network contract. The CI e2e job runs with a `deny-all` default policy, so anything not in your `allowedDomains` is blocked at request time — and any failed request inside an install hook surfaces as `sbx create` failing.
 
 The non-obvious trap is **package managers refreshing every configured source**, not just the one you added:
 
-- `apt-get update` re-fetches metadata for every file in `/etc/apt/sources.list[.d/]` — including sources the base template added. If *any* of those returns non-2xx, `apt-get` exits non-zero even if the package you want is in a different source. For kits built on `shell-docker` / `*-docker` templates that means `download.docker.com` (Docker's apt repo, pre-added by the template) needs to be in your `caps.network.allow` even if you're only installing something from Ubuntu's main archive.
+- `apt-get update` re-fetches metadata for every file in `/etc/apt/sources.list[.d/]` — including sources the base template added. If *any* of those returns non-2xx, `apt-get` exits non-zero even if the package you want is in a different source. For kits built on `shell-docker` / `*-docker` templates that means `download.docker.com` (Docker's apt repo, pre-added by the template) needs to be in your `allowedDomains` even if you're only installing something from Ubuntu's main archive.
 - Ubuntu hosts amd64 packages on `archive.ubuntu.com` + `security.ubuntu.com` and arm64 packages on `ports.ubuntu.com`. List all three for cross-arch coverage; CI is amd64, your Mac is likely arm64.
 - `npm install`, `pip install`, `cargo`, `go get`, etc. each have their own registry/mirror hosts — declare them too.
 
@@ -180,7 +179,7 @@ sbx policy reset -f
 sbx policy set-default balanced   # or whichever preset you were on
 ```
 
-Every `Blocked requests` row is a domain your install or startup hook reached for under `deny-all`. Add the host (column `HOST`, e.g. `download.docker.com:443`) to `caps.network.allow` and re-probe until the block list is empty.
+Every `Blocked requests` row is a domain your install or startup hook reached for under `deny-all`. Add the host (column `HOST`, e.g. `download.docker.com:443`) to `allowedDomains` and re-probe until the block list is empty.
 
 ## TCK Test Coverage
 
@@ -188,7 +187,7 @@ The TCK validates your kit automatically:
 
 - **Validation** — `spec.yaml` parses correctly with required fields
 - **Network policy** — allowed domains and service auth are well-formed
-- **Credential policy** — `credentials[]` entries are properly defined
+- **Credential policy** — credential sources are properly defined
 - **Commands** — install/startup commands are well-formed
 - **Environment variables** — declared env vars are set in the container
 - **Container files** — files from `files/` are injected at the correct paths
@@ -202,7 +201,7 @@ The default TCK runs every kit assertion against a fabricated `testcontainers-go
 
 `tck/e2e_test.go` (build-tag `e2e`, function `TestE2ECreateSandbox`) drives one kit per run:
 
-1. Loads the kit at `$KIT_UNDER_TEST` and picks the agent argument — kit name for `kind: sandbox`, `claude` for `kind: mixin`.
+1. Loads the kit at `$KIT_UNDER_TEST` and picks the agent argument — kit name for `kind: agent`, `claude` for `kind: mixin`.
 2. Runs `sbx create --kit <kit> --name <unique> <agent> <tmpdir>` against a temporary workspace.
 3. Verifies, via `sbx exec`, that the running sandbox contains:
    - every `environment.variables` entry,
@@ -261,7 +260,7 @@ The `test-kit-e2e` job in [`.github/workflows/tck.yml`](.github/workflows/tck.ym
 By default, mixins use the `shell` template image. To extend a specific agent (e.g., Claude, Gemini), add the `extends` field:
 
 ```yaml
-schemaVersion: "2"
+schemaVersion: "1"
 kind: mixin
 name: my-claude-extension
 extends: claude

@@ -24,7 +24,7 @@ It applies the v2 renames (`memory:` → `agentContext:`, `kind: agent` → `kin
 Pick an existing kit closest in shape to what you want to build and read it end-to-end as a template:
 
 - **[`code-server/`](./code-server)** — mixin: `extends: claude`, `initFiles` with `${WORKDIR}` substitution, shipped config in `files/`.
-- **[`amp/`](./amp)** — `kind: sandbox` kit: custom image, `credentials[].apiKey.inject` for proxy-injected credentials, paired with a one-time `sbx secret set-custom` step.
+- **[`amp/`](./amp)** — `kind: agent` kit: custom image, `serviceDomains`/`serviceAuth` for proxy-injected credentials, paired with a one-time `sbx secret set-custom` step.
 
 ## Per-kit README
 
@@ -39,7 +39,7 @@ For kits that have a corresponding tutorial on [docs.docker.com](https://docs.do
 
 ## Network policy: declare every domain
 
-Your kit's `caps.network.allow` is the **complete** outbound contract — the CI e2e job runs under `deny-all`, so anything you don't list is blocked.
+Your kit's `network.allowedDomains` is the **complete** outbound contract — the CI e2e job runs under `deny-all`, so anything you don't list is blocked.
 
 Watch out for package managers: `apt-get update`, `npm install`, `pip install`, etc. each refresh metadata for every configured source, not just yours. For kits built on `shell-docker` / `*-docker` templates that means `download.docker.com` must be in your list even if you only `apt-get install` from Ubuntu's main archive — `apt-get update` fails the install otherwise. List `archive.ubuntu.com`, `security.ubuntu.com`, **and** `ports.ubuntu.com` so the kit works on both amd64 (CI) and arm64 (Apple Silicon).
 
@@ -153,7 +153,7 @@ For deeper background, see GitHub's docs on [managing commit signature verificat
 A useful PR description has:
 
 - **Summary** — what changed.
-- **Spec choices worth flagging for review** — decisions a reviewer should sanity-check (an unusual image choice, a deliberately narrow `caps.network.allow`, a workaround for a known bug).
+- **Spec choices worth flagging for review** — decisions a reviewer should sanity-check (an unusual image choice, a deliberately narrow `allowedDomains`, a workaround for a known bug).
 - **Test plan** — what CI covers, plus any manual end-to-end you ran.
 - **Origin** — where the kit came from. One sentence is enough.
 
