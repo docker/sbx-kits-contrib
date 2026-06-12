@@ -6,7 +6,7 @@ description: The AI coding agent by JetBrains.
 
 agent:
   image: "docker/sandbox-templates:shell-docker"
-  aiFilename: .junie/AGENTS.md # Junie also supports AGENTS.md
+  aiFilename: AGENTS.md
   entrypoint:
     run: [junie]
 
