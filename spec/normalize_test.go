@@ -287,6 +287,32 @@ environment:
 	require.True(t, bySvc["google"].ProxyManaged)            // marked
 	require.NotNil(t, bySvc["github"])
 	require.False(t, bySvc["github"].ProxyManaged) // not in proxyManaged → unmarked
+
+	// Environment.ProxyManaged is DERIVED from the marked credentials: only
+	// google's canonical GOOGLE_API_KEY (GEMINI secondary dropped, github
+	// unmarked). This is the in-container sentinel set the engine reads.
+	require.NotNil(t, a.Environment)
+	require.Equal(t, []string{"GOOGLE_API_KEY"}, a.Environment.ProxyManaged)
+}
+
+// A v2 spec that declares apiKey.proxyManaged directly (no environment block)
+// gets Environment.ProxyManaged derived from the markers, so the engine sees
+// the in-container sentinel set without a v1 environment.proxyManaged list.
+func TestNormalizeDerivesProxyManagedFromV2Markers(t *testing.T) {
+	in := []byte(`schemaVersion: "2"
+kind: sandbox
+name: t
+sandbox: {image: x}
+credentials:
+  - service: openai
+    apiKey: {name: OPENAI_API_KEY, proxyManaged: true, inject: [{domain: api.openai.com, header: Authorization, format: "Bearer %s"}]}
+  - service: github
+    apiKey: {name: GH_TOKEN, inject: [{domain: api.github.com, header: Authorization, format: "Bearer %s"}]}
+`)
+	a, err := LoadFromBytes(in)
+	require.NoError(t, err)
+	require.NotNil(t, a.Environment)
+	require.Equal(t, []string{"OPENAI_API_KEY"}, a.Environment.ProxyManaged) // github unmarked → excluded
 }
 
 func TestDeriveServiceKey(t *testing.T) {
