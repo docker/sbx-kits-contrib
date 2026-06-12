@@ -29,6 +29,7 @@ credentials:
     - service: anthropic
       apiKey:
         name: ANTHROPIC_API_KEY
+        proxyManaged: true
         inject:
             - domain: api.anthropic.com
               header: x-api-key
