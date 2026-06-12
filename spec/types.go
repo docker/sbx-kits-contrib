@@ -370,8 +370,15 @@ func (c Credential) RoutingHosts() []string {
 // (set to the literal "proxy-managed" by the engine when this credential
 // is wired up).
 type ApiKey struct {
-	Name   string         `json:"name" yaml:"name"`
-	Inject []ApiKeyInject `json:"inject,omitempty" yaml:"inject,omitempty"`
+	Name string `json:"name" yaml:"name"`
+	// ProxyManaged, when true, makes the engine set Name to the literal
+	// "proxy-managed" sentinel inside the container (the sentinel-swap proxy
+	// replaces it on the matching inject domains). Default false: a credential
+	// is injected by the proxy on its domains but its env var is NOT set
+	// in-container unless this is set. Re-expresses the removed v1
+	// environment.proxyManaged list per-credential.
+	ProxyManaged bool           `json:"proxyManaged,omitempty" yaml:"proxyManaged,omitempty"`
+	Inject       []ApiKeyInject `json:"inject,omitempty" yaml:"inject,omitempty"`
 }
 
 // ApiKeyInject describes one (domain, header) injection rule for an

@@ -6,6 +6,26 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestApiKeyProxyManagedRoundTrips(t *testing.T) {
+	t.Run("proxyManaged true", func(t *testing.T) {
+		in := []byte("schemaVersion: \"2\"\nkind: sandbox\nname: t\nsandbox:\n  image: x\ncredentials:\n  - service: openai\n    apiKey:\n      name: OPENAI_API_KEY\n      proxyManaged: true\n      inject:\n        - {domain: api.openai.com, header: Authorization, format: \"Bearer %s\"}\n")
+		a, err := LoadFromBytes(in)
+		require.NoError(t, err)
+		require.Len(t, a.Credentials, 1)
+		require.NotNil(t, a.Credentials[0].ApiKey)
+		require.True(t, a.Credentials[0].ApiKey.ProxyManaged)
+	})
+
+	t.Run("proxyManaged absent defaults to false", func(t *testing.T) {
+		in := []byte("schemaVersion: \"2\"\nkind: sandbox\nname: t\nsandbox:\n  image: x\ncredentials:\n  - service: openai\n    apiKey:\n      name: OPENAI_API_KEY\n      inject:\n        - {domain: api.openai.com, header: Authorization, format: \"Bearer %s\"}\n")
+		a, err := LoadFromBytes(in)
+		require.NoError(t, err)
+		require.Len(t, a.Credentials, 1)
+		require.NotNil(t, a.Credentials[0].ApiKey)
+		require.False(t, a.Credentials[0].ApiKey.ProxyManaged)
+	})
+}
+
 func TestCredentialRoutingHosts(t *testing.T) {
 	// apiKey-only
 	apiKeyCred := Credential{Service: "anthropic", ApiKey: &ApiKey{
