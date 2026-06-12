@@ -12,6 +12,7 @@ import (
 // collected on w; callers surface them via Artifact.Warnings.
 func (s *specFile) normalize(w *warnings) error {
 	s.normalizeKind(w)
+	s.normalizeMixins(w)
 	if err := s.normalizeSandbox(w); err != nil {
 		return err
 	}
@@ -158,6 +159,19 @@ func (s *specFile) normalizeKind(w *warnings) {
 	}
 }
 
+// normalizeMixins records that the forward-looking `mixins:` field was
+// declared. Mixin composition (resolve the extends chain, apply the kit's
+// own fields, then apply mixins in declaration order) is not wired in this
+// release; the field is accepted so kits and the published v2 docs can use
+// it, but it has no runtime effect yet. The value is carried through to
+// Artifact.Mixins unchanged.
+func (s *specFile) normalizeMixins(w *warnings) {
+	if len(s.Mixins) == 0 {
+		return
+	}
+	w.notImplemented("mixins", "mixin composition is accepted in the schema but not yet applied by the runtime")
+}
+
 // normalizeAgentContext maps the v1 `memory:` field onto AgentContext.
 // The v2 field wins if both are set.
 func (s *specFile) normalizeAgentContext(w *warnings) {
@@ -216,6 +230,19 @@ func (s *specFile) normalizeSandbox(w *warnings) error {
 	s.Template = s.Sandbox.Image
 	s.AIFilename = s.Sandbox.AIFilename
 	s.Resources = s.Sandbox.Resources
+	s.Build = s.Sandbox.Build
+
+	// `sandbox.build` is accepted in the schema (so kits and the published v2
+	// docs can declare it) but the runtime does not build images from it yet.
+	// Warn whenever it is used, and reject build-only kits: an image source is
+	// still required this release, so a kit that supplies only `build:` would
+	// otherwise fail later with the generic "template is required" error.
+	if s.Build != nil {
+		w.notImplemented("sandbox.build", "Dockerfile builds are accepted in the schema but not yet built by the runtime; the image is taken from sandbox.image")
+		if s.Sandbox.Image == "" {
+			return fmt.Errorf("sandbox.build is accepted in the schema but not yet implemented — specify sandbox.image")
+		}
+	}
 
 	if s.Sandbox.Entrypoint != nil {
 		if len(s.Sandbox.Entrypoint.Run) > 0 {

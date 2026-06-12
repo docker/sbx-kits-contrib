@@ -101,6 +101,15 @@ type Manifest struct {
 	// Resources optionally constrains container CPU, memory, and GPU.
 	Resources *Resources `json:"resources,omitempty" yaml:"resources,omitempty"`
 
+	// Build optionally describes how to build the sandbox image from a
+	// Dockerfile, as an alternative to pulling a pre-built Template (image).
+	// Forward-compat (RFC §490, P1): accepted at decode time so kits and the
+	// published v2 docs can declare it, but NOT yet wired — the runtime does
+	// not build images from this block in this release. A kit that sets
+	// `build:` must still set `sandbox.image`; build-only kits are rejected at
+	// load with an actionable error. See BuildConfig.
+	Build *BuildConfig `json:"build,omitempty" yaml:"build,omitempty"`
+
 	// Security defines container security settings.
 	Security *Security `json:"security,omitempty" yaml:"security,omitempty"`
 
@@ -191,6 +200,36 @@ type Resources struct {
 	// GPU is the GPU allocation as a string. Format is consumer-defined
 	// (e.g. "1", "all", a vendor-specific selector).
 	GPU string `json:"gpu,omitempty" yaml:"gpu,omitempty"`
+}
+
+// BuildConfig describes how to build a container image from a Dockerfile,
+// an alternative to referencing a pre-built image (RFC §490, P1).
+//
+// Forward-compat only: this block is accepted at decode time so kit authors
+// and the published v2 docs can declare it, but the runtime does NOT build
+// images from it in this release. A kit that sets `build:` must still set
+// `sandbox.image` (the image is the source of truth this release); a
+// build-only kit is rejected at load with an actionable error. When the
+// build path lands, omitted fields take their documented defaults
+// (Context ".", Dockerfile "Dockerfile") — defaults are intentionally not
+// applied here so the decoded form round-trips exactly as written.
+type BuildConfig struct {
+	// Context is the build context directory, relative to spec.yaml.
+	// Default "." when the build path is implemented.
+	Context string `json:"context,omitempty" yaml:"context,omitempty"`
+
+	// Dockerfile is the Dockerfile path, relative to Context.
+	// Default "Dockerfile" when the build path is implemented.
+	Dockerfile string `json:"dockerfile,omitempty" yaml:"dockerfile,omitempty"`
+
+	// Args are build arguments passed to `docker build --build-arg`.
+	Args map[string]string `json:"args,omitempty" yaml:"args,omitempty"`
+
+	// Target selects a multi-stage build target.
+	Target string `json:"target,omitempty" yaml:"target,omitempty"`
+
+	// Platforms lists target platforms (e.g. "linux/amd64", "linux/arm64").
+	Platforms []string `json:"platforms,omitempty" yaml:"platforms,omitempty"`
 }
 
 // NetworkPolicy defines network rules for which external domains the agent
@@ -506,6 +545,13 @@ type Artifact struct {
 	// Extends is the optional parent kit name for single-parent inheritance.
 	Extends string `json:"extends,omitempty"`
 
+	// Mixins lists horizontal-composition components applied after the
+	// extends chain resolves (RFC §362, P1). Forward-compat: accepted at
+	// decode time so kits and the published v2 docs can declare it, but
+	// mixin composition is not wired in this release — the field has no
+	// runtime effect yet (a load-time warning fires when it is used).
+	Mixins []string `json:"mixins,omitempty"`
+
 	// Locked lists dotted YAML paths (e.g. "agent.image") on this artifact
 	// that child kits must not override during single-parent inheritance.
 	// The spec library only validates well-formedness; enforcement lives
@@ -681,6 +727,7 @@ type specFile struct {
 	// Manifest.Volumes slice.
 	Volumes volumesField  `yaml:"volumes,omitempty"`
 	Extends string        `yaml:"extends,omitempty"`
+	Mixins  []string      `yaml:"mixins,omitempty"`
 	Locked  []string      `yaml:"locked,omitempty"`
 	Sandbox *sandboxBlock `yaml:"sandbox,omitempty"`
 	// LegacyAgent holds the v1 `agent:` block. The normalize step
@@ -836,6 +883,7 @@ func (v *volumesField) UnmarshalYAML(node *yaml.Node) error {
 // field rename to keep call sites legible.
 type sandboxBlock struct {
 	Image      string           `yaml:"image,omitempty"`
+	Build      *BuildConfig     `yaml:"build,omitempty"`
 	Entrypoint *entrypointBlock `yaml:"entrypoint,omitempty"`
 	AIFilename string           `yaml:"aiFilename,omitempty"`
 	Resources  *Resources       `yaml:"resources,omitempty"`

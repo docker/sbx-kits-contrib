@@ -16,3 +16,12 @@ type warnings struct {
 func (w *warnings) deprecate(field, note string) {
 	w.messages = append(w.messages, fmt.Sprintf("deprecated field %q: %s", field, note))
 }
+
+// notImplemented records that a forward-looking field was accepted at
+// decode time but has no runtime effect yet. Distinct from deprecate: the
+// field is a future canonical spelling (declared so kits and the published
+// v2 docs can use it), not a legacy one being phased out. note explains the
+// current limitation.
+func (w *warnings) notImplemented(field, note string) {
+	w.messages = append(w.messages, fmt.Sprintf("field %q is accepted but not yet implemented: %s", field, note))
+}
