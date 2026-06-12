@@ -1,0 +1,36 @@
+schemaVersion: "1"
+kind: mixin
+name: zsh
+displayName: Zsh
+description: "Zsh shell with default configuration"
+
+network:
+  allowedDomains:
+  - sourceforge.net
+
+commands:
+  install:
+  - command: |
+      sudo apt-get update && sudo apt-get install -yqq zsh
+      sudo chsh -s /usr/bin/zsh agent
+      cat > /home/agent/.zshrc <<'ZSHRC'
+      # Zsh configuration for Docker Sandboxes
+      HISTFILE=~/.zsh_history
+      HISTSIZE=10000
+      SAVEHIST=10000
+      setopt appendhistory
+      setopt sharehistory
+      setopt incappendhistory
+      setopt autocd
+      setopt correct
+      bindkey -e
+      # Prompt
+      PS1='%n@%m:%~%# '
+      # Aliases
+      alias ll='ls -alF'
+      alias la='ls -A'
+      alias l='ls -CF'
+      ZSHRC
+      chown agent:agent /home/agent/.zshrc
+    user: "1000"
+    description: "Install Zsh and set as default shell for the agent user"

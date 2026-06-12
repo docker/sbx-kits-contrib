@@ -1,0 +1,37 @@
+schemaVersion: "1"
+kind: mixin
+name: brew
+displayName: Homebrew
+description: "Package manager for macOS and Linux"
+
+network:
+  allowedDomains:
+    - ghcr.io
+    - github.com
+    - homebrew.bintray.com
+    - formulae.brew.sh
+
+commands:
+  install:
+      - command: |
+          NONINTERACTIVE=1 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+          # Determine the user's shell and set the appropriate rc file
+          SHELL_NAME=$(basename "$SHELL")
+          case "$SHELL_NAME" in
+            bash)  RC_FILE="$HOME/.bashrc" ;;
+            zsh)   RC_FILE="$HOME/.zshrc" ;;
+            fish)  RC_FILE="$HOME/.config/fish/config.fish" ;;
+            *)     RC_FILE="$HOME/.profile" ;; # fallback to POSIX shell
+          esac
+          # Append the Homebrew environment line to the rc file
+          echo 'eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"' >> "$RC_FILE"
+          # Also evaluate it in the current shell so brew is available immediately
+          eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"
+          # Install build-essential for Debian/Ubuntu (required for compiling some Homebrew packages)
+          if command -v apt-get >/dev/null 2>&1; then
+            sudo apt-get update && sudo apt-get install -yqq build-essential
+          fi
+          # Install gcc via Homebrew
+          brew install gcc
+        user: "1000"
+        description: "Install Homebrew and set up shell integration"
