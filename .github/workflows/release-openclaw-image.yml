@@ -1,0 +1,50 @@
+name: Release OpenClaw Sandbox Image
+
+# Manual-only: builds the pre-baked openclaw sandbox image for amd64 +
+# arm64 with buildx and pushes a multi-arch manifest to Docker Hub.
+#
+# Required repository secrets:
+#   DOCKERHUB_USERNAME  Docker Hub account/namespace to push to
+#   DOCKERHUB_TOKEN     access token with push rights to
+#                       docker.io/<DOCKERHUB_USERNAME>/openclaw-sbx
+
+on:
+  workflow_dispatch:
+    inputs:
+      openclaw_version:
+        description: "openclaw npm version to bake (date-based upstream)"
+        required: true
+        default: "2026.6.5"
+      platforms:
+        description: "Docker platforms to build"
+        required: true
+        default: "linux/amd64,linux/arm64"
+      tag:
+        description: "image tag to publish"
+        required: true
+        default: "latest"
+
+jobs:
+  release:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+
+      - uses: docker/setup-qemu-action@29109295f81e9208d7d86ff1c6c12d2833863392 # v3.6.0
+
+      - uses: docker/setup-buildx-action@e468171a9de216ec08956ac3ada2f0791b6bd435 # v3.11.1
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@5e57cd118135c172c3672efd75eb46360885c0ef # v3.6.0
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Build and push
+        run: |
+          docker buildx build \
+            --push \
+            --platform "${{ inputs.platforms }}" \
+            --build-arg OPENCLAW_VERSION="${{ inputs.openclaw_version }}" \
+            --tag "docker.io/${{ secrets.DOCKERHUB_USERNAME }}/openclaw-sbx:${{ inputs.tag }}" \
+            ./openclaw
