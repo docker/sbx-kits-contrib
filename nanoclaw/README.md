@@ -59,13 +59,21 @@ directly.
 docker.io/ealeyner/nanoclaw-sbx
 └── FROM docker/sandbox-templates:claude-code-docker
     ├── Node 22 + pnpm 10
-    ├── /home/agent/nanoclaw      checkout @ pinned ref, pnpm install + tsc build
-    ├── ~/.local/bin/onecli       OneCLI CLI binary
-    └── /opt/nanoclaw/images.tar  inner images, docker-loaded at first boot:
-        ├── nanoclaw-agent:latest          (built from nanoclaw/container)
-        ├── ghcr.io/onecli/onecli:<pinned> (credential gateway)
-        └── postgres:18-alpine             (gateway database)
+    ├── /home/agent/nanoclaw            checkout @ pinned ref, pnpm install + tsc build
+    ├── ~/.local/bin/onecli             OneCLI CLI binary
+    └── /opt/nanoclaw/inner-images.txt  digest-pinned pin list, pulled at first boot:
+        ├── nanoclaw-agent              (built from nanoclaw/container, self-published)
+        ├── ghcr.io/onecli/onecli       (credential gateway)
+        └── postgres:18-alpine          (gateway database)
 ```
+
+The inner images are **pulled by digest from their registries on first
+boot** (`scripts/seed-images.sh`), not embedded in the sandbox image — so
+each ref stays visible to policy/scanning/signing, the sandbox image is a
+normal multi-arch build, and the inner images aren't stored twice. The kit's
+`spec.yaml` already opens egress to those registries. `nanoclaw-agent` has
+no upstream-published image, so the release workflow self-publishes it to
+`docker.io/<ns>/nanoclaw-agent` and pins it by digest.
 
 The `CONTAINER_IMAGE=nanoclaw-agent:latest` environment override makes
 nanoclaw use the pre-loaded agent image instead of building its own
@@ -79,9 +87,14 @@ $ ./scripts/build-image.sh
 ```
 
 This clones nanoclaw at the pinned ref (`NANOCLAW_REF`), builds the agent
-container image, pulls the OneCLI gateway images, saves all three into
-`images/<arch>/images.tar`, and builds the sandbox image. Override the tag
-with `IMAGE=docker.io/<you>/nanoclaw-sbx:latest`, then `docker push`.
+container image, and builds the sandbox image with the digest-pinned inner-
+image pin list baked in. Override the tag with
+`IMAGE=docker.io/<you>/nanoclaw-sbx:latest`, then `docker push`.
+
+`TARGET` selects what to build: `agent`, `sbx`, or `all` (default). Release
+builds run `TARGET=agent` (build + push the agent image) and `TARGET=sbx`
+(bake the resolved digests) as separate steps — see
+`.github/workflows/release-nanoclaw-image.yml`.
 
 To bump the baked nanoclaw version: update `NANOCLAW_REF` in
 `scripts/build-image.sh` (and `ONECLI_VERSION` if nanoclaw's
@@ -97,10 +110,17 @@ $ sbx template load /tmp/nanoclaw-sbx.tar
 $ sbx run --kit . nanoclaw
 ```
 
+The default local build tags `nanoclaw-agent:latest` locally without
+pushing, so `seed-images.sh` can't pull it inside the sandbox. To test the
+full first-boot path locally, either push the agent to a registry
+(`AGENT_IMAGE=docker.io/<you>/nanoclaw-agent:dev ./scripts/build-image.sh`)
+or `sbx exec <sandbox> -- docker load` the agent image into the sandbox's
+inner daemon manually.
+
 ## Debugging
 
 ```console
 $ sbx exec <sandbox> -- tail -f /home/agent/nanoclaw/logs/nanoclaw.error.log
-$ sbx exec <sandbox> -- cat /tmp/nanoclaw-load-images.log   # first-boot image seeding
+$ sbx exec <sandbox> -- cat /tmp/nanoclaw-seed-images.log   # first-boot image seeding
 $ sbx exec <sandbox> -- docker images                       # inner images present?
 ```

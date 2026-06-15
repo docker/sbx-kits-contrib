@@ -7,9 +7,10 @@ description: "Lightweight AI assistant runtime; ships the CLI channel — chat p
 sourceURL: https://github.com/docker/sbx-kits-contrib
 
 sandbox:
-  # Pre-baked image: nanoclaw checkout + build, Node 22, pnpm, OneCLI CLI,
-  # and the inner container images (nanoclaw-agent, OneCLI gateway,
-  # postgres) as an embedded archive. Built by scripts/build-image.sh.
+  # Pre-baked image: nanoclaw checkout + build, Node 22, pnpm, OneCLI CLI.
+  # The inner container images (nanoclaw-agent, OneCLI gateway, postgres)
+  # are pulled by digest from their registries on first boot, not embedded
+  # (see scripts/seed-images.sh). Built by scripts/build-image.sh.
   image: "docker.io/ealeyner/nanoclaw-sbx:latest"
   entrypoint:
     run: ["/usr/local/bin/nanoclaw-start"]
@@ -131,9 +132,9 @@ commands:
     - command: ["sh", "-c", "sudo -n chmod 666 /var/run/docker.sock 2>/dev/null || chmod 666 /var/run/docker.sock 2>/dev/null || true"]
       user: "0"
       description: Restore docker socket perms (sbx restarts the inner daemon each boot, resetting them)
-    - command: ["sh", "-c", "nohup /usr/local/bin/nanoclaw-load-images > /tmp/nanoclaw-load-images.log 2>&1 &"]
+    - command: ["sh", "-c", "nohup /usr/local/bin/nanoclaw-seed-images > /tmp/nanoclaw-seed-images.log 2>&1 &"]
       user: "1000"
-      description: Seed the inner Docker daemon from the embedded image archive in the background (first boot only, ~30s)
+      description: Seed the inner Docker daemon by pulling the inner images from their registries in the background (first boot only)
     - command: ["sh", "-c", "[ -n \"${HTTP_PROXY:-}\" ] && npm config set proxy \"$HTTP_PROXY\" && npm config set https-proxy \"${HTTPS_PROXY:-$HTTP_PROXY}\" || true"]
       user: "1000"
       description: Point npm/pnpm at the sandbox egress proxy for runtime installs (channel adapters)

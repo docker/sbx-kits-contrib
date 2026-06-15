@@ -7,9 +7,11 @@
 # service. This replaces the previous flow that cloned, pnpm-installed,
 # tsc-built, and docker-built the agent image at first boot (5-12 minutes).
 #
-# Build with scripts/build-image.sh, which first builds/pulls the inner
-# container images (nanoclaw-agent, OneCLI gateway, postgres) and stages
-# them as images/<arch>/images.tar for the COPY near the bottom.
+# Build with scripts/build-image.sh. The inner container images
+# (nanoclaw-agent, OneCLI gateway, postgres) are NOT embedded here — they
+# are pulled by digest from their registries on first boot (see
+# scripts/seed-images.sh). This image only bakes the digest-pinned pin
+# list those pulls read.
 
 FROM docker/sandbox-templates:claude-code-docker
 
@@ -42,25 +44,36 @@ RUN git clone "${NANOCLAW_REPO}" nanoclaw && \
 RUN cd nanoclaw && pnpm exec tsx scripts/upgrade-state.ts set
 
 # OneCLI CLI binary. The gateway itself (onecli + postgres containers) is
-# seeded into the inner Docker daemon from images.tar at first boot.
+# pulled into the inner Docker daemon by seed-images.sh at first boot.
 RUN curl -fsSL https://onecli.sh/cli/install | sh && \
     /home/agent/.local/bin/onecli version
 
 USER root
 COPY --chmod=0755 scripts/start-nanoclaw.sh /usr/local/bin/nanoclaw-start
-COPY --chmod=0755 scripts/load-images.sh /usr/local/bin/nanoclaw-load-images
+COPY --chmod=0755 scripts/seed-images.sh /usr/local/bin/nanoclaw-seed-images
 # Launcher for manual invocation (sbx exec <sandbox> nanoclaw ...).
 RUN printf '#!/bin/sh\ncd /home/agent/nanoclaw\nexec node dist/index.js "$@"\n' > /usr/local/bin/nanoclaw && \
     chmod 0755 /usr/local/bin/nanoclaw
 
-# Pre-built inner images, loaded into the sandbox's Docker daemon on first
-# boot by nanoclaw-load-images. Staged per-arch by scripts/build-image.sh.
-# Create the parent explicitly: COPY --chmod would otherwise apply the
-# file mode (no execute bit) to the directory it implicitly creates,
-# making it untraversable.
-RUN install -d -m 0755 /opt/nanoclaw
-ARG TARGETARCH
-COPY --chmod=0644 images/${TARGETARCH}/images.tar /opt/nanoclaw/images.tar
+# Digest-pinned pin list for the inner images seed-images.sh pulls on first
+# boot, one entry per line: "<pull-ref> <local-tag>". The pull ref should be
+# digest-pinned (CI passes <image>@sha256:...); the local tag is the name
+# NanoClaw/OneCLI expect (e.g. CONTAINER_IMAGE resolves nanoclaw-agent:latest,
+# and the gateway/db tags must match nanoclaw's setup/onecli.ts).
+# Defaults are tag-based for local dev; release builds override the *_IMAGE
+# pull refs with digests while keeping the *_TAG local names unchanged.
+ARG AGENT_IMAGE=nanoclaw-agent:latest
+ARG AGENT_TAG=nanoclaw-agent:latest
+ARG ONECLI_IMAGE=ghcr.io/onecli/onecli:1.23.0
+ARG ONECLI_TAG=ghcr.io/onecli/onecli:1.23.0
+ARG POSTGRES_IMAGE=postgres:18-alpine
+ARG POSTGRES_TAG=postgres:18-alpine
+RUN install -d -m 0755 /opt/nanoclaw && \
+    { \
+      echo "${AGENT_IMAGE} ${AGENT_TAG}"; \
+      echo "${ONECLI_IMAGE} ${ONECLI_TAG}"; \
+      echo "${POSTGRES_IMAGE} ${POSTGRES_TAG}"; \
+    } > /opt/nanoclaw/inner-images.txt
 
 USER agent
 WORKDIR /home/agent

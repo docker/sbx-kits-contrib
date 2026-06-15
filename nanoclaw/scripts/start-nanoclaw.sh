@@ -6,14 +6,14 @@
 # image, so this script only:
 #   1. restores docker socket perms (sbx restarts the inner daemon each
 #      boot, resetting them),
-#   2. seeds the inner Docker daemon from the embedded image archive
-#      (first boot only, ~30s),
+#   2. seeds the inner Docker daemon by pulling the inner images from their
+#      registries (first boot only),
 #   3. starts the NanoClaw service if it isn't running,
 #   4. hands the terminal to the setup wizard.
 
 sudo -n chmod 666 /var/run/docker.sock 2>/dev/null || true
 
-/usr/local/bin/nanoclaw-load-images || exit 1
+/usr/local/bin/nanoclaw-seed-images || exit 1
 
 cd /home/agent/nanoclaw
 mkdir -p logs data

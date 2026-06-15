@@ -1,13 +1,20 @@
 name: Release NanoClaw Sandbox Image
 
-# Manual-only: builds the pre-baked nanoclaw sandbox image natively on
-# amd64 and arm64 runners and pushes a multi-arch manifest to Docker Hub.
-# Building on runners avoids uploading multi-GB images from a laptop.
+# Manual-only. Publishes two multi-arch images to Docker Hub:
+#   - nanoclaw-agent: the inner agent container NanoClaw spawns. Built from
+#     nanoclaw's container/ dir (it has no upstream-published image), so we
+#     self-publish it here. First boot pulls it by digest.
+#   - nanoclaw-sbx:   the pre-baked sandbox image. It no longer embeds the
+#     inner images; it bakes a digest-pinned pin list that seed-images.sh
+#     pulls on first boot (nanoclaw-agent + OneCLI gateway + postgres).
+#
+# Built natively on amd64 and arm64 runners (avoids uploading large images
+# from a laptop and avoids qemu for the apt-heavy agent build).
 #
 # Required repository secrets:
 #   DOCKERHUB_USERNAME  Docker Hub account/namespace to push to
 #   DOCKERHUB_TOKEN     access token with push rights to
-#                       docker.io/<DOCKERHUB_USERNAME>/nanoclaw-sbx
+#                       docker.io/<DOCKERHUB_USERNAME>/nanoclaw-{agent,sbx}
 
 on:
   workflow_dispatch:
@@ -26,7 +33,61 @@ on:
         default: "latest"
 
 jobs:
-  build:
+  build-agent:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-24.04
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@5e57cd118135c172c3672efd75eb46360885c0ef # v3.6.0
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Build & push agent image (${{ matrix.arch }})
+        env:
+          TARGET: agent
+          NANOCLAW_REF: ${{ inputs.nanoclaw_ref }}
+          AGENT_IMAGE: docker.io/${{ secrets.DOCKERHUB_USERNAME }}/nanoclaw-agent:${{ inputs.tag }}-${{ matrix.arch }}
+        run: ./nanoclaw/scripts/build-image.sh
+
+  manifest-agent:
+    needs: build-agent
+    runs-on: ubuntu-24.04
+    outputs:
+      digest_ref: ${{ steps.manifest.outputs.digest_ref }}
+    steps:
+      - name: Log in to Docker Hub
+        uses: docker/login-action@5e57cd118135c172c3672efd75eb46360885c0ef # v3.6.0
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Create multi-arch agent manifest
+        id: manifest
+        env:
+          NS: ${{ secrets.DOCKERHUB_USERNAME }}
+          TAG: ${{ inputs.tag }}
+        run: |
+          docker buildx imagetools create \
+            -t "docker.io/$NS/nanoclaw-agent:$TAG" \
+            "docker.io/$NS/nanoclaw-agent:$TAG-amd64" \
+            "docker.io/$NS/nanoclaw-agent:$TAG-arm64"
+          DIGEST=$(docker buildx imagetools inspect \
+            "docker.io/$NS/nanoclaw-agent:$TAG" --format '{{.Manifest.Digest}}')
+          echo "agent published at docker.io/$NS/nanoclaw-agent@$DIGEST"
+          echo "digest_ref=docker.io/$NS/nanoclaw-agent@$DIGEST" >> "$GITHUB_OUTPUT"
+
+  build-sbx:
+    needs: manifest-agent
     strategy:
       fail-fast: false
       matrix:
@@ -40,8 +101,8 @@ jobs:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
       - name: Free disk space
-        # The build needs ~14GB (base template + agent image + saved tar +
-        # final image); stock runners don't have that to spare.
+        # The sandbox image build needs room for the base template + the
+        # nanoclaw checkout/build; stock runners are tight.
         run: |
           sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc \
             /usr/local/.ghcup /opt/hostedtoolcache/CodeQL
@@ -53,18 +114,34 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      - name: Build sandbox image (${{ matrix.arch }})
+      - name: Resolve inner-image digests
+        id: digests
         env:
+          ONECLI_VERSION: ${{ inputs.onecli_version }}
+        run: |
+          onecli_digest=$(docker buildx imagetools inspect \
+            "ghcr.io/onecli/onecli:${ONECLI_VERSION}" --format '{{.Manifest.Digest}}')
+          postgres_digest=$(docker buildx imagetools inspect \
+            "postgres:18-alpine" --format '{{.Manifest.Digest}}')
+          echo "onecli_image=ghcr.io/onecli/onecli@${onecli_digest}" >> "$GITHUB_OUTPUT"
+          echo "postgres_image=postgres@${postgres_digest}" >> "$GITHUB_OUTPUT"
+
+      - name: Build & push sandbox image (${{ matrix.arch }})
+        env:
+          TARGET: sbx
           NANOCLAW_REF: ${{ inputs.nanoclaw_ref }}
           ONECLI_VERSION: ${{ inputs.onecli_version }}
           IMAGE: docker.io/${{ secrets.DOCKERHUB_USERNAME }}/nanoclaw-sbx:${{ inputs.tag }}-${{ matrix.arch }}
-        run: ./nanoclaw/scripts/build-image.sh
+          # Digest-pinned pull refs baked into the pin list seed-images.sh reads.
+          AGENT_IMAGE: ${{ needs.manifest-agent.outputs.digest_ref }}
+          ONECLI_IMAGE: ${{ steps.digests.outputs.onecli_image }}
+          POSTGRES_IMAGE: ${{ steps.digests.outputs.postgres_image }}
+        run: |
+          ./nanoclaw/scripts/build-image.sh
+          docker push "$IMAGE"
 
-      - name: Push per-arch image
-        run: docker push "docker.io/${{ secrets.DOCKERHUB_USERNAME }}/nanoclaw-sbx:${{ inputs.tag }}-${{ matrix.arch }}"
-
-  manifest:
-    needs: build
+  manifest-sbx:
+    needs: build-sbx
     runs-on: ubuntu-24.04
     steps:
       - name: Log in to Docker Hub
@@ -73,7 +150,7 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      - name: Create multi-arch manifest
+      - name: Create multi-arch sandbox manifest
         env:
           NS: ${{ secrets.DOCKERHUB_USERNAME }}
           TAG: ${{ inputs.tag }}

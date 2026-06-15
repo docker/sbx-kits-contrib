@@ -1,7 +1,19 @@
-# Recipe: turn an agent into a fast, pre-baked-image sandbox kit
+# Pre-baked-image kits: transitional notes
 
-This is the repeatable process used to build the `nanoclaw/` kit (modelled
-on [shelajev/hermes-sbx-kits](https://github.com/shelajev/hermes-sbx-kits)).
+> **These are notes on a transitional approach, not a recipe to copy.**
+> Moving an agent's install-time work into a custom image (so the kit's
+> `spec.yaml` only applies *policy*) is the right shape, and the boot-time
+> win is real. But agents that orchestrate their own containers — nanoclaw,
+> hermes, openclaw, paperclip, gstack — all hit the same "inner images"
+> problem and each hand-rolls the same workaround to get those images into
+> the sandbox's Docker daemon. That's a product gap in sbx, not a pattern
+> worth propagating: the durable fix is **kit-declared inner images seeded
+> by the runtime** (tracked in [sbx#TODO](https://github.com/docker/sbx/issues/TODO)).
+> Until that lands, this page documents the least-bad interim approach
+> (digest-pinned first-boot pulls) and the gotchas worth knowing.
+
+This is the process used to build the `nanoclaw/` kit (modelled on
+[shelajev/hermes-sbx-kits](https://github.com/shelajev/hermes-sbx-kits)).
 The goal: move every install-time step into a custom Docker image so the
 kit's `spec.yaml` only applies *policy* (network, credentials, ports, env),
 and a fresh sandbox is usable in seconds instead of minutes.
@@ -34,7 +46,7 @@ Read the agent's install path end-to-end before writing anything. Catalog:
 | Source checkout @ pinned ref + dependency install + build | `credentials:` and `oauth:` policy |
 | CLI binaries the setup wizard would download | `environment.variables` (incl. overrides like `CONTAINER_IMAGE`) |
 | Entrypoint/helper scripts | `network.publishedPorts` |
-| Inner container images (as an embedded `docker save` tar) | tiny idempotent `commands.startup` glue |
+| Inner container images (published to a registry, pulled by digest at first boot) | tiny idempotent `commands.startup` glue |
 | PATH/profile setup (`/etc/sandbox-persistent.sh`) | — |
 
 Rule of thumb: if it downloads, compiles, or installs, bake it. If it
@@ -58,18 +70,34 @@ and near-instant.
   instead of `printf`-escaping it through spec.yaml install commands.
 - End with `USER agent` and a sane `CMD`.
 
-### Pre-seeding inner Docker images
+### Seeding inner Docker images
 
-You can't run a Docker daemon during `docker build`, so inner images are
-staged outside and embedded:
+The agent's inner images (the agent container it spawns, plus any gateway/
+database images) must be in the sandbox's Docker daemon before it runs.
 
-1. Build/pull them on the host (`scripts/build-image.sh`).
-2. `docker save` them into one `images/<arch>/images.tar`.
-3. `COPY images/${TARGETARCH}/images.tar /opt/<kit>/images.tar` in the
-   Dockerfile (per-arch staging keeps multi-platform builds honest).
-4. At sandbox startup, an idempotent `load-images.sh` waits for the inner
-   daemon, checks `docker image inspect`, and `docker load`s the tar under
-   a lock (first boot ~30s; later boots no-op).
+The interim approach: **digest-pinned `docker pull` at first boot**, in the
+background. The kit's `spec.yaml` already opens egress to the registries
+these come from (`registry-1.docker.io`, `ghcr.io`, …), so an idempotent
+`seed-images.sh` waits for the inner daemon, then for each ref checks
+`docker image inspect` and pulls under a lock (first boot pulls; later
+boots no-op). Refs are pinned by digest (`image@sha256:…`), so what runs is
+exactly what policy/scanning/signing can point at — the whole reason not to
+embed an opaque `docker save` tar.
+
+Every inner image must therefore be **published to a registry**. Images the
+agent only builds locally (nanoclaw builds its agent container from a
+`container/` dir) have nowhere to pull from — publish them first (upstream
+ideally, or self-publish a digest-pinned copy as a stopgap) rather than
+embedding them.
+
+> **Why not embed a `docker save` tar?** It's invisible to policy,
+> scanning, and signing (tooling only understands image refs); it stores
+> every inner image twice per sandbox (in the tar, then again in the daemon
+> after load); and the tar is arch-specific, forcing per-arch staging. An
+> earlier version of this kit did this — the digest-pinned-pull approach
+> above keeps nearly all the speedup without any of those costs. The one
+> tradeoff: first boot now depends on registry reachability instead of
+> being self-contained.
 
 If the agent derives image names dynamically (nanoclaw uses a per-checkout
 slug), find the env override (`CONTAINER_IMAGE`) and set it in
@@ -78,10 +106,11 @@ slug), find the env override (`CONTAINER_IMAGE`) and set it in
 ## 3. Write the build script
 
 `scripts/build-image.sh` does, in order: clone upstream @ pinned ref →
-build the inner agent image → pull other inner images → `docker save` all
-of them to `images/<arch>/images.tar` → `docker build` the sandbox image.
-Everything overridable via env (`NANOCLAW_REF`, `IMAGE`, …). Add
-`images/` to `.gitignore` — tars never get committed.
+build the inner agent image (and push it, so first boot can pull it) →
+`docker build` the sandbox image, baking the digest-pinned list of inner
+images the seed script will pull. Everything overridable via env
+(`NANOCLAW_REF`, `IMAGE`, …). No `docker save`, no `images/` tar — the
+inner images live in registries, not in the sandbox image.
 
 ## 4. Write spec.yaml (v2 naming)
 
@@ -131,9 +160,11 @@ available.
 
 ## 6. Publish
 
-1. `docker push docker.io/<ns>/<agent>-sbx:latest` (multi-arch via a CI
-   matrix that stages a per-arch `images/<arch>/images.tar` before one
-   `buildx` build, or single-arch to start).
+1. Publish the inner agent image (`docker push
+   docker.io/<ns>/<agent>-agent:<tag>`, multi-arch) so first boot can pull
+   it by digest, then `docker push docker.io/<ns>/<agent>-sbx:latest` (the
+   sandbox image bakes the digest list but no longer embeds the images).
+   Multi-arch via a CI matrix of native runners, or single-arch to start.
 2. Optionally `sbx kit push ./<kit> docker.io/<ns>/sbx-<agent>-kit:latest`
    to publish the kit itself as an OCI artifact. Stage a clean copy first —
    `sbx kit push` doesn't honor `.gitignore`, so a leftover `images/` tar
@@ -180,8 +211,9 @@ available.
 - **`COPY --chmod` applies the file mode to directories it implicitly
   creates** — a 0644 file mode leaves the parent directory without execute
   bits, unreadable by everyone. `RUN install -d -m 0755 <dir>` first.
-  Relatedly, `docker save` writes tars 0600, so without `--chmod=0644` the
-  embedded archive is root-only.
+  (Historical: when this kit still embedded a `docker save` tar, that tar
+  was written 0600, so it needed an explicit `--chmod=0644` on the COPY.
+  No longer relevant now that inner images are pulled, not embedded.)
 - **Install-state tripwires**: agents that record their installed version
   (nanoclaw's `data/upgrade-state.json`) refuse to start from a bare baked
   checkout. Stamp the state at image build time, the same way the agent's
