@@ -18,9 +18,9 @@ chatting in well under a minute.
 $ sbx run --kit "git+https://github.com/docker/sbx-kits-contrib.git#dir=nanoclaw" nanoclaw
 ```
 
-On attach the entrypoint seeds the inner Docker daemon from the embedded
-image archive (first boot only, ~30s), starts the nanoclaw service, and
-drops you into the setup wizard for OneCLI registration, auth, and channel
+On attach the entrypoint seeds the inner Docker daemon by pulling the inner
+images from their registries (first boot only), starts the nanoclaw service,
+and drops you into the setup wizard for OneCLI registration, auth, and channel
 pairing. Chat platform adapters (WhatsApp, Telegram, Discord, Slack, …)
 are installed via `/add-<channel>` skills from inside the session.
 
