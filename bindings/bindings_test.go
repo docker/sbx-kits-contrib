@@ -186,3 +186,24 @@ remembered:
 	require.Contains(t, second.Bindings, "github@work-org-a", "named-variant binding lost on round-trip")
 	require.Equal(t, first.Bindings, second.Bindings)
 }
+
+// TestValidate_ToleratesVariantKeysAndDomainsOnlyBindings locks the contract
+// the sandboxes side depends on (D11): a service@variant binding name and a
+// binding that declares only allowedDomains (value lives in the secret store,
+// discovery empty) must both validate. If a future validation rule wants to
+// constrain these, it must do so deliberately and update this test.
+func TestValidate_ToleratesVariantKeysAndDomainsOnlyBindings(t *testing.T) {
+	b := &UserBindings{
+		Bindings: map[string]Binding{
+			"anthropic@personal": {
+				AllowedDomains: []string{"api.anthropic.com"},
+				// Discovery intentionally empty: the value is expected in
+				// the secret store under the binding name.
+			},
+		},
+		Remembered: map[string]map[string]string{
+			"/work": {"anthropic": "anthropic@personal"},
+		},
+	}
+	require.NoError(t, Validate(b))
+}
