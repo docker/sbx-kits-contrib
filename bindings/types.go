@@ -22,10 +22,19 @@ package bindings
 // UserBindings is the on-disk credentials.yaml shape. Decoded directly
 // from YAML by Load.
 type UserBindings struct {
-	// Bindings maps a service identifier to its discovery + allow-list
-	// declaration. The service identifier matches the kit's
-	// credentials[].service from the v2 spec.
+	// Bindings maps a binding name to its discovery + allow-list
+	// declaration. The binding name is the kit's credentials[].service
+	// from the v2 spec, optionally suffixed with "@<variant>" for named
+	// variants (RFC P2). Variant selection is not implemented yet; the
+	// map preserves any @variant keys verbatim for forward-compat.
 	Bindings map[string]Binding `yaml:"bindings"`
+
+	// Remembered maps an absolute workspace path to a per-service binding
+	// selection (service -> binding name, e.g. "github" -> "github@work").
+	// RFC P2 "workspace associations." Not consulted by resolution yet;
+	// modeled here so the consent flow's save (yaml.Marshal of this struct)
+	// round-trips a user's hand-written section instead of discarding it.
+	Remembered map[string]map[string]string `yaml:"remembered,omitempty"`
 }
 
 // Binding is the per-service declaration: how to find the credential

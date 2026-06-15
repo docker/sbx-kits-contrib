@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+	"go.yaml.in/yaml/v3"
 )
 
 func TestLoad_ParsesExampleFile(t *testing.T) {
@@ -138,4 +139,50 @@ func TestDefaultPath_FallsBackToHomeDir(t *testing.T) {
 		"DefaultPath should fall back under $HOME (%q), got %q", home, path)
 	require.True(t, strings.HasSuffix(path, ".config/sbx/credentials.yaml"),
 		"DefaultPath should end with .config/sbx/credentials.yaml on non-Windows, got %q", path)
+}
+
+// TestUserBindings_RoundTripPreservesRememberedAndVariants guards D11: the
+// sandboxes-side consent flow rewrites credentials.yaml via yaml.Marshal of
+// this struct, so any section the struct does not model is silently dropped
+// on save. Named-variant keys (service@variant) and the remembered section
+// are RFC P2 features we do not implement yet but MUST not destroy when a
+// user has hand-written them. This test loads a file containing both, marshals
+// it back out, reloads, and asserts nothing was lost.
+func TestUserBindings_RoundTripPreservesRememberedAndVariants(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "credentials.yaml")
+	require.NoError(t, os.WriteFile(path, []byte(`
+bindings:
+  github:
+    discovery:
+      - env: [GITHUB_TOKEN]
+    allowedDomains: [api.github.com, github.com]
+  github@work-org-a:
+    discovery:
+      - env: [ORG_A_GITHUB_TOKEN]
+    allowedDomains: [api.github.com]
+remembered:
+  /Users/me/work/org-a:
+    github: github@work-org-a
+  /Users/me/personal/oss:
+    github: github
+`), 0o600))
+
+	first, err := Load(path)
+	require.NoError(t, err)
+	require.Contains(t, first.Bindings, "github@work-org-a")
+	require.Equal(t, "github@work-org-a", first.Remembered["/Users/me/work/org-a"]["github"])
+	require.Equal(t, "github", first.Remembered["/Users/me/personal/oss"]["github"])
+
+	// Re-marshal (what the CLI saveBindings does) and reload.
+	out, err := yaml.Marshal(first)
+	require.NoError(t, err)
+	rewritten := filepath.Join(dir, "rewritten.yaml")
+	require.NoError(t, os.WriteFile(rewritten, out, 0o600))
+
+	second, err := Load(rewritten)
+	require.NoError(t, err)
+	require.Equal(t, first.Remembered, second.Remembered, "remembered section lost on round-trip")
+	require.Contains(t, second.Bindings, "github@work-org-a", "named-variant binding lost on round-trip")
+	require.Equal(t, first.Bindings, second.Bindings)
 }
