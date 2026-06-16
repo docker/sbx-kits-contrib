@@ -1,0 +1,224 @@
+schemaVersion: "1"
+kind: mixin
+name: terraform-ops
+displayName: Terraform Ops Kit
+description: >
+  Multi-cloud Terraform toolkit for AI-assisted infrastructure-as-code management.
+  Pre-installs terraform, terragrunt, tflint, checkov, and infracost for automated
+  IaC validation, security scanning, and cost estimation. Works with any sbx agent
+  (Claude, Gemini, Copilot). Perfect for sandbox-based Terraform development where
+  the AI agent can plan, validate, and audit infrastructure autonomously.
+
+network:
+  allowedDomains:
+    # HashiCorp APT repository for terraform
+    - apt.releases.hashicorp.com
+    # GitHub releases for terragrunt and tflint download URLs
+    - github.com
+    - raw.githubusercontent.com
+    - release-assets.githubusercontent.com
+    # Python Package Index for checkov (pip install)
+    - pypi.org
+    - files.pythonhosted.org
+    # AWS CLI v2 downloads
+    - awscli.amazonaws.com
+    # Ubuntu APT mirrors (amd64 and arm64 coverage)
+    - archive.ubuntu.com
+    - security.ubuntu.com
+    - ports.ubuntu.com
+    # Docker sandbox template image sources
+    - download.docker.com
+    # Infracost API and downloads
+    - infracost.io
+    - pricing.api.infracost.io
+
+environment:
+  variables:
+    TF_IN_AUTOMATION: "1"
+    TF_INPUT: "false"
+    CHECKOV_FRAMEWORK: terraform
+    INFRACOST_SKIP_UPDATE_CHECK: "true"
+
+commands:
+  install:
+    # 1. Add HashiCorp APT repository and install Terraform
+    - command: |
+        set -euo pipefail
+        curl -fsSL https://apt.releases.hashicorp.com/gpg | gpg --dearmor -o /usr/share/keyrings/hashicorp-archive-keyring.gpg
+        # Detect Ubuntu release from /etc/os-release (focal=20.04, jammy=22.04, noble=24.04)
+        UBUNTU_RELEASE=$(grep UBUNTU_CODENAME /etc/os-release | cut -d= -f2)
+        echo "deb [signed-by=/usr/share/keyrings/hashicorp-archive-keyring.gpg] https://apt.releases.hashicorp.com ${UBUNTU_RELEASE} main" | tee /etc/apt/sources.list.d/hashicorp.list
+        apt-get update
+        apt-get install -y terraform
+        terraform version
+      user: "0"
+      description: "Install Terraform from HashiCorp official APT repository"
+
+    # 2. Install Terragrunt (multi-environment orchestration wrapper)
+    - command: |
+        set -euo pipefail
+        # Use pinned version to avoid GitHub API rate limiting
+        TERRAGRUNT_VERSION="v0.59.3"
+        curl -fsSL "https://github.com/gruntwork-io/terragrunt/releases/download/${TERRAGRUNT_VERSION}/terragrunt_linux_amd64" -o /usr/local/bin/terragrunt
+        chmod +x /usr/local/bin/terragrunt
+        terragrunt --version
+      user: "0"
+      description: "Install Terragrunt (v0.59.3)"
+
+    # 3. Install tflint (Terraform code linter)
+    - command: |
+        set -euo pipefail
+        curl -fsSL https://raw.githubusercontent.com/terraform-linters/tflint/master/install_linux.sh | bash
+        tflint --version
+      user: "0"
+      description: "Install tflint using official install script"
+
+    # 4. Install checkov (security scanning for IaC) via apt to avoid pip packaging conflicts
+    - command: |
+        set -euo pipefail
+        apt-get install -y python3-checkov || echo "checkov not available in apt; use 'pip install checkov' in your project"
+        checkov --version || echo "Note: checkov may not be available; install locally in your project venv"
+      user: "0"
+      description: "Install checkov (security framework for IaC) via apt"
+
+    # 5. Install infracost (cost estimation for Terraform)
+    # Use pinned version for reliability
+    - command: |
+        set -euo pipefail
+        INFRACOST_VERSION="v0.10.31"
+        curl -fsSL "https://github.com/infracost/infracost/releases/download/${INFRACOST_VERSION}/infracost-linux-amd64.tar.gz" -o /tmp/infracost.tar.gz
+        tar -xzf /tmp/infracost.tar.gz -C /tmp/
+        mv /tmp/infracost-linux-amd64 /usr/local/bin/infracost
+        chmod +x /usr/local/bin/infracost
+        rm /tmp/infracost.tar.gz
+        infracost --version
+      user: "0"
+      description: "Install infracost (cost estimation, v0.10.31)"
+
+    # 6. Install AWS CLI v2
+    - command: |
+        set -euo pipefail
+        cd /tmp
+        curl -fsSL "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o awscliv2.zip
+        unzip -q awscliv2.zip
+        ./aws/install --update
+        rm -rf awscliv2.zip aws
+        aws --version
+      user: "0"
+      description: "Install AWS CLI v2"
+
+  initFiles:
+    # Default tflint configuration for common best practices
+    - path: /home/agent/.tflint.hcl
+      mode: "0644"
+      description: "Default tflint configuration"
+      content: |
+        config {
+          module = true
+          force  = false
+        }
+
+        plugin "terraform" {
+          enabled = true
+          version = "0.9.0"
+          source  = "github.com/terraform-linters/tflint-ruleset-terraform"
+
+          rules = [
+            "terraform_comment_syntax",
+            "terraform_documented_outputs",
+            "terraform_documented_variables",
+            "terraform_required_version",
+            "terraform_required_providers",
+            "terraform_typed_variables",
+            "terraform_unused_declarations",
+            "terraform_unused_required_providers",
+            "terraform_workspace_remote",
+          ]
+        }
+
+    # Default checkov configuration
+    - path: /home/agent/.checkov.yml
+      mode: "0644"
+      description: "Default checkov configuration"
+      content: |
+        framework:
+          - terraform
+        compact: true
+        skip-check:
+          # Skip noisy checks (customize as needed for your organization)
+          - CKV_AWS_1
+          - CKV_AWS_158
+
+memory: |
+  ## Terraform Ops Kit
+
+  This sandbox is configured with a complete Terraform infrastructure-as-code toolkit:
+
+  ### Installed Tools
+  - **terraform** — Infrastructure-as-code framework
+  - **terragrunt** — Multi-environment orchestration wrapper
+  - **tflint** — Terraform code linter
+  - **checkov** — Security and compliance scanning for IaC
+  - **infracost** — Cost estimation for Terraform plans
+  - **aws-cli** — AWS cloud provider CLI
+
+  ### AI-Assisted Workflows
+
+  Ask Claude/Gemini to:
+  ```
+  "Plan this Terraform project and scan for security issues"
+  → Runs: terraform init && terraform plan && checkov -d .
+  → AI returns: validated plan + security report
+
+  "Estimate monthly costs for this infrastructure"
+  → Runs: infracost breakdown --path .
+  → AI returns: cost breakdown by resource
+
+  "Lint this Terraform code"
+  → Runs: tflint .
+  → AI returns: linting violations + fixes
+  ```
+
+  ### Quick Reference
+
+  ```bash
+  # Initialize Terraform workspace
+  terraform init
+
+  # Validate and lint
+  terraform validate
+  tflint .
+
+  # Plan infrastructure changes
+  terraform plan -out=tfplan
+
+  # Estimate costs
+  infracost breakdown --path .
+
+  # Security scan
+  checkov -d .
+
+  # Apply with orchestration (if using Terragrunt)
+  terragrunt apply-all
+  ```
+
+  ### Configuration Files
+
+  - **~/.tflint.hcl** — tflint rules and plugin configuration
+  - **~/.checkov.yml** — checkov framework and exclusions
+  - **$WORKDIR/terraform** — Your Terraform code (mounted workspace)
+
+  ### AWS Credentials
+
+  The sandbox inherits AWS credentials from your host:
+  - Via `~/.aws/credentials` mounted
+  - Via `AWS_PROFILE` environment variable
+  - Via `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` if set
+
+  Use `aws sts get-caller-identity` to verify authentication.
+
+  ### Next Steps
+
+  1. Mount your Terraform project: `sbx create --kit ./terraform-ops-kit/ claude /path/to/tf-project`
+  2. Ask the AI agent to plan, validate, and audit
+  3. Review outputs and iterate
