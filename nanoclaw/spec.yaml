@@ -46,6 +46,11 @@ network:
     - "checkpoint.prisma.io:443"
     - "deb.debian.org:443"
     - "security.debian.org:443"
+    - "api.telegram.org:443"
+    - "discord.com:443"
+    - "gateway.discord.gg:443"
+    - "api.slack.com:443"
+    - "slack.com:443"
   publishedPorts:
     - container: 3000
       name: webhook
@@ -135,9 +140,9 @@ commands:
     - command: ["sh", "-c", "nohup /usr/local/bin/nanoclaw-seed-images > /tmp/nanoclaw-seed-images.log 2>&1 &"]
       user: "1000"
       description: Seed the inner Docker daemon by pulling the inner images from their registries in the background (first boot only)
-    - command: ["sh", "-c", "[ -n \"${HTTP_PROXY:-}\" ] && npm config set proxy \"$HTTP_PROXY\" && npm config set https-proxy \"${HTTPS_PROXY:-$HTTP_PROXY}\" || true"]
+    - command: ["sh", "-c", "[ -n \"${HTTP_PROXY:-}\" ] && npm config set proxy \"$HTTP_PROXY\" && npm config set https-proxy \"${HTTPS_PROXY:-$HTTP_PROXY}\" && pnpm config set proxy \"$HTTP_PROXY\" && pnpm config set https-proxy \"${HTTPS_PROXY:-$HTTP_PROXY}\" || true"]
       user: "1000"
-      description: Point npm/pnpm at the sandbox egress proxy for runtime installs (channel adapters)
+      description: Point npm and pnpm at the sandbox egress proxy for runtime installs (channel adapters)
 
 oauth:
   service: anthropic
