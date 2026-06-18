@@ -1,62 +1,62 @@
-schemaVersion: "1"
-kind: agent
+schemaVersion: "2"
+kind: sandbox
 name: openclaw
 displayName: OpenClaw
-description: "Personal AI assistant with multi-platform chat, skills, and gateway support"
-
-agent:
-  image: "docker/sandbox-templates:shell-docker"
-  aiFilename: AGENTS.md
-  entrypoint:
-    run: ["/usr/local/bin/openclaw-start"]
-
-network:
-  serviceDomains:
-    api.anthropic.com: anthropic
-    console.anthropic.com: anthropic
-    claude.ai: anthropic
-  serviceAuth:
-    anthropic:
-      headerName: x-api-key
-      valueFormat: "%s"
-  allowedDomains:
-    - registry.npmjs.org
-    - "*.npmjs.org"
-    - "nodejs.org:443"
-    - "*.telegram.org"
-    - "*.discord.com"
-    - gateway.discord.gg
-    - "*.whatsapp.com"
-    - "*.whatsapp.net"
-    - "*.slack.com"
-    - openclaw.ai
-    - docs.openclaw.ai
-
+description: Personal AI assistant with multi-platform chat, skills, and gateway support
+sandbox:
+    image: docker/sandbox-templates:shell-docker
+    aiFilename: AGENTS.md
+    entrypoint:
+        run:
+            - /usr/local/bin/openclaw-start
+caps:
+    network:
+        allow:
+            - registry.npmjs.org
+            - '*.npmjs.org'
+            - nodejs.org:443
+            - '*.telegram.org'
+            - '*.discord.com'
+            - gateway.discord.gg
+            - '*.whatsapp.com'
+            - '*.whatsapp.net'
+            - '*.slack.com'
+            - openclaw.ai
+            - docs.openclaw.ai
 credentials:
-  sources:
-    anthropic:
-      env:
-        - ANTHROPIC_API_KEY
-
+    - service: anthropic
+      apiKey:
+        name: ANTHROPIC_API_KEY
+        proxyManaged: true
+        inject:
+            - domain: api.anthropic.com
+              header: x-api-key
+              format: '%s'
+            - domain: claude.ai
+              header: x-api-key
+              format: '%s'
+            - domain: console.anthropic.com
+              header: x-api-key
+              format: '%s'
 environment:
-  variables:
-    OPENCLAW_STATE_DIR: /home/agent/.openclaw
-  proxyManaged:
-    - ANTHROPIC_API_KEY
-
+    variables:
+        OPENCLAW_STATE_DIR: /home/agent/.openclaw
 commands:
-  install:
-    - command: "npm config set proxy $HTTP_PROXY && npm config set https-proxy $HTTP_PROXY"
-      user: "0"
-      description: Configure npm proxy
-    - command: "printf '#!/bin/sh\\nif ! [ -f /home/agent/.openclaw-installed ]; then\\n  echo \"Waiting for OpenClaw installation to complete...\" >&2\\n  until [ -f /home/agent/.openclaw-installed ]; do sleep 2; done\\nfi\\nexec /usr/local/share/npm-global/bin/openclaw chat\\n' > /usr/local/bin/openclaw-start && chmod +x /usr/local/bin/openclaw-start"
-      user: "0"
-      description: Create agent entrypoint early; polls for install flag before starting openclaw
-    - command: "printf '#!/bin/sh\\nnpm install -g n && n install 22 && npm install -g --maxsockets=1 --fetch-timeout=600000 openclaw@latest && touch /home/agent/.openclaw-installed\\n' > /home/agent/openclaw-install.sh && chmod +x /home/agent/openclaw-install.sh && setsid /home/agent/openclaw-install.sh > /home/agent/openclaw-install.log 2>&1 &"
-      user: "0"
-      description: Upgrade to Node.js 22 and install OpenClaw in detached background session (~3 minutes; .openclaw-installed flag written on completion)
-  startup:
-    - command: [sh, -c, "until [ -f /home/agent/.openclaw-installed ]; do sleep 5; done; /usr/local/share/npm-global/bin/openclaw gateway run --allow-unconfigured"]
-      user: "1000"
-      background: true
-      description: Wait for install then start OpenClaw gateway
+    install:
+        - command: npm config set proxy $HTTP_PROXY && npm config set https-proxy $HTTP_PROXY
+          user: "0"
+          description: Configure npm proxy
+        - command: printf '#!/bin/sh\nif ! [ -f /home/agent/.openclaw-installed ]; then\n  echo "Waiting for OpenClaw installation to complete..." >&2\n  until [ -f /home/agent/.openclaw-installed ]; do sleep 2; done\nfi\nexec /usr/local/share/npm-global/bin/openclaw chat\n' > /usr/local/bin/openclaw-start && chmod +x /usr/local/bin/openclaw-start
+          user: "0"
+          description: Create agent entrypoint early; polls for install flag before starting openclaw
+        - command: printf '#!/bin/sh\nnpm install -g n && n install 22 && npm install -g --maxsockets=1 --fetch-timeout=600000 openclaw@latest && touch /home/agent/.openclaw-installed\n' > /home/agent/openclaw-install.sh && chmod +x /home/agent/openclaw-install.sh && setsid /home/agent/openclaw-install.sh > /home/agent/openclaw-install.log 2>&1 &
+          user: "0"
+          description: Upgrade to Node.js 22 and install OpenClaw in detached background session (~3 minutes; .openclaw-installed flag written on completion)
+    startup:
+        - command:
+            - sh
+            - -c
+            - until [ -f /home/agent/.openclaw-installed ]; do sleep 5; done; /usr/local/share/npm-global/bin/openclaw gateway run --allow-unconfigured
+          user: "1000"
+          background: true
+          description: Wait for install then start OpenClaw gateway

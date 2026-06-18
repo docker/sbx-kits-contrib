@@ -1,73 +1,66 @@
-schemaVersion: "1"
-kind: agent
+schemaVersion: "2"
+kind: sandbox
 name: hermes-agent
 displayName: Hermes Agent
-description: "The self-improving AI agent by Nous Research — creates skills from experience, supports 200+ models via OpenRouter, and runs anywhere"
-
-agent:
-  image: "docker/sandbox-templates:shell-docker"
-  aiFilename: AGENTS.md
-  entrypoint:
-    run: ["/usr/local/bin/hermes-start"]
-
-network:
-  serviceDomains:
-    api.anthropic.com: anthropic
-    api.openai.com: openai
-    openrouter.ai: openrouter
-  serviceAuth:
-    anthropic:
-      headerName: x-api-key
-      valueFormat: "%s"
-    openai:
-      headerName: Authorization
-      valueFormat: "Bearer %s"
-    openrouter:
-      headerName: Authorization
-      valueFormat: "Bearer %s"
-  allowedDomains:
-    - github.com
-    - raw.githubusercontent.com
-    - objects.githubusercontent.com
-    - pypi.org
-    - files.pythonhosted.org
-    - astral.sh
-    - openrouter.ai
-    - "*.openrouter.ai"
-    - api.openai.com
-    - api.anthropic.com
-    - portal.nousresearch.com
-    - duckduckgo.com        # install.sh connectivity probe alongside pypi.org
-    - archive.ubuntu.com    # Ubuntu archive (amd64 main)
-    - security.ubuntu.com   # Ubuntu security updates (amd64)
-    - ports.ubuntu.com      # Ubuntu archive/security (arm64)
-    - download.docker.com   # Docker's apt repo
-
+description: The self-improving AI agent by Nous Research — creates skills from experience, supports 200+ models via OpenRouter, and runs anywhere
+sandbox:
+    image: docker/sandbox-templates:shell-docker
+    aiFilename: AGENTS.md
+    entrypoint:
+        run:
+            - /usr/local/bin/hermes-start
+caps:
+    network:
+        allow:
+            - github.com
+            - raw.githubusercontent.com
+            - objects.githubusercontent.com
+            - pypi.org
+            - files.pythonhosted.org
+            - astral.sh
+            - openrouter.ai
+            - '*.openrouter.ai'
+            - api.openai.com
+            - api.anthropic.com
+            - portal.nousresearch.com
+            - duckduckgo.com        # install.sh connectivity probe alongside pypi.org
+            - archive.ubuntu.com    # Ubuntu archive (amd64 main)
+            - security.ubuntu.com   # Ubuntu security updates (amd64)
+            - ports.ubuntu.com      # Ubuntu archive/security (arm64)
+            - download.docker.com   # Docker's apt repo
 credentials:
-  sources:
-    anthropic:
-      env:
-        - ANTHROPIC_API_KEY
-    openai:
-      env:
-        - OPENAI_API_KEY
-    openrouter:
-      env:
-        - OPENROUTER_API_KEY
-
+    - service: anthropic
+      apiKey:
+        name: ANTHROPIC_API_KEY
+        proxyManaged: true
+        inject:
+            - domain: api.anthropic.com
+              header: x-api-key
+              format: '%s'
+    - service: openai
+      apiKey:
+        name: OPENAI_API_KEY
+        proxyManaged: true
+        inject:
+            - domain: api.openai.com
+              header: Authorization
+              format: Bearer %s
+    - service: openrouter
+      apiKey:
+        name: OPENROUTER_API_KEY
+        proxyManaged: true
+        inject:
+            - domain: openrouter.ai
+              header: Authorization
+              format: Bearer %s
 environment:
-  proxyManaged:
-    - ANTHROPIC_API_KEY
-    - OPENAI_API_KEY
-    - OPENROUTER_API_KEY
-  variables:
-    HERMES_HOME: /home/agent/.hermes
-
+    variables:
+        HERMES_HOME: /home/agent/.hermes
 commands:
-  install:
-    - command: "printf '#!/bin/sh\\nif ! [ -f /home/agent/.hermes-installed ]; then\\n  echo \"Waiting for Hermes Agent installation (~3 min)...\" >&2\\n  until [ -f /home/agent/.hermes-installed ]; do sleep 3; done\\nfi\\nexec /home/agent/.local/bin/hermes \"$@\"\\n' > /usr/local/bin/hermes-start && chmod +x /usr/local/bin/hermes-start"
-      user: "0"
-      description: Create entrypoint wrapper that polls for install completion before launching hermes
-    - command: "printf '#!/bin/bash\\nset -e\\ncurl -fsSL https://raw.githubusercontent.com/NousResearch/hermes-agent/main/scripts/install.sh | bash -s -- --skip-setup\\ntouch /home/agent/.hermes-installed\\n' > /home/agent/hermes-install.sh && chmod +x /home/agent/hermes-install.sh && setsid /home/agent/hermes-install.sh > /home/agent/hermes-install.log 2>&1 &"
-      user: "1000"
-      description: Install Hermes Agent via official installer in detached background session (~3 minutes; writes .hermes-installed flag on completion)
+    install:
+        - command: printf '#!/bin/sh\nif ! [ -f /home/agent/.hermes-installed ]; then\n  echo "Waiting for Hermes Agent installation (~3 min)..." >&2\n  until [ -f /home/agent/.hermes-installed ]; do sleep 3; done\nfi\nexec /home/agent/.local/bin/hermes "$@"\n' > /usr/local/bin/hermes-start && chmod +x /usr/local/bin/hermes-start
+          user: "0"
+          description: Create entrypoint wrapper that polls for install completion before launching hermes
+        - command: printf '#!/bin/bash\nset -e\ncurl -fsSL https://raw.githubusercontent.com/NousResearch/hermes-agent/main/scripts/install.sh | bash -s -- --skip-setup\ntouch /home/agent/.hermes-installed\n' > /home/agent/hermes-install.sh && chmod +x /home/agent/hermes-install.sh && setsid /home/agent/hermes-install.sh > /home/agent/hermes-install.log 2>&1 &
+          user: "1000"
+          description: Install Hermes Agent via official installer in detached background session (~3 minutes; writes .hermes-installed flag on completion)

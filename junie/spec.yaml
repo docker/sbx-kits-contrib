@@ -1,81 +1,78 @@
-schemaVersion: "1"
-kind: agent
+schemaVersion: "2"
+kind: sandbox
 name: junie
 displayName: Junie
 description: The AI coding agent by JetBrains.
-
-agent:
-  image: "docker/sandbox-templates:shell-docker"
-  aiFilename: AGENTS.md
-  entrypoint:
-    run: [junie]
-
-network:
-  serviceDomains:
-    junie.jetbrains.com: junie
-    api.anthropic.com: anthropic
-    api.openai.com: openai
-    generativelanguage.googleapis.com: google
-    api.x.ai: xai
-    openrouter.ai: openrouter
-  serviceAuth:
-    junie:
-      headerName: Authorization
-      valueFormat: "Bearer %s"
-    anthropic:
-      headerName: x-api-key
-      valueFormat: "%s"
-    openai:
-      headerName: Authorization
-      valueFormat: "Bearer %s"
-    google:
-      headerName: x-goog-api-key
-      valueFormat: "%s"
-    xai:
-      headerName: Authorization
-      valueFormat: "Bearer %s"
-    openrouter:
-      headerName: Authorization
-      valueFormat: "Bearer %s"
-  allowedDomains:
-    - "junie.jetbrains.com"
-    - "api.jetbrains.ai"
-    - "github.com"
-    - "raw.githubusercontent.com"
-    - "release-assets.githubusercontent.com"
-    - "api.anthropic.com"
-    - "api.openai.com"
-    - "generativelanguage.googleapis.com"
-    - "api.x.ai"
-    - "openrouter.ai"
-
+sandbox:
+    image: docker/sandbox-templates:shell-docker
+    aiFilename: AGENTS.md
+    entrypoint:
+        run:
+            - junie
+caps:
+    network:
+        allow:
+            - junie.jetbrains.com
+            - api.jetbrains.ai
+            - github.com
+            - raw.githubusercontent.com
+            - release-assets.githubusercontent.com
+            - api.anthropic.com
+            - api.openai.com
+            - generativelanguage.googleapis.com
+            - api.x.ai
+            - openrouter.ai
 credentials:
-  sources:
-    junie:
-      env: [JUNIE_API_KEY]
-    anthropic:
-      env: [ANTHROPIC_API_KEY]
-    openai:
-      env: [OPENAI_API_KEY]
-    google:
-      env: [GEMINI_API_KEY, GOOGLE_GENERATIVE_AI_API_KEY]
-    xai:
-      env: [XAI_API_KEY]
-    openrouter:
-      env: [OPENROUTER_API_KEY]
-
-environment:
-  proxyManaged:
-    - JUNIE_API_KEY
-    - ANTHROPIC_API_KEY
-    - OPENAI_API_KEY
-    - GEMINI_API_KEY
-    - GOOGLE_GENERATIVE_AI_API_KEY
-    - XAI_API_KEY
-    - OPENROUTER_API_KEY
-
+    - service: anthropic
+      apiKey:
+        name: ANTHROPIC_API_KEY
+        proxyManaged: true
+        inject:
+            - domain: api.anthropic.com
+              header: x-api-key
+              format: '%s'
+    - service: google
+      apiKey:
+        name: GEMINI_API_KEY
+        proxyManaged: true
+        inject:
+            - domain: generativelanguage.googleapis.com
+              header: x-goog-api-key
+              format: '%s'
+    - service: junie
+      apiKey:
+        name: JUNIE_API_KEY
+        proxyManaged: true
+        inject:
+            - domain: junie.jetbrains.com
+              header: Authorization
+              format: Bearer %s
+    - service: openai
+      apiKey:
+        name: OPENAI_API_KEY
+        proxyManaged: true
+        inject:
+            - domain: api.openai.com
+              header: Authorization
+              format: Bearer %s
+    - service: openrouter
+      apiKey:
+        name: OPENROUTER_API_KEY
+        proxyManaged: true
+        inject:
+            - domain: openrouter.ai
+              header: Authorization
+              format: Bearer %s
+    - service: xai
+      apiKey:
+        name: XAI_API_KEY
+        proxyManaged: true
+        inject:
+            - domain: api.x.ai
+              header: Authorization
+              format: Bearer %s
 commands:
-  install:
-    - command: "curl -fsSL https://junie.jetbrains.com/install.sh | bash"
-      user: "1000"
-      description: Install Junie
+    install:
+        - command: curl -fsSL https://junie.jetbrains.com/install.sh | bash
+          user: "1000"
+          description: Install Junie

@@ -1,101 +1,98 @@
-schemaVersion: "1"
-kind: agent
+schemaVersion: "2"
+kind: sandbox
 name: claude-ollama
 displayName: Claude Code (Ollama)
 description: Claude Code wired to Ollama Anthropic-compatible API, with configurable model.
-
-agent:
-  image: "docker/sandbox-templates:claude-code-docker"
-  aiFilename: CLAUDE.md
-  entrypoint:
-    run: [/home/agent/.local/bin/claude-ollama]
-
+sandbox:
+    image: docker/sandbox-templates:claude-code-docker
+    aiFilename: CLAUDE.md
+    entrypoint:
+        run:
+            - /home/agent/.local/bin/claude-ollama
+caps:
+    network:
+        allow:
+            - localhost:11434
 environment:
-  variables:
-    CLAUDE_OLLAMA_MODEL: "gemma4:e4b-it-q4_K_M"
-
-network:
-  allowedDomains:
-    - "localhost:11434"
-
+    variables:
+        CLAUDE_OLLAMA_MODEL: gemma4:e4b-it-q4_K_M
 commands:
-  # Phase 4 lifts the former `settings: { containerSettings: { claude: true } }`
-  # block into the kit. ~/.claude.json carries only the credential-independent
-  # bypass flags (static init file, native onlyIfMissing idempotency). The
-  # settings.json is seeded in commands.install below. Content SYNCed with the
-  # claude kit.
-  #
-  # This kit declares NO credential service (Ollama is a local model; the
-  # claude-ollama wrapper unsets ANTHROPIC_API_KEY and points Claude Code at
-  # http://host.docker.internal:11434), so the Stage B emitter never sets
-  # SBX_CRED_ANTHROPIC_MODE. The install branch therefore always takes the
-  # unset → "none" path: settings.json is written WITHOUT apiKeyHelper, which
-  # is correct since there is no proxy-managed cloud credential.
-  install:
-    # Seed ~/.claude/settings.json early (install runs synchronously before the
-    # agent launches). This kit declares no credential service, so
-    # SBX_CRED_ANTHROPIC_MODE is never set in the container env and the branch
-    # always falls through to the unset → "none" path: settings.json is written
-    # WITHOUT apiKeyHelper. The test -f guard makes re-runs a no-op and never
-    # clobbers a user-edited file. settings.json content SYNCed with the claude
-    # kit (none path). root-write + chown because contrib base-image ownership
-    # of /home/agent/.claude is not guaranteed agent-owned.
-    - command: |
-        set -e
-        mkdir -p /home/agent/.claude
-        if [ ! -f /home/agent/.claude/settings.json ]; then
-          HELPER=''
-          if [ "${SBX_CRED_ANTHROPIC_MODE:-none}" != none ]; then
-            HELPER='  "apiKeyHelper": "echo proxy-managed",
-        '
-          fi
-          printf '%s' "{
-          \"themeId\": 1,
-          \"alwaysThinkingEnabled\": true,
-        ${HELPER}  \"defaultMode\": \"bypassPermissions\",
-          \"bypassPermissionsModeAccepted\": true
-        }
-        " > /home/agent/.claude/settings.json
-        fi
-        chown -R agent:agent /home/agent/.claude
-      user: "root"
-      description: Seed Claude settings.json (none path; no credential service)
-  initFiles:
-    - path: /home/agent/.claude.json
-      content: |
-        {
-          "bypassPermissionsModeAccepted": true,
-          "hasCompletedOnboarding": true,
-          "projects": {
-              "/": {
-              "hasTrustDialogAccepted": true
+    # Phase 4 lifts the former `settings: { containerSettings: { claude: true } }`
+    # block into the kit. ~/.claude.json carries only the credential-independent
+    # bypass flags (static init file, native onlyIfMissing idempotency). The
+    # settings.json is seeded in commands.install below. Content SYNCed with the
+    # claude kit.
+    #
+    # This kit declares NO credential service (Ollama is a local model; the
+    # claude-ollama wrapper unsets ANTHROPIC_API_KEY and points Claude Code at
+    # http://host.docker.internal:11434), so the Stage B emitter never sets
+    # SBX_CRED_ANTHROPIC_MODE. The install branch therefore always takes the
+    # unset → "none" path: settings.json is written WITHOUT apiKeyHelper, which
+    # is correct since there is no proxy-managed cloud credential.
+    install:
+        # Seed ~/.claude/settings.json early (install runs synchronously before the
+        # agent launches). This kit declares no credential service, so
+        # SBX_CRED_ANTHROPIC_MODE is never set in the container env and the branch
+        # always falls through to the unset → "none" path: settings.json is written
+        # WITHOUT apiKeyHelper. The test -f guard makes re-runs a no-op and never
+        # clobbers a user-edited file. settings.json content SYNCed with the claude
+        # kit (none path). root-write + chown because contrib base-image ownership
+        # of /home/agent/.claude is not guaranteed agent-owned.
+        - command: |
+            set -e
+            mkdir -p /home/agent/.claude
+            if [ ! -f /home/agent/.claude/settings.json ]; then
+              HELPER=''
+              if [ "${SBX_CRED_ANTHROPIC_MODE:-none}" != none ]; then
+                HELPER='  "apiKeyHelper": "echo proxy-managed",
+            '
+              fi
+              printf '%s' "{
+              \"themeId\": 1,
+              \"alwaysThinkingEnabled\": true,
+            ${HELPER}  \"defaultMode\": \"bypassPermissions\",
+              \"bypassPermissionsModeAccepted\": true
             }
-          }
-        }
-      onlyIfMissing: true
-      description: Claude bypass flags (mode-independent)
-    - path: /home/agent/.local/bin/claude-ollama
-      mode: "0755"
-      description: Wrapper script that routes Claude Code to the local Ollama instance
-      content: |
-        #!/usr/bin/env bash
-        set -euo pipefail
+            " > /home/agent/.claude/settings.json
+            fi
+            chown -R agent:agent /home/agent/.claude
+          user: root
+          description: Seed Claude settings.json (none path; no credential service)
+    initFiles:
+        - path: /home/agent/.claude.json
+          content: |
+            {
+              "bypassPermissionsModeAccepted": true,
+              "hasCompletedOnboarding": true,
+              "projects": {
+                  "/": {
+                  "hasTrustDialogAccepted": true
+                }
+              }
+            }
+          onlyIfMissing: true
+          description: Claude bypass flags (mode-independent)
+        - path: /home/agent/.local/bin/claude-ollama
+          content: |
+            #!/usr/bin/env bash
+            set -euo pipefail
 
-        export ANTHROPIC_AUTH_TOKEN="ollama"
-        unset ANTHROPIC_API_KEY
-        export ANTHROPIC_BASE_URL="http://host.docker.internal:11434"
+            export ANTHROPIC_AUTH_TOKEN="ollama"
+            unset ANTHROPIC_API_KEY
+            export ANTHROPIC_BASE_URL="http://host.docker.internal:11434"
 
-        export ANTHROPIC_DEFAULT_OPUS_MODEL="$CLAUDE_OLLAMA_MODEL"
-        export ANTHROPIC_DEFAULT_SONNET_MODEL="$CLAUDE_OLLAMA_MODEL"
-        export ANTHROPIC_DEFAULT_HAIKU_MODEL="$CLAUDE_OLLAMA_MODEL"
-        export CLAUDE_CODE_SUBAGENT_MODEL="$CLAUDE_OLLAMA_MODEL"
+            export ANTHROPIC_DEFAULT_OPUS_MODEL="$CLAUDE_OLLAMA_MODEL"
+            export ANTHROPIC_DEFAULT_SONNET_MODEL="$CLAUDE_OLLAMA_MODEL"
+            export ANTHROPIC_DEFAULT_HAIKU_MODEL="$CLAUDE_OLLAMA_MODEL"
+            export CLAUDE_CODE_SUBAGENT_MODEL="$CLAUDE_OLLAMA_MODEL"
 
-        exec claude "$@"
+            exec claude "$@"
+          mode: "0755"
+          description: Wrapper script that routes Claude Code to the local Ollama instance
+agentContext: |
+    ## Sandbox environment
 
-memory: |
-  ## Sandbox environment
-
-  You are running inside a Docker sandbox. All API calls are routed to a local
-  Ollama instance on the host (http://host.docker.internal:11434) — Anthropic's
-  API is not reachable. The workspace is mounted at its absolute host path.
-  `sudo` is passwordless; use it for package installs.
+    You are running inside a Docker sandbox. All API calls are routed to a local
+    Ollama instance on the host (http://host.docker.internal:11434) — Anthropic's
+    API is not reachable. The workspace is mounted at its absolute host path.
+    `sudo` is passwordless; use it for package installs.

@@ -1,55 +1,53 @@
-schemaVersion: "1"
+schemaVersion: "2"
 kind: mixin
 name: vale
 displayName: Vale
 description: Installs the Vale prose linter from a pinned GitHub release.
-
-network:
-  allowedDomains:
-    # Release tarball download (install time, one-shot).
-    # github.com 302-redirects to release-assets.githubusercontent.com for binary downloads.
-    - github.com
-    - release-assets.githubusercontent.com
-
+caps:
+    network:
+        allow:
+            # Release tarball download (install time, one-shot).
+            # github.com 302-redirects to release-assets.githubusercontent.com for binary downloads.
+            - github.com
+            - release-assets.githubusercontent.com
 commands:
-  install:
-    # Install Vale from a pinned, SHA256-verified GitHub release. We deliberately
-    # do NOT query api.github.com for `releases/latest`: unauthenticated API calls
-    # from shared CI runner IPs hit the 60-req/hr rate limit and 403, making installs
-    # flaky. Pinning by version + SHA256 (in the kit, in git) is also the safer supply
-    # chain. To bump: change VALE_VERSION plus the per-arch SHA256 below (sourced from
-    # the release's checksums.txt).
-    - command: |
-        set -euo pipefail
-        VALE_VERSION=3.14.2
-        ARCH=$(dpkg --print-architecture)
-        case "$ARCH" in
-          amd64)
-            TARBALL="vale_${VALE_VERSION}_Linux_64-bit.tar.gz"
-            SHA256="469cf88ec58a374dca14b2564c4391d2c9a1c632210aa0b642758b794082e05f"
-            ;;
-          arm64)
-            TARBALL="vale_${VALE_VERSION}_Linux_arm64.tar.gz"
-            SHA256="b11fa9955b93814f993442568b9b922604cc4b574643037b84900e9514860802"
-            ;;
-          *)
-            echo "unsupported arch: $ARCH" >&2
-            exit 1
-            ;;
-        esac
-        curl --proto '=https' --tlsv1.2 -fsSL \
-          -o /tmp/vale.tgz \
-          "https://github.com/vale-cli/vale/releases/download/v${VALE_VERSION}/${TARBALL}"
-        echo "${SHA256}  /tmp/vale.tgz" | sha256sum -c -
-        tar -C /usr/local/bin -xzf /tmp/vale.tgz vale
-        rm /tmp/vale.tgz
-        vale --version
-      user: "0"
-      description: "Install pinned Vale CLI"
+    install:
+        # Install Vale from a pinned, SHA256-verified GitHub release. We deliberately
+        # do NOT query api.github.com for `releases/latest`: unauthenticated API calls
+        # from shared CI runner IPs hit the 60-req/hr rate limit and 403, making installs
+        # flaky. Pinning by version + SHA256 (in the kit, in git) is also the safer supply
+        # chain. To bump: change VALE_VERSION plus the per-arch SHA256 below (sourced from
+        # the release's checksums.txt).
+        - command: |
+            set -euo pipefail
+            VALE_VERSION=3.14.2
+            ARCH=$(dpkg --print-architecture)
+            case "$ARCH" in
+              amd64)
+                TARBALL="vale_${VALE_VERSION}_Linux_64-bit.tar.gz"
+                SHA256="469cf88ec58a374dca14b2564c4391d2c9a1c632210aa0b642758b794082e05f"
+                ;;
+              arm64)
+                TARBALL="vale_${VALE_VERSION}_Linux_arm64.tar.gz"
+                SHA256="b11fa9955b93814f993442568b9b922604cc4b574643037b84900e9514860802"
+                ;;
+              *)
+                echo "unsupported arch: $ARCH" >&2
+                exit 1
+                ;;
+            esac
+            curl --proto '=https' --tlsv1.2 -fsSL \
+              -o /tmp/vale.tgz \
+              "https://github.com/vale-cli/vale/releases/download/v${VALE_VERSION}/${TARBALL}"
+            echo "${SHA256}  /tmp/vale.tgz" | sha256sum -c -
+            tar -C /usr/local/bin -xzf /tmp/vale.tgz vale
+            rm /tmp/vale.tgz
+            vale --version
+          user: "0"
+          description: Install pinned Vale CLI
+agentContext: |
+    ## Vale prose linter
 
-memory: |
-  ## Vale prose linter
-
-  The `vale` CLI is installed and available on `PATH`. Use it to lint
-  prose in Markdown, AsciiDoc, reStructuredText, and other text formats.
-  Run `vale --version` to confirm, and `vale <file>` to lint a file.
+    The `vale` CLI is installed and available on `PATH`. Use it to lint
+    prose in Markdown, AsciiDoc, reStructuredText, and other text formats.
+    Run `vale --version` to confirm, and `vale <file>` to lint a file.
