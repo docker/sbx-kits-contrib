@@ -3,6 +3,7 @@ package spec
 import (
 	"bytes"
 	"fmt"
+	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -19,7 +20,9 @@ const (
 	filesDirWork    = "files/workspace"
 )
 
-// LoadFromDirectory loads a kit artifact from a local directory.
+// LoadFromDirectory loads a kit artifact from a local directory. All file
+// content is read into memory (eager path). The returned artifact is fully
+// validated.
 func LoadFromDirectory(dir string) (*Artifact, error) {
 	info, err := os.Stat(dir)
 	if err != nil {
@@ -38,10 +41,26 @@ func LoadFromDirectory(dir string) (*Artifact, error) {
 		return nil, err
 	}
 
-	artifact.Files, err = collectFilesFromDir(dir)
+	entries, err := enumerateDirFiles(dir)
 	if err != nil {
 		return nil, fmt.Errorf("artifact files: %w", err)
 	}
+
+	files := make([]ArtifactFile, 0, len(entries))
+	for _, e := range entries {
+		data, err := os.ReadFile(e.realPath)
+		if err != nil {
+			return nil, fmt.Errorf("artifact files: read file %s: %w", e.realPath, err)
+		}
+		files = append(files, ArtifactFile{
+			RelativePath: e.relativePath,
+			Target:       e.target,
+			Mode:         e.mode,
+			Content:      data,
+			Size:         e.size,
+		})
+	}
+	artifact.Files = files
 
 	if err := ValidateArtifact(artifact); err != nil {
 		return nil, err
@@ -50,7 +69,62 @@ func LoadFromDirectory(dir string) (*Artifact, error) {
 	return artifact, nil
 }
 
-// LoadFromFS loads a kit artifact from an fs.FS (e.g., embed.FS or os.DirFS).
+// OpenFromDirectory opens a kit artifact from a local directory using the
+// streaming path. Metadata is enumerated and all safety checks (symlink
+// escape, path validation) are performed eagerly at load time, but file
+// content is not read into memory. Each ArtifactFile.Open call opens the
+// file on demand, allowing callers to process one file at a time.
+//
+// The returned artifact is fully validated. Streaming files have Content nil
+// and ContentSource non-nil; use ArtifactFile.Open to read content, or call
+// Artifact.Materialize to populate Content for all files at once.
+func OpenFromDirectory(dir string) (*Artifact, error) {
+	info, err := os.Stat(dir)
+	if err != nil {
+		return nil, fmt.Errorf("artifact directory: %w", err)
+	}
+	if !info.IsDir() {
+		return nil, fmt.Errorf("artifact: %q is not a directory", dir)
+	}
+
+	readFile := func(name string) ([]byte, error) {
+		return os.ReadFile(filepath.Join(dir, name))
+	}
+
+	artifact, err := parseArtifact(readFile)
+	if err != nil {
+		return nil, err
+	}
+
+	entries, err := enumerateDirFiles(dir)
+	if err != nil {
+		return nil, fmt.Errorf("artifact files: %w", err)
+	}
+
+	files := make([]ArtifactFile, 0, len(entries))
+	for _, e := range entries {
+		files = append(files, ArtifactFile{
+			RelativePath: e.relativePath,
+			Target:       e.target,
+			Mode:         e.mode,
+			Size:         e.size,
+			ContentSource: func() (io.ReadCloser, error) {
+				return os.Open(e.realPath)
+			},
+		})
+	}
+	artifact.Files = files
+
+	if err := ValidateArtifact(artifact); err != nil {
+		return nil, err
+	}
+
+	return artifact, nil
+}
+
+// LoadFromFS loads a kit artifact from an fs.FS (e.g., embed.FS or
+// os.DirFS). All file content is read into memory (eager path). The
+// returned artifact is fully validated.
 func LoadFromFS(fsys fs.FS, dir string) (*Artifact, error) {
 	dir = filepath.ToSlash(dir)
 
@@ -63,10 +137,72 @@ func LoadFromFS(fsys fs.FS, dir string) (*Artifact, error) {
 		return nil, err
 	}
 
-	artifact.Files, err = collectFilesFromFS(fsys, dir)
+	entries, err := enumerateFSFiles(fsys, dir)
 	if err != nil {
 		return nil, fmt.Errorf("artifact files: %w", err)
 	}
+
+	files := make([]ArtifactFile, 0, len(entries))
+	for _, e := range entries {
+		data, err := fs.ReadFile(fsys, e.fsPath)
+		if err != nil {
+			return nil, fmt.Errorf("artifact files: read file %s: %w", e.fsPath, err)
+		}
+		files = append(files, ArtifactFile{
+			RelativePath: e.relativePath,
+			Target:       e.target,
+			Mode:         e.mode,
+			Content:      data,
+			Size:         int64(len(data)),
+		})
+	}
+	artifact.Files = files
+
+	if err := ValidateArtifact(artifact); err != nil {
+		return nil, err
+	}
+
+	return artifact, nil
+}
+
+// OpenFromFS opens a kit artifact from an fs.FS (e.g., embed.FS or
+// os.DirFS) using the streaming path. Metadata is enumerated eagerly but
+// file content is not read into memory. Each ArtifactFile.Open call opens
+// the file on demand via the FS.
+//
+// The returned artifact is fully validated. Streaming files have Content nil
+// and ContentSource non-nil; use ArtifactFile.Open to read content, or call
+// Artifact.Materialize to populate Content for all files at once.
+func OpenFromFS(fsys fs.FS, dir string) (*Artifact, error) {
+	dir = filepath.ToSlash(dir)
+
+	readFile := func(name string) ([]byte, error) {
+		return fs.ReadFile(fsys, filepath.ToSlash(filepath.Join(dir, name)))
+	}
+
+	artifact, err := parseArtifact(readFile)
+	if err != nil {
+		return nil, err
+	}
+
+	entries, err := enumerateFSFiles(fsys, dir)
+	if err != nil {
+		return nil, fmt.Errorf("artifact files: %w", err)
+	}
+
+	files := make([]ArtifactFile, 0, len(entries))
+	for _, e := range entries {
+		files = append(files, ArtifactFile{
+			RelativePath: e.relativePath,
+			Target:       e.target,
+			Mode:         e.mode,
+			Size:         e.size,
+			ContentSource: func() (io.ReadCloser, error) {
+				return fsys.Open(e.fsPath)
+			},
+		})
+	}
+	artifact.Files = files
 
 	if err := ValidateArtifact(artifact); err != nil {
 		return nil, err
@@ -87,6 +223,39 @@ func LoadFromFS(fsys fs.FS, dir string) (*Artifact, error) {
 // has no notion of a file source.
 func LoadFromBytes(yamlBytes []byte) (*Artifact, error) {
 	return parseArtifactBytes(yamlBytes)
+}
+
+// Materialize reads any streamed files (Content == nil, ContentSource set)
+// into Content and updates Size. Files already on the eager path (Content
+// non-nil) are left unchanged, making the call idempotent. ContentSource is
+// cleared to nil after the content is read so the file is unambiguously on
+// the eager path afterwards. Returns an error if any file has neither Content
+// nor ContentSource.
+func (a *Artifact) Materialize() error {
+	for i := range a.Files {
+		f := &a.Files[i]
+		if f.Content != nil {
+			continue // already eager; nothing to do
+		}
+		if f.ContentSource == nil {
+			return fmt.Errorf("artifact: file %q has neither Content nor ContentSource", f.RelativePath)
+		}
+		rc, err := f.ContentSource()
+		if err != nil {
+			return fmt.Errorf("artifact: open %q: %w", f.RelativePath, err)
+		}
+		data, readErr := io.ReadAll(rc)
+		if cerr := rc.Close(); readErr == nil && cerr != nil {
+			return fmt.Errorf("artifact: close %q: %w", f.RelativePath, cerr)
+		}
+		if readErr != nil {
+			return fmt.Errorf("artifact: read %q: %w", f.RelativePath, readErr)
+		}
+		f.Content = data
+		f.Size = int64(len(data))
+		f.ContentSource = nil // file is now fully on the eager path
+	}
+	return nil
 }
 
 // parseArtifact reads spec.yaml (or spec.yml as fallback) via readFile and
@@ -146,9 +315,24 @@ func parseArtifactBytes(data []byte) (*Artifact, error) {
 	}, nil
 }
 
-// collectFilesFromDir walks the files/ directory in a local artifact directory,
-// collecting all files as ArtifactFile entries.
-func collectFilesFromDir(dir string) ([]ArtifactFile, error) {
+// dirFileEntry holds the enumerated metadata for one file in a local
+// directory before the content loading strategy (eager vs streaming) is
+// applied. realPath is the symlink-resolved, safety-checked absolute path.
+type dirFileEntry struct {
+	relativePath string
+	target       string
+	mode         int64
+	size         int64
+	realPath     string // symlink-resolved absolute path; safe to open
+}
+
+// enumerateDirFiles walks the files/ subdirectories of a local artifact
+// directory, resolves symlinks, verifies no file escapes the artifact root,
+// and returns per-file metadata. It does not read file content. Both the
+// eager loader (LoadFromDirectory) and the streaming loader
+// (OpenFromDirectory) call this function so the safety logic is never
+// duplicated.
+func enumerateDirFiles(dir string) ([]dirFileEntry, error) {
 	realDir, err := filepath.EvalSymlinks(dir)
 	if err != nil {
 		return nil, fmt.Errorf("resolve artifact directory: %w", err)
@@ -158,7 +342,7 @@ func collectFilesFromDir(dir string) ([]ArtifactFile, error) {
 		return nil, fmt.Errorf("resolve artifact directory: %w", err)
 	}
 
-	var files []ArtifactFile
+	var entries []dirFileEntry
 
 	for _, sub := range []struct {
 		dir    string
@@ -198,22 +382,17 @@ func collectFilesFromDir(dir string) ([]ArtifactFile, error) {
 			}
 			rel = filepath.ToSlash(rel)
 
-			data, err := os.ReadFile(path)
-			if err != nil {
-				return fmt.Errorf("read file %s: %w", path, err)
-			}
-
 			targetInfo, err := os.Stat(realPath)
 			if err != nil {
 				return fmt.Errorf("stat resolved file %s: %w", realPath, err)
 			}
 
-			files = append(files, ArtifactFile{
-				RelativePath: rel,
-				Target:       sub.target,
-				Mode:         int64(targetInfo.Mode().Perm()),
-				Content:      data,
-				Size:         targetInfo.Size(),
+			entries = append(entries, dirFileEntry{
+				relativePath: rel,
+				target:       sub.target,
+				mode:         int64(targetInfo.Mode().Perm()),
+				size:         targetInfo.Size(),
+				realPath:     realPath,
 			})
 			return nil
 		})
@@ -222,12 +401,26 @@ func collectFilesFromDir(dir string) ([]ArtifactFile, error) {
 		}
 	}
 
-	return files, nil
+	return entries, nil
 }
 
-// collectFilesFromFS walks the files/ directory within an fs.FS artifact.
-func collectFilesFromFS(fsys fs.FS, dir string) ([]ArtifactFile, error) {
-	var files []ArtifactFile
+// fsFileEntry holds the enumerated metadata for one file within an fs.FS
+// before the content loading strategy (eager vs streaming) is applied.
+// fsPath is the path within the FS that may be passed to fsys.Open.
+type fsFileEntry struct {
+	relativePath string
+	target       string
+	mode         int64
+	size         int64
+	fsPath       string // path within the FS; safe to open via fsys.Open
+}
+
+// enumerateFSFiles walks the files/ subdirectories within an fs.FS and
+// returns per-file metadata. It does not read file content. Both the eager
+// loader (LoadFromFS) and the streaming loader (OpenFromFS) call this
+// function so the logic is never duplicated.
+func enumerateFSFiles(fsys fs.FS, dir string) ([]fsFileEntry, error) {
+	var entries []fsFileEntry
 
 	for _, sub := range []struct {
 		subDir string
@@ -256,11 +449,6 @@ func collectFilesFromFS(fsys fs.FS, dir string) ([]ArtifactFile, error) {
 			}
 			rel = filepath.ToSlash(rel)
 
-			data, err := fs.ReadFile(fsys, p)
-			if err != nil {
-				return fmt.Errorf("read file %s: %w", p, err)
-			}
-
 			info, err := d.Info()
 			if err != nil {
 				return fmt.Errorf("file info %s: %w", p, err)
@@ -271,12 +459,12 @@ func collectFilesFromFS(fsys fs.FS, dir string) ([]ArtifactFile, error) {
 				mode = 0o644
 			}
 
-			files = append(files, ArtifactFile{
-				RelativePath: rel,
-				Target:       sub.target,
-				Mode:         mode,
-				Content:      data,
-				Size:         int64(len(data)),
+			entries = append(entries, fsFileEntry{
+				relativePath: rel,
+				target:       sub.target,
+				mode:         mode,
+				size:         info.Size(),
+				fsPath:       p,
 			})
 			return nil
 		})
@@ -285,5 +473,5 @@ func collectFilesFromFS(fsys fs.FS, dir string) ([]ArtifactFile, error) {
 		}
 	}
 
-	return files, nil
+	return entries, nil
 }

@@ -227,7 +227,7 @@ func TestCollectFilesFromDir_SymlinkEscape(t *testing.T) {
 
 	require.NoError(t, os.Symlink(outsideFile, filepath.Join(homeDir, "escaped")))
 
-	_, err := collectFilesFromDir(dir)
+	_, err := enumerateDirFiles(dir)
 	require.ErrorContains(t, err, "escapes the artifact directory")
 }
 
