@@ -57,7 +57,7 @@ func LoadFromDirectory(dir string) (*Artifact, error) {
 			Target:       e.target,
 			Mode:         e.mode,
 			Content:      data,
-			Size:         e.size,
+			Size:         int64(len(data)),
 		})
 	}
 	artifact.Files = files
@@ -392,7 +392,7 @@ func enumerateDirFiles(dir string) ([]dirFileEntry, error) {
 				target:       sub.target,
 				mode:         int64(targetInfo.Mode().Perm()),
 				size:         targetInfo.Size(),
-				realPath:     realPath,
+				realPath:     absReal,
 			})
 			return nil
 		})
