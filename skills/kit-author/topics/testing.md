@@ -84,10 +84,78 @@ cd my-kit
 
 # Or invoke go test directly:
 KIT_UNDER_TEST="$PWD/my-kit" \
-  go test -tags=e2e -v -timeout 25m -count=1 -run TestE2ECreateSandbox ./tck/...
+  go test -tags=e2e -v -timeout 25m -count=1 ./tck/...
 ```
 
 Prerequisites: `sbx` on `PATH`, authenticated against Docker Hub, Linux with `/dev/kvm` accessible. See the repository [README](../../../README.md#end-to-end-e2e-tests) for the full setup and the precise assertions performed.
+
+### E2E tests in this suite
+
+| Test | Applies to | What it checks |
+|---|---|---|
+| `TestE2ECreateSandbox` | all kits | `sbx create` succeeds; env vars, files, tmpfs mounts, and agentContext land in the container |
+| `TestE2ERunAgent` | `kind: sandbox` only | creates the sandbox, waits for any async install, then sends a non-interactive prompt to the agent via `sbx exec` and asserts non-empty output |
+
+Every `sbx` call in both tests carries `--app-name sbx-kits-contrib-tck` for telemetry attribution.
+
+### `testdata/tck.yaml` — kit-specific e2e config
+
+`kind: sandbox` kits **should** ship a `testdata/tck.yaml` file alongside their `spec.yaml` to opt in to `TestE2ERunAgent`. The file is optional — the test skips silently when it is absent or when `promptArgs` is empty. Kits whose agent requires a long async installation (e.g. nanoclaw, hermes-agent) may omit it until the installation reliably completes within the test timeout.
+
+**Full schema:**
+
+```yaml
+# <kit-dir>/testdata/tck.yaml
+
+# promptArgs: arguments prepended before the prompt message when invoking the
+# agent binary non-interactively. The test runs:
+#   sbx exec <sandbox> -- <binary> <promptArgs...> "what version are you running"
+# An empty or absent promptArgs skips the prompt subtest (e.g. trivy has no chat mode).
+promptArgs: ["-p"]
+
+# readyFile: absolute path of a sentinel file written inside the sandbox when a
+# background installation finishes. When set, TestE2ERunAgent polls
+# `sbx exec -- test -f <readyFile>` before running the prompt subtest.
+# Leave absent for kits whose install commands run synchronously inside sbx create.
+readyFile: "/home/agent/nanoclaw/.installed"
+
+# binary: override the agent binary name used in `sbx exec`. When absent, the
+# test uses filepath.Base(Manifest.Binary), which the spec normalizer derives
+# automatically from sandbox.entrypoint.run[0]. Only set this when the
+# entrypoint is a wrapper script whose underlying binary has a different name.
+binary: "claude"
+```
+
+#### How `binary` is resolved
+
+The spec normalizer sets `Manifest.Binary = sandbox.entrypoint.run[0]` when loading any kit. The e2e test uses `filepath.Base(Manifest.Binary)` as the default binary name. You **do not** need to set `binary:` in `tck.yaml` unless the entrypoint is a wrapper script whose name differs from the real binary:
+
+| Kit | Entrypoint `run[0]` | Derived binary | `tck.yaml binary` needed? |
+|---|---|---|---|
+| `amp`, `crush`, `junie`, `nanobot`, `pi` | same as kit name | same as kit name | no |
+| `opencode-model-runner` | `opencode` | `opencode` | no |
+| `claude-ollama` | `/home/agent/.local/bin/claude-ollama` | `claude-ollama` (wrapper) | yes → `claude` |
+| `nanoclaw` | `/usr/local/bin/nanoclaw-start` | `nanoclaw-start` (wrapper) | yes → `claude` |
+| `hermes-agent` | `/usr/local/bin/hermes-start` | `hermes-start` (wrapper) | yes → `hermes` |
+| `openclaw` | `/usr/local/bin/openclaw-start` | `openclaw-start` (wrapper) | yes → `openclaw` |
+
+Do **not** add `binary:` to `spec.yaml` — the normalizer rejects `binary` at the flat manifest level (v1-only field); it must come from `sandbox.entrypoint.run[0]`.
+
+#### `promptArgs` reference
+
+| Agent | `promptArgs` | Notes |
+|---|---|---|
+| `claude`, `nanoclaw`, `claude-ollama`, `pi` | `["-p"]` | Claude Code / pi use `-p` for non-interactive prompt |
+| `nanobot` | `["-m"]` | |
+| `amp` | `["-x"]` | `-x` / `--execute` |
+| `crush` | `["run"]` | subcommand, prompt is a positional arg |
+| `hermes` | `["chat", "-q"]` | `-q` / `--query` under the `chat` subcommand |
+| `junie` | `["--task"]` | non-interactive task flag |
+| `openclaw` | `["agent", "--message"]` | `agent` subcommand with `--message` flag |
+| `opencode` | `["run"]` | `run` subcommand, prompt is a positional arg |
+| `trivy` | *(absent)* | security scanner — no chat mode, prompt subtest skipped |
+
+`TestE2ERunAgent` skips any kit whose `tck.yaml` is absent or has no `promptArgs`.
 
 ## 4. End-to-end manual verification
 

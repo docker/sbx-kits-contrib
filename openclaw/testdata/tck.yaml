@@ -1,0 +1,3 @@
+readyFile: "/home/agent/.openclaw-installed"
+binary: "openclaw"
+promptArgs: ["agent", "--message"]
