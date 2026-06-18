@@ -89,18 +89,23 @@ KIT_UNDER_TEST="$PWD/my-kit" \
 
 Prerequisites: `sbx` on `PATH`, authenticated against Docker Hub, Linux with `/dev/kvm` accessible. See the repository [README](../../../README.md#end-to-end-e2e-tests) for the full setup and the precise assertions performed.
 
-### E2E tests in this suite
+### `TestE2EKit` — the single e2e test
 
-| Test | Applies to | What it checks |
+There is one e2e test function, `TestE2EKit`, that handles all kit kinds. It creates one sandbox and runs subtests selectively:
+
+| Subtest | Applies to | What it checks |
 |---|---|---|
-| `TestE2ECreateSandbox` | all kits | `sbx create` succeeds; env vars, files, tmpfs mounts, and agentContext land in the container |
-| `TestE2ERunAgent` | `kind: sandbox` only | creates the sandbox, waits for any async install, then sends a non-interactive prompt to the agent via `sbx exec` and asserts non-empty output |
+| `env` | all kits | declared `environment.variables` are set in the container |
+| `files` | all kits | files from `files/home` and `commands.initFiles` exist and are non-empty |
+| `tmpfs` | all kits | declared tmpfs paths (plus `/run/secrets`) are mounted |
+| `agentContext` | all kits | agentContext content rendered into the AI profile file (skipped when undeclared) |
+| `prompt` | `kind: sandbox` only | non-interactive prompt sent to the agent; asserts non-empty response |
 
-Every `sbx` call in both tests carries `--app-name sbx-kits-contrib-tck` for telemetry attribution.
+Every `sbx` call carries `--app-name sbx-kits-contrib-tck` so all commands route to the same authenticated daemon instance.
 
 ### `testdata/tck.yaml` — kit-specific e2e config
 
-`kind: sandbox` kits **should** ship a `testdata/tck.yaml` file alongside their `spec.yaml` to opt in to `TestE2ERunAgent`. The file is optional — the test skips silently when it is absent or when `promptArgs` is empty. Kits whose agent requires a long async installation (e.g. nanoclaw, hermes-agent) may omit it until the installation reliably completes within the test timeout.
+`kind: sandbox` kits **should** ship a `testdata/tck.yaml` file alongside their `spec.yaml` to opt in to the `prompt` subtest. The file is optional — the subtest is simply absent when the file is missing or `promptArgs` is empty. Kits whose agent requires a long async installation (e.g. nanoclaw, hermes-agent) may omit it until the installation reliably completes within the test timeout.
 
 **Full schema:**
 
@@ -110,11 +115,11 @@ Every `sbx` call in both tests carries `--app-name sbx-kits-contrib-tck` for tel
 # promptArgs: arguments prepended before the prompt message when invoking the
 # agent binary non-interactively. The test runs:
 #   sbx exec <sandbox> -- <binary> <promptArgs...> "what version are you running"
-# An empty or absent promptArgs skips the prompt subtest (e.g. trivy has no chat mode).
+# Absent or empty promptArgs → prompt subtest does not run (e.g. trivy).
 promptArgs: ["-p"]
 
 # readyFile: absolute path of a sentinel file written inside the sandbox when a
-# background installation finishes. When set, TestE2ERunAgent polls
+# background installation finishes. When set, TestE2EKit polls
 # `sbx exec -- test -f <readyFile>` before running the prompt subtest.
 # Leave absent for kits whose install commands run synchronously inside sbx create.
 readyFile: "/home/agent/nanoclaw/.installed"

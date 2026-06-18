@@ -197,7 +197,7 @@ For user-supplied sandbox kits via `--kit`, remember `Embedded=false`, so instal
 
 ### `testdata/tck.yaml`
 
-`kind: sandbox` kits **should** include a `testdata/tck.yaml` file to opt in to `TestE2ERunAgent`, which sends a non-interactive prompt to the agent and verifies it responds. The file is optional — the test skips when it is absent or `promptArgs` is empty.
+`kind: sandbox` kits **should** include a `testdata/tck.yaml` file to opt in to the `prompt` subtest of `TestE2EKit`, which sends a non-interactive prompt to the agent and verifies it responds. The file is optional — the subtest is simply absent when the file is missing or `promptArgs` is empty.
 
 ```yaml
 # my-agent/testdata/tck.yaml
