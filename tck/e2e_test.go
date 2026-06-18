@@ -34,30 +34,33 @@ import (
 // their own workdir; it does not match a real sbx sandbox.)
 const sandboxWorkDir = "/home/agent/workspace"
 
-// TestE2ECreateSandbox creates a sandbox with the kit under test against a
-// real sbx daemon, asserts that `sbx create` succeeds, then verifies the kit
-// content is present inside the running container: env vars, container files
-// (from `files/home` and `commands.initFiles`), tmpfs mounts, and — when the
-// kit declares an `agentContext:` block — the rendered file. The sandbox is
-// removed in cleanup.
+// TestE2EKit is the single e2e entry point for all kit types. It creates one
+// sandbox, verifies kit content (env vars, files, tmpfs, agentContext) for
+// every kit, and — for kind:sandbox kits that declare promptArgs in their
+// testdata/tck.yaml — also sends a non-interactive prompt to the agent.
+//
+// Subtest layout:
+//
+//	TestE2EKit/<kit>
+//	  env          — all kits
+//	  files        — all kits
+//	  tmpfs        — all kits
+//	  agentContext — all kits (skipped when agentContext is absent)
+//	  prompt       — kind:sandbox only, skipped when tck.yaml/promptArgs absent
 //
 // The agent passed to `sbx create` depends on the kit's manifest:
 //
-//   - kind: sandbox → the kit's own name (sbx enforces this match).
-//   - kind: mixin   → "claude" (the default agent kit-author exercised).
+//	kind: sandbox → the kit's own name (sbx enforces this match).
+//	kind: mixin   → "claude" (the default agent the kit is exercised against).
 //
 // KIT_UNDER_TEST is read from the environment; the CI matrix sets it per-kit.
-func TestE2ECreateSandbox(t *testing.T) {
+func TestE2EKit(t *testing.T) {
 	kitPath := os.Getenv("KIT_UNDER_TEST")
 	require.NotEmpty(t, kitPath, "KIT_UNDER_TEST must point at a kit directory")
 
 	absKit, err := filepath.Abs(kitPath)
 	require.NoError(t, err, "resolve KIT_UNDER_TEST=%q", kitPath)
 
-	// Name the parent subtest after the kit directory so loops invoking this
-	// test once per kit produce distinguishable test names in the output
-	// (e.g. TestE2ECreateSandbox/crush, TestE2ECreateSandbox/code-server)
-	// instead of repeated TestE2ECreateSandbox lines.
 	t.Run(filepath.Base(absKit), func(t *testing.T) {
 		info, err := os.Stat(absKit)
 		require.NoErrorf(t, err, "stat KIT_UNDER_TEST=%q", absKit)
@@ -76,13 +79,47 @@ func TestE2ECreateSandbox(t *testing.T) {
 
 		name := createSbx(t, ctx, absKit, agent)
 
-		// Verify the kit content landed inside the running container. Files
-		// are re-derived here so `${WORKDIR}` resolves to the real sandbox
-		// workdir instead of the TCK in-suite constant.
+		// Verify kit content landed inside the running container. Files are
+		// re-derived here so `${WORKDIR}` resolves to the real sandbox workdir
+		// instead of the TCK in-suite constant. These run for all kit kinds.
 		assertSbxEnv(t, ctx, name, suite.ExpectedEnvVars)
 		assertSbxFiles(t, ctx, name, expectedSandboxFiles(suite.Artifact))
 		assertSbxTmpfs(t, ctx, name, suite.ExpectedTmpfs)
 		assertSbxAgentContext(t, ctx, name, suite.Artifact)
+
+		// Prompt subtest: kind:sandbox only, opt-in via testdata/tck.yaml.
+		if suite.Artifact.Manifest.Kind != spec.KindSandbox {
+			return
+		}
+		td := loadKitTCKData(t, absKit)
+		if td == nil || len(td.PromptArgs) == 0 {
+			return
+		}
+
+		// Wait for any background installation before sending the prompt.
+		waitForAgentReady(t, ctx, name, td.ReadyFile)
+
+		binary := td.Binary
+		if binary == "" {
+			binary = filepath.Base(suite.Artifact.Manifest.Binary)
+		}
+		require.NotEmptyf(t, binary,
+			"kit %s: binary not derivable from spec.yaml entrypoint or tck.yaml", suite.Artifact.Manifest.Name)
+
+		t.Run("prompt", func(t *testing.T) {
+			execArgs := []string{"exec", name, "--", binary}
+			execArgs = append(execArgs, td.PromptArgs...)
+			execArgs = append(execArgs, promptMessage)
+
+			// Ignore exit error: auth failures (401/403) are expected without
+			// credentials. The assertion is that the agent ran and responded.
+			out, _ := runSbx(t, ctx, execArgs...)
+			require.NotEmptyf(t, out,
+				"sbx exec produced no output for kit %s (binary=%s, promptArgs=%v)",
+				absKit, binary, td.PromptArgs)
+			t.Logf("sbx exec output for kit %s (binary=%s, promptArgs=%v):\n%s",
+				absKit, binary, td.PromptArgs, out)
+		})
 	})
 }
 
@@ -290,90 +327,14 @@ func loadKitTCKData(t *testing.T, kitDir string) *kitTCKData {
 	return &td
 }
 
-// promptMessage is the fixed text sent to every agent in TestE2ERunAgent.
+// promptMessage is the fixed text sent to every agent in TestE2EKit's prompt subtest.
 // It is short, benign, and produces a non-empty response even when the
 // agent rejects the call with an authentication error.
 const promptMessage = "what version are you running"
 
-// TestE2ERunAgent creates a sandbox for the kit under test, waits for any
-// background installation to complete, then sends a single non-interactive
-// prompt to the agent via `sbx exec`. It only applies to kind:sandbox kits;
-// mixin kits are skipped. Auth failures (401/403) are acceptable — the test
-// only asserts that the agent ran and produced output.
-//
-// Per-kit configuration is read from <kit-dir>/testdata/tck.yaml:
-//   - promptArgs: args prepended before the message (e.g. ["-p"] for claude,
-//     ["-m"] for nanobot, ["chat", "-q"] for hermes). Empty → test skipped.
-//   - readyFile: sentinel file polled via `sbx exec -- test -f` for async installs.
-func TestE2ERunAgent(t *testing.T) {
-	kitPath := os.Getenv("KIT_UNDER_TEST")
-	require.NotEmpty(t, kitPath, "KIT_UNDER_TEST must point at a kit directory")
-
-	absKit, err := filepath.Abs(kitPath)
-	require.NoError(t, err, "resolve KIT_UNDER_TEST=%q", kitPath)
-
-	t.Run(filepath.Base(absKit), func(t *testing.T) {
-		info, err := os.Stat(absKit)
-		require.NoErrorf(t, err, "stat KIT_UNDER_TEST=%q", absKit)
-		require.Truef(t, info.IsDir(), "KIT_UNDER_TEST=%q must be a directory", absKit)
-
-		suite, err := tck.NewSuiteFromDir(absKit)
-		require.NoErrorf(t, err, "derive suite for %q", absKit)
-
-		if suite.Artifact.Manifest.Kind != spec.KindSandbox {
-			t.Skipf("kit %s is kind:%s — only kind:sandbox kits support sbx exec",
-				suite.Artifact.Manifest.Name, suite.Artifact.Manifest.Kind)
-		}
-
-		td := loadKitTCKData(t, absKit)
-		if td == nil || len(td.PromptArgs) == 0 {
-			t.Skipf("kit %s has no promptArgs in testdata/tck.yaml",
-				suite.Artifact.Manifest.Name)
-		}
-
-		_, err = exec.LookPath("sbx")
-		require.NoError(t, err, "sbx must be on PATH; CI installs it from docker/sbx-releases")
-
-		agent := agentForKit(suite.Artifact)
-
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
-		defer cancel()
-
-		name := createSbx(t, ctx, absKit, agent)
-		waitForAgentReady(t, ctx, name, td.ReadyFile)
-
-		// The normalizer sets Manifest.Binary = sandbox.entrypoint.run[0].
-		// filepath.Base strips any absolute path prefix (wrapper scripts live
-		// under /usr/local/bin/). tck.yaml binary overrides for kits whose
-		// entrypoint is a wrapper with a different underlying binary name.
-		binary := td.Binary
-		if binary == "" {
-			binary = filepath.Base(suite.Artifact.Manifest.Binary)
-		}
-		require.NotEmptyf(t, binary,
-			"kit %s: binary not derivable from spec.yaml entrypoint or tck.yaml", suite.Artifact.Manifest.Name)
-
-		t.Run("prompt", func(t *testing.T) {
-			execArgs := []string{"exec", name, "--", binary}
-			execArgs = append(execArgs, td.PromptArgs...)
-			execArgs = append(execArgs, promptMessage)
-
-			// Ignore exit error: auth failures (401/403) are expected without
-			// credentials. The assertion is that the agent ran and responded.
-			out, _ := runSbx(t, ctx, execArgs...)
-			require.NotEmptyf(t, out,
-				"sbx exec produced no output for kit %s (binary=%s, promptArgs=%v)",
-				absKit, binary, td.PromptArgs)
-			t.Logf("sbx exec output for kit %s (binary=%s, promptArgs=%v):\n%s",
-				absKit, binary, td.PromptArgs, out)
-		})
-	})
-}
-
 // createSbx creates a sandbox for the kit using `sbx create`, registers a
 // t.Cleanup that force-removes it, and returns the sandbox name. A fresh temp
-// dir is used as the workspace. It is the shared entry point for both
-// TestE2ECreateSandbox and TestE2ERunAgent so the create logic lives in one place.
+// dir is used as the workspace.
 func createSbx(t *testing.T, ctx context.Context, absKit, agent string) string {
 	t.Helper()
 	workspace := t.TempDir()

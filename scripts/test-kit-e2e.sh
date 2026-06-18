@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Run the full e2e TCK suite against one kit, using a real
+# Run the e2e TCK suite (`TestE2EKit`) against one kit, using a real
 # installed `sbx` CLI to create a sandbox and assert that the kit's declared
 # content actually lands inside it.
 #
