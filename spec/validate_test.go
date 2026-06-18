@@ -377,6 +377,24 @@ func TestValidateLocked(t *testing.T) {
 	})
 }
 
+func TestValidateLicenses(t *testing.T) {
+	t.Run("nil_is_valid", func(t *testing.T) {
+		require.NoError(t, ValidateLicenses(nil))
+	})
+
+	t.Run("spdx_identifiers", func(t *testing.T) {
+		require.NoError(t, ValidateLicenses([]string{"MIT", "Apache-2.0"}))
+	})
+
+	t.Run("empty_entry", func(t *testing.T) {
+		require.ErrorContains(t, ValidateLicenses([]string{"MIT", ""}), "must not be empty")
+	})
+
+	t.Run("duplicate", func(t *testing.T) {
+		require.ErrorContains(t, ValidateLicenses([]string{"MIT", "MIT"}), "duplicated")
+	})
+}
+
 func TestValidateOAuthPolicy(t *testing.T) {
 	t.Run("nil_is_valid", func(t *testing.T) {
 		require.NoError(t, ValidateOAuthPolicy(nil))

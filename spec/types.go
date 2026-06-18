@@ -565,6 +565,12 @@ type Artifact struct {
 	// in the consumer that performs the merge.
 	Locked []string `json:"locked,omitempty"`
 
+	// Licenses lists SPDX license identifiers governing the kit (RFC §280,
+	// P2). The spec library only validates well-formedness; composition
+	// (union of parent/mixin licenses) lives in the consumer that performs
+	// the merge. Declarative metadata with no runtime effect.
+	Licenses []string `json:"licenses,omitempty"`
+
 	// PublishedPorts lists in-container ports the kit wants the runtime to
 	// publish on the host when the sandbox starts. It is a top-level
 	// canonical field in v2 — port publishing is inbound service exposure,
@@ -732,11 +738,12 @@ type specFile struct {
 	// Manifest.Volumes carries `yaml:"-"` so this field owns the decode;
 	// normalize folds Volumes.List + Volumes.LegacyMap into the canonical
 	// Manifest.Volumes slice.
-	Volumes volumesField  `yaml:"volumes,omitempty"`
-	Extends string        `yaml:"extends,omitempty"`
-	Mixins  []string      `yaml:"mixins,omitempty"`
-	Locked  []string      `yaml:"locked,omitempty"`
-	Sandbox *sandboxBlock `yaml:"sandbox,omitempty"`
+	Volumes  volumesField  `yaml:"volumes,omitempty"`
+	Extends  string        `yaml:"extends,omitempty"`
+	Mixins   []string      `yaml:"mixins,omitempty"`
+	Locked   []string      `yaml:"locked,omitempty"`
+	Licenses []string      `yaml:"licenses,omitempty"`
+	Sandbox  *sandboxBlock `yaml:"sandbox,omitempty"`
 	// LegacyAgent holds the v1 `agent:` block. The normalize step
 	// migrates its contents to Sandbox with a deprecation warning. Drop
 	// in the Phase 6 schema-cutover commit.

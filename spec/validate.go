@@ -274,6 +274,9 @@ func ValidateArtifact(a *Artifact) error {
 	if err := ValidateLocked(a.Locked); err != nil {
 		return err
 	}
+	if err := ValidateLicenses(a.Licenses); err != nil {
+		return err
+	}
 	if err := ValidatePublishedPorts(a.PublishedPorts); err != nil {
 		return err
 	}
@@ -320,6 +323,26 @@ func ValidateLocked(paths []string) error {
 			return fmt.Errorf("locked[%d] %q is duplicated", i, p)
 		}
 		seen[p] = struct{}{}
+	}
+	return nil
+}
+
+// ValidateLicenses validates the well-formedness of a licenses list (SPDX
+// identifiers governing the kit, RFC §280). Each entry must be a non-empty
+// string; duplicates are rejected. Per the RFC implementations SHOULD also
+// warn on unrecognized SPDX identifiers — that check is deferred (it needs an
+// embedded SPDX license list) and would surface as a warning, not an error.
+// Composition (union of parent/mixin licenses) is the merge consumer's job.
+func ValidateLicenses(licenses []string) error {
+	seen := make(map[string]struct{}, len(licenses))
+	for i, l := range licenses {
+		if l == "" {
+			return fmt.Errorf("licenses[%d] must not be empty", i)
+		}
+		if _, dup := seen[l]; dup {
+			return fmt.Errorf("licenses[%d] %q is duplicated", i, l)
+		}
+		seen[l] = struct{}{}
 	}
 	return nil
 }
