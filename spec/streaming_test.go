@@ -516,3 +516,66 @@ func TestValidateArtifact_StreamingLoaded(t *testing.T) {
 		})
 	}
 }
+
+// TestLoadFromDirectory_SizeEqualsContentLen guards the invariant
+// Size == len(Content) on the eager directory path. A previous version set
+// Size from a pre-enumeration stat call, which could diverge from Content if
+// the file changed between stat and ReadFile; we now set it from len(data).
+func TestLoadFromDirectory_SizeEqualsContentLen(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "spec.yaml"),
+		[]byte(minimalMixinYAML), 0o644))
+
+	homeDir := filepath.Join(dir, "files", "home")
+	require.NoError(t, os.MkdirAll(homeDir, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(homeDir, "hello.txt"),
+		[]byte("hello world"), 0o644))
+
+	a, err := LoadFromDirectory(dir)
+	require.NoError(t, err)
+	require.NotEmpty(t, a.Files)
+	for _, f := range a.Files {
+		require.Equal(t, int64(len(f.Content)), f.Size,
+			"eager loader: Size must equal len(Content) for %s/%s",
+			f.Target, f.RelativePath)
+	}
+}
+
+// TestOpenFromDirectory_CWDIndependence guards that ContentSource closures
+// produced by OpenFromDirectory remain valid after the process changes its
+// working directory. A previous version stored the non-absolute realPath
+// from filepath.EvalSymlinks, making opens CWD-dependent.
+func TestOpenFromDirectory_CWDIndependence(t *testing.T) {
+	artDir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(artDir, "spec.yaml"),
+		[]byte(minimalMixinYAML), 0o644))
+
+	homeDir := filepath.Join(artDir, "files", "home")
+	require.NoError(t, os.MkdirAll(homeDir, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(homeDir, "data.txt"),
+		[]byte("cwd test"), 0o644))
+
+	// Save current working directory so we can restore it.
+	origWD, err := os.Getwd()
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = os.Chdir(origWD) })
+
+	// Change into artDir so that a relative path of "." is valid.
+	require.NoError(t, os.Chdir(artDir))
+	a, err := OpenFromDirectory(".")
+	require.NoError(t, err)
+	require.Len(t, a.Files, 1)
+
+	// Now move the process to a completely different directory so that a
+	// relative path stored in the closure would silently resolve to the
+	// wrong place or fail.
+	require.NoError(t, os.Chdir(t.TempDir()))
+
+	rc, err := a.Files[0].Open()
+	require.NoError(t, err, "Open must work after CWD change")
+	got, err := io.ReadAll(rc)
+	_ = rc.Close()
+	require.NoError(t, err)
+	require.Equal(t, []byte("cwd test"), got,
+		"ContentSource must open the correct file regardless of current CWD")
+}
