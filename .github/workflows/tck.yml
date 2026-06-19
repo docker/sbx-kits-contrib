@@ -8,6 +8,9 @@ on:
 permissions:
   contents: read
 
+env:
+  APP_NAME: sbx-kits-contrib-tck
+
 jobs:
   detect-changes:
     runs-on: ubuntu-latest
@@ -255,7 +258,7 @@ jobs:
           # stripping all whitespace can't corrupt a legitimate value.
           USER_CLEAN=$(printf '%s' "$DOCKERHUB_USERNAME" | tr -d '[:space:]')
           TOKEN_CLEAN=$(printf '%s' "$DOCKERHUB_TOKEN"    | tr -d '[:space:]')
-          printf '%s' "$TOKEN_CLEAN" | sbx login --username "$USER_CLEAN" --password-stdin
+          printf '%s' "$TOKEN_CLEAN" | sbx --app-name "$APP_NAME" login --username "$USER_CLEAN" --password-stdin
 
       - name: Set sbx default network policy
         # `sbx create` refuses to run until a default network policy is
@@ -274,13 +277,12 @@ jobs:
         # have to enumerate those domains in their own `allowedDomains`.
         # That's the philosophy this CI is enforcing — kits are
         # self-contained network contracts.
-        run: sbx policy set-default deny-all
+        run: sbx --app-name "$APP_NAME" policy set-default deny-all
 
       - name: Run e2e TCK for ${{ matrix.kit }}
-        # Invoke the same wrapper kit authors use locally so CI and the
-        # local workflow stay 1:1. matrix.kit is a bare directory name from
-        # detect-changes (`dirname "$f"`); the script resolves it against
-        # the repo root.
+        # Runs TestE2EKit: verifies kit content (env, files, tmpfs, agentContext)
+        # for all kits, then — for kind:sandbox kits with testdata/tck.yaml —
+        # also sends a non-interactive prompt to the agent.
         run: ./scripts/test-kit-e2e.sh "${{ matrix.kit }}"
 
       - name: Sign out of Docker Hub

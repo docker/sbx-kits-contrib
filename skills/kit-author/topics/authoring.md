@@ -150,6 +150,8 @@ Use this when you're shipping a custom agent via `--kit`.
 ```
 my-agent/
 ├── spec.yaml
+├── testdata/
+│   └── tck.yaml
 └── files/
     └── home/
         └── .my-agent/config.json
@@ -192,6 +194,31 @@ commands:
 ```
 
 For user-supplied sandbox kits via `--kit`, remember `Embedded=false`, so install commands **will** run on the base image — make them idempotent.
+
+### `testdata/tck.yaml`
+
+`kind: sandbox` kits **should** include a `testdata/tck.yaml` file to opt in to the `prompt` subtest of `TestE2EKit`, which sends a non-interactive prompt to the agent and verifies it responds. The file is optional — the subtest is simply absent when the file is missing or `promptArgs` is empty.
+
+```yaml
+# my-agent/testdata/tck.yaml
+
+# Required: flag(s) the binary accepts before the prompt message.
+promptArgs: ["-p"]
+
+# Required for kits with async background installation: path of the sentinel
+# file written when installation completes. TestE2ERunAgent polls for it
+# before sending the prompt.
+readyFile: "/home/agent/.my-agent-installed"
+
+# Optional: only needed when the sandbox entrypoint is a wrapper script whose
+# name differs from the real binary. Omit for kits where entrypoint.run[0]
+# already names the binary (amp, crush, junie, nanobot, opencode, pi, etc.).
+binary: "my-agent"
+```
+
+The test skips if `tck.yaml` is absent or `promptArgs` is empty — omitting it silently opts out.
+
+See [`testing.md`](testing.md#testdatatckyaml----kit-specific-e2e-config) for the full schema, binary resolution rules, and the reference table of known values per agent.
 
 ## When you need a configure hook
 

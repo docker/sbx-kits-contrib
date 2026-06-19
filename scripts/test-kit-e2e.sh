@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Run the e2e TCK suite (`TestE2ECreateSandbox`) against one kit, using a real
+# Run the e2e TCK suite (`TestE2EKit`) against one kit, using a real
 # installed `sbx` CLI to create a sandbox and assert that the kit's declared
 # content actually lands inside it.
 #
@@ -63,4 +63,4 @@ if ! command -v sbx >/dev/null 2>&1; then
 fi
 
 cd "$REPO_ROOT"
-KIT_UNDER_TEST="$kit_abs" exec go test -tags=e2e -v -count=1 -timeout 25m -run TestE2ECreateSandbox "$@" ./tck/...
+KIT_UNDER_TEST="$kit_abs" exec go test -tags=e2e -v -count=1 -timeout 25m "$@" ./tck/...
