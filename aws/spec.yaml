@@ -30,7 +30,6 @@ commands:
         - |
             set -eu
             export PATH="$HOME/.local/bin:$HOME/.claude/local:$PATH"
-            HELPERS="$HOME/.local/share/sbx"
             SENTINEL="$HOME/.sbx-aws-configured"
 
             # Locate host ~/.aws — mounted at its host absolute path.
@@ -43,28 +42,37 @@ commands:
 
             # Credential wiring — run once per sandbox.
             if [ -n "$HOST_AWS" ] && [ ! -f "$SENTINEL" ]; then
-              if sh "$HELPERS/aws-setup.sh" "$HOST_AWS"; then
-                touch "$SENTINEL"
-              else
-                echo "aws: credential setup failed — will retry on next startup" >&2
-              fi
+              mkdir -p "$HOME/.aws"
+              _linked=0
+              for f in credentials config; do
+                [ -e "$HOST_AWS/$f" ] || continue
+                ln -sf "$HOST_AWS/$f" "$HOME/.aws/$f"
+                _linked=1
+              done
+              [ "$_linked" = "1" ] && touch "$SENTINEL" \
+                || echo "aws: no credential files found in $HOST_AWS" >&2
             fi
 
             # CLI install — retried each startup until aws is available.
             if ! command -v aws > /dev/null 2>&1; then
               export DEBIAN_FRONTEND=noninteractive
-              if _arch="$(uname -m)" \
-                 && { command -v unzip > /dev/null 2>&1 \
-                    || { sudo apt-get update -qq && sudo apt-get install -y -qq unzip; }; } \
-                 && curl -fsSL "https://awscli.amazonaws.com/awscli-exe-linux-${_arch}.zip" \
-                      -o /tmp/awscliv2.zip \
-                 && unzip -q /tmp/awscliv2.zip -d /tmp/ \
-                 && sudo /tmp/aws/install --update \
-                 && rm -rf /tmp/awscliv2.zip /tmp/aws; then
-                echo "AWS CLI installed"
-              else
-                echo "AWS CLI install failed — will retry on next startup" >&2
-              fi
+              _installed=0
+              _arch="$(uname -m)"
+              for _try in 1 2 3 4 5; do
+                [ "$_try" -gt 1 ] && { echo "AWS CLI install attempt $_try/5 — retrying in 15s..." >&2; sleep 15; }
+                { command -v unzip > /dev/null 2>&1 \
+                    || { sudo apt-get -o APT::Lock::Timeout=60 update -qq \
+                      && sudo apt-get -o APT::Lock::Timeout=60 install -y -qq unzip; }; } \
+                  && curl -fsSL "https://awscli.amazonaws.com/awscli-exe-linux-${_arch}.zip" \
+                       -o /tmp/awscliv2.zip \
+                  && unzip -q /tmp/awscliv2.zip -d /tmp/ \
+                  && sudo /tmp/aws/install --update \
+                  && rm -rf /tmp/awscliv2.zip /tmp/aws \
+                  && { _installed=1; break; } \
+                  || true
+              done
+              [ "$_installed" = "1" ] && echo "AWS CLI installed" \
+                || echo "AWS CLI install failed — will retry on next startup" >&2
             fi
       user: "1000"
       description: "Configure AWS credentials and install CLI (run-once per sandbox)"
