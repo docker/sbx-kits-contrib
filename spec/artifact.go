@@ -57,7 +57,7 @@ func LoadFromDirectory(dir string) (*Artifact, error) {
 			Target:       e.target,
 			Mode:         e.mode,
 			Content:      data,
-			Size:         int64(len(data)),
+			Size:         e.size,
 		})
 	}
 	artifact.Files = files
@@ -153,7 +153,7 @@ func LoadFromFS(fsys fs.FS, dir string) (*Artifact, error) {
 			Target:       e.target,
 			Mode:         e.mode,
 			Content:      data,
-			Size:         int64(len(data)),
+			Size:         e.size, // FileInfo.Size(), consistent with OpenFromFS
 		})
 	}
 	artifact.Files = files
@@ -231,11 +231,17 @@ func LoadFromBytes(yamlBytes []byte) (*Artifact, error) {
 // cleared to nil after the content is read so the file is unambiguously on
 // the eager path afterwards. Returns an error if any file has neither Content
 // nor ContentSource.
+//
+// The operation is all-or-nothing: all content is staged in memory before any
+// field on the artifact is mutated. If a read fails mid-way, the artifact is
+// left entirely unchanged so callers do not observe a half-eager state.
 func (a *Artifact) Materialize() error {
+	// Stage phase: read all streaming files without touching a.Files.
+	staged := make([][]byte, len(a.Files))
 	for i := range a.Files {
 		f := &a.Files[i]
 		if f.Content != nil {
-			continue // already eager; nothing to do
+			continue // already eager; nothing to read
 		}
 		if f.ContentSource == nil {
 			return fmt.Errorf("artifact: file %q has neither Content nor ContentSource", f.RelativePath)
@@ -251,9 +257,16 @@ func (a *Artifact) Materialize() error {
 		if readErr != nil {
 			return fmt.Errorf("artifact: read %q: %w", f.RelativePath, readErr)
 		}
-		f.Content = data
-		f.Size = int64(len(data))
-		f.ContentSource = nil // file is now fully on the eager path
+		staged[i] = data
+	}
+	// Commit phase: only reached when every file was read successfully.
+	for i := range a.Files {
+		if staged[i] == nil {
+			continue // was already eager
+		}
+		a.Files[i].Content = staged[i]
+		a.Files[i].Size = int64(len(staged[i]))
+		a.Files[i].ContentSource = nil
 	}
 	return nil
 }

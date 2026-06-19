@@ -3,8 +3,11 @@ package spec
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"io"
+	"io/fs"
 	"os"
+	"path"
 	"path/filepath"
 	"testing"
 	"testing/fstest"
@@ -319,6 +322,7 @@ description: "loaded from fs.FS via OpenFromFS"
 
 			require.Equal(t, ef.RelativePath, sf.RelativePath)
 			require.Equal(t, ef.Target, sf.Target)
+			require.Equal(t, ef.Size, sf.Size, "Size mismatch for %s", key)
 			require.Nil(t, sf.Content, "streaming: Content must be nil for %s", key)
 			require.NotNil(t, sf.ContentSource, "streaming: ContentSource must be set for %s", key)
 
@@ -578,4 +582,111 @@ func TestOpenFromDirectory_CWDIndependence(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, []byte("cwd test"), got,
 		"ContentSource must open the correct file regardless of current CWD")
+}
+
+// lyingSizeFS wraps a MapFS and reports a fabricated FileInfo.Size() for
+// specific paths, letting tests exercise loaders with an fs.FS whose
+// declared size diverges from the actual byte count.
+type lyingSizeFS struct {
+	fstest.MapFS
+	lie map[string]int64 // path -> fake size
+}
+
+func (l lyingSizeFS) ReadDir(name string) ([]fs.DirEntry, error) {
+	ents, err := l.MapFS.ReadDir(name)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]fs.DirEntry, len(ents))
+	for i, e := range ents {
+		p := path.Join(name, e.Name())
+		if sz, ok := l.lie[p]; ok {
+			out[i] = lyingDirEntry{DirEntry: e, size: sz}
+		} else {
+			out[i] = e
+		}
+	}
+	return out, nil
+}
+
+type lyingDirEntry struct {
+	fs.DirEntry
+	size int64
+}
+
+func (e lyingDirEntry) Info() (fs.FileInfo, error) {
+	info, err := e.DirEntry.Info()
+	if err != nil {
+		return nil, err
+	}
+	return lyingFileInfo{FileInfo: info, size: e.size}, nil
+}
+
+type lyingFileInfo struct {
+	fs.FileInfo
+	size int64
+}
+
+func (i lyingFileInfo) Size() int64 { return i.size }
+
+// TestOpenFromFS_SizeMatchesLoadFromFS verifies that LoadFromFS and
+// OpenFromFS report the same Size for each file, even when the underlying
+// fs.FS reports a FileInfo.Size() that differs from the actual byte count.
+// Both loaders take Size from FileInfo.Size() (the enumerated e.size) so
+// callers see consistent metadata regardless of which loader they use.
+func TestOpenFromFS_SizeMatchesLoadFromFS(t *testing.T) {
+	const content = "hello from fs" // 13 bytes
+	fsys := lyingSizeFS{
+		MapFS: fstest.MapFS{
+			"mykit/spec.yaml":            {Data: []byte(minimalMixinYAML)},
+			"mykit/files/home/hello.txt": {Data: []byte(content), Mode: 0o644},
+		},
+		lie: map[string]int64{"mykit/files/home/hello.txt": 9999},
+	}
+
+	eager, err := LoadFromFS(fsys, "mykit")
+	require.NoError(t, err)
+	require.Len(t, eager.Files, 1)
+
+	streaming, err := OpenFromFS(fsys, "mykit")
+	require.NoError(t, err)
+	require.Len(t, streaming.Files, 1)
+
+	require.Equal(t, eager.Files[0].Size, streaming.Files[0].Size,
+		"LoadFromFS and OpenFromFS must report the same Size for the same file")
+}
+
+// TestMaterialize_PartialFailureIsAtomic ensures that Materialize does not
+// leave the artifact in a half-eager state when a mid-loop read fails. A
+// caller that marshals the artifact after a failed Materialize must not
+// silently lose already-read file bytes as "content": null.
+func TestMaterialize_PartialFailureIsAtomic(t *testing.T) {
+	a := &Artifact{
+		Files: []ArtifactFile{
+			{
+				RelativePath: "a.txt",
+				Target:       TargetHome,
+				ContentSource: func() (io.ReadCloser, error) {
+					return io.NopCloser(bytes.NewReader([]byte("first"))), nil
+				},
+			},
+			{
+				RelativePath: "b.txt",
+				Target:       TargetHome,
+				ContentSource: func() (io.ReadCloser, error) {
+					return nil, errors.New("backing file vanished after enumeration")
+				},
+			},
+		},
+	}
+
+	require.Error(t, a.Materialize())
+
+	// No file may be left eager: if a.txt were committed and b.txt were not,
+	// a subsequent json.Marshal would emit a.txt's bytes but b.txt as
+	// "content":null, silently dropping b.txt's payload with no error.
+	require.Nil(t, a.Files[0].Content,
+		"a.txt must not be left eager after a failed Materialize (atomicity)")
+	require.Nil(t, a.Files[1].Content,
+		"b.txt must remain streaming after the error it caused")
 }
