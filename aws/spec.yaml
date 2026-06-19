@@ -14,12 +14,8 @@ caps:
   network:
     allow:
       - "*.amazonaws.com:443"
-      - "*.amazonaws.com:80"
-      - archive.ubuntu.com:80
       - archive.ubuntu.com:443
-      - security.ubuntu.com:80
       - security.ubuntu.com:443
-      - ports.ubuntu.com:80
       - ports.ubuntu.com:443
 
 commands:

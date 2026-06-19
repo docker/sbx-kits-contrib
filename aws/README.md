@@ -17,19 +17,15 @@ sees current credentials without copying secrets into the image.
 Pass the kit and the host credentials mount together:
 
 ```console
-$ sbx run --kit "git+https://github.com/docker/sbx-kits-contrib.git#dir=aws" \
-    --mount ~/.aws:ro \
-    claude
+$ sbx create --kit "git+https://github.com/docker/sbx-kits-contrib.git#dir=aws" \
+    claude . ~/.aws:ro
 ```
 
 Or with a local clone:
 
 ```console
-$ sbx run --kit ./aws/ --mount ~/.aws:ro claude
+$ sbx create --kit ./aws/ claude . ~/.aws:ro
 ```
-
-If you use `sbx-toolkit`, declare `kit/aws` in your config and the
-mount is added automatically.
 
 ## How it works
 
@@ -37,19 +33,21 @@ On every sandbox start the kit's `startup` command:
 
 1. Locates the host `~/.aws` directory (mounted at its host absolute
    path, e.g. `/Users/you/.aws` or `/home/you/.aws`).
-2. Runs `aws-setup.sh` once (guarded by a sentinel file) to symlink
-   `credentials` and `config` into `~/.aws` inside the sandbox.
-3. Installs the AWS CLI v2 if `aws` is not already on `$PATH` (retried
-   on each start until it succeeds).
+2. Symlinks `credentials` and `config` into `~/.aws` inside the sandbox
+   (guarded by a sentinel file so it only runs once per sandbox).
+3. Installs the AWS CLI v2 if `aws` is not already on `$PATH`, retrying
+   up to 5 times with 15s backoff if the apt lock is busy.
 
 Credential wiring is idempotent — re-running when the sentinel exists
 is a no-op.
 
 ## Network access
 
-The kit allows outbound HTTPS to `*.amazonaws.com` (for the CLI and any
-AWS API calls your agent makes) plus Ubuntu apt repositories (needed to
-install `unzip` as a prerequisite for the CLI installer).
+The kit allows outbound HTTPS to:
+
+- `*.amazonaws.com` — AWS CLI installer download and all AWS API calls
+- `archive.ubuntu.com`, `security.ubuntu.com`, `ports.ubuntu.com` — apt
+  package index and `unzip` install (prerequisite for the CLI installer)
 
 ## Cleanup
 
