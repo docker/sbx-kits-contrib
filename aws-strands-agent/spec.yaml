@@ -1,0 +1,236 @@
+schemaVersion: "1"
+kind: mixin
+name: aws-strands-agent
+displayName: Strands Agents (AWS)
+description: "Installs the AWS Strands Agents SDK in an isolated Python virtual environment and allows egress to Amazon Bedrock in every commercial region. Works with any Bedrock model/inference profile (Anthropic Claude, Amazon Nova, and others); the caller picks the model and region."
+
+network:
+  allowedDomains:
+    # pip install path for strands-agents and its Python dependencies
+    - "pypi.org:443"
+    - "files.pythonhosted.org:443"
+    # Bedrock runtime (Converse/InvokeModel). boto3 only ever connects to the
+    # region set via AWS_DEFAULT_REGION; cross-region/global inference profiles
+    # are routed server-side by AWS, so only the caller's region is contacted.
+    # Every commercial region is listed so the kit works wherever the user runs.
+    # (GovCloud/China use different partitions/domains and are not included.)
+    - "bedrock-runtime.af-south-1.amazonaws.com:443"
+    - "bedrock-runtime.ap-east-1.amazonaws.com:443"
+    - "bedrock-runtime.ap-east-2.amazonaws.com:443"
+    - "bedrock-runtime.ap-northeast-1.amazonaws.com:443"
+    - "bedrock-runtime.ap-northeast-2.amazonaws.com:443"
+    - "bedrock-runtime.ap-northeast-3.amazonaws.com:443"
+    - "bedrock-runtime.ap-south-1.amazonaws.com:443"
+    - "bedrock-runtime.ap-south-2.amazonaws.com:443"
+    - "bedrock-runtime.ap-southeast-1.amazonaws.com:443"
+    - "bedrock-runtime.ap-southeast-2.amazonaws.com:443"
+    - "bedrock-runtime.ap-southeast-3.amazonaws.com:443"
+    - "bedrock-runtime.ap-southeast-4.amazonaws.com:443"
+    - "bedrock-runtime.ap-southeast-5.amazonaws.com:443"
+    - "bedrock-runtime.ap-southeast-7.amazonaws.com:443"
+    - "bedrock-runtime.ca-central-1.amazonaws.com:443"
+    - "bedrock-runtime.ca-west-1.amazonaws.com:443"
+    - "bedrock-runtime.eu-central-1.amazonaws.com:443"
+    - "bedrock-runtime.eu-central-2.amazonaws.com:443"
+    - "bedrock-runtime.eu-north-1.amazonaws.com:443"
+    - "bedrock-runtime.eu-south-1.amazonaws.com:443"
+    - "bedrock-runtime.eu-south-2.amazonaws.com:443"
+    - "bedrock-runtime.eu-west-1.amazonaws.com:443"
+    - "bedrock-runtime.eu-west-2.amazonaws.com:443"
+    - "bedrock-runtime.eu-west-3.amazonaws.com:443"
+    - "bedrock-runtime.il-central-1.amazonaws.com:443"
+    - "bedrock-runtime.me-central-1.amazonaws.com:443"
+    - "bedrock-runtime.me-south-1.amazonaws.com:443"
+    - "bedrock-runtime.mx-central-1.amazonaws.com:443"
+    - "bedrock-runtime.sa-east-1.amazonaws.com:443"
+    - "bedrock-runtime.us-east-1.amazonaws.com:443"
+    - "bedrock-runtime.us-east-2.amazonaws.com:443"
+    - "bedrock-runtime.us-west-1.amazonaws.com:443"
+    - "bedrock-runtime.us-west-2.amazonaws.com:443"
+    # Bedrock control plane (ListInferenceProfiles, ListFoundationModels, etc.)
+    - "bedrock.af-south-1.amazonaws.com:443"
+    - "bedrock.ap-east-1.amazonaws.com:443"
+    - "bedrock.ap-east-2.amazonaws.com:443"
+    - "bedrock.ap-northeast-1.amazonaws.com:443"
+    - "bedrock.ap-northeast-2.amazonaws.com:443"
+    - "bedrock.ap-northeast-3.amazonaws.com:443"
+    - "bedrock.ap-south-1.amazonaws.com:443"
+    - "bedrock.ap-south-2.amazonaws.com:443"
+    - "bedrock.ap-southeast-1.amazonaws.com:443"
+    - "bedrock.ap-southeast-2.amazonaws.com:443"
+    - "bedrock.ap-southeast-3.amazonaws.com:443"
+    - "bedrock.ap-southeast-4.amazonaws.com:443"
+    - "bedrock.ap-southeast-5.amazonaws.com:443"
+    - "bedrock.ap-southeast-7.amazonaws.com:443"
+    - "bedrock.ca-central-1.amazonaws.com:443"
+    - "bedrock.ca-west-1.amazonaws.com:443"
+    - "bedrock.eu-central-1.amazonaws.com:443"
+    - "bedrock.eu-central-2.amazonaws.com:443"
+    - "bedrock.eu-north-1.amazonaws.com:443"
+    - "bedrock.eu-south-1.amazonaws.com:443"
+    - "bedrock.eu-south-2.amazonaws.com:443"
+    - "bedrock.eu-west-1.amazonaws.com:443"
+    - "bedrock.eu-west-2.amazonaws.com:443"
+    - "bedrock.eu-west-3.amazonaws.com:443"
+    - "bedrock.il-central-1.amazonaws.com:443"
+    - "bedrock.me-central-1.amazonaws.com:443"
+    - "bedrock.me-south-1.amazonaws.com:443"
+    - "bedrock.mx-central-1.amazonaws.com:443"
+    - "bedrock.sa-east-1.amazonaws.com:443"
+    - "bedrock.us-east-1.amazonaws.com:443"
+    - "bedrock.us-east-2.amazonaws.com:443"
+    - "bedrock.us-west-1.amazonaws.com:443"
+    - "bedrock.us-west-2.amazonaws.com:443"
+    # STS — credential verification and assumed-role/SSO token refresh.
+    # Global endpoint covers most cases; regional endpoints support
+    # regional STS and role/SSO refresh in the caller's region.
+    - "sts.amazonaws.com:443"
+    - "sts.af-south-1.amazonaws.com:443"
+    - "sts.ap-east-1.amazonaws.com:443"
+    - "sts.ap-east-2.amazonaws.com:443"
+    - "sts.ap-northeast-1.amazonaws.com:443"
+    - "sts.ap-northeast-2.amazonaws.com:443"
+    - "sts.ap-northeast-3.amazonaws.com:443"
+    - "sts.ap-south-1.amazonaws.com:443"
+    - "sts.ap-south-2.amazonaws.com:443"
+    - "sts.ap-southeast-1.amazonaws.com:443"
+    - "sts.ap-southeast-2.amazonaws.com:443"
+    - "sts.ap-southeast-3.amazonaws.com:443"
+    - "sts.ap-southeast-4.amazonaws.com:443"
+    - "sts.ap-southeast-5.amazonaws.com:443"
+    - "sts.ap-southeast-7.amazonaws.com:443"
+    - "sts.ca-central-1.amazonaws.com:443"
+    - "sts.ca-west-1.amazonaws.com:443"
+    - "sts.eu-central-1.amazonaws.com:443"
+    - "sts.eu-central-2.amazonaws.com:443"
+    - "sts.eu-north-1.amazonaws.com:443"
+    - "sts.eu-south-1.amazonaws.com:443"
+    - "sts.eu-south-2.amazonaws.com:443"
+    - "sts.eu-west-1.amazonaws.com:443"
+    - "sts.eu-west-2.amazonaws.com:443"
+    - "sts.eu-west-3.amazonaws.com:443"
+    - "sts.il-central-1.amazonaws.com:443"
+    - "sts.me-central-1.amazonaws.com:443"
+    - "sts.me-south-1.amazonaws.com:443"
+    - "sts.mx-central-1.amazonaws.com:443"
+    - "sts.sa-east-1.amazonaws.com:443"
+    - "sts.us-east-1.amazonaws.com:443"
+    - "sts.us-east-2.amazonaws.com:443"
+    - "sts.us-west-1.amazonaws.com:443"
+    - "sts.us-west-2.amazonaws.com:443"
+    # apt-get update refreshes every configured apt source from the base
+    # template. Keep all template sources allowed for amd64 and arm64 sandboxes.
+    - "archive.ubuntu.com:80"
+    - "security.ubuntu.com:80"
+    - "ports.ubuntu.com:80"
+    - "download.docker.com:443"
+
+environment:
+  variables:
+    STRANDS_VENV: "/opt/strands"
+    STRANDS_PYTHON: "/opt/strands/bin/python"
+
+commands:
+  install:
+    - command: "apt-get update && apt-get install -y --no-install-recommends ca-certificates python3 python3-venv python3-pip && rm -rf /var/lib/apt/lists/*"
+      user: "0"
+      description: Install Python and venv prerequisites for Strands Agents
+
+    - command: |
+        set -euo pipefail
+        STRANDS_VERSION=1.44.0
+        STRANDS_TOOLS_VERSION=0.8.1
+        python3 -m venv /opt/strands
+        /opt/strands/bin/python -m pip install --upgrade pip setuptools wheel
+        /opt/strands/bin/python -m pip install \
+          "strands-agents==${STRANDS_VERSION}" \
+          "strands-agents-tools==${STRANDS_TOOLS_VERSION}" \
+          boto3
+        cat > /usr/local/bin/strands-python <<'SCRIPT'
+        #!/bin/sh
+        exec /opt/strands/bin/python "$@"
+        SCRIPT
+        chmod 0755 /usr/local/bin/strands-python
+
+        # --- Bedrock SigV4 fix for Python 3.14 -------------------------------
+        # Python 3.14 leaves the ':' in cross-region inference-profile model IDs
+        # (e.g. "ap.anthropic...-v1:0") unencoded in the request URL. The
+        # transport then sends %3A on the wire while SigV4 signed the raw ':',
+        # so every Bedrock call fails with InvalidSignatureException. We ship a
+        # tiny botocore patch that re-encodes the path before signing. It is
+        # gated to Python 3.14+ so signing behavior on <=3.13 (already correct)
+        # is never touched, and is auto-loaded via a .pth at interpreter
+        # startup. Scoped to the exact SigV4Auth class so S3 is never touched.
+        SP="$(/opt/strands/bin/python -c 'import site; print(site.getsitepackages()[0])')"
+        cat > "$SP/_strands_sigv4_py314_fix.py" <<'PYFIX'
+        try:
+            import sys
+
+            if sys.version_info >= (3, 14):
+                import botocore.auth as _a
+                from urllib.parse import urlsplit as _us, urlunsplit as _uu, quote as _q
+
+                if not getattr(_a.SigV4Auth, "_strands_py314_patched", False):
+                    _orig_add_auth = _a.SigV4Auth.add_auth
+
+                    def _add_auth(self, request):
+                        if type(self) is _a.SigV4Auth:
+                            p = _us(request.url)
+                            request.url = _uu(p._replace(path=_q(p.path, safe="/%~")))
+                        return _orig_add_auth(self, request)
+
+                    _a.SigV4Auth.add_auth = _add_auth
+                    _a.SigV4Auth._strands_py314_patched = True
+        except Exception:
+            pass
+        PYFIX
+        printf 'import _strands_sigv4_py314_fix\n' > "$SP/_strands_sigv4_py314_fix.pth"
+
+        # Hand the venv to the agent user (uid 1000) so packages can be managed
+        # without sudo. The venv is otherwise root-owned from this install step.
+        chown -R 1000:1000 /opt/strands
+
+        strands-python -c 'import importlib.metadata; print("strands-agents", importlib.metadata.version("strands-agents"))'
+        # Verify Bedrock requests sign correctly for colon-containing model IDs.
+        # Offline self-test: it drives boto3's real request serializer + SigV4
+        # signer but short-circuits 'before-send', so nothing leaves the box. It
+        # asserts the SIGNED canonical path is double-encoded (%253A), which is
+        # what AWS expects. Passes natively on Python <=3.13 and (via the patch
+        # above) on 3.14+. The region/model are an arbitrary colon-bearing
+        # fixture and imply no default or required region.
+        strands-python - <<'PYCHK'
+        import boto3
+        from botocore.auth import SigV4Auth
+        from botocore.awsrequest import AWSResponse
+        cap = {}
+        _orig = SigV4Auth.canonical_request
+        def _cap(self, request):
+            cr = _orig(self, request)
+            cap['cr'] = cr
+            return cr
+        SigV4Auth.canonical_request = _cap
+        def _stop(request, **kw):
+            resp = AWSResponse(request.url, 200, {'Content-Type': 'application/json'}, None)
+            resp._content = b'{"output":{"message":{"content":[{"text":"ok"}]}}}'
+            return resp
+        c = boto3.client('bedrock-runtime', region_name='us-east-1',
+                         aws_access_key_id='AKIA', aws_secret_access_key='x')
+        c.meta.events.register('before-send.bedrock-runtime', _stop)
+        try:
+            c.converse(modelId='us.anthropic.claude-sonnet-4-20250514-v1:0',
+                       messages=[{'role': 'user', 'content': [{'text': 'hi'}]}])
+        except Exception:
+            pass
+        path = cap['cr'].split('\n')[1]
+        assert path.endswith('v1%253A0/converse'), 'Bedrock SigV4 colon-encoding wrong: ' + path
+        print('SigV4 Bedrock colon-encoding correct')
+        PYCHK
+      user: "0"
+      description: "Install strands-agents v1.44.0 and strands-agents-tools v0.8.1 in /opt/strands venv"
+
+    - command: |
+        set -euo pipefail
+        grep -qF 'STRANDS_VENV' ~/.bashrc 2>/dev/null || \
+          printf '\n# strands-agents (added by sbx-kits-contrib/aws-strands-agent)\nexport STRANDS_VENV=/opt/strands\nexport STRANDS_PYTHON=/opt/strands/bin/python\nalias strands-python=/opt/strands/bin/python\n' >> ~/.bashrc
+      user: "1000"
+      description: Add Strands helper environment variables to interactive shells
