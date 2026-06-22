@@ -1,0 +1,62 @@
+schemaVersion: "1"
+kind: mixin
+name: smolagents
+displayName: smolagents
+description: "Installs Hugging Face smolagents in an isolated Python virtual environment and exposes the smolagent and webagent CLIs inside the sandbox."
+
+network:
+  allowedDomains:
+    # pip install path for smolagents and its Python dependencies.
+    - "pypi.org:443"
+    - "files.pythonhosted.org:443"
+    # Hugging Face Hub and Inference Providers, used by InferenceClientModel and
+    # hub-backed agent/tool loading at runtime.
+    - "huggingface.co:443"
+    - "hf.co:443"
+    - "router.huggingface.co:443"
+    # DuckDuckGo-backed search tools from the optional toolkit extra. Webpage
+    # fetches still require allowing the target sites you ask the agent to visit.
+    - "duckduckgo.com:443"
+    - "html.duckduckgo.com:443"
+    - "www.duckduckgo.com:443"
+    # `apt-get update` refreshes every configured apt source from the base
+    # template. Keep all template sources allowed for amd64 and arm64 sandboxes.
+    - "archive.ubuntu.com:80"
+    - "security.ubuntu.com:80"
+    - "ports.ubuntu.com:80"
+    - "download.docker.com:443"
+
+environment:
+  variables:
+    SMOLAGENTS_VENV: "/opt/smolagents"
+    SMOLAGENTS_PYTHON: "/opt/smolagents/bin/python"
+
+commands:
+  install:
+    - command: "apt-get update && apt-get install -y --no-install-recommends ca-certificates python3 python3-venv python3-pip && rm -rf /var/lib/apt/lists/*"
+      user: "0"
+      description: Install Python and venv prerequisites for smolagents
+    - command: |
+        set -euo pipefail
+        SMOLAGENTS_VERSION=1.26.0
+        python3 -m venv /opt/smolagents
+        /opt/smolagents/bin/python -m pip install --upgrade pip setuptools wheel
+        /opt/smolagents/bin/python -m pip install "smolagents[toolkit,vision]==${SMOLAGENTS_VERSION}"
+        ln -sf /opt/smolagents/bin/smolagent /usr/local/bin/smolagent
+        ln -sf /opt/smolagents/bin/webagent /usr/local/bin/webagent
+        cat > /usr/local/bin/smolagents-python <<'SCRIPT'
+        #!/bin/sh
+        exec /opt/smolagents/bin/python "$@"
+        SCRIPT
+        chmod 0755 /usr/local/bin/smolagents-python
+        smolagent --help >/dev/null
+        webagent --help >/dev/null
+        smolagents-python -c 'import smolagents; print("smolagents", smolagents.__version__)'
+      user: "0"
+      description: "Install smolagents v1.26.0 with toolkit and vision extras in /opt/smolagents"
+    - command: |
+        set -euo pipefail
+        grep -qF 'smolagents-python' ~/.bashrc 2>/dev/null || \
+          printf '\n# smolagents (added by sbx-kits-contrib/smolagents)\nexport SMOLAGENTS_VENV=/opt/smolagents\nexport SMOLAGENTS_PYTHON=/opt/smolagents/bin/python\nalias smolagents-python=/opt/smolagents/bin/python\n' >> ~/.bashrc
+      user: "1000"
+      description: Add smolagents helper environment variables to interactive shells
