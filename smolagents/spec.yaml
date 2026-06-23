@@ -1,30 +1,31 @@
-schemaVersion: "1"
+schemaVersion: "2"
 kind: mixin
 name: smolagents
 displayName: smolagents
 description: "Installs Hugging Face smolagents in an isolated Python virtual environment and exposes the smolagent and webagent CLIs inside the sandbox."
 
-network:
-  allowedDomains:
-    # pip install path for smolagents and its Python dependencies.
-    - "pypi.org:443"
-    - "files.pythonhosted.org:443"
-    # Hugging Face Hub and Inference Providers, used by InferenceClientModel and
-    # hub-backed agent/tool loading at runtime.
-    - "huggingface.co:443"
-    - "hf.co:443"
-    - "router.huggingface.co:443"
-    # DuckDuckGo-backed search tools from the optional toolkit extra. Webpage
-    # fetches still require allowing the target sites you ask the agent to visit.
-    - "duckduckgo.com:443"
-    - "html.duckduckgo.com:443"
-    - "www.duckduckgo.com:443"
-    # `apt-get update` refreshes every configured apt source from the base
-    # template. Keep all template sources allowed for amd64 and arm64 sandboxes.
-    - "archive.ubuntu.com:80"
-    - "security.ubuntu.com:80"
-    - "ports.ubuntu.com:80"
-    - "download.docker.com:443"
+caps:
+  network:
+    allow:
+      # pip install path for smolagents and its Python dependencies.
+      - "pypi.org:443"
+      - "files.pythonhosted.org:443"
+      # Hugging Face Hub and Inference Providers, used by InferenceClientModel and
+      # hub-backed agent/tool loading at runtime.
+      - "huggingface.co:443"
+      - "hf.co:443"
+      - "router.huggingface.co:443"
+      # DuckDuckGo-backed search tools from the optional toolkit extra. Webpage
+      # fetches still require allowing the target sites you ask the agent to visit.
+      - "duckduckgo.com:443"
+      - "html.duckduckgo.com:443"
+      - "www.duckduckgo.com:443"
+      # `apt-get update` refreshes every configured apt source from the base
+      # template. Keep all template sources allowed for amd64 and arm64 sandboxes.
+      - "archive.ubuntu.com:80"
+      - "security.ubuntu.com:80"
+      - "ports.ubuntu.com:80"
+      - "download.docker.com:443"
 
 environment:
   variables:
