@@ -232,8 +232,8 @@ func LoadFromBytes(yamlBytes []byte) (*SpecFile, error) {
 	return parseSpecFileBytes(yamlBytes)
 }
 
-// MarshalSpecFile encodes a normalized SpecFile as YAML.
-func MarshalSpecFile(sf *SpecFile) ([]byte, error) {
+// Marshal encodes a normalized SpecFile as YAML.
+func Marshal(sf *SpecFile) ([]byte, error) {
 	return yaml.Marshal(sf)
 }
 
