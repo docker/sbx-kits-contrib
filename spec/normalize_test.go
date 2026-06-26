@@ -344,7 +344,7 @@ displayName: Normalize Kit
 		sf, err := LoadFromBytes(in)
 		require.NoError(t, err)
 
-		out, err := MarshalSpecFile(sf)
+		out, err := Marshal(sf)
 		require.NoError(t, err)
 
 		again, err := LoadFromBytes(out)
