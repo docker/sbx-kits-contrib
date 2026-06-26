@@ -543,7 +543,7 @@ type ArtifactFile struct {
 	// LoadFromFS) populate this field; streaming loaders
 	// (OpenFromDirectory, OpenFromFS) leave it nil and set ContentSource
 	// instead. Content is always non-nil (even for empty files) on the
-	// eager path. LoadFromBytes never populates Content (it has no notion
+	// eager path. LoadArtifactFromBytes never populates Content (it has no notion
 	// of a file source; callers populate Files from their own source).
 	Content []byte `json:"content"`
 

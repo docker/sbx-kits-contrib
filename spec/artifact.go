@@ -211,7 +211,7 @@ func OpenFromFS(fsys fs.FS, dir string) (*Artifact, error) {
 	return artifact, nil
 }
 
-// LoadFromBytes parses spec.yaml bytes into an Artifact, leaving Files
+// LoadArtifactFromBytes parses spec.yaml bytes into an Artifact, leaving Files
 // unset and skipping validation. Intended for callers that obtain the
 // spec.yaml separately from the file payload — e.g., the v2 OCI puller,
 // which reads spec.yaml from the manifest's config blob and the files
@@ -219,16 +219,16 @@ func OpenFromFS(fsys fs.FS, dir string) (*Artifact, error) {
 //
 // Callers must populate Artifact.Files from their own source and then
 // call ValidateArtifact to verify the result. LoadFromDirectory and
-// LoadFromFS do this automatically; LoadFromBytes does not because it
+// LoadFromFS do this automatically; LoadArtifactFromBytes does not because it
 // has no notion of a file source.
-func LoadFromBytes(yamlBytes []byte) (*Artifact, error) {
+func LoadArtifactFromBytes(yamlBytes []byte) (*Artifact, error) {
 	return parseArtifactBytes(yamlBytes)
 }
 
-// LoadSpecFromBytes parses spec.yaml bytes into a normalized SpecFile.
+// LoadFromBytes parses spec.yaml bytes into a normalized SpecFile.
 // Normalization (v1 sugar folding, legacy field removal, and canonical
-// v2 shaping for marshal) happens inside this call, mirroring LoadFromBytes.
-func LoadSpecFromBytes(yamlBytes []byte) (*SpecFile, error) {
+// v2 shaping for marshal) happens inside this call, mirroring LoadArtifactFromBytes.
+func LoadFromBytes(yamlBytes []byte) (*SpecFile, error) {
 	return parseSpecFileBytes(yamlBytes)
 }
 

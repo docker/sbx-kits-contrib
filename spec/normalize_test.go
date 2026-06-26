@@ -146,7 +146,7 @@ oauth:
     accessToken: a-sentinel
     refreshToken: r-sentinel
 `)
-	art, err := LoadFromBytes(yaml)
+	art, err := LoadArtifactFromBytes(yaml)
 	require.NoError(t, err)
 
 	var vertex *Credential
@@ -183,7 +183,7 @@ oauth:
   tokenEndpoint: {host: platform.claude.com, path: /v1/oauth/token}
   sentinels: {accessToken: a, refreshToken: r}
 `)
-	art, err := LoadFromBytes(yaml)
+	art, err := LoadArtifactFromBytes(yaml)
 	require.NoError(t, err)
 	var c *Credential
 	for i := range art.Credentials {
@@ -239,7 +239,7 @@ oauth:
     accessToken: a-sentinel
     refreshToken: r-sentinel
 `)
-	art, err := LoadFromBytes(yaml)
+	art, err := LoadArtifactFromBytes(yaml)
 	require.NoError(t, err)
 
 	var vertex *Credential
@@ -276,7 +276,7 @@ credentials:
 environment:
   proxyManaged: [GOOGLE_API_KEY, GEMINI_API_KEY]
 `)
-	a, err := LoadFromBytes(in)
+	a, err := LoadArtifactFromBytes(in)
 	require.NoError(t, err)
 	bySvc := map[string]*ApiKey{}
 	for i := range a.Credentials {
@@ -309,7 +309,7 @@ credentials:
   - service: github
     apiKey: {name: GH_TOKEN, inject: [{domain: api.github.com, header: Authorization, format: "Bearer %s"}]}
 `)
-	a, err := LoadFromBytes(in)
+	a, err := LoadArtifactFromBytes(in)
 	require.NoError(t, err)
 	require.NotNil(t, a.Environment)
 	require.Equal(t, []string{"OPENAI_API_KEY"}, a.Environment.ProxyManaged) // github unmarked → excluded
@@ -334,20 +334,20 @@ func TestDeriveServiceKey(t *testing.T) {
 	}
 }
 
-func TestLoadSpecFromBytes(t *testing.T) {
+func TestLoadFromBytes(t *testing.T) {
 	t.Run("mixin_round_trip", func(t *testing.T) {
 		in := []byte(`schemaVersion: "1"
 kind: mixin
 name: normalize-kit
 displayName: Normalize Kit
 `)
-		sf, err := LoadSpecFromBytes(in)
+		sf, err := LoadFromBytes(in)
 		require.NoError(t, err)
 
 		out, err := MarshalSpecFile(sf)
 		require.NoError(t, err)
 
-		again, err := LoadSpecFromBytes(out)
+		again, err := LoadFromBytes(out)
 		require.NoError(t, err)
 		require.Equal(t, sf, again)
 	})
@@ -358,10 +358,10 @@ kind: mixin
 name: normalize-kit
 displayName: Normalize Kit
 `)
-		fromBytes, err := LoadFromBytes(in)
+		fromBytes, err := LoadArtifactFromBytes(in)
 		require.NoError(t, err)
 
-		sf, err := LoadSpecFromBytes(in)
+		sf, err := LoadFromBytes(in)
 		require.NoError(t, err)
 		require.Equal(t, fromBytes.Manifest.Name, sf.Name)
 		require.Equal(t, fromBytes.Manifest.Kind, sf.Kind)

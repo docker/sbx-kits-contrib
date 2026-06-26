@@ -133,7 +133,7 @@ func findSpec(kitDir string) (string, error) {
 // as settings:). changes is empty when the input already uses only canonical
 // v2 fields, in which case the returned bytes should be ignored (no rewrite).
 func migrateSpec(data []byte) ([]byte, []string, error) {
-	a, err := spec.LoadFromBytes(data)
+	a, err := spec.LoadArtifactFromBytes(data)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -173,7 +173,7 @@ func migrateSpec(data []byte) ([]byte, []string, error) {
 	// Safety net: the rewritten spec must parse cleanly through the same
 	// loader. A decode error here means we produced a malformed spec.yaml —
 	// fail loudly rather than overwrite the author's file with garbage.
-	if _, err := spec.LoadFromBytes(emitted); err != nil {
+	if _, err := spec.LoadArtifactFromBytes(emitted); err != nil {
 		return nil, nil, fmt.Errorf("migrated spec failed to re-parse: %w", err)
 	}
 

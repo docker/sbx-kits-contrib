@@ -24,7 +24,7 @@ licenses:
 sandbox:
   image: my-image
 `)
-	art, err := LoadFromBytes(yaml)
+	art, err := LoadArtifactFromBytes(yaml)
 	require.NoError(t, err)
 	require.Equal(t, []string{"MIT", "Apache-2.0"}, art.Licenses,
 		"licenses must round-trip onto Artifact.Licenses unchanged")
@@ -40,12 +40,12 @@ name: test-kit
 sandbox:
   image: my-image
 `)
-	art, err := LoadFromBytes(yaml)
+	art, err := LoadArtifactFromBytes(yaml)
 	require.NoError(t, err)
 	require.Empty(t, art.Licenses)
 }
 
-// LoadFromDirectory runs ValidateArtifact (unlike LoadFromBytes, which only
+// LoadFromDirectory runs ValidateArtifact (unlike LoadArtifactFromBytes, which only
 // decodes/normalizes), so a malformed licenses list is rejected on a real
 // disk load — the path the engine and migration script use.
 func TestLicenses_InvalidRejectedAtLoad(t *testing.T) {
