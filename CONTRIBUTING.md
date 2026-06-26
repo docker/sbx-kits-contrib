@@ -60,35 +60,40 @@ The first two are what CI runs on every PR. **The third is not run on CI for PRs
 
 `scripts/test-kit.sh` resolves the kit directory (default: `$PWD`), sets `KIT` to its absolute path, and runs `go test -run TestKitTCK ./tck/...` against the repo-root `tck` package. Forwards extra flags to `go test`, so `../scripts/test-kit.sh -v -run TestKitTCK/my-kit/validation` works.
 
-### Run e2e under `deny-all`
+### Running e2e
 
-The high-value local run is e2e against the strict baseline. That's what surfaces the **exact** set of hosts your install and startup hooks reach for — i.e. the real `allowedDomains` you need to ship. Without this step, kits routinely ship an allow-list that only works because the contributor's host policy is permissive, and the kit then fails for users on `deny-all` (and for the maintainer running e2e on a non-fork branch).
+The wrapper script does the dance for you:
 
-**Contain the damage with `--app-name`.** `sbx --app-name <name>` scopes the daemon — sandboxes, policies, secrets, and cache live in a separate state directory and do not touch your day-to-day sbx setup. The e2e harness already passes `--app-name sbx-kits-contrib-tck` on every internal call ([`tck/e2e_test.go:415`](./tck/e2e_test.go#L415)), so if you use the same name for your probe commands the policy you set is exactly what the harness's sandboxes see — **and** if anything goes sideways (stuck state, leftover sandboxes, daemon misbehaving) you can wipe just that one daemon with `sbx --app-name sbx-kits-contrib-tck reset --force` without losing your normal sbx work.
-
-```bash
-APP=sbx-kits-contrib-tck
-
-# 1. Switch the tck daemon's default policy to deny-all. Your main daemon
-#    is unaffected.
-sbx --app-name $APP policy reset -f
-sbx --app-name $APP policy set-default deny-all
-
-# 2. Run the e2e suite. The harness creates a sandbox named
-#    `tck-e2e-<short-uuid>` and exercises the kit end-to-end.
-cd my-kit && ../scripts/test-kit-e2e.sh
-
-# 3. If e2e failed, see what the proxy blocked.
-sbx --app-name $APP ls                          # find the tck-e2e-* name
-sbx --app-name $APP policy log tck-e2e-<short-uuid>
-
-# 4. (Optional) Nuke just the tck daemon between iterations.
-sbx --app-name $APP reset --force
+```console
+$ cd my-kit && ../scripts/test-kit-e2e.sh
 ```
 
-Every row under `Blocked requests` is a host your kit reached for under `deny-all`. Add the host (column `HOST`, e.g. `download.docker.com:443`) to `allowedDomains` and repeat until the block list is empty **and** the e2e test passes. See [Declare every domain your kit needs](./README.md#declare-every-domain-your-kit-needs) for the cross-arch gotchas (`archive.ubuntu.com`, `security.ubuntu.com`, **and** `ports.ubuntu.com`) and the package-manager refresh trap (`apt-get update` re-fetches every configured source).
+That single command:
 
-Prerequisites for e2e (`sbx login`, `/dev/kvm`, etc.) are in [End-to-end (e2e) Tests](./README.md#end-to-end-e2e-tests) in the README.
+- scopes every `sbx` call to `--app-name sbx-kits-contrib-tck`, so the test daemon (sandboxes, policy, cache) is isolated from your main sbx state and nothing the script does touches your day-to-day setup,
+- sets the scoped daemon's default network policy to `deny-all` — the same baseline CI uses, so any host your install or startup hooks reach for must be in `caps.network.allow` or the request is blocked, and
+- runs `TestE2EKit` (env, files, tmpfs, agentContext, and — for `kind: sandbox` kits with a `testdata/tck.yaml` — a non-interactive prompt to the agent).
+
+The script is idempotent (re-runs converge on the same state) and non-interactive (no prompts).
+
+One-time setup per machine — the scoped daemon has its own credential store, separate from any login on your main daemon:
+
+```console
+$ sbx --app-name sbx-kits-contrib-tck login
+```
+
+When the test fails, the script prints how to dump the proxy log. The recurring fix is the same loop: read the log, add the blocked host to `caps.network.allow`, re-run.
+
+```console
+$ sbx --app-name sbx-kits-contrib-tck ls                          # find the tck-e2e-* sandbox
+$ sbx --app-name sbx-kits-contrib-tck policy log <sandbox-name>
+```
+
+Every row under `Blocked requests` is a host your kit reached for under `deny-all`. See [Declare every domain your kit needs](./README.md#declare-every-domain-your-kit-needs) for the cross-arch gotchas (`archive.ubuntu.com`, `security.ubuntu.com`, **and** `ports.ubuntu.com`) and the package-manager refresh trap (`apt-get update` re-fetches every configured source).
+
+If the scoped daemon ever gets wedged: `sbx --app-name sbx-kits-contrib-tck reset --force` wipes only that daemon's state.
+
+Prerequisites for e2e (`/dev/kvm`, Secret Service on Linux, etc.) are in [End-to-end (e2e) Tests](./README.md#end-to-end-e2e-tests) in the README.
 
 ## Sign-off and signing
 

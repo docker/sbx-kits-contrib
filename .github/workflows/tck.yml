@@ -260,29 +260,20 @@ jobs:
           TOKEN_CLEAN=$(printf '%s' "$DOCKERHUB_TOKEN"    | tr -d '[:space:]')
           printf '%s' "$TOKEN_CLEAN" | sbx --app-name "$APP_NAME" login --username "$USER_CLEAN" --password-stdin
 
-      - name: Set sbx default network policy
-        # `sbx create` refuses to run until a default network policy is
-        # configured. `deny-all` is the strict baseline: a kit gets
-        # *exactly* the outbound reachability it declares in
-        # `network.allowedDomains` and nothing more. That makes the e2e
-        # run a real contract test — if a kit's install hooks reach for
-        # apt/npm mirrors it didn't list, the failure is real and
-        # actionable. Kit allow-rules are scoped per sandbox and punch
-        # through the default deny (see `ApplyKitNetworkPolicyScoped` in
-        # docker/sandboxes:sandboxd/pkg/server/options_governance.go); kit
-        # deny-rules win over allow-rules (deny-wins).
-        #
-        # The trade-off: kits that previously relied on `balanced`'s
-        # tier-zero allowances (Debian apt mirrors, default npm registry)
-        # have to enumerate those domains in their own `allowedDomains`.
-        # That's the philosophy this CI is enforcing — kits are
-        # self-contained network contracts.
-        run: sbx --app-name "$APP_NAME" policy set-default deny-all
-
       - name: Run e2e TCK for ${{ matrix.kit }}
         # Runs TestE2EKit: verifies kit content (env, files, tmpfs, agentContext)
         # for all kits, then — for kind:sandbox kits with testdata/tck.yaml —
         # also sends a non-interactive prompt to the agent.
+        #
+        # The script handles `sbx --app-name $APP_NAME policy set-default
+        # deny-all` internally, so CI and local runs converge on the same
+        # baseline: each kit gets *exactly* the outbound reachability it
+        # declares in `caps.network.allow` and nothing more, making this
+        # a real contract test. Kit allow-rules are scoped per sandbox
+        # and punch through the default deny (see
+        # `ApplyKitNetworkPolicyScoped` in
+        # docker/sandboxes:sandboxd/pkg/server/options_governance.go);
+        # kit deny-rules win over allow-rules (deny-wins).
         run: ./scripts/test-kit-e2e.sh "${{ matrix.kit }}"
 
       - name: Sign out of Docker Hub

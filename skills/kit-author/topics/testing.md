@@ -164,36 +164,39 @@ Do **not** add `binary:` to `spec.yaml` — the normalizer rejects `binary` at t
 
 `TestE2ERunAgent` skips any kit whose `tck.yaml` is absent or has no `promptArgs`.
 
-### Running e2e under `deny-all` — the real point of running this locally
+### Running e2e
 
-Running `test-kit-e2e.sh` on its own catches the obvious failures, but the **high-value** local run is under a `deny-all` default network policy. That is what surfaces the exact set of hosts your install and startup hooks reach for — i.e. the **real** `caps.network.allow` you need to ship. Without this step, kits routinely under-declare and ship an allow-list that only works because the contributor's host policy happens to be permissive.
+```bash
+cd my-kit
+../scripts/test-kit-e2e.sh
+```
 
-**Use `--app-name sbx-kits-contrib-tck` for every probe command.** `sbx --app-name <name>` scopes the daemon — sandboxes, policies, secrets, and cache for that name live in a separate state directory and do not touch your day-to-day sbx setup. If anything goes wrong (policy stuck in a weird state, leftover `tck-e2e-*` sandboxes, daemon refusing to come back), you can blow the whole thing away with `sbx --app-name sbx-kits-contrib-tck reset --force` and leave your normal sbx work untouched. The e2e harness already passes this app-name on every `sbx` call it makes ([`tck/e2e_test.go:415`](../../../tck/e2e_test.go#L415)), so the policy you set under that name is exactly the policy the harness's sandboxes will see.
+That's the whole recipe — no manual policy dance. The script:
+
+- Scopes every `sbx` call to `--app-name sbx-kits-contrib-tck`, the same app-name the e2e harness uses internally ([`tck/e2e_test.go:415`](../../../tck/e2e_test.go#L415)). The test daemon's sandboxes, policy, secrets, and cache are isolated from your day-to-day sbx state.
+- Sets the scoped daemon's default network policy to `deny-all` — the same baseline CI uses, so any host your install or startup hooks reach for must be in `caps.network.allow` or the request is blocked.
+- Runs `go test -tags=e2e` with `KIT_UNDER_TEST` exported.
+- On non-zero exit, prints a hint pointing at `sbx --app-name sbx-kits-contrib-tck policy log <sandbox>`.
+
+The script is idempotent (re-runs converge on the same state) and non-interactive. Overrides: `APP_NAME` (default `sbx-kits-contrib-tck`) and `POLICY` (default `deny-all`; set `POLICY=` to skip the policy step).
+
+One-time setup per machine — the scoped daemon has its own credential store:
+
+```bash
+sbx --app-name sbx-kits-contrib-tck login
+```
+
+When the test fails, the recurring fix is the same loop: read the proxy log, add the blocked host to `caps.network.allow`, re-run.
 
 ```bash
 APP=sbx-kits-contrib-tck
-
-# 1. Switch the tck daemon's default policy to deny-all. Your main daemon
-#    is unaffected. `sbx --app-name $APP policy ls` shows current state.
-sbx --app-name $APP policy reset -f
-sbx --app-name $APP policy set-default deny-all
-
-# 2. Run the e2e suite. Install hooks fire during `sbx create`; anything
-#    not in caps.network.allow is blocked at request time.
-cd my-kit
-../scripts/test-kit-e2e.sh
-
-# 3. If e2e failed: read what the proxy blocked. The sandbox is named
-#    `tck-e2e-<short-uuid>` — list active sandboxes if you need the full name.
-sbx --app-name $APP ls
+sbx --app-name $APP ls                            # find the tck-e2e-* sandbox
 sbx --app-name $APP policy log tck-e2e-<short-uuid>
-
-# 4. (Optional) Nuke the tck daemon entirely between iterations. Wipes
-#    only the $APP state — your main sbx is untouched.
-sbx --app-name $APP reset --force
 ```
 
-Every row under `Blocked requests` is a host your kit reached for. Add the host (column `HOST`, e.g. `download.docker.com:443`) to `caps.network.allow` and re-run until the block list is empty **and** the e2e test passes. The repository's [`README` recipe](../../../README.md#declare-every-domain-your-kit-needs) explains the same flow against a hand-built probe sandbox — same idea, but the e2e variant above also runs every assertion `TestE2EKit` makes, not just the network ones.
+Every row under `Blocked requests` is a host your kit reached for under `deny-all`. Add the host (column `HOST`, e.g. `download.docker.com:443`) to `caps.network.allow` and re-run until the block list is empty *and* the e2e test passes.
+
+If the scoped daemon ever gets wedged: `sbx --app-name sbx-kits-contrib-tck reset --force` wipes only that daemon's state — your main sbx is untouched.
 
 Common hosts that surface only under `deny-all` (easy to forget):
 
@@ -231,7 +234,7 @@ Faster iteration loop, but immutable settings (privileged, volumes, tmpfs) won't
 
 ## Verifying `caps.network.allow`
 
-The proxy enforces allow/deny at request time. The fastest way to surface exactly what your kit reaches for is to run the e2e suite under `deny-all` — see [Running e2e under `deny-all`](#running-e2e-under-deny-all--the-real-point-of-running-this-locally) above for the full recipe.
+The proxy enforces allow/deny at request time. The fastest way to surface exactly what your kit reaches for is to run the e2e suite — see [Running e2e](#running-e2e) above. The script applies `deny-all` to the scoped daemon for you.
 
 For ad-hoc probing of a single sandbox without running e2e, `sbx policy log` works directly:
 

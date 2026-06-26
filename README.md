@@ -154,31 +154,33 @@ The non-obvious trap is **package managers refreshing every configured source**,
 - Ubuntu hosts amd64 packages on `archive.ubuntu.com` + `security.ubuntu.com` and arm64 packages on `ports.ubuntu.com`. List all three for cross-arch coverage; CI is amd64, your Mac is likely arm64.
 - `npm install`, `pip install`, `cargo`, `go get`, etc. each have their own registry/mirror hosts — declare them too.
 
-If you're not sure what your install hooks reach, probe locally under `deny-all` and read `sbx policy log` to see exactly what the proxy blocked. The recipe is cross-platform (no daemon-log greping, no OS-specific paths) and uses `sbx --app-name sbx-kits-contrib-tck` on every call so the policy change is scoped to a separate daemon — your main sbx state is untouched, and you can blow the probe daemon away with `sbx --app-name sbx-kits-contrib-tck reset --force` if it gets into a bad state:
+The fastest way to find out what your install hooks reach is to run the e2e wrapper. It applies a `deny-all` default policy on a scoped daemon (`--app-name sbx-kits-contrib-tck`) for you, then runs `TestE2ECreateSandbox` — so you get the network contract *and* every other e2e assertion from one command:
+
+```bash
+./scripts/test-kit-e2e.sh my-kit
+```
+
+On failure, dump what the proxy blocked:
 
 ```bash
 APP=sbx-kits-contrib-tck
-
-# 1. Switch the probe daemon to the strict baseline. `sbx --app-name $APP
-#    policy ls` shows what's currently set under that name.
-sbx --app-name $APP policy reset -f
-sbx --app-name $APP policy set-default deny-all
-
-# 2. Run your kit. The install hooks fire during `sbx create`.
-sbx --app-name $APP create --name probe-my-kit --kit "$PWD/my-kit" <agent> /tmp/sbx-kit-debug || true
-
-# 3. See what the proxy blocked (and what got through). Filter by the
-#    sandbox name so you only see this kit's requests.
-sbx --app-name $APP policy log probe-my-kit
-
-# 4. Clean up. The whole probe daemon — sandboxes, policy, cache — goes
-#    away in one command, without touching your main sbx state.
-sbx --app-name $APP reset --force
+sbx --app-name $APP ls                            # find the tck-e2e-* sandbox
+sbx --app-name $APP policy log tck-e2e-<short-uuid>
 ```
 
-Every `Blocked requests` row is a domain your install or startup hook reached for under `deny-all`. Add the host (column `HOST`, e.g. `download.docker.com:443`) to `allowedDomains` and re-probe until the block list is empty.
+Every `Blocked requests` row is a domain your install or startup hook reached for under `deny-all`. Add the host (column `HOST`, e.g. `download.docker.com:443`) to `allowedDomains` and re-run until the block list is empty.
 
-**Or run the e2e suite under the same scoped daemon** — same recipe, but `scripts/test-kit-e2e.sh` (which internally uses the same `--app-name sbx-kits-contrib-tck`) also exercises every assertion `TestE2ECreateSandbox` makes, not just network policy. See [End-to-end (e2e) Tests](#end-to-end-e2e-tests) below.
+If you'd rather hand-build a probe sandbox without invoking the test harness (useful when iterating on install scripts without touching the spec), the manual flow is:
+
+```bash
+APP=sbx-kits-contrib-tck
+sbx --app-name $APP policy set-default deny-all
+sbx --app-name $APP create --name probe-my-kit --kit "$PWD/my-kit" <agent> /tmp/sbx-kit-debug || true
+sbx --app-name $APP policy log probe-my-kit
+sbx --app-name $APP reset --force                 # wipe the scoped daemon
+```
+
+Same `--app-name` keeps the state isolated from your main sbx and lets `sbx --app-name $APP reset --force` clean up without touching your day-to-day setup.
 
 ## TCK Test Coverage
 
@@ -212,15 +214,19 @@ The default TCK runs every kit assertion against a fabricated `testcontainers-go
 ### Prerequisites
 
 - `sbx` on `PATH`. Install the latest release from [`docker/sbx-releases`](https://github.com/docker/sbx-releases/releases/latest).
-- An authenticated `sbx` session against Docker Hub. The non-interactive form:
+- The scoped daemon must be logged in to Docker Hub once per machine. Interactive form:
   ```bash
-  printf '%s' "$DOCKERHUB_TOKEN" | sbx login --username "$DOCKERHUB_USERNAME" --password-stdin
+  sbx --app-name sbx-kits-contrib-tck login
+  ```
+  Non-interactive (matches CI):
+  ```bash
+  printf '%s' "$DOCKERHUB_TOKEN" | sbx --app-name sbx-kits-contrib-tck login --username "$DOCKERHUB_USERNAME" --password-stdin
   ```
 - Linux with `/dev/kvm` accessible (for the sailor microVM). On Linux runners and most workstations this is already the case; in CI the workflow does `sudo chmod 666 /dev/kvm` to relax permissions.
 
 ### Running locally
 
-The test is hidden behind the `e2e` build tag so kit authors running `go test ./...` see no behavior change. Opt in via the wrapper:
+The test is hidden behind the `e2e` build tag so kit authors running `go test ./...` see no behavior change. Opt in via the wrapper — the script handles the `--app-name` scoping and `deny-all` policy for you:
 
 ```bash
 # From inside the kit's directory:
@@ -231,7 +237,9 @@ cd my-kit
 ./scripts/test-kit-e2e.sh my-kit
 ```
 
-Extra flags are forwarded to `go test`. The wrapper checks `sbx` is on PATH and validates the kit directory has a `spec.yaml`/`spec.yml` before invoking. If you'd rather drop to `go test` directly:
+Idempotent and non-interactive. Re-running converges on the same state — set the same default policy, run the test, leave the scoped daemon as it was. Overrides via env: `APP_NAME` (default `sbx-kits-contrib-tck`) and `POLICY` (default `deny-all`; set `POLICY=` to skip the policy step). Extra positional flags are forwarded to `go test`.
+
+If you'd rather drop to `go test` directly (note: this skips the policy-set step, so you need to apply `deny-all` yourself or the network contract isn't tested):
 
 ```bash
 KIT_UNDER_TEST="$PWD/my-kit" \
@@ -254,7 +262,7 @@ Each subtest (`env`, `files/<path>`, `tmpfs/<path>`, `memory`) reports independe
 
 The `test-kit-e2e` job in [`.github/workflows/tck.yml`](.github/workflows/tck.yml) runs alongside the default `test-kit` job. It downloads the latest `sbx` release, signs in to Docker Hub using `DOCKERHUB_USERNAME` / `DOCKERHUB_TOKEN` repo secrets, then runs the e2e test once per detected kit. **The job is skipped on fork PRs** because GitHub does not expose secrets to fork-triggered workflows — so for the typical contributor, e2e never runs in CI on their PR, and the reviewer sees a green check that does **not** cover the e2e assertions.
 
-That makes a local e2e run **mandatory** before opening a PR from a fork — and the highest-value way to do that is under a `deny-all` default policy, so you catch missing `allowedDomains` entries before the reviewer (or a `deny-all` user) does. See [Declare every domain your kit needs](#declare-every-domain-your-kit-needs) below for the probe recipe, and combine it with `./scripts/test-kit-e2e.sh` instead of a hand-built probe sandbox to also exercise every assertion `TestE2ECreateSandbox` makes.
+That makes a local e2e run **mandatory** before opening a PR from a fork. Run `./scripts/test-kit-e2e.sh <kit>` — the script applies the same `deny-all` baseline CI uses on a scoped daemon (`--app-name sbx-kits-contrib-tck`), so the network contract gets tested without touching your main sbx state. See [Declare every domain your kit needs](#declare-every-domain-your-kit-needs) for the recurring "read the proxy log, add a host, re-run" loop.
 
 ## Extending a Parent Agent
 
