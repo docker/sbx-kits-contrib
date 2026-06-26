@@ -83,12 +83,41 @@ if ! command -v sbx >/dev/null 2>&1; then
   exit 1
 fi
 
-# Configure the scoped daemon's default network policy. Idempotent: setting
-# the same default repeatedly is a no-op write. Skipped when POLICY is
-# explicitly set to the empty string.
+# Smoke test — fail fast if the scoped daemon can't talk to the runtime.
+# The most common cause is "not logged in to Docker Hub" (sbx create then
+# fails ~minutes into the test), but the same probe also catches a dead
+# daemon, KVM access issues, etc. `sbx ls` exercises the runtime and is
+# a no-op when everything is fine, making it safe to run unconditionally.
+probe_err=$(sbx --app-name "$APP_NAME" ls 2>&1 >/dev/null) || {
+  cat >&2 <<EOF
+ERROR: smoke test failed — sbx --app-name $APP_NAME is not usable.
+
+$probe_err
+
+Most common fix: the scoped daemon has its own credential store, separate
+from any login on your main sbx daemon. Run this one-time setup, then
+re-run this script:
+
+  sbx --app-name $APP_NAME login
+
+EOF
+  exit 1
+}
+unset probe_err
+
+# Configure the scoped daemon's global network policy. `policy init` is
+# one-time per daemon (sbx errors with "already initialized" on the second
+# call), so to stay idempotent we try `init` first and fall back to
+# `reset --force` + `init` when a policy is already set — that lands the
+# scoped daemon on the desired baseline regardless of prior state. The
+# `--force` skips the confirmation prompt about stopping running sandboxes
+# (we don't keep any across runs). Skipped when POLICY is explicitly set
+# to the empty string.
 if [ -n "$POLICY" ]; then
-  echo "Setting --app-name=$APP_NAME default policy to $POLICY"
-  sbx --app-name "$APP_NAME" policy set-default "$POLICY"
+  echo "Initializing --app-name=$APP_NAME global policy to $POLICY"
+  if ! sbx --app-name "$APP_NAME" policy init "$POLICY" >/dev/null 2>&1; then
+    sbx --app-name "$APP_NAME" policy init "$POLICY"
+  fi
 fi
 
 # Helper hint on failure — the most common e2e failure is a missing entry
@@ -123,4 +152,8 @@ EOF
 trap on_exit EXIT
 
 cd "$REPO_ROOT"
-KIT_UNDER_TEST="$kit_abs" go test -tags=e2e -v -count=1 -timeout 25m "$@" ./tck/...
+# Focus on TestE2EKit. The ./tck/... package also contains TCK unit tests
+# (TestDerive*, TestRunValidationTests, etc.) that are not e2e; running
+# them here just spams output. The author can override with `-run …` since
+# extra flags are forwarded after this script's args.
+KIT_UNDER_TEST="$kit_abs" go test -tags=e2e -v -count=1 -timeout 25m -run TestE2EKit "$@" ./tck/...

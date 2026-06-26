@@ -265,7 +265,7 @@ jobs:
         # for all kits, then — for kind:sandbox kits with testdata/tck.yaml —
         # also sends a non-interactive prompt to the agent.
         #
-        # The script handles `sbx --app-name $APP_NAME policy set-default
+        # The script handles `sbx --app-name $APP_NAME policy init
         # deny-all` internally, so CI and local runs converge on the same
         # baseline: each kit gets *exactly* the outbound reachability it
         # declares in `network.allowedDomains` and nothing more, making
