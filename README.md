@@ -154,29 +154,31 @@ The non-obvious trap is **package managers refreshing every configured source**,
 - Ubuntu hosts amd64 packages on `archive.ubuntu.com` + `security.ubuntu.com` and arm64 packages on `ports.ubuntu.com`. List all three for cross-arch coverage; CI is amd64, your Mac is likely arm64.
 - `npm install`, `pip install`, `cargo`, `go get`, etc. each have their own registry/mirror hosts — declare them too.
 
-If you're not sure what your install hooks reach, probe locally under `deny-all` and read `sbx policy log` to see exactly what the proxy blocked. The recipe is cross-platform (no daemon-log greping, no OS-specific paths):
+If you're not sure what your install hooks reach, probe locally under `deny-all` and read `sbx policy log` to see exactly what the proxy blocked. The recipe is cross-platform (no daemon-log greping, no OS-specific paths) and uses `sbx --app-name sbx-kits-contrib-tck` on every call so the policy change is scoped to a separate daemon — your main sbx state is untouched, and you can blow the probe daemon away with `sbx --app-name sbx-kits-contrib-tck reset --force` if it gets into a bad state:
 
 ```bash
-# 1. Switch to the strict baseline. `sbx policy reset` drops any local
-#    rules you've added — if you have customisations, list them first
-#    with `sbx policy ls` so you can restore them later.
-sbx policy reset -f
-sbx policy set-default deny-all
+APP=sbx-kits-contrib-tck
+
+# 1. Switch the probe daemon to the strict baseline. `sbx --app-name $APP
+#    policy ls` shows what's currently set under that name.
+sbx --app-name $APP policy reset -f
+sbx --app-name $APP policy set-default deny-all
 
 # 2. Run your kit. The install hooks fire during `sbx create`.
-sbx create --name probe-my-kit --kit "$PWD/my-kit" <agent> /tmp/sbx-kit-debug || true
+sbx --app-name $APP create --name probe-my-kit --kit "$PWD/my-kit" <agent> /tmp/sbx-kit-debug || true
 
 # 3. See what the proxy blocked (and what got through). Filter by the
 #    sandbox name so you only see this kit's requests.
-sbx policy log probe-my-kit
+sbx --app-name $APP policy log probe-my-kit
 
-# 4. Clean up the probe sandbox and restore your previous default policy.
-sbx rm -f probe-my-kit
-sbx policy reset -f
-sbx policy set-default balanced   # or whichever preset you were on
+# 4. Clean up. The whole probe daemon — sandboxes, policy, cache — goes
+#    away in one command, without touching your main sbx state.
+sbx --app-name $APP reset --force
 ```
 
 Every `Blocked requests` row is a domain your install or startup hook reached for under `deny-all`. Add the host (column `HOST`, e.g. `download.docker.com:443`) to `allowedDomains` and re-probe until the block list is empty.
+
+**Or run the e2e suite under the same scoped daemon** — same recipe, but `scripts/test-kit-e2e.sh` (which internally uses the same `--app-name sbx-kits-contrib-tck`) also exercises every assertion `TestE2ECreateSandbox` makes, not just network policy. See [End-to-end (e2e) Tests](#end-to-end-e2e-tests) below.
 
 ## TCK Test Coverage
 
@@ -250,7 +252,9 @@ Each subtest (`env`, `files/<path>`, `tmpfs/<path>`, `memory`) reports independe
 
 ### Running in CI
 
-The `test-kit-e2e` job in [`.github/workflows/tck.yml`](.github/workflows/tck.yml) runs alongside the default `test-kit` job. It downloads the latest `sbx` release, signs in to Docker Hub using `DOCKERHUB_USERNAME` / `DOCKERHUB_TOKEN` repo secrets, then runs the e2e test once per detected kit. The job is skipped on fork PRs because the secrets aren't exposed there.
+The `test-kit-e2e` job in [`.github/workflows/tck.yml`](.github/workflows/tck.yml) runs alongside the default `test-kit` job. It downloads the latest `sbx` release, signs in to Docker Hub using `DOCKERHUB_USERNAME` / `DOCKERHUB_TOKEN` repo secrets, then runs the e2e test once per detected kit. **The job is skipped on fork PRs** because GitHub does not expose secrets to fork-triggered workflows — so for the typical contributor, e2e never runs in CI on their PR, and the reviewer sees a green check that does **not** cover the e2e assertions.
+
+That makes a local e2e run **mandatory** before opening a PR from a fork — and the highest-value way to do that is under a `deny-all` default policy, so you catch missing `allowedDomains` entries before the reviewer (or a `deny-all` user) does. See [Declare every domain your kit needs](#declare-every-domain-your-kit-needs) below for the probe recipe, and combine it with `./scripts/test-kit-e2e.sh` instead of a hand-built probe sandbox to also exercise every assertion `TestE2ECreateSandbox` makes.
 
 ## Extending a Parent Agent
 

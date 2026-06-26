@@ -47,27 +47,48 @@ See [Declare every domain your kit needs](./README.md#declare-every-domain-your-
 
 ## Verifying locally
 
-Before opening a PR:
+Before opening a PR, run **all four** of these:
 
 ```console
 $ sbx kit validate ./my-kit/
 $ cd my-kit && ../scripts/test-kit.sh
-$ sbx run --kit ./my-kit/ <agent>
+$ ../scripts/test-kit-e2e.sh           # under deny-all — see below
+$ sbx run --kit . <agent>              # quick manual smoke
 ```
 
-The first two are what CI runs. The third catches things the TCK doesn't — install scripts hitting unexpected hosts, startup wrappers crashing silently, agents not authenticating.
+The first two are what CI runs on every PR. **The third is not run on CI for PRs opened from a fork** — `test-kit-e2e` needs `DOCKERHUB_USERNAME`/`DOCKERHUB_TOKEN` and GitHub doesn't expose secrets to fork-triggered workflows, so the job is skipped silently and the reviewer sees a green check that does **not** include the e2e assertions. If you're contributing from a fork (the common case), your laptop is the only place those assertions ever run before merge.
 
 `scripts/test-kit.sh` resolves the kit directory (default: `$PWD`), sets `KIT` to its absolute path, and runs `go test -run TestKitTCK ./tck/...` against the repo-root `tck` package. Forwards extra flags to `go test`, so `../scripts/test-kit.sh -v -run TestKitTCK/my-kit/validation` works.
 
-For an automated check that the engine actually materialises the kit's content inside a real sandbox (env vars, container files, tmpfs, rendered memory), opt into the e2e layer:
+### Run e2e under `deny-all`
 
-```console
-$ cd my-kit && ../scripts/test-kit-e2e.sh
+The high-value local run is e2e against the strict baseline. That's what surfaces the **exact** set of hosts your install and startup hooks reach for — i.e. the real `allowedDomains` you need to ship. Without this step, kits routinely ship an allow-list that only works because the contributor's host policy is permissive, and the kit then fails for users on `deny-all` (and for the maintainer running e2e on a non-fork branch).
+
+**Contain the damage with `--app-name`.** `sbx --app-name <name>` scopes the daemon — sandboxes, policies, secrets, and cache live in a separate state directory and do not touch your day-to-day sbx setup. The e2e harness already passes `--app-name sbx-kits-contrib-tck` on every internal call ([`tck/e2e_test.go:415`](./tck/e2e_test.go#L415)), so if you use the same name for your probe commands the policy you set is exactly what the harness's sandboxes see — **and** if anything goes sideways (stuck state, leftover sandboxes, daemon misbehaving) you can wipe just that one daemon with `sbx --app-name sbx-kits-contrib-tck reset --force` without losing your normal sbx work.
+
+```bash
+APP=sbx-kits-contrib-tck
+
+# 1. Switch the tck daemon's default policy to deny-all. Your main daemon
+#    is unaffected.
+sbx --app-name $APP policy reset -f
+sbx --app-name $APP policy set-default deny-all
+
+# 2. Run the e2e suite. The harness creates a sandbox named
+#    `tck-e2e-<short-uuid>` and exercises the kit end-to-end.
+cd my-kit && ../scripts/test-kit-e2e.sh
+
+# 3. If e2e failed, see what the proxy blocked.
+sbx --app-name $APP ls                          # find the tck-e2e-* name
+sbx --app-name $APP policy log tck-e2e-<short-uuid>
+
+# 4. (Optional) Nuke just the tck daemon between iterations.
+sbx --app-name $APP reset --force
 ```
 
-Or, from the repo root: `./scripts/test-kit-e2e.sh my-kit`. The wrapper checks `sbx` is on PATH and the kit dir has a `spec.yaml`, then runs `go test -tags=e2e -run TestE2ECreateSandbox ./tck/...`.
+Every row under `Blocked requests` is a host your kit reached for under `deny-all`. Add the host (column `HOST`, e.g. `download.docker.com:443`) to `allowedDomains` and repeat until the block list is empty **and** the e2e test passes. See [Declare every domain your kit needs](./README.md#declare-every-domain-your-kit-needs) for the cross-arch gotchas (`archive.ubuntu.com`, `security.ubuntu.com`, **and** `ports.ubuntu.com`) and the package-manager refresh trap (`apt-get update` re-fetches every configured source).
 
-See [End-to-end (e2e) Tests](./README.md#end-to-end-e2e-tests) in the README for prerequisites (`sbx login`, default policy, etc.) and what each subtest verifies.
+Prerequisites for e2e (`sbx login`, `/dev/kvm`, etc.) are in [End-to-end (e2e) Tests](./README.md#end-to-end-e2e-tests) in the README.
 
 ## Sign-off and signing
 

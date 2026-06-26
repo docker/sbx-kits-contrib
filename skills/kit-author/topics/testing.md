@@ -1,6 +1,8 @@
 # Testing Kits
 
-Three layers. Use them all for any kit you publish; just the last for ad-hoc experiments.
+Four layers. Run **all four locally** before opening a PR — only the first two run on CI for fork PRs.
+
+**Why fork contributors must run e2e locally.** The repo's `test-kit-e2e` job needs `DOCKERHUB_USERNAME` / `DOCKERHUB_TOKEN` to pull the template image, and GitHub does not expose secrets to workflows triggered from forks. So if you're contributing from a fork (the common case), the e2e job is **skipped silently** on your PR — the reviewer sees a green check that does not include `TestE2EKit`. The only place those assertions ever run is on your laptop. See [`.github/workflows/tck.yml`](../../../.github/workflows/tck.yml) and the "Running in CI" note in [the README](../../../README.md#running-in-ci).
 
 ## 1. Spec-level validation
 
@@ -72,7 +74,7 @@ Requires Docker (or `docker-next` inside `sbx`).
 
 ## 3. End-to-end (e2e) tests
 
-The optional e2e layer boots a **real `sbx` sandbox** from the kit and verifies the kit's content actually landed inside the running container. It catches things the default TCK can't — install commands that fail under the non-root agent user, `${WORKDIR}` placeholders that resolve differently than expected, agent-kit name mismatches, or memory blocks the engine never writes out.
+**Required before opening a PR from a fork** (see the "Why fork contributors must run e2e locally" note at the top of this file). The e2e layer boots a **real `sbx` sandbox** from the kit and verifies the kit's content actually landed inside the running container. It catches things the default TCK can't — install commands that fail under the non-root agent user, `${WORKDIR}` placeholders that resolve differently than expected, agent-kit name mismatches, or memory blocks the engine never writes out.
 
 ```bash
 # From inside the kit's directory:
@@ -162,6 +164,43 @@ Do **not** add `binary:` to `spec.yaml` — the normalizer rejects `binary` at t
 
 `TestE2ERunAgent` skips any kit whose `tck.yaml` is absent or has no `promptArgs`.
 
+### Running e2e under `deny-all` — the real point of running this locally
+
+Running `test-kit-e2e.sh` on its own catches the obvious failures, but the **high-value** local run is under a `deny-all` default network policy. That is what surfaces the exact set of hosts your install and startup hooks reach for — i.e. the **real** `caps.network.allow` you need to ship. Without this step, kits routinely under-declare and ship an allow-list that only works because the contributor's host policy happens to be permissive.
+
+**Use `--app-name sbx-kits-contrib-tck` for every probe command.** `sbx --app-name <name>` scopes the daemon — sandboxes, policies, secrets, and cache for that name live in a separate state directory and do not touch your day-to-day sbx setup. If anything goes wrong (policy stuck in a weird state, leftover `tck-e2e-*` sandboxes, daemon refusing to come back), you can blow the whole thing away with `sbx --app-name sbx-kits-contrib-tck reset --force` and leave your normal sbx work untouched. The e2e harness already passes this app-name on every `sbx` call it makes ([`tck/e2e_test.go:415`](../../../tck/e2e_test.go#L415)), so the policy you set under that name is exactly the policy the harness's sandboxes will see.
+
+```bash
+APP=sbx-kits-contrib-tck
+
+# 1. Switch the tck daemon's default policy to deny-all. Your main daemon
+#    is unaffected. `sbx --app-name $APP policy ls` shows current state.
+sbx --app-name $APP policy reset -f
+sbx --app-name $APP policy set-default deny-all
+
+# 2. Run the e2e suite. Install hooks fire during `sbx create`; anything
+#    not in caps.network.allow is blocked at request time.
+cd my-kit
+../scripts/test-kit-e2e.sh
+
+# 3. If e2e failed: read what the proxy blocked. The sandbox is named
+#    `tck-e2e-<short-uuid>` — list active sandboxes if you need the full name.
+sbx --app-name $APP ls
+sbx --app-name $APP policy log tck-e2e-<short-uuid>
+
+# 4. (Optional) Nuke the tck daemon entirely between iterations. Wipes
+#    only the $APP state — your main sbx is untouched.
+sbx --app-name $APP reset --force
+```
+
+Every row under `Blocked requests` is a host your kit reached for. Add the host (column `HOST`, e.g. `download.docker.com:443`) to `caps.network.allow` and re-run until the block list is empty **and** the e2e test passes. The repository's [`README` recipe](../../../README.md#declare-every-domain-your-kit-needs) explains the same flow against a hand-built probe sandbox — same idea, but the e2e variant above also runs every assertion `TestE2EKit` makes, not just the network ones.
+
+Common hosts that surface only under `deny-all` (easy to forget):
+
+- `download.docker.com` — pre-added to apt sources on `shell-docker` / `*-docker` templates; any `apt-get update` re-fetches it even if you're installing from Ubuntu's main archive.
+- `archive.ubuntu.com` + `security.ubuntu.com` (amd64) **and** `ports.ubuntu.com` (arm64) — list all three so the kit works on both CI (amd64) and Apple Silicon.
+- Registry hosts for each package manager you call: `registry.npmjs.org`, `pypi.org` + `files.pythonhosted.org`, `crates.io` + `static.crates.io`, `proxy.golang.org` + `sum.golang.org`, etc.
+
 ## 4. End-to-end manual verification
 
 For mixins and any time you want to see real container behavior:
@@ -192,15 +231,15 @@ Faster iteration loop, but immutable settings (privileged, volumes, tmpfs) won't
 
 ## Verifying `caps.network.allow`
 
-The proxy enforces allow/deny at request time. To **prove** what's getting through and what's blocked, use `sbx policy log`:
+The proxy enforces allow/deny at request time. The fastest way to surface exactly what your kit reaches for is to run the e2e suite under `deny-all` — see [Running e2e under `deny-all`](#running-e2e-under-deny-all--the-real-point-of-running-this-locally) above for the full recipe.
+
+For ad-hoc probing of a single sandbox without running e2e, `sbx policy log` works directly:
 
 ```bash
 sbx policy log <sandbox>
 ```
 
-The output lists allowed and blocked requests with their host/port. Every entry in the "Blocked requests" section is a domain your install or startup hook reached for. Add it to `caps.network.allow` (or accept the block) and re-probe.
-
-The repository [README](../../../README.md#declare-every-domain-your-kit-needs) has a full recipe for probing a kit against a `deny-all` baseline, including the cross-arch gotchas (`archive.ubuntu.com`, `security.ubuntu.com`, `ports.ubuntu.com`) and the package-manager refresh trap (e.g. `apt-get update` re-fetches every configured source).
+Every entry in the "Blocked requests" section is a domain your install or startup hook reached for. Add it to `caps.network.allow` (or accept the block) and re-probe. The repository [README](../../../README.md#declare-every-domain-your-kit-needs) has the hand-built probe-sandbox variant of this recipe.
 
 ## Common pitfall: "install commands completed" ≠ success
 
@@ -222,4 +261,4 @@ See [Pitfalls — `commands.startup` runs on every container start](pitfalls.md#
 
 ## CI
 
-The repository's CI runs the TCK on every PR — the matrix tests only the modified kit on PRs that touch a kit directory, and every kit on PRs that touch `tck/` or `spec/`. The optional `test-kit-e2e` job exercises every detected kit against a real `sbx` CLI. See [`.github/workflows/tck.yml`](../../../.github/workflows/tck.yml).
+The repository's CI runs the TCK on every PR — the matrix tests only the modified kit on PRs that touch a kit directory, and every kit on PRs that touch `tck/` or `spec/`. The `test-kit-e2e` job exercises every detected kit against a real `sbx` CLI, but **is skipped on PRs opened from forks** because the `DOCKERHUB_USERNAME` / `DOCKERHUB_TOKEN` secrets aren't exposed to fork-triggered workflows. Fork contributors are the common case, so you should treat e2e + `deny-all` as a **mandatory local step** before opening the PR — don't rely on a green CI check to mean "e2e passed". See [`.github/workflows/tck.yml`](../../../.github/workflows/tck.yml).
