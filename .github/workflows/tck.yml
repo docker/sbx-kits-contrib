@@ -268,9 +268,9 @@ jobs:
         # The script handles `sbx --app-name $APP_NAME policy set-default
         # deny-all` internally, so CI and local runs converge on the same
         # baseline: each kit gets *exactly* the outbound reachability it
-        # declares in `caps.network.allow` and nothing more, making this
-        # a real contract test. Kit allow-rules are scoped per sandbox
-        # and punch through the default deny (see
+        # declares in `network.allowedDomains` and nothing more, making
+        # this a real contract test. Kit allow-rules are scoped per
+        # sandbox and punch through the default deny (see
         # `ApplyKitNetworkPolicyScoped` in
         # docker/sandboxes:sandboxd/pkg/server/options_governance.go);
         # kit deny-rules win over allow-rules (deny-wins).

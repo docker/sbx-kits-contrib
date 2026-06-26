@@ -174,7 +174,7 @@ cd my-kit
 That's the whole recipe — no manual policy dance. The script:
 
 - Scopes every `sbx` call to `--app-name sbx-kits-contrib-tck`, the same app-name the e2e harness uses internally ([`tck/e2e_test.go:415`](../../../tck/e2e_test.go#L415)). The test daemon's sandboxes, policy, secrets, and cache are isolated from your day-to-day sbx state.
-- Sets the scoped daemon's default network policy to `deny-all` — the same baseline CI uses, so any host your install or startup hooks reach for must be in `caps.network.allow` or the request is blocked.
+- Sets the scoped daemon's default network policy to `deny-all` — the same baseline CI uses, so any host your install or startup hooks reach for must be in `network.allowedDomains` or the request is blocked.
 - Runs `go test -tags=e2e` with `KIT_UNDER_TEST` exported.
 - On non-zero exit, prints a hint pointing at `sbx --app-name sbx-kits-contrib-tck policy log <sandbox>`.
 
@@ -186,7 +186,7 @@ One-time setup per machine — the scoped daemon has its own credential store:
 sbx --app-name sbx-kits-contrib-tck login
 ```
 
-When the test fails, the recurring fix is the same loop: read the proxy log, add the blocked host to `caps.network.allow`, re-run.
+When the test fails, the recurring fix is the same loop: read the proxy log, add the blocked host to `network.allowedDomains`, re-run.
 
 ```bash
 APP=sbx-kits-contrib-tck
@@ -194,7 +194,7 @@ sbx --app-name $APP ls                            # find the tck-e2e-* sandbox
 sbx --app-name $APP policy log tck-e2e-<short-uuid>
 ```
 
-Every row under `Blocked requests` is a host your kit reached for under `deny-all`. Add the host (column `HOST`, e.g. `download.docker.com:443`) to `caps.network.allow` and re-run until the block list is empty *and* the e2e test passes.
+Every row under `Blocked requests` is a host your kit reached for under `deny-all`. Add the host (column `HOST`, e.g. `download.docker.com:443`) to `network.allowedDomains` and re-run until the block list is empty *and* the e2e test passes.
 
 If the scoped daemon ever gets wedged: `sbx --app-name sbx-kits-contrib-tck reset --force` wipes only that daemon's state — your main sbx is untouched.
 
@@ -242,7 +242,7 @@ For ad-hoc probing of a single sandbox without running e2e, `sbx policy log` wor
 sbx policy log <sandbox>
 ```
 
-Every entry in the "Blocked requests" section is a domain your install or startup hook reached for. Add it to `caps.network.allow` (or accept the block) and re-probe. The repository [README](../../../README.md#declare-every-domain-your-kit-needs) has the hand-built probe-sandbox variant of this recipe.
+Every entry in the "Blocked requests" section is a domain your install or startup hook reached for. Add it to `network.allowedDomains` (or accept the block) and re-probe. The repository [README](../../../README.md#declare-every-domain-your-kit-needs) has the hand-built probe-sandbox variant of this recipe.
 
 ## Common pitfall: "install commands completed" ≠ success
 

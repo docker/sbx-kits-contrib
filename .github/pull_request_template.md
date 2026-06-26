@@ -31,7 +31,7 @@ required from your side before requesting review.
 - [ ] `./scripts/test-kit-e2e.sh <kit>` passes. The script applies the same
       `deny-all` baseline CI uses and scopes everything to its own daemon
       (`--app-name sbx-kits-contrib-tck`), so my main sbx state is untouched.
-      Every entry I added to `caps.network.allow` came from
+      Every entry I added to `network.allowedDomains` came from
       `sbx --app-name sbx-kits-contrib-tck policy log <tck-e2e-…>`, not a guess.
 - [ ] Manual smoke: `sbx run --kit ./<kit>/ <agent>` and verified the kit's
       binary / files / env are inside the running container.

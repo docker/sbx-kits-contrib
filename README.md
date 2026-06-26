@@ -154,7 +154,7 @@ The non-obvious trap is **package managers refreshing every configured source**,
 - Ubuntu hosts amd64 packages on `archive.ubuntu.com` + `security.ubuntu.com` and arm64 packages on `ports.ubuntu.com`. List all three for cross-arch coverage; CI is amd64, your Mac is likely arm64.
 - `npm install`, `pip install`, `cargo`, `go get`, etc. each have their own registry/mirror hosts — declare them too.
 
-The fastest way to find out what your install hooks reach is to run the e2e wrapper. It applies a `deny-all` default policy on a scoped daemon (`--app-name sbx-kits-contrib-tck`) for you, then runs `TestE2ECreateSandbox` — so you get the network contract *and* every other e2e assertion from one command:
+The fastest way to find out what your install hooks reach is to run the e2e wrapper. It applies a `deny-all` global policy on a scoped daemon (`--app-name sbx-kits-contrib-tck`) for you, then runs `TestE2EKit` — so you get the network contract *and* every other e2e assertion from one command:
 
 ```bash
 ./scripts/test-kit-e2e.sh my-kit
@@ -174,7 +174,7 @@ If you'd rather hand-build a probe sandbox without invoking the test harness (us
 
 ```bash
 APP=sbx-kits-contrib-tck
-sbx --app-name $APP policy set-default deny-all
+sbx --app-name $APP policy init deny-all
 sbx --app-name $APP create --name probe-my-kit --kit "$PWD/my-kit" <agent> /tmp/sbx-kit-debug || true
 sbx --app-name $APP policy log probe-my-kit
 sbx --app-name $APP reset --force                 # wipe the scoped daemon

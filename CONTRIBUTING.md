@@ -71,7 +71,7 @@ $ cd my-kit && ../scripts/test-kit-e2e.sh
 That single command:
 
 - scopes every `sbx` call to `--app-name sbx-kits-contrib-tck`, so the test daemon (sandboxes, policy, cache) is isolated from your main sbx state and nothing the script does touches your day-to-day setup,
-- sets the scoped daemon's default network policy to `deny-all` — the same baseline CI uses, so any host your install or startup hooks reach for must be in `caps.network.allow` or the request is blocked, and
+- sets the scoped daemon's default network policy to `deny-all` — the same baseline CI uses, so any host your install or startup hooks reach for must be in `network.allowedDomains` or the request is blocked, and
 - runs `TestE2EKit` (env, files, tmpfs, agentContext, and — for `kind: sandbox` kits with a `testdata/tck.yaml` — a non-interactive prompt to the agent).
 
 The script is idempotent (re-runs converge on the same state) and non-interactive (no prompts).
@@ -82,7 +82,7 @@ One-time setup per machine — the scoped daemon has its own credential store, s
 $ sbx --app-name sbx-kits-contrib-tck login
 ```
 
-When the test fails, the script prints how to dump the proxy log. The recurring fix is the same loop: read the log, add the blocked host to `caps.network.allow`, re-run.
+When the test fails, the script prints how to dump the proxy log. The recurring fix is the same loop: read the log, add the blocked host to `network.allowedDomains`, re-run.
 
 ```console
 $ sbx --app-name sbx-kits-contrib-tck ls                          # find the tck-e2e-* sandbox

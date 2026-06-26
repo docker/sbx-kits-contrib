@@ -14,7 +14,7 @@
 #     sbx state. Nothing the script does touches your day-to-day daemon.
 #     The Go harness uses the same app-name internally (tck/e2e_test.go).
 #   - Sets the scoped daemon's default network policy to `deny-all` so
-#     the run is a real contract test of caps.network.allow — the same
+#     the run is a real contract test of network.allowedDomains — the same
 #     baseline CI runs under.
 #   - Runs `go test -tags=e2e ./tck/...` with KIT_UNDER_TEST exported.
 #   - On failure, prints how to read `sbx policy log` to find the missing
@@ -92,7 +92,7 @@ if [ -n "$POLICY" ]; then
 fi
 
 # Helper hint on failure — the most common e2e failure is a missing entry
-# in caps.network.allow, which `sbx policy log` surfaces precisely. Wired
+# in network.allowedDomains, which `sbx policy log` surfaces precisely. Wired
 # as an EXIT trap (not ERR) so the hint also fires when `set -e` aborts
 # mid-test. Only fires on non-zero exit.
 on_exit() {
@@ -106,7 +106,7 @@ e2e test failed (exit $rc). To see which hosts the proxy blocked under '${POLICY
   sbx --app-name $APP_NAME policy log <sandbox-name>
 
 Every row under 'Blocked requests' is a host your kit reached for. Add it
-to caps.network.allow in spec.yaml and re-run this script.
+to network.allowedDomains in spec.yaml and re-run this script.
 
 If the scoped daemon is wedged, wipe it (your main sbx is unaffected):
 

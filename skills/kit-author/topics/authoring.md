@@ -258,11 +258,11 @@ CI on the repo skips the `test-kit-e2e` job for fork PRs (Docker Hub secrets are
 cd my-kit && ../scripts/test-kit-e2e.sh
 ```
 
-The script handles the dance for you — it scopes everything to `--app-name sbx-kits-contrib-tck` (the same app-name the harness uses internally) and applies the `deny-all` default policy CI uses, so the only `caps.network.allow` entries that survive are the ones you actually need. Your main sbx state is untouched.
+The script handles the dance for you — it scopes everything to `--app-name sbx-kits-contrib-tck` (the same app-name the harness uses internally) and applies the `deny-all` default policy CI uses, so the only `network.allowedDomains` entries that survive are the ones you actually need. Your main sbx state is untouched.
 
 One-time per machine: `sbx --app-name sbx-kits-contrib-tck login`.
 
-When it fails, read what the proxy blocked, add the host to `caps.network.allow`, re-run:
+When it fails, read what the proxy blocked, add the host to `network.allowedDomains`, re-run:
 
 ```bash
 APP=sbx-kits-contrib-tck
