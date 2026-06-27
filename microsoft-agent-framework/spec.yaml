@@ -98,10 +98,10 @@ agentContext: |
     `/opt/agent-framework/bin/python`). Use this interpreter so imports resolve
     against the Agent Framework venv.
   - API keys are proxy-managed and are NOT typed inside the sandbox. They are
-    set on the host with `sbx secret set` and appear in-container only as the
-    literal `proxy-managed` placeholder (`OPENAI_API_KEY` / `AZURE_OPENAI_API_KEY`);
-    the host proxy swaps in the real value on outbound requests. Inside the
-    sandbox you only set non-secret provider/model selection variables:
+    set on the host with `sbx secret set`; when a provider is configured, its
+    env var appears in-container only as the literal `proxy-managed` placeholder
+    (`OPENAI_API_KEY` and/or `AZURE_OPENAI_API_KEY`). The host proxy swaps in the
+    real value on outbound requests. Inside the sandbox you only set non-secret provider/model selection variables:
     - **OpenAI** — model via e.g. `OPENAI_CHAT_MODEL=gpt-4o-mini`.
     - **Azure OpenAI** — `AZURE_OPENAI_ENDPOINT` (your resource URL) and the
       deployment via `AZURE_OPENAI_CHAT_MODEL`.
