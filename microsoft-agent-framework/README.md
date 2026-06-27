@@ -18,12 +18,14 @@ First, store your provider key on the host (it never enters the sandbox):
 # OpenAI — uses the platform's built-in `openai` service
 $ sbx secret set -g openai
 
-# Azure OpenAI (optional) — this kit wires up the custom `azure-openai` service.
-# On first use, sbx prompts you to bind where AZURE_OPENAI_API_KEY lives and to
-# approve the *.openai.azure.com domain. You can also set it non-interactively:
-$ sbx secret set-custom -g --host '*.openai.azure.com' \
-    --env AZURE_OPENAI_API_KEY --value '<your-azure-key>'
+# Azure OpenAI (optional) — this kit declares the `azure-openai` service, so
+# store the key under that service name. sbx prompts to approve the
+# *.openai.azure.com domain the first time a sandbox uses it.
+$ sbx secret set -g azure-openai
 ```
+
+The key is read from stdin; pipe it non-interactively if you prefer,
+e.g. `printf '%s' "$AZURE_OPENAI_API_KEY" | sbx secret set -g azure-openai`.
 
 Then pair the kit with whichever sandbox agent you want to work from:
 
@@ -95,12 +97,15 @@ allows `api.openai.com` in its network policy and leaves the credential to the
 platform — store it with `sbx secret set -g openai`. Set your model with e.g.
 `OPENAI_CHAT_MODEL=gpt-4o-mini`.
 
-**Azure OpenAI** is not a built-in service, so the kit wires it up explicitly
-(`service: azure-openai`, injecting the `api-key` header into
-`*.openai.azure.com`). Set `AZURE_OPENAI_ENDPOINT`
-(`https://<resource>.openai.azure.com`) and your deployment via
-`AZURE_OPENAI_CHAT_MODEL`. The credential is optional — leaving it unset does
-not block sandbox creation.
+**Azure OpenAI** is not a built-in service, so the kit declares it explicitly
+(`service: azure-openai`, `proxyManaged: true`, injecting the `api-key` header
+into `*.openai.azure.com`). Store the key under that service name with
+`sbx secret set -g azure-openai`; it then reads as the `proxy-managed`
+placeholder in-container. The endpoint and model are non-secret selection
+variables you set directly: `AZURE_OPENAI_ENDPOINT`
+(`https://<resource>.openai.azure.com`) and `AZURE_OPENAI_CHAT_MODEL`
+(your deployment). The credential is optional — leaving it unset does not block
+sandbox creation.
 
 For other backends (Anthropic, Ollama, Foundry), use their built-in service or
 compose a separate provider mixin — this kit stays narrowly scoped to OpenAI

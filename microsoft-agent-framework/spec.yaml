@@ -19,6 +19,12 @@ credentials:
     description: "Azure OpenAI API key"
     apiKey:
       name: AZURE_OPENAI_API_KEY
+      # proxyManaged sets AZURE_OPENAI_API_KEY to the literal "proxy-managed"
+      # sentinel inside the container so the Agent Framework's Azure client
+      # picks up the key from the env; the proxy swaps the sentinel for the
+      # real value on requests to *.openai.azure.com. Without this the env var
+      # is never set in-container and the Azure path won't activate.
+      proxyManaged: true
       inject:
         - domain: "*.openai.azure.com"
           header: api-key
@@ -91,12 +97,14 @@ agentContext: |
   - Run framework code with `agent-framework-python <script.py>` (an alias for
     `/opt/agent-framework/bin/python`). Use this interpreter so imports resolve
     against the Agent Framework venv.
-  - Configure a model provider via environment variables:
-    - **OpenAI** — set `OPENAI_API_KEY` (and e.g. `OPENAI_CHAT_MODEL`).
-    - **Azure OpenAI** — set `AZURE_OPENAI_API_KEY`, `AZURE_OPENAI_ENDPOINT`,
-      and your deployment via `AZURE_OPENAI_CHAT_MODEL`.
-    The API keys are proxy-managed: the real value never enters the sandbox —
-    the host proxy injects the auth header on outbound requests.
+  - API keys are proxy-managed and are NOT typed inside the sandbox. They are
+    set on the host with `sbx secret set` and appear in-container only as the
+    literal `proxy-managed` placeholder (`OPENAI_API_KEY` / `AZURE_OPENAI_API_KEY`);
+    the host proxy swaps in the real value on outbound requests. Inside the
+    sandbox you only set non-secret provider/model selection variables:
+    - **OpenAI** — model via e.g. `OPENAI_CHAT_MODEL=gpt-4o-mini`.
+    - **Azure OpenAI** — `AZURE_OPENAI_ENDPOINT` (your resource URL) and the
+      deployment via `AZURE_OPENAI_CHAT_MODEL`.
   - Launch the DevUI interactive tester (bind to all interfaces so the published
     port is reachable from the host):
     `devui ./agents --host 0.0.0.0 --port 8080`
