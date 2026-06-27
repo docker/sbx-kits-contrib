@@ -1,0 +1,103 @@
+schemaVersion: "2"
+kind: mixin
+name: microsoft-agent-framework
+displayName: Microsoft Agent Framework
+description: "Installs the Microsoft Agent Framework (Python) and DevUI into an isolated venv for building AI agents and multi-agent workflows against OpenAI and Azure OpenAI."
+
+publishedPorts:
+  - container: 8080
+    protocol: tcp
+    name: devui
+
+# OpenAI is intentionally NOT declared here: the built-in sandbox agents
+# (shell, claude, codex, ...) already ship an `openai` credential, and a kit
+# that re-declares the same service collides at compose time. Store the key
+# with `sbx secret set -g openai` and the platform proxy injects it for you.
+# Azure OpenAI is not a built-in service, so this kit wires it up explicitly.
+credentials:
+  - service: azure-openai
+    description: "Azure OpenAI API key"
+    apiKey:
+      name: AZURE_OPENAI_API_KEY
+      inject:
+        - domain: "*.openai.azure.com"
+          header: api-key
+          format: "%s"
+
+caps:
+  network:
+    allow:
+      # pip install path for agent-framework, devui, and their dependencies.
+      - "pypi.org:443"
+      - "files.pythonhosted.org:443"
+      # OpenAI + Azure OpenAI runtime endpoints used by the chat clients.
+      - "api.openai.com"
+      - "*.openai.azure.com"
+      # Microsoft Foundry endpoints (FoundryChatClient).
+      - "*.services.ai.azure.com"
+      # Azure AD token endpoint, used when authenticating via AzureCliCredential.
+      - "login.microsoftonline.com"
+      # `apt-get update` refreshes every configured apt source from the base
+      # template. Keep all template sources allowed for amd64 and arm64 sandboxes.
+      - "archive.ubuntu.com:80"
+      - "security.ubuntu.com:80"
+      - "ports.ubuntu.com:80"
+      - "download.docker.com:443"
+
+environment:
+  variables:
+    AGENT_FRAMEWORK_VENV: "/opt/agent-framework"
+    AGENT_FRAMEWORK_PYTHON: "/opt/agent-framework/bin/python"
+
+commands:
+  install:
+    - command: "apt-get update && apt-get install -y --no-install-recommends ca-certificates python3 python3-venv python3-pip && rm -rf /var/lib/apt/lists/*"
+      user: "0"
+      description: Install Python and venv prerequisites for the Agent Framework
+    - command: |
+        set -euo pipefail
+        AF_VERSION=1.9.0
+        DEVUI_VERSION=1.0.0b260528
+        python3 -m venv /opt/agent-framework
+        /opt/agent-framework/bin/python -m pip install --upgrade pip setuptools wheel
+        # DevUI only ships pre-releases, so --pre is required; agent-framework is
+        # pinned exactly, so pip still selects the stable 1.9.0 release for it.
+        /opt/agent-framework/bin/python -m pip install --pre \
+          "agent-framework==${AF_VERSION}" \
+          "agent-framework-devui==${DEVUI_VERSION}"
+        ln -sf /opt/agent-framework/bin/devui /usr/local/bin/devui
+        cat > /usr/local/bin/agent-framework-python <<'SCRIPT'
+        #!/bin/sh
+        exec /opt/agent-framework/bin/python "$@"
+        SCRIPT
+        chmod 0755 /usr/local/bin/agent-framework-python
+        devui --help >/dev/null
+        agent-framework-python -c 'import agent_framework; print("agent-framework OK")'
+      user: "0"
+      description: "Install Agent Framework v1.9.0 + DevUI into /opt/agent-framework"
+    - command: |
+        set -euo pipefail
+        grep -qF 'AGENT_FRAMEWORK_VENV' ~/.bashrc 2>/dev/null || \
+          printf '\n# Microsoft Agent Framework (added by sbx-kits-contrib/microsoft-agent-framework)\nexport AGENT_FRAMEWORK_VENV=/opt/agent-framework\nexport AGENT_FRAMEWORK_PYTHON=/opt/agent-framework/bin/python\nalias agent-framework-python=/opt/agent-framework/bin/python\n' >> ~/.bashrc
+      user: "1000"
+      description: Add Agent Framework helper environment variables to interactive shells
+
+agentContext: |
+  ## Microsoft Agent Framework
+
+  This sandbox has the Microsoft Agent Framework (Python) installed in an
+  isolated virtual environment at `/opt/agent-framework`.
+
+  - Run framework code with `agent-framework-python <script.py>` (an alias for
+    `/opt/agent-framework/bin/python`). Use this interpreter so imports resolve
+    against the Agent Framework venv.
+  - Configure a model provider via environment variables:
+    - **OpenAI** — set `OPENAI_API_KEY` (and e.g. `OPENAI_CHAT_MODEL`).
+    - **Azure OpenAI** — set `AZURE_OPENAI_API_KEY`, `AZURE_OPENAI_ENDPOINT`,
+      and your deployment via `AZURE_OPENAI_CHAT_MODEL`.
+    The API keys are proxy-managed: the real value never enters the sandbox —
+    the host proxy injects the auth header on outbound requests.
+  - Launch the DevUI interactive tester (bind to all interfaces so the published
+    port is reachable from the host):
+    `devui ./agents --host 0.0.0.0 --port 8080`
+    then find the host port with `sbx ports <sandbox>`.
