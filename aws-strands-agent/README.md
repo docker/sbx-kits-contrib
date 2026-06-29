@@ -75,7 +75,7 @@ for p in c.list_inference_profiles()['inferenceProfileSummaries']:
 EOF
 ```
 
-The `allowedDomains` list in `spec.yaml` already covers the common US/EU/AP Bedrock endpoints a cross-region profile may route to; add others if your profile lands elsewhere.
+The `allowedDomains` list in `spec.yaml` enumerates Bedrock runtime/control-plane and STS endpoints for all commercial regions (GovCloud/China are intentionally excluded).
 
 ## Known issue: Python 3.14 + SigV4 signing
 
