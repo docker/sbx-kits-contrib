@@ -79,3 +79,27 @@ func (b Binding) OAuthDomains() []string {
 	}
 	return b.OAuth.Domains
 }
+
+// AllDomains returns the deduplicated union of the api-key and OAuth domains
+// approved for this service — the full set the engine may inject this
+// credential into across both mechanisms. Api-key domains come first, then any
+// OAuth-only domains, preserving first appearance. This is the per-mechanism
+// replacement for the old flat AllowedDomains (which was itself the union), so
+// daemon-side injection authorization keeps the same effective domain set.
+func (b Binding) AllDomains() []string {
+	seen := map[string]bool{}
+	var out []string
+	for _, d := range b.ApiKeyDomains() {
+		if !seen[d] {
+			seen[d] = true
+			out = append(out, d)
+		}
+	}
+	for _, d := range b.OAuthDomains() {
+		if !seen[d] {
+			seen[d] = true
+			out = append(out, d)
+		}
+	}
+	return out
+}

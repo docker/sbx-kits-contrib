@@ -171,6 +171,18 @@ func TestBinding_NilSafeAccessors(t *testing.T) {
 	require.Nil(t, Binding{}.ApiKeyDomains())
 	require.Nil(t, Binding{}.OAuthDomains())
 	require.Equal(t, []string{"x"}, Binding{ApiKey: &ApiKeyBinding{Domains: []string{"x"}}}.ApiKeyDomains())
+	require.Equal(t, []string{"y"}, Binding{OAuth: &OAuthBinding{Domains: []string{"y"}}}.OAuthDomains())
+}
+
+func TestBinding_AllDomains(t *testing.T) {
+	require.Nil(t, Binding{}.AllDomains())
+	// Union, deduped, apiKey-first: api.anthropic.com is shared between both
+	// mechanisms and must appear once; platform.claude.com is OAuth-only.
+	got := Binding{
+		ApiKey: &ApiKeyBinding{Domains: []string{"api.anthropic.com", "console.anthropic.com"}},
+		OAuth:  &OAuthBinding{Domains: []string{"api.anthropic.com", "platform.claude.com"}},
+	}.AllDomains()
+	require.Equal(t, []string{"api.anthropic.com", "console.anthropic.com", "platform.claude.com"}, got)
 }
 
 func TestValidate_OK_PerMechanism(t *testing.T) {
