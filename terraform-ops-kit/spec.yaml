@@ -11,24 +11,29 @@ description: >
 
 network:
   allowedDomains:
-    # HashiCorp APT repository for terraform
+    # HashiCorp APT repository — terraform GPG key and deb metadata
     - apt.releases.hashicorp.com
-    # GitHub releases for terragrunt and tflint download URLs
+    # GitHub releases — terragrunt, tflint, and infracost download URLs.
+    # github.com 302-redirects to release-assets.githubusercontent.com for
+    # binary downloads; tflint also reaches raw.githubusercontent.com via the
+    # official install script (deprecated — we now use direct binary dl).
     - github.com
     - raw.githubusercontent.com
     - release-assets.githubusercontent.com
-    # Python Package Index for checkov (pip install)
+    # Python Package Index — checkov (pip install)
     - pypi.org
     - files.pythonhosted.org
-    # AWS CLI v2 downloads
+    # AWS CLI v2 downloads (zip + installer)
     - awscli.amazonaws.com
-    # Ubuntu APT mirrors (amd64 and arm64 coverage)
+    # Ubuntu APT mirrors — amd64 (archive + security) and arm64 (ports).
+    # Both needed because apt-get update refreshes every configured source.
     - archive.ubuntu.com
     - security.ubuntu.com
     - ports.ubuntu.com
-    # Docker sandbox template image sources
+    # Docker sandbox template apt source — apt-get update re-fetches this
+    # even when only installing from Ubuntu's main archive.
     - download.docker.com
-    # Infracost API and downloads
+    # Infracost — download URL and cost-estimation API
     - infracost.io
     - pricing.api.infracost.io
 
@@ -41,71 +46,156 @@ environment:
 
 commands:
   install:
-    # 1. Add HashiCorp APT repository and install Terraform
+    # 0. Ensure prerequisite packages are present. shell-docker templates
+    # ship a minimal Ubuntu base — curl, gpg, unzip, and python3-pip may
+    # not be there. ca-certificates keeps TLS verification working.
     - command: |
         set -euo pipefail
-        curl -fsSL https://apt.releases.hashicorp.com/gpg | gpg --dearmor -o /usr/share/keyrings/hashicorp-archive-keyring.gpg
-        # Detect Ubuntu release from /etc/os-release (focal=20.04, jammy=22.04, noble=24.04)
+        apt-get update -qq
+        apt-get install -y -qq curl gpg unzip python3-pip ca-certificates
+        rm -rf /var/lib/apt/lists/*
+      user: "0"
+      description: "Install prerequisite packages: curl, gpg, unzip, python3-pip"
+
+    # 1. Install Terraform from HashiCorp's official APT repository.
+    # apt-get handles signed-repo verification; no separate SHA256 needed.
+    - command: |
+        set -euo pipefail
+        curl -fsSL https://apt.releases.hashicorp.com/gpg \
+          | gpg --dearmor -o /usr/share/keyrings/hashicorp-archive-keyring.gpg
         UBUNTU_RELEASE=$(grep UBUNTU_CODENAME /etc/os-release | cut -d= -f2)
-        echo "deb [signed-by=/usr/share/keyrings/hashicorp-archive-keyring.gpg] https://apt.releases.hashicorp.com ${UBUNTU_RELEASE} main" | tee /etc/apt/sources.list.d/hashicorp.list
-        apt-get update
+        echo "deb [signed-by=/usr/share/keyrings/hashicorp-archive-keyring.gpg] https://apt.releases.hashicorp.com ${UBUNTU_RELEASE} main" \
+          | tee /etc/apt/sources.list.d/hashicorp.list
+        apt-get update -qq
         apt-get install -y terraform
+        rm -rf /var/lib/apt/lists/*
         terraform version
       user: "0"
       description: "Install Terraform from HashiCorp official APT repository"
 
-    # 2. Install Terragrunt (multi-environment orchestration wrapper)
+    # 2. Install Terragrunt v0.59.3 — version and SHA256 pinned per arch.
     - command: |
         set -euo pipefail
-        # Use pinned version to avoid GitHub API rate limiting
-        TERRAGRUNT_VERSION="v0.59.3"
-        curl -fsSL "https://github.com/gruntwork-io/terragrunt/releases/download/${TERRAGRUNT_VERSION}/terragrunt_linux_amd64" -o /usr/local/bin/terragrunt
-        chmod +x /usr/local/bin/terragrunt
+        TERRAGRUNT_VERSION=0.59.3
+        ARCH=$(dpkg --print-architecture)
+        case "$ARCH" in
+          amd64)
+            TARBALL="terragrunt_linux_amd64"
+            SHA256="550fda546657e41eed23fc4ca128456a880ce6cf4e25794e2746570811d0614a"
+            ;;
+          arm64)
+            TARBALL="terragrunt_linux_arm64"
+            SHA256="a0a8873597fc56f1edfc1aa8335143b0663dc153ec10a3df010bbacfddd3d550"
+            ;;
+          *)
+            echo "unsupported arch: $ARCH (expected amd64 or arm64)" >&2
+            exit 1
+            ;;
+        esac
+        URL="https://github.com/gruntwork-io/terragrunt/releases/download/v${TERRAGRUNT_VERSION}/${TARBALL}"
+        curl --proto '=https' --tlsv1.2 -fsSL -o /tmp/terragrunt "$URL"
+        echo "${SHA256}  /tmp/terragrunt" | sha256sum -c -
+        install -m 0755 /tmp/terragrunt /usr/local/bin/terragrunt
+        rm /tmp/terragrunt
         terragrunt --version
       user: "0"
-      description: "Install Terragrunt (v0.59.3)"
+      description: "Install Terragrunt v0.59.3, version+digest pinned"
 
-    # 3. Install tflint (Terraform code linter)
+    # 3. Install tflint v0.57.0 — version and SHA256 pinned per arch.
+    # Replaces the deprecated curl|bash pattern with a direct binary
+    # download to avoid tag-rewriteable references.
     - command: |
         set -euo pipefail
-        curl -fsSL https://raw.githubusercontent.com/terraform-linters/tflint/master/install_linux.sh | bash
+        TFLINT_VERSION=0.57.0
+        ARCH=$(dpkg --print-architecture)
+        case "$ARCH" in
+          amd64)
+            ZIP="tflint_linux_amd64.zip"
+            SHA256="8551b2363fefe1eecdca611d7a6f6e596348c30a45cc65e5d044bf5103ba1aea"
+            ;;
+          arm64)
+            ZIP="tflint_linux_arm64.zip"
+            SHA256="095705da7a40c1673505b1c789250f288f616c24632e05660d96bacebedcfbd5"
+            ;;
+          *)
+            echo "unsupported arch: $ARCH (expected amd64 or arm64)" >&2
+            exit 1
+            ;;
+        esac
+        URL="https://github.com/terraform-linters/tflint/releases/download/v${TFLINT_VERSION}/${ZIP}"
+        curl --proto '=https' --tlsv1.2 -fsSL -o /tmp/tflint.zip "$URL"
+        echo "${SHA256}  /tmp/tflint.zip" | sha256sum -c -
+        unzip -o /tmp/tflint.zip -d /usr/local/bin/
+        rm /tmp/tflint.zip
         tflint --version
       user: "0"
-      description: "Install tflint using official install script"
+      description: "Install tflint v0.57.0, version+digest pinned"
 
-    # 4. Install checkov (security scanning for IaC) via apt to avoid pip packaging conflicts
+    # 4. Install checkov via pip (the apt package is stale/unavailable
+    # on some Ubuntu releases; pip provides a current, verified build).
     - command: |
         set -euo pipefail
-        apt-get install -y python3-checkov || echo "checkov not available in apt; use 'pip install checkov' in your project"
-        checkov --version || echo "Note: checkov may not be available; install locally in your project venv"
+        # --break-system-packages: the template uses PEP 668 externally-managed
+        # Python. --ignore-installed: Debian-packaged deps (e.g. python3-packaging)
+        # ship without RECORD files so pip can't uninstall them.
+        pip install --break-system-packages --ignore-installed checkov
+        checkov --version
       user: "0"
-      description: "Install checkov (security framework for IaC) via apt"
+      description: "Install checkov (security scanner for IaC) via pip"
 
-    # 5. Install infracost (cost estimation for Terraform)
-    # Use pinned version for reliability
+    # 5. Install infracost v0.10.31 — version and SHA256 pinned per arch.
     - command: |
         set -euo pipefail
-        INFRACOST_VERSION="v0.10.31"
-        curl -fsSL "https://github.com/infracost/infracost/releases/download/${INFRACOST_VERSION}/infracost-linux-amd64.tar.gz" -o /tmp/infracost.tar.gz
+        INFRACOST_VERSION=0.10.31
+        ARCH=$(dpkg --print-architecture)
+        case "$ARCH" in
+          amd64)
+            TARBALL="infracost-linux-amd64.tar.gz"
+            SHA256="73c6422a043b66ed511ccbfd87dc515547a907a6db2cca8afd2d70c98cc670dc"
+            ;;
+          arm64)
+            TARBALL="infracost-linux-arm64.tar.gz"
+            SHA256="0c1901c27b96a29efdb6623aa0c65f9f0fe95c7fa086006548ff473a1a9289f1"
+            ;;
+          *)
+            echo "unsupported arch: $ARCH (expected amd64 or arm64)" >&2
+            exit 1
+            ;;
+        esac
+        URL="https://github.com/infracost/infracost/releases/download/v${INFRACOST_VERSION}/${TARBALL}"
+        curl --proto '=https' --tlsv1.2 -fsSL -o /tmp/infracost.tar.gz "$URL"
+        echo "${SHA256}  /tmp/infracost.tar.gz" | sha256sum -c -
         tar -xzf /tmp/infracost.tar.gz -C /tmp/
-        mv /tmp/infracost-linux-amd64 /usr/local/bin/infracost
+        mv /tmp/infracost-linux-${ARCH} /usr/local/bin/infracost
         chmod +x /usr/local/bin/infracost
         rm /tmp/infracost.tar.gz
         infracost --version
       user: "0"
-      description: "Install infracost (cost estimation, v0.10.31)"
+      description: "Install infracost v0.10.31, version+digest pinned"
 
-    # 6. Install AWS CLI v2
+    # 6. Install AWS CLI v2 — arch-aware, from Amazon's official CDN.
+    # AWS does not publish SHA256 checksums for the CLI v2 zip; we rely on
+    # the pinned domain (awscli.amazonaws.com) over TLS.
     - command: |
         set -euo pipefail
+        ARCH=$(dpkg --print-architecture)
+        case "$ARCH" in
+          amd64) AWS_ZIP="awscli-exe-linux-x86_64.zip";;
+          arm64) AWS_ZIP="awscli-exe-linux-aarch64.zip";;
+          *)
+            echo "unsupported arch: $ARCH (expected amd64 or arm64)" >&2
+            exit 1
+            ;;
+        esac
         cd /tmp
-        curl -fsSL "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o awscliv2.zip
+        curl --proto '=https' --tlsv1.2 -fsSL -o awscliv2.zip \
+          "https://awscli.amazonaws.com/${AWS_ZIP}"
         unzip -q awscliv2.zip
         ./aws/install --update
         rm -rf awscliv2.zip aws
         aws --version
       user: "0"
-      description: "Install AWS CLI v2"
+      description: "Install AWS CLI v2 (arch-aware, from AWS CDN)"
 
   initFiles:
     # Default tflint configuration for common best practices
