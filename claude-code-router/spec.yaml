@@ -18,6 +18,7 @@ network:
       headerName: Authorization
       valueFormat: "Bearer %s"
   allowedDomains:
+    - "openrouter.ai:443"
     - registry.npmjs.org
     - "*.npmjs.org"
 
