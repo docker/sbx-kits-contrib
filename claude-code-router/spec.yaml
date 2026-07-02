@@ -1,0 +1,114 @@
+schemaVersion: "1"
+kind: agent
+name: claude-code-router
+displayName: Claude Code Router
+description: "Claude Code routed through claude-code-router (ccr) to OpenRouter models instead of Anthropic's API directly."
+
+agent:
+  image: "docker/sandbox-templates:shell-docker"
+  aiFilename: CLAUDE.md
+  entrypoint:
+    run: [ccr, code, "--dangerously-skip-permissions"]
+
+network:
+  serviceDomains:
+    openrouter.ai: openrouter
+  serviceAuth:
+    openrouter:
+      headerName: Authorization
+      valueFormat: "Bearer %s"
+  allowedDomains:
+    - registry.npmjs.org
+    - "*.npmjs.org"
+
+credentials:
+  sources:
+    openrouter:
+      env:
+        - OPENROUTER_API_KEY
+
+environment:
+  variables:
+    IS_SANDBOX: "1"
+  proxyManaged:
+    - OPENROUTER_API_KEY
+
+commands:
+  install:
+    - command: "npm install -g @anthropic-ai/claude-code @musistudio/claude-code-router"
+      user: "1000"
+      description: Install Claude Code and claude-code-router (ccr)
+    # Seed ~/.claude/settings.json early (install runs synchronously before the
+    # agent launches). This kit routes through ccr, not Anthropic's API
+    # directly, so there's no ANTHROPIC_API_KEY credential and no
+    # apiKeyHelper to configure. The test -f guard makes re-runs a no-op and
+    # never clobbers a user-edited file. root-write + chown because
+    # shell-docker ownership of /home/agent/.claude is not guaranteed
+    # agent-owned.
+    - command: |
+        set -e
+        mkdir -p /home/agent/.claude
+        if [ ! -f /home/agent/.claude/settings.json ]; then
+          printf '%s' '{
+          "themeId": 1,
+          "alwaysThinkingEnabled": true,
+          "defaultMode": "bypassPermissions",
+          "bypassPermissionsModeAccepted": true
+        }
+        ' > /home/agent/.claude/settings.json
+        fi
+        chown -R agent:agent /home/agent/.claude
+      user: "root"
+      description: Seed Claude settings.json (bypass permissions; no apiKeyHelper needed)
+  initFiles:
+    - path: /home/agent/.claude.json
+      content: |
+        {
+          "bypassPermissionsModeAccepted": true,
+          "hasCompletedOnboarding": true,
+          "projects": {
+              "/": {
+              "hasTrustDialogAccepted": true
+            }
+          }
+        }
+      onlyIfMissing: true
+      description: Claude bypass flags (skip onboarding/trust dialogs)
+    - path: /home/agent/.claude-code-router/config.json
+      mode: "0644"
+      onlyIfMissing: true
+      description: Configure ccr to route Claude Code through OpenRouter (edit and run `ccr restart` to change models/providers)
+      content: |
+        {
+          "NON_INTERACTIVE_MODE": true,
+          "Providers": [
+            {
+              "name": "openrouter",
+              "api_base_url": "https://openrouter.ai/api/v1/chat/completions",
+              "api_key": "$OPENROUTER_API_KEY",
+              "models": [
+                "anthropic/claude-sonnet-5",
+                "anthropic/claude-opus-4.8",
+                "anthropic/claude-haiku-4.5"
+              ],
+              "transformer": {
+                "use": ["openrouter"]
+              }
+            }
+          ],
+          "Router": {
+            "default": "openrouter,anthropic/claude-sonnet-5",
+            "background": "openrouter,anthropic/claude-haiku-4.5",
+            "think": "openrouter,anthropic/claude-opus-4.8",
+            "longContext": "openrouter,anthropic/claude-sonnet-5"
+          }
+        }
+
+memory: |
+  ## Sandbox environment
+
+  You are running inside a Docker sandbox. Claude Code's requests are routed
+  through claude-code-router (`ccr`) to OpenRouter instead of Anthropic's API
+  directly — see ~/.claude-code-router/config.json for the provider and model
+  routing table. The workspace is mounted at its absolute host path. `sudo`
+  is passwordless; use it for package installs.
