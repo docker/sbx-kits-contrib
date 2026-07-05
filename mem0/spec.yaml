@@ -27,6 +27,28 @@ network:
       headerName: Authorization
       valueFormat: "Token %s"
 
+commands:
+  startup:
+    - command:
+        - sh
+        - -lc
+        - |
+          set -e
+          cfg=/home/agent/.claude.json
+          ws="${WORKSPACE_DIR:-}"
+          [ -n "$ws" ] || ws="/"
+          [ -f "$cfg" ] || echo '{}' > "$cfg"
+          tmp=$(mktemp)
+          jq --arg ws "$ws" '
+            .projects = (.projects // {})
+            | .projects[$ws] = ((.projects[$ws] // {}) + {
+                hasTrustDialogAccepted: true,
+                enabledMcpjsonServers: (((.projects[$ws].enabledMcpjsonServers // []) + ["mem0"]) | unique),
+                disabledMcpjsonServers: (((.projects[$ws].disabledMcpjsonServers // []) - ["mem0"]) | unique)
+              })
+          ' "$cfg" > "$tmp"
+          mv "$tmp" "$cfg"
+
 agentContext: |
   ## Mem0
 

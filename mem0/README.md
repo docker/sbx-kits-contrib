@@ -11,6 +11,20 @@ The kit configures network access, proxy-managed authentication, and agent guida
 - Agent guidance for using persistent memory
 - No secrets stored inside the sandbox
 
+## Automatic MCP configuration
+
+This kit configures the hosted Mem0 MCP server automatically.
+
+When applied to a sandbox it:
+
+- injects the required API key through the Docker Sandboxes credential proxy
+- allows outbound access to `mcp.mem0.ai`
+- installs a workspace `.mcp.json` containing the hosted Mem0 MCP server definition
+- automatically enables the workspace MCP server for Claude Code during sandbox startup
+- provides agent guidance for using persistent memory
+
+No manual MCP configuration is required after the kit is applied.
+
 ## Prerequisites
 
 - Docker Sandboxes (sbx)
@@ -63,9 +77,9 @@ All other outbound domains remain subject to Docker Sandboxes network policy.
 
 ## What this kit provides
 
-* Secure proxy-managed authentication
-* Network policy allowing access only to mcp.mem0.ai
-* Agent instructions for using persistent memory appropriately
+- Secure proxy-managed authentication
+- Network policy allowing access only to mcp.mem0.ai
+- Agent instructions for using persistent memory appropriately
 
 This kit does not install the Mem0 Python SDK, CLI, or local OpenMemory components. It is intended for use with the hosted Mem0 MCP service.
 
@@ -75,9 +89,18 @@ Verified with Docker Sandboxes v0.34.0.
 
 Verified behavior includes:
 
-* Kit validation (sbx kit validate)
-* Kit inspection (sbx kit inspect)
-* Sandbox creation with --kit
-* Proxy-managed secret configuration
-* Network policy enforcement
-* Successful MCP initialize request to the hosted Mem0 server
+- Kit validation (sbx kit validate)
+- Kit inspection (sbx kit inspect)
+- running the TCK suite (passes , refer to #PR comments)
+- running the end-to-end (e2e) test suite (Passed)
+- Sandbox creation with --kit
+- Proxy-managed secret configuration
+- Network policy enforcement
+- Successful MCP initialize request to the hosted Mem0 server
+- verifying that the workspace `.mcp.json` is installed
+- verifying that Claude Code discovers the workspace MCP server
+- verifying successful MCP protocol initialization against the hosted Mem0 endpoint
+
+> **Note**
+>
+> This kit targets the hosted Mem0 MCP service. It does not run a local Mem0 server inside the sandbox.
