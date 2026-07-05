@@ -1,6 +1,7 @@
 schemaVersion: 1
 kind: mixin
 name: mem0
+displayName: Mem0
 version: "0.1.0"
 description: "Adds hosted Mem0 MCP persistent memory support to Docker Sandboxes."
 
