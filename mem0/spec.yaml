@@ -1,0 +1,42 @@
+schemaVersion: 1
+kind: mixin
+name: mem0
+version: "0.1.0"
+description: "Adds hosted Mem0 MCP persistent memory support to Docker Sandboxes."
+
+environment:
+  proxyManaged:
+    - MEM0_API_KEY
+
+credentials:
+  sources:
+    mem0:
+      env:
+        - MEM0_API_KEY
+
+network:
+  allowedDomains:
+    - mcp.mem0.ai
+
+  serviceDomains:
+    mcp.mem0.ai: mem0
+
+  serviceAuth:
+    mem0:
+      headerName: Authorization
+      valueFormat: "Token %s"
+
+agentContext: |
+  ## Mem0
+
+  This sandbox has access to a persistent memory service backed by Mem0.
+
+  Search memory before answering questions that depend on previous conversations,
+  user preferences, project history, or long-term context.
+
+  Save durable user preferences and long-term project decisions.
+
+  Do not store temporary conversation details, secrets, credentials, or other
+  sensitive information.
+
+  Update or remove memories when the user explicitly changes or revokes them.
