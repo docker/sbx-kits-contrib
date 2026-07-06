@@ -65,6 +65,7 @@ commands:
         python3 -m venv /opt/postgres-agent
         /opt/postgres-agent/bin/pip install --upgrade pip
         /opt/postgres-agent/bin/pip install anthropic "psycopg[binary]" python-dotenv
+        echo 'export PATH=/opt/postgres-agent/bin:$PATH' >> /etc/sandbox-persistent.sh
         echo 'export PATH=/opt/postgres-agent/bin:$PATH' >> /etc/profile.d/postgres-agent.sh
         echo 'export PATH=/opt/postgres-agent/bin:$PATH' >> /home/agent/.bashrc
       user: "0"
