@@ -153,6 +153,18 @@ commands:
             ps.subscribe(channel)
             return ps
 
+
+        def listen(ps):
+            """
+            Iterate over messages from a pubsub object, decoding JSON automatically.
+            Usage: for msg in listen(subscribe('channel')): print(msg)
+            """
+            for msg in ps.listen():
+                try:
+                    yield json.loads(msg["data"])
+                except (json.JSONDecodeError, TypeError):
+                    yield msg["data"]
+
     - path: /home/agent/workspace/REDIS.md
       content: |
         # Redis Agent Sandbox
@@ -182,9 +194,10 @@ commands:
             publish("agent-events", {"event": "analysis_complete", "id": "run-42"})
 
             # Subscriber
+            from cache import subscribe, listen
             ps = subscribe("agent-events")
-            for msg in ps.listen():
-                print(msg["data"])
+            for msg in listen(ps):
+                print(msg)  # already decoded from JSON
 
         Direct redis-py client for advanced use:
 
