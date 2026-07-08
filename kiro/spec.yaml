@@ -1,6 +1,6 @@
 schemaVersion: "2"
 kind: sandbox
-name: kiro-contrib
+name: kiro
 displayName: Kiro
 description: AI-driven coding agent (device-flow auth).
 version: "0.1.0"

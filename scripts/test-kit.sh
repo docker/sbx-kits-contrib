@@ -45,12 +45,15 @@ fi
 
 cd "$REPO_ROOT"
 
-# Run the shared TCK. If the kit directory contains any Go test files, also
-# run them — this lets a kit ship its own kit-specific assertions (e.g. the
-# exact shape of a config file its startup command writes) alongside the
-# generic TCK checks. Kits live one level under the repo root, so the
-# relative package path is just the kit's basename.
+# Run the shared TCK. If the kit directory contains any Go test files
+# (at any depth — a kit may organise its tests under subpackages), also
+# run them so a kit can ship its own assertions (e.g. the exact shape
+# of a config file its startup command writes) alongside the generic
+# TCK checks. Kits live one level under the repo root, so the relative
+# package path is just the kit's basename. Exports KIT for the per-kit
+# run too, so kit tests can locate the artifact if they don't use the
+# working directory.
 KIT="$kit_abs" go test -v -count=1 -timeout 10m -run TestKitTCK "$@" ./tck/...
-if compgen -G "$kit_abs"/*_test.go > /dev/null; then
-  go test -v -count=1 -timeout 10m "$@" "./$(basename "$kit_abs")/..."
+if [ -n "$(find "$kit_abs" -name '*_test.go' -print -quit)" ]; then
+  KIT="$kit_abs" go test -v -count=1 -timeout 10m "$@" "./$(basename "$kit_abs")/..."
 fi

@@ -18,7 +18,7 @@ sandbox starts with `kiro chat --trust-all-tools` when you attach.
 
 ```console
 # Run with a pinned tag (recommended for production use)
-$ sbx run --kit "git+https://github.com/docker/sbx-kits-contrib.git#ref=v0.2.0&dir=kiro" kiro
+$ sbx run --kit "git+https://github.com/docker/sbx-kits-contrib.git#ref=<TAG>&dir=kiro" kiro
 
 # Or track the default branch (may change under you)
 $ sbx run --kit "git+https://github.com/docker/sbx-kits-contrib.git#dir=kiro" kiro
