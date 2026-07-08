@@ -54,6 +54,7 @@ $ sbx run claude --kit "git+https://github.com/docker/sbx-kits-contrib.git#dir=c
 
   It creates the file if missing and leaves every other key untouched, then `chown`s
   `~/.claude` back to the `agent` user. Re-running is idempotent.
+- Note that the script does _not_ perform any checks to verify that you are indeed inside a sandbox. Care should be taken to not put this status line to your host's Claude Code installation as it would then incorrectly state that you are inside a sandbox when you are not.
 
 ## Requirements
 
