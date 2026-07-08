@@ -44,4 +44,13 @@ if [ ! -f "$kit_abs/spec.yaml" ] && [ ! -f "$kit_abs/spec.yml" ]; then
 fi
 
 cd "$REPO_ROOT"
-KIT="$kit_abs" exec go test -v -count=1 -timeout 10m -run TestKitTCK "$@" ./tck/...
+
+# Run the shared TCK. If the kit directory contains any Go test files, also
+# run them — this lets a kit ship its own kit-specific assertions (e.g. the
+# exact shape of a config file its startup command writes) alongside the
+# generic TCK checks. Kits live one level under the repo root, so the
+# relative package path is just the kit's basename.
+KIT="$kit_abs" go test -v -count=1 -timeout 10m -run TestKitTCK "$@" ./tck/...
+if compgen -G "$kit_abs"/*_test.go > /dev/null; then
+  go test -v -count=1 -timeout 10m "$@" "./$(basename "$kit_abs")/..."
+fi
