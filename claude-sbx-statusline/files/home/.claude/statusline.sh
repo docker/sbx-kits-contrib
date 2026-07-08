@@ -6,12 +6,16 @@
 
 input=$(cat)
 
-dir=$(printf '%s' "$input" | jq -r '.workspace.current_dir // .cwd // empty')
+# One jq pass extracts every field (one per line); renders run often, so avoid
+# re-forking jq. Line-per-field read preserves empty fields (tab-splitting would
+# collapse leading blanks, since tab is IFS whitespace).
+{ read -r dir; read -r model; read -r pct; read -r winsz; read -r cost; } < <(printf '%s' "$input" | jq -r '
+  .workspace.current_dir // .cwd // "",
+  .model.display_name // "",
+  .context_window.used_percentage // "",
+  ((.context_window.context_window_size // 0) / 1000 | floor),
+  .cost.total_cost_usd // 0')
 [ -z "$dir" ] && dir=$(pwd)
-model=$(printf '%s' "$input" | jq -r '.model.display_name // empty')
-pct=$(printf '%s' "$input" | jq -r '.context_window.used_percentage // empty')
-winsz=$(printf '%s' "$input" | jq -r '(.context_window.context_window_size // 0) / 1000 | floor')
-cost=$(printf '%s' "$input" | jq -r '.cost.total_cost_usd // 0')
 
 # ANSI colours
 RST=$'\033[0m'; BOLD=$'\033[1m'; DIM=$'\033[2m'

@@ -11,7 +11,9 @@ session renders a compact dashboard of where you are and what the session is cos
 
 The kit ships the script to `~/.claude/statusline.sh` and registers it under `statusLine`
 in `~/.claude/settings.json` — **merging** into the file so the claude base image's other
-settings are preserved.
+settings are preserved. Only the `statusLine` key is written; if the file already had one,
+it is replaced with this kit's script (that's the point of installing the kit), and every
+other key is left as-is.
 
 ## What you get
 
@@ -52,8 +54,10 @@ $ sbx run claude --kit "git+https://github.com/docker/sbx-kits-contrib.git#dir=c
   }
   ```
 
-  It creates the file if missing and leaves every other key untouched, then `chown`s
-  `~/.claude` back to the `agent` user. Re-running is idempotent.
+  It creates the file if missing and leaves every other key untouched — only `statusLine`
+  is set (replacing a prior one if present) — then `chown`s `~/.claude` back to the `agent`
+  user. Re-running is idempotent. The temp file is created inside `~/.claude` so the final
+  `mv` is an atomic same-filesystem rename rather than a cross-device copy.
 - Note that the script does _not_ perform any checks to verify that you are indeed inside a sandbox. Care should be taken to not put this status line to your host's Claude Code installation as it would then incorrectly state that you are inside a sandbox when you are not.
 
 ## Requirements
