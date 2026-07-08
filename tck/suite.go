@@ -252,7 +252,7 @@ func (s *Suite) RunValidationTests(t *testing.T) {
 
 		t.Run("required_fields", func(t *testing.T) {
 			require.NotEmpty(t, m.SchemaVersion, "schemaVersion is required")
-			require.Equal(t, spec.SchemaVersion, m.SchemaVersion, "schemaVersion must be %q", spec.SchemaVersion)
+			require.Contains(t, spec.SupportedSchemaVersions, m.SchemaVersion, "schemaVersion must be one of %v", spec.SupportedSchemaVersions)
 			require.NotEmpty(t, m.Kind, "kind is required")
 			require.NotEmpty(t, m.Name, "name is required")
 			require.NotEmpty(t, m.DisplayName, "displayName is required")
@@ -564,10 +564,15 @@ func readOutput(t *testing.T, r io.Reader) string {
 
 // containerImage returns the image to use for container tests,
 // resolving well-known agent templates for mixins with extends.
+//
+// After normalize, both v1 `kind: agent` and v2 `kind: sandbox` end up as
+// KindSandbox (spec/normalize.go migrates the v1 alias with a deprecation
+// warning), so this check matches every non-mixin kit — including v2-native
+// specs that never wrote `kind: agent`.
 func containerImage(a *spec.Artifact) (string, error) {
-	if a.Manifest.Kind == spec.KindAgent {
+	if a.Manifest.Kind == spec.KindSandbox {
 		if a.Manifest.Template == "" {
-			return "", fmt.Errorf("agent artifact %q has no template", a.Manifest.Name)
+			return "", fmt.Errorf("sandbox artifact %q has no template", a.Manifest.Name)
 		}
 		return a.Manifest.Template, nil
 	}

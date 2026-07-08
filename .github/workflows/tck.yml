@@ -20,7 +20,7 @@ jobs:
       spec-changed: ${{ steps.filter.outputs.spec }}
       scripts-changed: ${{ steps.filter.outputs.scripts }}
     steps:
-      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           fetch-depth: 0
 
@@ -80,7 +80,7 @@ jobs:
         kit: ${{ fromJson(needs.detect-changes.outputs.kits) }}
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
       - uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
         with:
@@ -100,7 +100,7 @@ jobs:
       needs.detect-changes.outputs.spec-changed == 'true'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
       - uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
         with:
@@ -114,7 +114,7 @@ jobs:
     if: needs.detect-changes.outputs.scripts-changed == 'true'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
       - uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
         with:
@@ -144,7 +144,7 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
       - uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
         with:
@@ -260,29 +260,20 @@ jobs:
           TOKEN_CLEAN=$(printf '%s' "$DOCKERHUB_TOKEN"    | tr -d '[:space:]')
           printf '%s' "$TOKEN_CLEAN" | sbx --app-name "$APP_NAME" login --username "$USER_CLEAN" --password-stdin
 
-      - name: Set sbx default network policy
-        # `sbx create` refuses to run until a default network policy is
-        # configured. `deny-all` is the strict baseline: a kit gets
-        # *exactly* the outbound reachability it declares in
-        # `network.allowedDomains` and nothing more. That makes the e2e
-        # run a real contract test — if a kit's install hooks reach for
-        # apt/npm mirrors it didn't list, the failure is real and
-        # actionable. Kit allow-rules are scoped per sandbox and punch
-        # through the default deny (see `ApplyKitNetworkPolicyScoped` in
-        # docker/sandboxes:sandboxd/pkg/server/options_governance.go); kit
-        # deny-rules win over allow-rules (deny-wins).
-        #
-        # The trade-off: kits that previously relied on `balanced`'s
-        # tier-zero allowances (Debian apt mirrors, default npm registry)
-        # have to enumerate those domains in their own `allowedDomains`.
-        # That's the philosophy this CI is enforcing — kits are
-        # self-contained network contracts.
-        run: sbx --app-name "$APP_NAME" policy set-default deny-all
-
       - name: Run e2e TCK for ${{ matrix.kit }}
         # Runs TestE2EKit: verifies kit content (env, files, tmpfs, agentContext)
         # for all kits, then — for kind:sandbox kits with testdata/tck.yaml —
         # also sends a non-interactive prompt to the agent.
+        #
+        # The script handles `sbx --app-name $APP_NAME policy init
+        # deny-all` internally, so CI and local runs converge on the same
+        # baseline: each kit gets *exactly* the outbound reachability it
+        # declares in `network.allowedDomains` and nothing more, making
+        # this a real contract test. Kit allow-rules are scoped per
+        # sandbox and punch through the default deny (see
+        # `ApplyKitNetworkPolicyScoped` in
+        # docker/sandboxes:sandboxd/pkg/server/options_governance.go);
+        # kit deny-rules win over allow-rules (deny-wins).
         run: ./scripts/test-kit-e2e.sh "${{ matrix.kit }}"
 
       - name: Sign out of Docker Hub

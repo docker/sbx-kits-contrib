@@ -7,10 +7,41 @@ import (
 	"strings"
 )
 
-// normalize converts sugar fields in specFile into canonical Artifact fields.
+// compactNormalized removes legacy decode shims and duplicate top-level
+// manifest fields so a normalized SpecFile marshals as canonical v2 YAML.
+func (s *SpecFile) compactNormalized() {
+	if len(s.Manifest.Volumes) > 0 {
+		s.Volumes.List = append(s.Volumes.List, s.Manifest.Volumes...)
+		s.Manifest.Volumes = nil
+	}
+	s.Volumes.LegacyMap = nil
+	s.Credentials.LegacySources = nil
+
+	s.Secrets = nil
+	s.Egress = nil
+	s.LegacyOAuth = nil
+	s.LegacyAgent = nil
+	s.LegacyMemory = ""
+	s.LegacyPersistence = ""
+	s.LegacyKitDir = ""
+	s.LegacyTmpfs = nil
+	s.LegacySettings = nil
+	s.LegacyNetwork = nil
+
+	if s.Sandbox != nil {
+		s.Template = ""
+		s.Binary = ""
+		s.RunOptions = nil
+		s.AIFilename = ""
+		s.Resources = nil
+		s.Build = nil
+	}
+}
+
+// normalize converts sugar fields in SpecFile into canonical Artifact fields.
 // Non-fatal validation issues (typically v1 → v2 deprecation warnings) are
 // collected on w; callers surface them via Artifact.Warnings.
-func (s *specFile) normalize(w *warnings) error {
+func (s *SpecFile) normalize(w *warnings) error {
 	s.normalizeKind(w)
 	s.normalizeMixins(w)
 	if err := s.normalizeSandbox(w); err != nil {
@@ -54,7 +85,7 @@ func (s *specFile) normalize(w *warnings) error {
 // canonical GOOGLE_API_KEY. The Environment.ProxyManaged field itself is slated
 // for removal in the Phase 6 schema cutover, when consumers move to reading the
 // credentials directly.
-func (s *specFile) deriveProxyManagedEnv() {
+func (s *SpecFile) deriveProxyManagedEnv() {
 	var names []string
 	seen := map[string]bool{}
 	for _, c := range s.Credentials.List {
@@ -83,7 +114,7 @@ func (s *specFile) deriveProxyManagedEnv() {
 // initFiles/commands.startup in Phase 4, so the block is absorbed-and-dropped
 // here. The canonical Artifact.Settings field is gone; the SettingsPolicy
 // decode target survives only as this shim's target until Phase 6.
-func (s *specFile) normalizeLegacySettings(w *warnings) {
+func (s *SpecFile) normalizeLegacySettings(w *warnings) {
 	if s.LegacySettings == nil {
 		return
 	}
@@ -91,13 +122,13 @@ func (s *specFile) normalizeLegacySettings(w *warnings) {
 	w.deprecate("settings", "container settings are now lifted into kit commands.startup; remove this block (kit-spec v2)")
 }
 
-// normalizeVolumes folds the specFile-level volumes wrapper into the
+// normalizeVolumes folds the SpecFile-level volumes wrapper into the
 // canonical Manifest.Volumes slice. The wrapper accepts both the v2
 // sequence shape (List) and the v1 mapping shape (LegacyMap); the latter
 // is converted to MountSpec entries (Path from key, Size from value) and
 // emits a deprecation warning. Iteration over LegacyMap is sorted by path
 // so the resulting Volumes order is stable across runs.
-func (s *specFile) normalizeVolumes(w *warnings) {
+func (s *SpecFile) normalizeVolumes(w *warnings) {
 	if len(s.Volumes.List) > 0 {
 		s.Manifest.Volumes = append(s.Manifest.Volumes, s.Volumes.List...)
 		s.Volumes.List = nil
@@ -127,7 +158,7 @@ func (s *specFile) normalizeVolumes(w *warnings) {
 // with `type: tmpfs`. The strict-decode flip turned legacy specs into hard
 // rejections; this shim re-admits them with a deprecation warning.
 // Iteration order is sorted by path so the emitted Volumes order is stable.
-func (s *specFile) normalizeLegacyTmpfs(w *warnings) {
+func (s *SpecFile) normalizeLegacyTmpfs(w *warnings) {
 	if len(s.LegacyTmpfs) == 0 {
 		return
 	}
@@ -152,7 +183,7 @@ func (s *specFile) normalizeLegacyTmpfs(w *warnings) {
 // any runtime decision); pre-v0.31 specs that still set it are accepted
 // here so the strict-decode flip introduced in PR #37 doesn't break them
 // outright. Authors should remove the line; the field is gone in Phase 6.
-func (s *specFile) normalizeLegacyPersistence(w *warnings) {
+func (s *SpecFile) normalizeLegacyPersistence(w *warnings) {
 	if s.LegacyPersistence == "" {
 		return
 	}
@@ -164,7 +195,7 @@ func (s *specFile) normalizeLegacyPersistence(w *warnings) {
 // warning. Same story as normalizeLegacyPersistence — never consumed,
 // removed alongside Persistence in PR #37, re-admitted as a deprecation
 // shim so legacy specs survive the strict-decode flip.
-func (s *specFile) normalizeLegacyKitDir(w *warnings) {
+func (s *SpecFile) normalizeLegacyKitDir(w *warnings) {
 	if s.LegacyKitDir == "" {
 		return
 	}
@@ -176,7 +207,7 @@ func (s *specFile) normalizeLegacyKitDir(w *warnings) {
 // (LegacyNetwork) into the canonical top-level PublishedPorts list, emitting
 // a deprecation warning. v2 entries already decoded into PublishedPorts are
 // kept; the legacy entries are appended after them.
-func (s *specFile) normalizePublishedPorts(w *warnings) {
+func (s *SpecFile) normalizePublishedPorts(w *warnings) {
 	if s.LegacyNetwork == nil || len(s.LegacyNetwork.PublishedPorts) == 0 {
 		return
 	}
@@ -187,7 +218,7 @@ func (s *specFile) normalizePublishedPorts(w *warnings) {
 
 // normalizeKind maps the v1 `kind: agent` value to `sandbox`. The v2 value
 // is the canonical form; the v1 value triggers a deprecation warning.
-func (s *specFile) normalizeKind(w *warnings) {
+func (s *SpecFile) normalizeKind(w *warnings) {
 	if s.Manifest.Kind == KindAgent {
 		s.Manifest.Kind = KindSandbox
 		w.deprecate("kind: agent", "use 'kind: sandbox' instead (kit-spec v2)")
@@ -200,7 +231,7 @@ func (s *specFile) normalizeKind(w *warnings) {
 // release; the field is accepted so kits and the published v2 docs can use
 // it, but it has no runtime effect yet. The value is carried through to
 // Artifact.Mixins unchanged.
-func (s *specFile) normalizeMixins(w *warnings) {
+func (s *SpecFile) normalizeMixins(w *warnings) {
 	if len(s.Mixins) == 0 {
 		return
 	}
@@ -209,7 +240,7 @@ func (s *specFile) normalizeMixins(w *warnings) {
 
 // normalizeAgentContext maps the v1 `memory:` field onto AgentContext.
 // The v2 field wins if both are set.
-func (s *specFile) normalizeAgentContext(w *warnings) {
+func (s *SpecFile) normalizeAgentContext(w *warnings) {
 	if s.LegacyMemory == "" {
 		return
 	}
@@ -224,7 +255,7 @@ func (s *specFile) normalizeAgentContext(w *warnings) {
 // Renamed from normalizeAgent in v2 alongside the YAML rename. v1
 // `agent:` is migrated onto Sandbox at load time with a deprecation
 // warning.
-func (s *specFile) normalizeSandbox(w *warnings) error {
+func (s *SpecFile) normalizeSandbox(w *warnings) error {
 	if s.LegacyAgent != nil {
 		if s.Sandbox == nil {
 			s.Sandbox = s.LegacyAgent
@@ -297,7 +328,7 @@ func (s *specFile) normalizeSandbox(w *warnings) error {
 // normalizeSecrets converts the flat secrets: [NAME] list into v1-shape
 // credential sources stashed on Credentials.LegacySources. The later
 // normalizeLegacyCredentials pass folds them into Credentials.List.
-func (s *specFile) normalizeSecrets() error {
+func (s *SpecFile) normalizeSecrets() error {
 	if len(s.Secrets) == 0 {
 		return nil
 	}
@@ -343,7 +374,7 @@ func deriveServiceKey(envVar string) string {
 // normalizeEgress converts the egress: {domain: hook} map into v1-shape
 // network policy entries stashed on LegacyNetwork. The later
 // normalizeLegacyCredentials pass folds them into Credentials.List.
-func (s *specFile) normalizeEgress() error {
+func (s *SpecFile) normalizeEgress() error {
 	if len(s.Egress) == 0 {
 		return nil
 	}
@@ -389,7 +420,7 @@ func (s *specFile) normalizeEgress() error {
 // Legacy* fields are left intact only so artifact.go can still see
 // they were present (for any diagnostic surface that wants to report
 // "kit used v1 spelling X").
-func (s *specFile) normalizeLegacyCredentials(w *warnings) error {
+func (s *SpecFile) normalizeLegacyCredentials(w *warnings) error {
 	// Track which services already have v2 entries.
 	v2Services := make(map[string]bool, len(s.Credentials.List))
 	for _, c := range s.Credentials.List {
@@ -539,11 +570,11 @@ func (s *specFile) normalizeLegacyCredentials(w *warnings) error {
 }
 
 // normalizeLegacyOAuthBlock folds the v1 standalone top-level `oauth:`
-// block (specFile.LegacyOAuth) into Credentials.List. If a Credential
+// block (SpecFile.LegacyOAuth) into Credentials.List. If a Credential
 // entry for LegacyOAuth.Service already exists, the OAuth shape is
 // attached to it; otherwise a fresh Credential entry is synthesized.
 // Emits a deprecation warning.
-func (s *specFile) normalizeLegacyOAuthBlock(w *warnings) error {
+func (s *SpecFile) normalizeLegacyOAuthBlock(w *warnings) error {
 	if s.LegacyOAuth == nil {
 		return nil
 	}
@@ -608,7 +639,7 @@ func (s *specFile) normalizeLegacyOAuthBlock(w *warnings) error {
 // normalizeCapsNetwork promotes v1 network.allowedDomains/deniedDomains
 // (LegacyNetwork) into the canonical Caps.Network.Allow/Deny lists.
 // Emits one deprecation warning per legacy field touched.
-func (s *specFile) normalizeCapsNetwork(w *warnings) error {
+func (s *SpecFile) normalizeCapsNetwork(w *warnings) error {
 	hasV1Allow := s.LegacyNetwork != nil && len(s.LegacyNetwork.AllowedDomains) > 0
 	hasV1Deny := s.LegacyNetwork != nil && len(s.LegacyNetwork.DeniedDomains) > 0
 	if !hasV1Allow && !hasV1Deny {

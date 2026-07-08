@@ -250,6 +250,28 @@ sbx rm probe
 
 For changes that affect immutable container settings (privileged, volumes, tmpfs), `sbx kit add` will warn and skip them — you must recreate the sandbox to test those.
 
+## Before opening a PR
+
+CI on the repo skips the `test-kit-e2e` job for fork PRs (Docker Hub secrets aren't exposed to fork-triggered workflows). Run e2e locally before you ask for review:
+
+```bash
+cd my-kit && ../scripts/test-kit-e2e.sh
+```
+
+The script handles the dance for you — it scopes everything to `--app-name sbx-kits-contrib-tck` (the same app-name the harness uses internally) and applies the `deny-all` default policy CI uses, so the only `network.allowedDomains` entries that survive are the ones you actually need. Your main sbx state is untouched.
+
+One-time per machine: `sbx --app-name sbx-kits-contrib-tck login`.
+
+When it fails, read what the proxy blocked, add the host to `network.allowedDomains`, re-run:
+
+```bash
+APP=sbx-kits-contrib-tck
+sbx --app-name $APP ls
+sbx --app-name $APP policy log tck-e2e-<short-uuid>
+```
+
+Full breakdown and the list of commonly-missed hosts is in [`testing.md`](testing.md#running-e2e).
+
 ## Migrating an existing v1 kit
 
 ```bash

@@ -89,18 +89,18 @@ func TestResolveWorkdir(t *testing.T) {
 }
 
 func TestContainerImage(t *testing.T) {
-	t.Run("agent_uses_template", func(t *testing.T) {
+	t.Run("sandbox_uses_template", func(t *testing.T) {
 		a := &spec.Artifact{
-			Manifest: spec.Manifest{Kind: spec.KindAgent, Template: "my/image:v1"},
+			Manifest: spec.Manifest{Kind: spec.KindSandbox, Template: "my/image:v1"},
 		}
 		img, err := containerImage(a)
 		require.NoError(t, err)
 		require.Equal(t, "my/image:v1", img)
 	})
 
-	t.Run("agent_without_template_errors", func(t *testing.T) {
+	t.Run("sandbox_without_template_errors", func(t *testing.T) {
 		a := &spec.Artifact{
-			Manifest: spec.Manifest{Kind: spec.KindAgent, Name: "bad"},
+			Manifest: spec.Manifest{Kind: spec.KindSandbox, Name: "bad"},
 		}
 		_, err := containerImage(a)
 		require.ErrorContains(t, err, "no template")

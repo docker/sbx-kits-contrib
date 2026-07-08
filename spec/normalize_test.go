@@ -8,7 +8,7 @@ import (
 
 func TestNormalizeSandbox(t *testing.T) {
 	t.Run("populates_manifest_from_sandbox_block", func(t *testing.T) {
-		s := specFile{
+		s := SpecFile{
 			Manifest: Manifest{Kind: KindSandbox, SchemaVersion: SchemaVersion, Name: "a"},
 			Sandbox: &sandboxBlock{
 				Image:      "my-image",
@@ -32,7 +32,7 @@ func TestNormalizeSandbox(t *testing.T) {
 	})
 
 	t.Run("rejects_sandbox_block_on_mixin", func(t *testing.T) {
-		s := specFile{
+		s := SpecFile{
 			Manifest: Manifest{Kind: KindMixin, SchemaVersion: SchemaVersion, Name: "m"},
 			Sandbox:  &sandboxBlock{Image: "img"},
 		}
@@ -40,14 +40,14 @@ func TestNormalizeSandbox(t *testing.T) {
 	})
 
 	t.Run("rejects_flat_template_field", func(t *testing.T) {
-		s := specFile{
+		s := SpecFile{
 			Manifest: Manifest{Kind: KindSandbox, SchemaVersion: SchemaVersion, Name: "a", Template: "img"},
 		}
 		require.ErrorContains(t, s.normalize(&warnings{}), "sandbox:")
 	})
 
 	t.Run("sandbox_requires_sandbox_block", func(t *testing.T) {
-		s := specFile{
+		s := SpecFile{
 			Manifest: Manifest{Kind: KindSandbox, SchemaVersion: SchemaVersion, Name: "a"},
 		}
 		require.ErrorContains(t, s.normalize(&warnings{}), "requires a 'sandbox:' block")
@@ -56,7 +56,7 @@ func TestNormalizeSandbox(t *testing.T) {
 
 func TestNormalizeSecrets(t *testing.T) {
 	t.Run("converts_to_credential_sources", func(t *testing.T) {
-		s := specFile{
+		s := SpecFile{
 			Manifest: Manifest{Kind: KindMixin, SchemaVersion: SchemaVersion, Name: "m"},
 			Secrets:  []string{"ANTHROPIC_API_KEY", "GH_TOKEN"},
 		}
@@ -75,7 +75,7 @@ func TestNormalizeSecrets(t *testing.T) {
 	})
 
 	t.Run("conflict_with_existing_source", func(t *testing.T) {
-		s := specFile{
+		s := SpecFile{
 			Manifest: Manifest{Kind: KindMixin, SchemaVersion: SchemaVersion, Name: "m"},
 			Secrets:  []string{"ANTHROPIC_API_KEY"},
 			Credentials: credentialsField{
@@ -90,7 +90,7 @@ func TestNormalizeSecrets(t *testing.T) {
 
 func TestNormalizeEgress(t *testing.T) {
 	t.Run("converts_to_network_policy", func(t *testing.T) {
-		s := specFile{
+		s := SpecFile{
 			Manifest: Manifest{Kind: KindMixin, SchemaVersion: SchemaVersion, Name: "m"},
 			Egress:   map[string]string{"api.anthropic.com": "anthropic"},
 		}
@@ -108,7 +108,7 @@ func TestNormalizeEgress(t *testing.T) {
 	})
 
 	t.Run("unknown_service_gets_no_default_auth", func(t *testing.T) {
-		s := specFile{
+		s := SpecFile{
 			Manifest: Manifest{Kind: KindMixin, SchemaVersion: SchemaVersion, Name: "m"},
 			Egress:   map[string]string{"custom.example.com": "custom"},
 		}
@@ -146,7 +146,7 @@ oauth:
     accessToken: a-sentinel
     refreshToken: r-sentinel
 `)
-	art, err := LoadFromBytes(yaml)
+	art, err := LoadArtifactFromBytes(yaml)
 	require.NoError(t, err)
 
 	var vertex *Credential
@@ -183,7 +183,7 @@ oauth:
   tokenEndpoint: {host: platform.claude.com, path: /v1/oauth/token}
   sentinels: {accessToken: a, refreshToken: r}
 `)
-	art, err := LoadFromBytes(yaml)
+	art, err := LoadArtifactFromBytes(yaml)
 	require.NoError(t, err)
 	var c *Credential
 	for i := range art.Credentials {
@@ -239,7 +239,7 @@ oauth:
     accessToken: a-sentinel
     refreshToken: r-sentinel
 `)
-	art, err := LoadFromBytes(yaml)
+	art, err := LoadArtifactFromBytes(yaml)
 	require.NoError(t, err)
 
 	var vertex *Credential
@@ -276,7 +276,7 @@ credentials:
 environment:
   proxyManaged: [GOOGLE_API_KEY, GEMINI_API_KEY]
 `)
-	a, err := LoadFromBytes(in)
+	a, err := LoadArtifactFromBytes(in)
 	require.NoError(t, err)
 	bySvc := map[string]*ApiKey{}
 	for i := range a.Credentials {
@@ -309,7 +309,7 @@ credentials:
   - service: github
     apiKey: {name: GH_TOKEN, inject: [{domain: api.github.com, header: Authorization, format: "Bearer %s"}]}
 `)
-	a, err := LoadFromBytes(in)
+	a, err := LoadArtifactFromBytes(in)
 	require.NoError(t, err)
 	require.NotNil(t, a.Environment)
 	require.Equal(t, []string{"OPENAI_API_KEY"}, a.Environment.ProxyManaged) // github unmarked → excluded
@@ -332,4 +332,38 @@ func TestDeriveServiceKey(t *testing.T) {
 			require.Equal(t, tc.expected, deriveServiceKey(tc.input))
 		})
 	}
+}
+
+func TestLoadFromBytes(t *testing.T) {
+	t.Run("mixin_round_trip", func(t *testing.T) {
+		in := []byte(`schemaVersion: "1"
+kind: mixin
+name: normalize-kit
+displayName: Normalize Kit
+`)
+		sf, err := LoadFromBytes(in)
+		require.NoError(t, err)
+
+		out, err := Marshal(sf)
+		require.NoError(t, err)
+
+		again, err := LoadFromBytes(out)
+		require.NoError(t, err)
+		require.Equal(t, sf, again)
+	})
+
+	t.Run("matches_artifact_loader", func(t *testing.T) {
+		in := []byte(`schemaVersion: "1"
+kind: mixin
+name: normalize-kit
+displayName: Normalize Kit
+`)
+		fromBytes, err := LoadArtifactFromBytes(in)
+		require.NoError(t, err)
+
+		sf, err := LoadFromBytes(in)
+		require.NoError(t, err)
+		require.Equal(t, fromBytes.Manifest.Name, sf.Name)
+		require.Equal(t, fromBytes.Manifest.Kind, sf.Kind)
+	})
 }

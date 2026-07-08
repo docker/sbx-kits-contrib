@@ -231,9 +231,9 @@ func TestCollectFilesFromDir_SymlinkEscape(t *testing.T) {
 	require.ErrorContains(t, err, "escapes the artifact directory")
 }
 
-func TestLoadFromBytes(t *testing.T) {
+func TestLoadArtifactFromBytes(t *testing.T) {
 	t.Run("happy_path", func(t *testing.T) {
-		a, err := LoadFromBytes([]byte(`schemaVersion: "1"
+		a, err := LoadArtifactFromBytes([]byte(`schemaVersion: "1"
 kind: mixin
 name: bytes-kit
 displayName: Bytes Kit
@@ -242,16 +242,16 @@ description: loaded directly from bytes
 		require.NoError(t, err)
 		require.Equal(t, "bytes-kit", a.Manifest.Name)
 		require.Equal(t, KindMixin, a.Manifest.Kind)
-		require.Empty(t, a.Files, "LoadFromBytes never populates Files")
+		require.Empty(t, a.Files, "LoadArtifactFromBytes never populates Files")
 	})
 
 	t.Run("does_not_validate_files", func(t *testing.T) {
-		// LoadFromBytes is deliberately validation-free for Files — the
+		// LoadArtifactFromBytes is deliberately validation-free for Files — the
 		// caller is expected to populate Artifact.Files from a separate
 		// source (e.g. an OCI tar layer) and then call ValidateArtifact.
 		// Here we synthesize an Artifact that parses cleanly, then attach
 		// a malformed Files entry that only ValidateArtifact catches.
-		a, err := LoadFromBytes([]byte(`schemaVersion: "1"
+		a, err := LoadArtifactFromBytes([]byte(`schemaVersion: "1"
 kind: mixin
 name: deferred-validate
 `))
@@ -264,14 +264,14 @@ name: deferred-validate
 	})
 
 	t.Run("invalid_yaml", func(t *testing.T) {
-		_, err := LoadFromBytes([]byte(`{{{ broken`))
+		_, err := LoadArtifactFromBytes([]byte(`{{{ broken`))
 		require.ErrorContains(t, err, "invalid")
 	})
 
 	t.Run("unknown_field_rejected", func(t *testing.T) {
-		// Strict-decode behaviour applies to LoadFromBytes the same way it
+		// Strict-decode behaviour applies to LoadArtifactFromBytes the same way it
 		// does to LoadFromDirectory.
-		_, err := LoadFromBytes([]byte(`schemaVersion: "1"
+		_, err := LoadArtifactFromBytes([]byte(`schemaVersion: "1"
 kind: mixin
 name: typo-kit
 mystery: 42
@@ -281,7 +281,7 @@ mystery: 42
 }
 
 func TestManifest_VersionAndSourceURL(t *testing.T) {
-	a, err := LoadFromBytes([]byte(`schemaVersion: "1"
+	a, err := LoadArtifactFromBytes([]byte(`schemaVersion: "1"
 kind: mixin
 name: versioned-kit
 version: "2.3.1"

@@ -543,7 +543,7 @@ type ArtifactFile struct {
 	// LoadFromFS) populate this field; streaming loaders
 	// (OpenFromDirectory, OpenFromFS) leave it nil and set ContentSource
 	// instead. Content is always non-nil (even for empty files) on the
-	// eager path. LoadFromBytes never populates Content (it has no notion
+	// eager path. LoadArtifactFromBytes never populates Content (it has no notion
 	// of a file source; callers populate Files from their own source).
 	Content []byte `json:"content"`
 
@@ -761,8 +761,8 @@ func (p *OAuthPolicy) ResolvedResponseFields() OAuthResponseFields {
 	return fields
 }
 
-// specFile is the on-disk YAML schema for spec.yaml.
-type specFile struct {
+// SpecFile is the on-disk YAML schema for spec.yaml.
+type SpecFile struct {
 	Manifest `yaml:",inline"`
 	// Volumes is the polymorphic-decode wrapper for the `volumes:` YAML
 	// key, handling both the v1 mapping shape and the v2 sequence shape.
@@ -887,6 +887,16 @@ func (c *credentialsField) UnmarshalYAML(node *yaml.Node) error {
 	}
 }
 
+func (c credentialsField) MarshalYAML() (interface{}, error) {
+	if len(c.LegacySources) > 0 {
+		return map[string]any{"sources": c.LegacySources}, nil
+	}
+	if len(c.List) == 0 {
+		return nil, nil
+	}
+	return c.List, nil
+}
+
 // volumesField is the specFile-level polymorphic wrapper for the `volumes:`
 // YAML key. PR #37 replaced the v1 mapping shape
 // (`volumes: { /path: "size" }`) with the v2 sequence shape
@@ -921,6 +931,16 @@ func (v *volumesField) UnmarshalYAML(node *yaml.Node) error {
 	default:
 		return fmt.Errorf("volumes: must be a list (v2) or a mapping (v1)")
 	}
+}
+
+func (v volumesField) MarshalYAML() (interface{}, error) {
+	if len(v.LegacyMap) > 0 {
+		return v.LegacyMap, nil
+	}
+	if len(v.List) == 0 {
+		return nil, nil
+	}
+	return v.List, nil
 }
 
 // sandboxBlock groups sandbox-specific configuration (formerly the

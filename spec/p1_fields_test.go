@@ -34,7 +34,7 @@ mixins:
 sandbox:
   image: my-image
 `)
-	art, err := LoadFromBytes(yaml)
+	art, err := LoadArtifactFromBytes(yaml)
 	require.NoError(t, err)
 	require.Equal(t, []string{"dhi.io/python:3-debian13", "pandas"}, art.Mixins,
 		"mixins must round-trip onto Artifact.Mixins unchanged")
@@ -50,7 +50,7 @@ name: test-kit
 sandbox:
   image: my-image
 `)
-	art, err := LoadFromBytes(yaml)
+	art, err := LoadArtifactFromBytes(yaml)
 	require.NoError(t, err)
 	require.Empty(t, art.Mixins)
 	require.False(t, hasWarningContaining(art.Warnings, "mixins"),
@@ -74,7 +74,7 @@ sandbox:
       - linux/amd64
       - linux/arm64
 `)
-	art, err := LoadFromBytes(yaml)
+	art, err := LoadArtifactFromBytes(yaml)
 	require.NoError(t, err)
 
 	// Image remains the source of truth this release.
@@ -102,7 +102,7 @@ sandbox:
     context: .
     dockerfile: Dockerfile
 `)
-	_, err := LoadFromBytes(yaml)
+	_, err := LoadArtifactFromBytes(yaml)
 	require.Error(t, err)
 	require.ErrorContains(t, err, "sandbox.build is accepted in the schema but not yet implemented")
 	require.ErrorContains(t, err, "specify sandbox.image")

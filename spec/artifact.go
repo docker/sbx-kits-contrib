@@ -211,7 +211,7 @@ func OpenFromFS(fsys fs.FS, dir string) (*Artifact, error) {
 	return artifact, nil
 }
 
-// LoadFromBytes parses spec.yaml bytes into an Artifact, leaving Files
+// LoadArtifactFromBytes parses spec.yaml bytes into an Artifact, leaving Files
 // unset and skipping validation. Intended for callers that obtain the
 // spec.yaml separately from the file payload — e.g., the v2 OCI puller,
 // which reads spec.yaml from the manifest's config blob and the files
@@ -219,10 +219,22 @@ func OpenFromFS(fsys fs.FS, dir string) (*Artifact, error) {
 //
 // Callers must populate Artifact.Files from their own source and then
 // call ValidateArtifact to verify the result. LoadFromDirectory and
-// LoadFromFS do this automatically; LoadFromBytes does not because it
+// LoadFromFS do this automatically; LoadArtifactFromBytes does not because it
 // has no notion of a file source.
-func LoadFromBytes(yamlBytes []byte) (*Artifact, error) {
+func LoadArtifactFromBytes(yamlBytes []byte) (*Artifact, error) {
 	return parseArtifactBytes(yamlBytes)
+}
+
+// LoadFromBytes parses spec.yaml bytes into a normalized SpecFile.
+// Normalization (v1 sugar folding, legacy field removal, and canonical
+// v2 shaping for marshal) happens inside this call, mirroring LoadArtifactFromBytes.
+func LoadFromBytes(yamlBytes []byte) (*SpecFile, error) {
+	return parseSpecFileBytes(yamlBytes)
+}
+
+// Marshal encodes a normalized SpecFile as YAML.
+func Marshal(sf *SpecFile) ([]byte, error) {
+	return yaml.Marshal(sf)
 }
 
 // Materialize reads any streamed files (Content == nil, ContentSource set)
@@ -284,21 +296,42 @@ func parseArtifact(readFile func(string) ([]byte, error)) (*Artifact, error) {
 	return parseArtifactBytes(data)
 }
 
+// decodeSpecFile decodes spec.yaml bytes with strict field checking.
+// Unknown top-level (or nested) yaml keys are a hard error. The schema
+// is documented and small enough that any unrecognised key is almost
+// always a typo or a stale field the kit author hasn't migrated yet.
+// Surfacing it loudly is the whole point — yaml.Unmarshal would silently
+// drop the key and let the author think their kit was being honoured.
+func decodeSpecFile(data []byte) (SpecFile, error) {
+	var spec SpecFile
+	dec := yaml.NewDecoder(bytes.NewReader(data))
+	dec.KnownFields(true)
+	if err := dec.Decode(&spec); err != nil {
+		return SpecFile{}, err
+	}
+	return spec, nil
+}
+
+func parseSpecFileBytes(data []byte) (*SpecFile, error) {
+	spec, err := decodeSpecFile(data)
+	if err != nil {
+		return nil, fmt.Errorf("spec: invalid %s: %w", specFileName, err)
+	}
+	w := &warnings{}
+	if err := spec.normalize(w); err != nil {
+		return nil, fmt.Errorf("spec: %w", err)
+	}
+	spec.compactNormalized()
+	return &spec, nil
+}
+
 // parseArtifactBytes decodes spec.yaml bytes and applies normalization.
 // It does not validate; callers that need a validated Artifact must call
 // ValidateArtifact themselves (LoadFromDirectory and LoadFromFS already
 // do, after populating Files).
 func parseArtifactBytes(data []byte) (*Artifact, error) {
-	var spec specFile
-	// Strict decoding: unknown top-level (or nested) yaml keys are a hard
-	// error. The schema is documented and small enough that any unrecognised
-	// key is almost always a typo or a stale field the kit author hasn't
-	// migrated yet. Surfacing it loudly is the whole point — yaml.Unmarshal
-	// would silently drop the key and let the author think their kit was
-	// being honoured.
-	dec := yaml.NewDecoder(bytes.NewReader(data))
-	dec.KnownFields(true)
-	if err := dec.Decode(&spec); err != nil {
+	spec, err := decodeSpecFile(data)
+	if err != nil {
 		return nil, fmt.Errorf("artifact: invalid %s: %w", specFileName, err)
 	}
 
