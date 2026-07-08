@@ -1,0 +1,56 @@
+schemaVersion: "2"
+kind: sandbox
+name: kiro-contrib
+displayName: Kiro
+description: AI-driven coding agent (device-flow auth).
+version: "0.1.0"
+sourceURL: https://github.com/docker/sbx-kits-contrib
+sandbox:
+  image: "docker/sandbox-templates:kiro-docker"
+  aiFilename: KIRO.md
+  entrypoint:
+    run: [kiro, chat, "--trust-all-tools"]
+
+environment:
+  variables:
+    IS_SANDBOX: "1"
+
+commands:
+  install:
+    - command: "kiro-cli setup --no-confirm"
+      user: "agent"
+      description: Run Kiro CLI setup
+  startup:
+    - command: ["sh", "-c", "command -v apt-get > /dev/null 2>&1 && (apt-get update -qq -y > /dev/null 2>&1 || true) &"]
+      user: "root"
+      description: Update apt package cache in background
+    # Gateway-first MCP registration. sandboxd injects MCP_GATEWAY_URL +
+    # MCP_SENTINEL_TOKEN_NAME into the container env when a gateway has
+    # been reserved. The sentinel name is not a credential — the proxy
+    # substitutes the real token at request time keyed by this name.
+    # No-op when MCP isn't enabled.
+    #
+    # Kiro owns ~/.kiro/settings/mcp.json (no baseline keys to
+    # preserve), so the script writes it fresh via heredoc. mkdir -p
+    # because the settings/ subdir may not exist on first boot.
+    - command:
+        - sh
+        - -c
+        - |
+          set -e
+          [ -n "$MCP_GATEWAY_URL" ] || exit 0
+          mkdir -p "$HOME/.kiro/settings"
+          cat > "$HOME/.kiro/settings/mcp.json" <<EOF
+          {
+            "mcpServers": {
+              "mcp-gateway": {
+                "url": "$MCP_GATEWAY_URL",
+                "headers": {
+                  "Authorization": "Bearer $MCP_SENTINEL_TOKEN_NAME"
+                }
+              }
+            }
+          }
+          EOF
+      user: "agent"
+      description: Register the sandbox MCP gateway in ~/.kiro/settings/mcp.json
