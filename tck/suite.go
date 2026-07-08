@@ -564,10 +564,15 @@ func readOutput(t *testing.T, r io.Reader) string {
 
 // containerImage returns the image to use for container tests,
 // resolving well-known agent templates for mixins with extends.
+//
+// After normalize, both v1 `kind: agent` and v2 `kind: sandbox` end up as
+// KindSandbox (spec/normalize.go migrates the v1 alias with a deprecation
+// warning), so this check matches every non-mixin kit — including v2-native
+// specs that never wrote `kind: agent`.
 func containerImage(a *spec.Artifact) (string, error) {
-	if a.Manifest.Kind == spec.KindAgent {
+	if a.Manifest.Kind == spec.KindSandbox {
 		if a.Manifest.Template == "" {
-			return "", fmt.Errorf("agent artifact %q has no template", a.Manifest.Name)
+			return "", fmt.Errorf("sandbox artifact %q has no template", a.Manifest.Name)
 		}
 		return a.Manifest.Template, nil
 	}
