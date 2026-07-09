@@ -1,59 +1,75 @@
 # nanoclaw
 
-A standalone agent kit (`kind: agent`) for
-[nanoclaw](https://github.com/qwibitai/nanoclaw) — a lightweight
-AI assistant runtime driven by Claude Code. The kit clones and
-builds the upstream repo at sandbox creation time and runs Claude
-Code from inside the checkout as the entrypoint, so the project's
-`CLAUDE.md` and `.claude/skills/` are loaded on attach.
+[NanoClaw](https://github.com/nanocoai/nanoclaw) is a local AI assistant
+runtime that can run Claude Code behind OneCLI-managed credentials and connect
+to chat channels such as Telegram, Slack, Discord, and WhatsApp.
 
-> [!NOTE]
-> Upstream nanoclaw trunk only ships the **CLI channel**. Chat-platform
-> adapters (WhatsApp, Telegram, Discord, Slack, …) live on the
-> upstream `channels` branch and are installed via `/add-<channel>`
-> skills run from inside Claude Code. This kit installs trunk and
-> lets you drive the rest from the shipped `claude` CLI.
+This kit starts NanoClaw inside a Docker Sandbox micro-VM from a prebuilt host
+image. The image contains a clean upstream NanoClaw checkout with dependencies
+already installed, so first run focuses on pulling the nested service images,
+starting OneCLI/Postgres, and walking through NanoClaw setup.
 
 ## Usage
 
 ```console
-$ sbx run --kit "git+https://github.com/docker/sbx-kits-contrib.git#dir=nanoclaw" nanoclaw
+$ sbx run --name nanoclaw --kit "git+https://github.com/docker/sbx-kits-contrib.git#dir=nanoclaw" nanoclaw
 ```
 
-Or with a local clone of this repo:
+Or with a local clone of this repository:
 
 ```console
-$ sbx run --kit ./nanoclaw/ nanoclaw
+$ sbx run --name nanoclaw --kit ./nanoclaw nanoclaw
 ```
 
-The first `sbx create` clones the upstream repo to
-`/home/agent/nanoclaw`, runs `npm install`, rebuilds native modules,
-and runs the TypeScript build (~2 minutes). Subsequent attaches
-are immediate.
+The `--name nanoclaw` flag gives the sandbox a stable name for follow-up
+commands such as `sbx exec`, `sbx policy ls`, and `sbx rm`.
 
-`sbx run` drops you into a Claude Code session whose working
-directory is the nanoclaw checkout, with its `CLAUDE.md` already
-loaded — exactly as upstream's
-[install guide](https://nanoclaws.io/install) recommends. From
-there, `/setup`, `/add-whatsapp`, `/customize`, etc. work as
-documented.
+## What starts inside the sandbox
 
-If you'd rather launch the daemon directly than enter Claude Code,
-exec a shell into the sandbox from another terminal and run:
+The sandbox host image starts NanoClaw and uses the sandbox's inner Docker
+daemon for the services NanoClaw needs:
+
+- NanoClaw host process
+- OneCLI dashboard and gateway
+- Postgres for OneCLI
+- Nested NanoClaw agent containers created per session
+
+On first run, the kit asks before downloading Docker images because the initial
+pull can take a few minutes. After setup completes, keep the session open to
+keep NanoClaw available.
+
+## Setup
+
+NanoClaw setup runs automatically on first boot. The kit defaults to Claude as
+the agent provider and uses OneCLI for credential management, matching a normal
+NanoClaw deployment. Raw API keys should not be placed in the sandbox.
+
+If you connect a chat channel during setup, NanoClaw sends the first message
+through that channel when setup completes.
+
+## Customization
+
+To customize NanoClaw after setup, keep the original sandbox session open and
+open Claude Code in a second terminal:
 
 ```console
-$ nanoclaw
+$ sbx exec -it -w /home/agent/nanoclaw nanoclaw claude
 ```
 
-## How auth works
+From there, use NanoClaw skills such as `/add-telegram`, `/add-slack`,
+`/add-discord`, `/add-whatsapp`, or `/customize`.
 
-The kit declares the same Anthropic auth wiring as the built-in
-`claude` agent kit: `serviceDomains`/`serviceAuth` for
-`api.anthropic.com`, the OAuth flow against `platform.claude.com`,
-and the `proxy-managed` sentinel pattern. Credentials never enter
-the container — the sandbox proxy substitutes the real value on
-egress.
+## Network policy
 
-The kit's `allowedDomains` adds `registry.npmjs.org` (for the
-install), the WhatsApp hosts the bridge connects to (when the
-WhatsApp adapter is later added), and `nanoclaw.dev`.
+The kit allows the domains NanoClaw needs for Docker image pulls, OneCLI,
+Claude, GitHub, package downloads, and common chat channels. If a request fails
+with `502 Bad Gateway`, it may be blocked by the sandbox network policy.
+
+Inspect the active policy from the host:
+
+```console
+$ sbx policy ls nanoclaw --type network
+```
+
+The OneCLI dashboard and gateway are published by the sandbox. Use the port
+mapping printed by `sbx run` to open the dashboard in a browser.

@@ -1,0 +1,30 @@
+schemaVersion: "2"
+kind: mixin
+name: claude-sbx-statusline
+displayName: Claude Code Status Line
+description: Adds a two-line Docker Sandboxes status line to Claude Code (host, cwd, git branch, model, context %, memory, load, cost). Ships ~/.claude/statusline.sh and sets the statusLine key in ~/.claude/settings.json, merging so every other setting is preserved (an existing statusLine is intentionally replaced, since installing this status line is the point of the kit).
+
+commands:
+  install:
+    - command: |
+        set -e
+        mkdir -p /home/agent/.claude
+        f=/home/agent/.claude/settings.json
+        [ -f "$f" ] || echo '{}' > "$f"
+        # Set only the statusLine key (any existing one is replaced by design);
+        # the jq merge leaves all other settings untouched. Temp file lives in the
+        # same dir as $f so the mv below is an atomic rename, not a cross-fs copy.
+        tmp=$(mktemp -p /home/agent/.claude)
+        jq '.statusLine = {type: "command", command: "~/.claude/statusline.sh"}' "$f" > "$tmp"
+        mv "$tmp" "$f"
+        chown -R agent:agent /home/agent/.claude
+      user: "0"
+      description: Set the statusLine key in ~/.claude/settings.json to ~/.claude/statusline.sh (jq merge, so all other keys are preserved; any existing statusLine is replaced by design)
+
+agentContext: |
+  ## Status line
+
+  This sandbox renders a custom Claude Code status line via
+  ~/.claude/statusline.sh, registered under `statusLine` in
+  ~/.claude/settings.json. It shows the sandbox host, working directory, git
+  branch, model, context-window %, memory, load average, and session cost.

@@ -1,120 +1,88 @@
-schemaVersion: "1"
-kind: agent
+schemaVersion: "2"
+kind: sandbox
 name: nanoclaw
 displayName: NanoClaw
-description: "Lightweight AI assistant runtime driven by Claude Code; ships the CLI channel — chat platforms (WhatsApp, Telegram, Discord, …) add via upstream skills"
+description: "NanoClaw host + nested per-session agent containers inside a Docker Sandbox micro-VM."
 
-agent:
-  image: "docker/sandbox-templates:claude-code-docker"
-  aiFilename: CLAUDE.md
+sandbox:
+  image: "docker.io/nanoco/nanoclaw:sbx-claude-alpha"
   entrypoint:
     run: ["/usr/local/bin/nanoclaw-start"]
 
-network:
-  serviceDomains:
-    api.anthropic.com: anthropic
-    console.anthropic.com: anthropic
-    claude.ai: anthropic
-  serviceAuth:
-    anthropic:
-      headerName: x-api-key
-      valueFormat: "%s"
-  allowedDomains:
-    - "downloads.claude.ai:443"
+caps:
+  network:
+    allow:
+    - "auth.docker.io:443"
+    - "index.docker.io:443"
+    - "production.cloudflare.docker.com:443"
+    - "registry-1.docker.io:443"
+    - "api.onecli.sh:443"
+    - "onecli.sh:443"
+    - "www.onecli.sh:443"
+    - "api.anthropic.com:443"
+    - "claude.ai:443"
     - "claude.com:443"
-    - "*.whatsapp.com"
-    - "*.whatsapp.net"
-    - registry.npmjs.org
-    - "*.npmjs.org"
-    - nanoclaw.dev
+    - "console.anthropic.com:443"
+    - "downloads.claude.ai:443"
+    - "platform.claude.com:443"
+    - "api.github.com:443"
+    - "codeload.github.com:443"
+    - "ghcr.io:443"
     - "github.com:443"
     - "objects.githubusercontent.com:443"
+    - "raw.githubusercontent.com:443"
+    - "release-assets.githubusercontent.com:443"
+    - "bun.sh:443"
+    - "checkpoint.prisma.io:443"
+    - "deb.debian.org:443"
+    - "registry.npmjs.org:443"
+    - "security.debian.org:443"
+    - "api.slack.com:443"
+    - "api.telegram.org:443"
+    - "discord.com:443"
+    - "gateway.discord.gg:443"
+    - "slack.com:443"
+    - "t.me:443"
+    - "web.whatsapp.com:443"
 
-credentials:
-  sources:
-    anthropic:
-      env:
-        - ANTHROPIC_API_KEY
+publishedPorts:
+  - container: 3000
+    name: webhook
+  - container: 10254
+    name: onecli-dashboard
+  - container: 10255
+    name: onecli-gateway
 
 environment:
   variables:
     IS_SANDBOX: "1"
+    NANOCLAW_NO_DIAGNOSTICS: "1"
+    NANOCLAW_AGENT_PROVIDER: "claude"
+    NODE_NO_WARNINGS: "1"
+    ONECLI_BIND_HOST: "0.0.0.0"
+    ONECLI_URL: "http://127.0.0.1:10254"
+    TZ: "UTC"
+    NO_PROXY: "127.0.0.1,localhost"
+    no_proxy: "127.0.0.1,localhost"
 
-commands:
-  # ~/.claude.json carries only the bypass flags and is credential-independent,
-  # so it is a static init file (native onlyIfMissing idempotency). Phase 4
-  # lifts the former `settings: { containerSettings: { claude: true } }` block
-  # into the kit; the SBX_CRED_<SERVICE>_MODE-driven settings.json is seeded in
-  # commands.install below (first entry, runs synchronously before the agent
-  # launches). Content SYNCed with the claude kit.
-  initFiles:
-    - path: /home/agent/.claude.json
-      content: |
-        {
-          "bypassPermissionsModeAccepted": true,
-          "hasCompletedOnboarding": true,
-          "projects": {
-              "/": {
-              "hasTrustDialogAccepted": true
-            }
-          }
-        }
-      onlyIfMissing: true
-      description: Claude bypass flags (mode-independent)
-  install:
-    # Seed ~/.claude/settings.json early (install runs synchronously before the
-    # agent launches), branching on the auth mode surfaced via the
-    # SBX_CRED_ANTHROPIC_MODE container env var (this kit declares the
-    # "anthropic" credential service, same as the claude kit).
-    # apiKeyHelper="echo proxy-managed" is included only when a credential
-    # resolved (mode != none); without it Claude Code prompts for /login.
-    # Idempotent via test -f so re-runs are a no-op and never clobber a
-    # user-edited file. root-write + chown because contrib base-image ownership
-    # of /home/agent/.claude is not guaranteed agent-owned. settings.json
-    # content SYNCed with the claude kit.
-    - command: |
-        set -e
-        mkdir -p /home/agent/.claude
-        if [ ! -f /home/agent/.claude/settings.json ]; then
-          HELPER=''
-          if [ "${SBX_CRED_ANTHROPIC_MODE:-none}" != none ]; then
-            HELPER='  "apiKeyHelper": "echo proxy-managed",
-        '
-          fi
-          printf '%s' "{
-          \"themeId\": 1,
-          \"alwaysThinkingEnabled\": true,
-        ${HELPER}  \"defaultMode\": \"bypassPermissions\",
-          \"bypassPermissionsModeAccepted\": true
-        }
-        " > /home/agent/.claude/settings.json
-        fi
-        chown -R agent:agent /home/agent/.claude
-      user: "root"
-      description: Seed Claude settings.json from SBX_CRED_ANTHROPIC_MODE
-    - command: "npm config set proxy $HTTP_PROXY && npm config set https-proxy $HTTP_PROXY"
-      user: "1000"
-      description: Configure npm to use the sandbox proxy
-    - command: "printf '#!/bin/sh\\nif ! [ -f /home/agent/nanoclaw/.installed ] || ! [ -f /home/agent/.claude/settings.json ]; then\\n  echo \"Waiting for nanoclaw installation to complete...\" >&2\\n  until [ -f /home/agent/nanoclaw/.installed ] && [ -f /home/agent/.claude/settings.json ]; do sleep 2; done\\nfi\\nexec claude --dangerously-skip-permissions\\n' > /usr/local/bin/nanoclaw-start && chmod +x /usr/local/bin/nanoclaw-start"
-      user: "0"
-      description: Create agent entrypoint early; waits for nanoclaw install and claude settings before starting
-    - command: "printf '#!/bin/sh\\ngit clone --depth 1 https://github.com/qwibitai/nanoclaw.git /home/agent/nanoclaw && cd /home/agent/nanoclaw && npm install --maxsockets=1 --fetch-timeout=600000 && npm rebuild better-sqlite3 && npm run build && touch /home/agent/nanoclaw/.installed\\n' > /home/agent/nanoclaw-install.sh && chmod +x /home/agent/nanoclaw-install.sh && setsid /home/agent/nanoclaw-install.sh > /home/agent/nanoclaw-install.log 2>&1 &"
-      user: "1000"
-      description: Clone and build nanoclaw in detached background session (~2 minutes; .installed flag written on completion)
-    - command: "cat > /usr/local/bin/nanoclaw << 'SCRIPT'\n#!/bin/sh\ncd /home/agent/nanoclaw\nexec node dist/index.js \"$@\"\nSCRIPT\nchmod +x /usr/local/bin/nanoclaw"
-      user: "0"
-      description: Create nanoclaw launcher (root-owned path)
+agentContext: |
+  ## Sandbox environment
 
-oauth:
-  service: anthropic
-  tokenEndpoint:
-    host: platform.claude.com
-    path: /v1/oauth/token
-  sentinels:
-    accessToken: sk-ant-oat01-proxy-managed
-    refreshToken: sk-ant-ort01-proxy-managed
-  credentialFile:
-    path: "~/.claude/.credentials.json"
-    template: '{"claudeAiOauth":{"accessToken":"{{.AccessToken}}","refreshToken":"{{.RefreshToken}}","expiresAt":{{.ExpiresAt}},"scopes":{{.ScopesJSON}}}}'
-  skipIfEnv:
-    - ANTHROPIC_API_KEY
+  You are NanoClaw running inside a Docker Sandbox micro-VM. The host process
+  spawns one nested agent container per session via the VM's own Docker daemon.
+  Credentials go through OneCLI like a normal NanoClaw deployment. Never ask for
+  or print raw keys. `sudo` is passwordless.
+
+  ## Network policy errors
+
+  If an HTTP/HTTPS request fails with `502 Bad Gateway`, the request may be
+  blocked by Docker Sandbox network policy rather than by the target service.
+  Network access is controlled by the sbx kit `spec.yaml`.
+
+  Ask the user to inspect the sandbox policy from their host terminal:
+
+  `sbx policy ls <sandbox-name>`
+  `sbx policy ls <sandbox-name> --type network`
+
+  For NanoClaw, the sandbox name is usually `nanoclaw` unless the user supplied
+  a different `--name`.

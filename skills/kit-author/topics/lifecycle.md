@@ -54,7 +54,7 @@ After normalization, only the canonical v2 fields are populated. The legacy fiel
 
 `spec.ValidateArtifact` runs from each `Load*` path:
 
-- **Manifest** — `schemaVersion ∈ {"1", "2"}`, `kind ∈ {sandbox, mixin}` (also accepts v1 `agent` alias), `name` is lowercase alphanumeric + hyphen (1–64 chars), exactly one of `sandbox.image` / `sandbox.build` required for sandbox kits, `resources.cpu` / `resources.memory_mb` must be positive if set.
+- **Manifest** — `schemaVersion ∈ {"1", "2"}`, `kind ∈ {sandbox, mixin}` (also accepts v1 `agent` alias), `name` is lowercase alphanumeric + hyphen (1–64 chars), exactly one of `sandbox.image` / `sandbox.build` required for sandbox kits, `resources.cpu` must be a non-negative number and `resources.memoryMB` a non-negative integer if set.
 - **Caps.Network** — entry strings are exact host, exact host+port, or leading-label wildcard (`*.example.com`). Overlap between `allow` and `deny` is **legal** — at request time, deny wins.
 - **Credentials** — each entry has `service` set; `apiKey.inject[].format` (when set) is well-formed; `oauth.tokenEndpoint` has host+path.
 - **Volumes** — every entry has an absolute `path`; `type ∈ {"", "tmpfs"}`; `size` if set must parse as a byte-size string; `mode` if set must be octal.

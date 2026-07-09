@@ -78,8 +78,8 @@ sandbox:
   image: docker/sandbox-templates:claude-code
   aiFilename: CLAUDE.md
   resources:                                    # optional (P3) — container limits
-    cpu: 4.0                                    # float, cores (must be positive if set)
-    memory_mb: 8192                             # int, mebibytes (must be positive if set)
+    cpu: 4.0                                    # float, cores (must be non-negative if set)
+    memoryMB: 8192                              # int, mebibytes (must be a non-negative integer if set)
     gpu: "1"                                    # consumer-defined string
   lifecycle:                                    # optional (P4) — checkpoint/restore
     checkpoint_aware: true                      # agent supports checkpoint/restore
@@ -127,8 +127,8 @@ Use `build:` when you need custom binaries, complex setup, or full control over 
 ### Validation
 
 - `sandbox.image` and `sandbox.build` are mutually exclusive — exactly one MUST be present for `kind: sandbox` (unless inherited via `extends:`).
-- `sandbox.resources.cpu` MUST be positive if specified.
-- `sandbox.resources.memory_mb` MUST be a positive integer if specified.
+- `sandbox.resources.cpu` MUST be non-negative if specified.
+- `sandbox.resources.memoryMB` MUST be a non-negative integer if specified.
 - `sandbox.lifecycle.shutdown_timeout` MUST parse as a valid Go duration string (e.g. `30s`, `2m`).
 
 ## `credentials`
