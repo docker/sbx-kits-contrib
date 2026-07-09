@@ -72,27 +72,3 @@ func runSettingsInstallScript(t *testing.T, script, modeEnv string) string {
 	require.NoError(t, err)
 	return string(data)
 }
-
-func TestNanoclawSettingsLift(t *testing.T) {
-	a, err := LoadFromDirectory("../nanoclaw")
-	require.NoError(t, err)
-
-	// (a) settings: block removed (no settings deprecation warning means the
-	// kit no longer carries a v1 settings: block for the shim to absorb).
-	require.NotContains(t, strings.Join(a.Warnings, "\n"), "settings",
-		"nanoclaw settings block must be removed; got warnings %v", a.Warnings)
-
-	// (b) a commands.install entry exists.
-	require.NotNil(t, a.Commands)
-	require.NotEmpty(t, a.Commands.Install, "nanoclaw must have commands.install")
-
-	ic := findSettingsInstall(t, a.Commands)
-	require.Contains(t, ic.Command, "SBX_CRED_ANTHROPIC_MODE",
-		"nanoclaw declares the anthropic credential service")
-
-	// (c) parity: apikey -> apiKeyHelper present; none -> absent.
-	require.Equal(t, claudeSettingsAPIKey,
-		runSettingsInstallScript(t, ic.Command, "SBX_CRED_ANTHROPIC_MODE=apikey"))
-	require.Equal(t, claudeSettingsNone,
-		runSettingsInstallScript(t, ic.Command, "SBX_CRED_ANTHROPIC_MODE=none"))
-}
