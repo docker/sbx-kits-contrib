@@ -6,7 +6,8 @@ description: already v2 — running the migration on this must be a no-op
 
 sandbox:
   image: "example/test:latest"
-  aiFilename: TEST.md
 
-agentContext: |
-  Already in v2 spelling.
+agent:
+  instructionsFile: TEST.md
+  instructions: |
+    Already in v2 spelling.
