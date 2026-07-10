@@ -264,7 +264,7 @@ type NetworkPolicy struct {
 
 	// PublishedPorts is the v1 location for declared ports
 	// (`network.publishedPorts`). In v2 this moved to the top-level
-	// `publishedPorts:` field; normalize promotes this shim there with a
+	// `ports:` field; normalize promotes this shim there with a
 	// deprecation warning. Retained only so v1 spec.yaml still decodes
 	// under strict (KnownFields) decoding. Removed in the Phase 6 cutover.
 	//
@@ -807,7 +807,8 @@ type SpecFile struct {
 	// LegacyNetwork / LegacyOAuth / Environment.ProxyManaged
 	// shims into Artifact.Credentials.
 	Credentials credentialsField `yaml:"credentials,omitempty"`
-	// PublishedPorts is the v2 canonical top-level `publishedPorts:` list.
+	// PublishedPorts is the v1 top-level `publishedPorts:` list (the v2
+	// grammar spells this key `ports` in the separate specFileV2 decoder).
 	// Decoded directly from YAML; normalize also promotes the v1
 	// LegacyNetwork.PublishedPorts shim into this slice.
 	PublishedPorts []PublishedPort `yaml:"publishedPorts,omitempty"`

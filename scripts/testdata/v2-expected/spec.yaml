@@ -24,7 +24,7 @@ permissions:
             - registry.npmjs.org
         deny:
             - malware.example.com
-publishedPorts:
+ports:
     - container: 8080
       protocol: tcp
       name: web

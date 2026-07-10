@@ -213,7 +213,7 @@ func (s *SpecFile) normalizePublishedPorts(w *warnings) {
 	}
 	s.PublishedPorts = append(s.PublishedPorts, s.LegacyNetwork.PublishedPorts...)
 	s.LegacyNetwork.PublishedPorts = nil
-	w.deprecate("network.publishedPorts", "use the top-level 'publishedPorts' field instead (kit-spec v2)")
+	w.deprecate("network.publishedPorts", "use the top-level 'ports' field instead (kit-spec v2)")
 }
 
 // normalizeKind maps the v1 `kind: agent` value to `sandbox`. The v2 value

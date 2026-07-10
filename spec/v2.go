@@ -34,7 +34,7 @@ type specFileV2 struct {
 	AgentInstructions *agentInstructionsBlockV2 `yaml:"agentInstructions,omitempty"`
 
 	Permissions    *permissionsBlockV2 `yaml:"permissions,omitempty"`
-	PublishedPorts []PublishedPort     `yaml:"publishedPorts,omitempty"`
+	PublishedPorts []PublishedPort     `yaml:"ports,omitempty"`
 	Credentials    []Credential        `yaml:"credentials,omitempty"`
 	Environment    *EnvironmentPolicy  `yaml:"environment,omitempty"`
 	Volumes        []MountSpec         `yaml:"volumes,omitempty"`

@@ -76,7 +76,7 @@ credentials:
 
 # Inbound service exposure — top-level in v2. Covers the minimal (container
 # only), full (tcp + name), and udp forms.
-publishedPorts:
+ports:
   - container: 9418
   - container: 8080
     protocol: tcp

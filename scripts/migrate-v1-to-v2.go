@@ -39,7 +39,7 @@
 //	oauth: (standalone)        → credentials[].oauth
 //	network.allowedDomains     → permissions.network.allow
 //	network.deniedDomains      → permissions.network.deny
-//	network.publishedPorts     → top-level publishedPorts
+//	network.publishedPorts     → top-level ports
 //	commands: / commands.initFiles → setup: / setup.files
 //	settings:                  → dropped (move agent setup to setup.files)
 //	schemaVersion: "1"         → schemaVersion: "2"
@@ -292,7 +292,7 @@ type outSpec struct {
 	Permissions       *outPermissions       `yaml:"permissions,omitempty"`
 	Volumes           []spec.MountSpec      `yaml:"volumes,omitempty"`
 	Security          *spec.Security        `yaml:"security,omitempty"`
-	PublishedPorts    []spec.PublishedPort  `yaml:"publishedPorts,omitempty"`
+	PublishedPorts    []spec.PublishedPort  `yaml:"ports,omitempty"`
 	Credentials       []spec.Credential     `yaml:"credentials,omitempty"`
 	Environment       *outEnv               `yaml:"environment,omitempty"`
 	Setup             *outSetup             `yaml:"setup,omitempty"`
