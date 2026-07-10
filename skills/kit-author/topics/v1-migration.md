@@ -1,6 +1,8 @@
 # v1 → v2 Migration
 
-The unified kit spec landed across several phases. Today both `schemaVersion: "1"` and `"2"` are accepted; v1 spec.yaml files load via shims that fold each legacy surface onto its v2 counterpart and append one entry per legacy block to `Artifact.Warnings`. The Phase 6 schema cutover removes the v1 shims — at that point v1 spec.yaml stops loading.
+v2 is a **breaking grammar change**, not an additive one. The loader forks on `schemaVersion`: a `schemaVersion: "2"` spec is decoded by a clean v2 grammar with no legacy shims, while `schemaVersion: "1"` still loads through the normalize layer, which folds each legacy surface onto the same canonical model the v2 grammar targets and appends one entry per legacy block to `Artifact.Warnings`. The Phase 6 schema cutover removes the v1 shims — at that point v1 spec.yaml stops loading.
+
+Because a v1 field in a `"2"` spec is a **hard decode error** (not a silent fold), you cannot mix grammars: pick `"1"` (legacy, with warnings) or `"2"` (clean), and run the migrate script to move from one to the other.
 
 Until cutover: write new kits in v2, run the migrate script on existing kits, and treat `Artifact.Warnings` as a TODO list.
 
@@ -12,21 +14,34 @@ go run scripts/migrate-v1-to-v2.go ~/path/to/my-kit
 
 Rewrites `spec.yaml` in place and leaves `spec.yaml.bak` as the original. Running on an already-v2 spec is a no-op and does not produce a `.bak`. Refuses to clobber an existing `.bak`.
 
-The script grows with the migration. Current coverage is **Phase 1 cosmetic renames only**:
+The script loads your spec through the **same** spec-package normalize pass the engine uses, then re-emits the canonical result as v2 — so it stays in lockstep with the loader. Coverage:
 
 | v1 spelling | v2 spelling |
 |---|---|
 | `kind: agent` | `kind: sandbox` |
 | `agent:` block | `sandbox:` block |
-| `memory:` field | `agentContext:` field |
+| `sandbox.aiFilename` | `agentInstructions.filename` |
+| `memory:` / `agentContext:` | `agentInstructions.content` |
+| `sandbox.entrypoint.run` | `sandbox.entrypoint` (flat array) |
+| `sandbox.entrypoint.args` | `sandbox.command.default` |
+| `sandbox.entrypoint.ttyArgs` | `sandbox.command.interactive` |
+| `sandbox.entrypoint.pipeMode` | dropped (no v2 equivalent) |
+| `sandbox.resources.memoryMB` | `sandbox.resources.memory` (byte-size string) |
+| `credentials.sources` + `network.serviceDomains` + `network.serviceAuth` + `environment.proxyManaged` | unified `credentials[]` (`apiKey.name` + `.inject`) |
+| standalone `oauth:` | `credentials[].oauth` |
+| `network.allowedDomains` | `permissions.network.allow` |
+| `network.deniedDomains` | `permissions.network.deny` |
+| `network.publishedPorts` / top-level `publishedPorts` | top-level `ports` |
+| `commands:` / `commands.initFiles` | `setup:` / `setup.files` |
+| `settings:` | dropped (move agent setup to `setup.files`) |
 
-Later phases extend the same script. Check [`scripts/README.md`](../../scripts/README.md) for current scope.
+Check [`scripts/README.md`](../../scripts/README.md) for current scope.
 
 ## Manual migration — by surface
 
 For everything the script doesn't cover yet, here's the v1 form, the v2 equivalent, and what `normalize` does with each.
 
-### Cosmetic renames (Phase 1) — migrate script handles these
+### Kind, sandbox, and agent instructions — migrate script handles these
 
 ```yaml
 # v1
@@ -45,12 +60,64 @@ schemaVersion: "2"
 kind: sandbox
 sandbox:
   image: docker/sandbox-templates:claude-code
-  aiFilename: CLAUDE.md
-agentContext: |
-  Some context.
+agentInstructions:
+  filename: CLAUDE.md
+  content: |
+    Some context.
 ```
 
-Normalize: v1 `agent:` decodes into the LegacyAgent shim, then folds into Sandbox. v1 `memory:` decodes into LegacyMemory, then folds into AgentContext.
+Normalize: v1 `agent:` decodes into the LegacyAgent shim, then folds into Sandbox. `sandbox.aiFilename` becomes `agentInstructions.filename` and v1 `memory:` (aka `agentContext:`) becomes `agentInstructions.content` — both moved out of the `sandbox:` block into the top-level `agentInstructions:` block.
+
+### Entrypoint split — migrate script handles this
+
+The v1 `entrypoint:` mapping (`run` / `args` / `ttyArgs` / `pipeMode`) becomes a flat `entrypoint` array plus a `command` split:
+
+```yaml
+# v1
+sandbox:
+  entrypoint:
+    run: [claude, "--dangerously-skip-permissions"]
+    args: ["-l"]
+    ttyArgs: []
+    pipeMode: prepend
+```
+
+```yaml
+# v2
+sandbox:
+  entrypoint: [claude, "--dangerously-skip-permissions"]   # was run
+  command:
+    default: ["-l"]                                         # was args
+    interactive: []                                         # was ttyArgs
+```
+
+`pipeMode` has no v2 home and is dropped. `entrypoint[0]` remains the binary (`Manifest.Binary`).
+
+### Setup block — migrate script handles this
+
+The v1 `commands:` block becomes `setup:`, and `commands.initFiles` becomes `setup.files`. `install` and `startup` keep their shape.
+
+```yaml
+# v1
+commands:
+  install:
+    - command: "curl -fsSL https://example.com/install.sh | bash"
+  initFiles:
+    - path: /home/agent/.config/tool.json
+      content: '{"workdir": "${WORKDIR}"}'
+      onlyIfMissing: true
+```
+
+```yaml
+# v2
+setup:
+  install:
+    - command: "curl -fsSL https://example.com/install.sh | bash"
+  files:
+    - path: /home/agent/.config/tool.json
+      content: '{"workdir": "${WORKDIR}"}'
+      onlyIfMissing: true
+```
 
 ### Removed fields (no v2 equivalent)
 
@@ -60,7 +127,7 @@ A handful of v1 fields are removed outright with no v2 home. Strip them by hand:
 |---|---|---|
 | `kitDir` | Never used; confusing semantics. | Delete the field. |
 | `sandbox.persistence` | Parsed but never wired to runtime behavior in v1. | Declare volumes explicitly via `volumes:` instead. |
-| `settings` | Hardcoded agent-specific logic; replaced by `commands.initFiles`. | Move the agent-specific setup logic into `commands.initFiles` entries. |
+| `settings` | Hardcoded agent-specific logic; replaced by `setup.files`. | Move the agent-specific setup logic into `setup.files` entries. |
 
 ### Volumes redesign (Phase 2) — **manual**, **strict-rejected**
 
@@ -90,7 +157,7 @@ volumes:
 
 Composition of v2 `volumes:` is union by `path` with last-wins on conflicts.
 
-### `publishedPorts` promotion — handled by normalize
+### `ports` promotion — handled by normalize
 
 ```yaml
 # v1
@@ -101,13 +168,13 @@ network:
 
 ```yaml
 # v2
-publishedPorts:
+ports:
   - container: 8080
 ```
 
-Normalize promotes `network.publishedPorts` to top-level with a deprecation warning. Port publishing is **inbound service exposure** — a separate concern from outbound egress under `caps.network`.
+Normalize promotes `network.publishedPorts` to the top-level `ports` field with a deprecation warning. Port publishing is **inbound service exposure** — a separate concern from outbound egress under `permissions.network`.
 
-### Egress allow/deny → `caps.network` (Phase 3)
+### Egress allow/deny → `permissions.network` (Phase 3)
 
 ```yaml
 # v1
@@ -120,7 +187,7 @@ network:
 
 ```yaml
 # v2
-caps:
+permissions:
   network:
     allow:
       - "*.example.com"
@@ -128,7 +195,7 @@ caps:
       - "tracker.example.com"
 ```
 
-Normalize folds v1 `network.allowedDomains` / `deniedDomains` into `caps.network.allow` / `deny` with a deprecation warning.
+Normalize folds v1 `network.allowedDomains` / `deniedDomains` into `permissions.network.allow` / `deny` with a deprecation warning. (An earlier v2 draft spelled this block `caps.network`; the current grammar uses `permissions.network`.)
 
 ### Credentials unification (Phase 3) — biggest change
 
@@ -170,6 +237,8 @@ credentials:
 ```
 
 The discovery half (`env: [...]`, `file: {path, parser}`, `priority`) **moves out of the kit** into the user-side [bindings file](bindings.md) at `~/.config/sbx/credentials.yaml`. New principle: the kit declares **what** it needs (service id + injection target); the user declares **where** the credential lives.
+
+v2 also adds `inject[].scheme` as sugar for `header` + `format`: `scheme: bearer` expands to `header: Authorization`, `format: "Bearer %s"`; `scheme: basic` (with a required `username`) marks the entry as HTTP Basic. It is mutually exclusive with a raw `format`. The migrate script emits the explicit `header`/`format` form; switch to `scheme:` by hand if you prefer the shorthand.
 
 `environment.proxyManaged` is gone — the proxy-managed semantic is implicit on `credentials[].apiKey.name`. The engine sets the env var to the literal `proxy-managed` inside the container, and the sentinel-swap proxy replaces it on outbound requests.
 
@@ -234,7 +303,7 @@ for _, w := range artifact.Warnings {
 
 When the schema cutover lands:
 
-- The v1 YAML keys (`agent:`, `memory:`, `network.allowedDomains`/`deniedDomains`/`serviceAuth`/`serviceDomains`/`publishedPorts`, `environment.proxyManaged`, standalone `oauth:`, `credentials.sources`) **stop loading**. Strict YAML decoding will reject them with "field X not found in type spec.specFile".
+- The `schemaVersion: "1"` path is removed. The v1 YAML keys (`kind: agent`, `agent:`, `memory:`, `sandbox.aiFilename`, `sandbox.entrypoint.run`/`args`/`ttyArgs`/`pipeMode`, `sandbox.resources.memoryMB`, `network.allowedDomains`/`deniedDomains`/`serviceAuth`/`serviceDomains`/`publishedPorts`, `environment.proxyManaged`, standalone `oauth:`, `credentials.sources`, `commands:`, `settings:`) **stop loading**. Strict decoding rejects them with "field X not found". (A `schemaVersion: "2"` spec already rejects them today — the v2 decoder never had shims.)
 - `OAuthCredentialFile.Template` is removed; only `Structure` remains.
 - The migrate script is the only escape hatch.
 

@@ -67,15 +67,16 @@ For this repository specifically, see the [README](../../README.md#using-a-kit) 
 
 ## Schema version compatibility
 
-A v2 spec.yaml only loads when the consumer's `sbx` is v2-aware (or newer). Releases shipped before the v2 spec library landed reject v2 fields via strict YAML decoding:
+A v2 spec.yaml only loads when the consumer's `sbx` bundles a spec library that understands the v2 grammar. Both older releases (predating any v2 support) **and** releases that shipped an earlier v2 draft reject the current grammar via strict decoding — the fields simply aren't in their decode struct:
 
 ```
 artifact: invalid spec.yaml: yaml: unmarshal errors:
-  line N: field sandbox not found in type spec.specFile
-  line N: field agentContext not found in type spec.specFile
+  line N: field agentInstructions not found in type spec.specFileV2
+  line N: field permissions not found in type spec.specFileV2
+  line N: field setup not found in type spec.specFileV2
 ```
 
-If you must publish a kit that older `sbx` releases consume, ship the v1 form for now. The `migrate-v1-to-v2` script is one-way; keep a v1 source branch if you need to publish both.
+Because v2 is a breaking grammar, publish a kit as `schemaVersion: "2"` only once the `sbx` releases your consumers run understand it. If you must support older `sbx` releases, ship the `schemaVersion: "1"` form for now — the migrated catalog kits do exactly this until the v2-aware CLI ships. The `migrate-v1-to-v2` script is one-way; keep a v1 source branch if you need to publish both.
 
 ## OCI artifacts
 
@@ -91,7 +92,7 @@ Multi-arch by default: `sbx kit push` builds for `linux/amd64,linux/arm64` unles
 
 ## Embedded built-in agents
 
-These ship inside the `sbx` binary. `sbx` discovers them at startup. `Artifact.Embedded` is set to `true` for built-ins. Their agent binary is baked into the template image; `commands.install` still runs for built-ins and is used for pre-launch setup (e.g. seeding credential-gated settings files) rather than to install the binary.
+These ship inside the `sbx` binary. `sbx` discovers them at startup. `Artifact.Embedded` is set to `true` for built-ins. Their agent binary is baked into the template image; `setup.install` still runs for built-ins and is used for pre-launch setup (e.g. seeding credential-gated settings files) rather than to install the binary.
 
 Adding a built-in agent is an engine-side change in the `sbx` core, not something a contrib kit can do. Contrib kits ship as `--kit` references.
 

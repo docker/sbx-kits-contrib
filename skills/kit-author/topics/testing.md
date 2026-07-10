@@ -20,13 +20,13 @@ Validation runs automatically inside every `spec.Load*` path. If a kit cannot pa
 This repository ships a TCK package at [`tck/`](../../../tck/). It validates:
 
 1. Spec parses with required fields
-2. Network policy (`caps.network` allow/deny entries are well-formed)
+2. Network policy (`permissions.network` allow/deny entries are well-formed)
 3. Credentials (each `credentials[]` entry is well-formed; injection rules valid)
 4. Environment variables (declared, set in container)
-5. Commands (install/startup are well-formed)
+5. Setup (`setup.install` / `setup.startup` are well-formed)
 6. Container files (files from `files/` are injected at the correct paths)
 7. Volumes (block-backed and `type: tmpfs` entries — plus the implicit `/run/secrets` tmpfs)
-8. Published ports (`publishedPorts[]` entries validate)
+8. Published ports (`ports[]` entries validate)
 
 ### Writing a TCK test
 
@@ -98,9 +98,9 @@ There is one e2e test function, `TestE2EKit`, that handles all kit kinds. It cre
 | Subtest | Applies to | What it checks |
 |---|---|---|
 | `env` | all kits | declared `environment.variables` are set in the container |
-| `files` | all kits | files from `files/home` and `commands.initFiles` exist and are non-empty |
+| `files` | all kits | files from `files/home` and `setup.files` exist and are non-empty |
 | `tmpfs` | all kits | declared tmpfs paths (plus `/run/secrets`) are mounted |
-| `agentContext` | all kits | agentContext content rendered into the AI profile file (skipped when undeclared) |
+| `agentContext` | all kits | `agentInstructions.content` rendered into the AI profile file (skipped when undeclared) |
 | `prompt` | `kind: sandbox` only | non-interactive prompt sent to the agent; asserts non-empty response |
 
 Every `sbx` call carries `--app-name sbx-kits-contrib-tck` so all commands route to the same authenticated daemon instance.
@@ -127,17 +127,17 @@ promptArgs: ["-p"]
 readyFile: "/home/agent/nanoclaw/.installed"
 
 # binary: override the agent binary name used in `sbx exec`. When absent, the
-# test uses filepath.Base(Manifest.Binary), which the spec normalizer derives
-# automatically from sandbox.entrypoint.run[0]. Only set this when the
+# test uses filepath.Base(Manifest.Binary), which the spec loader derives
+# automatically from sandbox.entrypoint[0]. Only set this when the
 # entrypoint is a wrapper script whose underlying binary has a different name.
 binary: "claude"
 ```
 
 #### How `binary` is resolved
 
-The spec normalizer sets `Manifest.Binary = sandbox.entrypoint.run[0]` when loading any kit. The e2e test uses `filepath.Base(Manifest.Binary)` as the default binary name. You **do not** need to set `binary:` in `tck.yaml` unless the entrypoint is a wrapper script whose name differs from the real binary:
+The spec loader sets `Manifest.Binary = sandbox.entrypoint[0]` when loading any kit (from `sandbox.entrypoint.run[0]` on the v1 path). The e2e test uses `filepath.Base(Manifest.Binary)` as the default binary name. You **do not** need to set `binary:` in `tck.yaml` unless the entrypoint is a wrapper script whose name differs from the real binary:
 
-| Kit | Entrypoint `run[0]` | Derived binary | `tck.yaml binary` needed? |
+| Kit | Entrypoint `[0]` | Derived binary | `tck.yaml binary` needed? |
 |---|---|---|---|
 | `amp`, `crush`, `junie`, `nanobot`, `pi` | same as kit name | same as kit name | no |
 | `opencode-model-runner` | `opencode` | `opencode` | no |
@@ -146,7 +146,7 @@ The spec normalizer sets `Manifest.Binary = sandbox.entrypoint.run[0]` when load
 | `hermes-agent` | `/usr/local/bin/hermes-start` | `hermes-start` (wrapper) | yes → `hermes` |
 | `openclaw` | `/usr/local/bin/openclaw-start` | `openclaw-start` (wrapper) | yes → `openclaw` |
 
-Do **not** add `binary:` to `spec.yaml` — the normalizer rejects `binary` at the flat manifest level (v1-only field); it must come from `sandbox.entrypoint.run[0]`.
+Do **not** add `binary:` to `spec.yaml` — the loader rejects `binary` at the flat manifest level (v1-only field); it must come from `sandbox.entrypoint[0]`.
 
 #### `promptArgs` reference
 
@@ -174,7 +174,7 @@ cd my-kit
 That's the whole recipe — no manual policy dance. The script:
 
 - Scopes every `sbx` call to `--app-name sbx-kits-contrib-tck`, the same app-name the e2e harness uses internally ([`tck/e2e_test.go:415`](../../../tck/e2e_test.go#L415)). The test daemon's sandboxes, policy, secrets, and cache are isolated from your day-to-day sbx state.
-- Sets the scoped daemon's default network policy to `deny-all` — the same baseline CI uses, so any host your install or startup hooks reach for must be in `network.allowedDomains` or the request is blocked.
+- Sets the scoped daemon's default network policy to `deny-all` — the same baseline CI uses, so any host your install or startup hooks reach for must be in `permissions.network.allow` or the request is blocked.
 - Runs `go test -tags=e2e` with `KIT_UNDER_TEST` exported.
 - On non-zero exit, prints a hint pointing at `sbx --app-name sbx-kits-contrib-tck policy log <sandbox>`.
 
@@ -186,7 +186,7 @@ One-time setup per machine — the scoped daemon has its own credential store:
 sbx --app-name sbx-kits-contrib-tck login
 ```
 
-When the test fails, the recurring fix is the same loop: read the proxy log, add the blocked host to `network.allowedDomains`, re-run.
+When the test fails, the recurring fix is the same loop: read the proxy log, add the blocked host to `permissions.network.allow`, re-run.
 
 ```bash
 APP=sbx-kits-contrib-tck
@@ -194,7 +194,7 @@ sbx --app-name $APP ls                            # find the tck-e2e-* sandbox
 sbx --app-name $APP policy log tck-e2e-<short-uuid>
 ```
 
-Every row under `Blocked requests` is a host your kit reached for under `deny-all`. Add the host (column `HOST`, e.g. `download.docker.com:443`) to `network.allowedDomains` and re-run until the block list is empty *and* the e2e test passes.
+Every row under `Blocked requests` is a host your kit reached for under `deny-all`. Add the host (column `HOST`, e.g. `download.docker.com:443`) to `permissions.network.allow` and re-run until the block list is empty *and* the e2e test passes.
 
 If the scoped daemon ever gets wedged: `sbx --app-name sbx-kits-contrib-tck reset --force` wipes only that daemon's state — your main sbx is untouched.
 
@@ -232,7 +232,7 @@ sbx kit add probe ./my-kit/
 
 Faster iteration loop, but immutable settings (privileged, volumes, tmpfs) won't apply — recreate for those.
 
-## Verifying `caps.network.allow`
+## Verifying `permissions.network.allow`
 
 The proxy enforces allow/deny at request time. The fastest way to surface exactly what your kit reaches for is to run the e2e suite — see [Running e2e](#running-e2e) above. The script applies `deny-all` to the scoped daemon for you.
 
@@ -242,7 +242,7 @@ For ad-hoc probing of a single sandbox without running e2e, `sbx policy log` wor
 sbx policy log <sandbox>
 ```
 
-Every entry in the "Blocked requests" section is a domain your install or startup hook reached for. Add it to `network.allowedDomains` (or accept the block) and re-probe. The repository [README](../../../README.md#declare-every-domain-your-kit-needs) has the hand-built probe-sandbox variant of this recipe.
+Every entry in the "Blocked requests" section is a domain your install or startup hook reached for. Add it to `permissions.network.allow` (or accept the block) and re-probe. The repository [README](../../../README.md#declare-every-domain-your-kit-needs) has the hand-built probe-sandbox variant of this recipe.
 
 ## Common pitfall: "install commands completed" ≠ success
 
@@ -256,11 +256,11 @@ sbx exec probe -- printenv EXPECTED_VAR        # env var set
 
 A broken install pipe can still exit 0 (e.g., `curl | bash` where the curl fails after partial output but bash exits 0 on empty input). Verify outcomes, not exit codes.
 
-## `commands.startup` runs on every container start
+## `setup.startup` runs on every container start
 
 Startup commands run on **every** container start (initial create, stop/start cycles, daemon restarts, host reboots), not just once at creation. Author them to be **idempotent**: use patterns like `apt-get update -qq -y > /dev/null 2>&1 || true &` and `mkdir -p '<dir>'`. Your test should assert the post-start state, not "did the command run exactly once".
 
-See [Pitfalls — `commands.startup` runs on every container start](pitfalls.md#2-commandsstartup-runs-on-every-container-start) for the mechanism.
+See [Pitfalls — `setup.startup` runs on every container start](pitfalls.md#2-setupstartup-runs-on-every-container-start) for the mechanism.
 
 ## CI
 
