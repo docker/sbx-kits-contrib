@@ -7,7 +7,7 @@ description: already v2 — running the migration on this must be a no-op
 sandbox:
   image: "example/test:latest"
 
-agent:
-  instructionsFile: TEST.md
-  instructions: |
+agentInstructions:
+  filename: TEST.md
+  content: |
     Already in v2 spelling.

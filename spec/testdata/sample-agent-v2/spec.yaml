@@ -21,21 +21,22 @@ sandbox:
     memory: 4096m
     gpu: "1"
 
-# Agent workload: instructionsFile is the AI profile filename; instructions is
-# the markdown appended to it.
-agent:
-  instructionsFile: SAMPLE.md
-  instructions: |
+# Agent instructions: filename is the AI profile filename (sandbox-only);
+# content is the markdown appended to it.
+agentInstructions:
+  filename: SAMPLE.md
+  content: |
     This is sample-agent-v2 reference content for v2 spec coverage.
 
-# Outbound egress policy is a top-level network block in v2 (allow/deny).
-network:
-  allow:
-    - api.anthropic.com
-    - api.openai.com:443
-    - "*.example.com"
-  deny:
-    - telemetry.example.com
+# Outbound egress policy lives under permissions.network in v2 (allow/deny).
+permissions:
+  network:
+    allow:
+      - api.anthropic.com
+      - api.openai.com:443
+      - "*.example.com"
+    deny:
+      - telemetry.example.com
 
 # Credentials declare WHAT the kit needs and how to inject it — never where
 # it lives (that's the user-side bindings file). One apiKey credential, one

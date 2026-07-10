@@ -45,8 +45,9 @@ memory: |
 }
 
 // TestV2AgentInstructions_PopulatesAgentContext pins the v2 grammar: the
-// AI profile content lives under agent.instructions (agent.instructionsFile
-// names the file). There is no v1 memory:/agentContext: surface in a v2 spec.
+// AI profile content lives under agentInstructions.content (and
+// agentInstructions.filename names the file). There is no v1
+// memory:/agentContext: surface in a v2 spec.
 func TestV2AgentInstructions_PopulatesAgentContext(t *testing.T) {
 	dir := t.TempDir()
 	specYAML := `schemaVersion: "2"
@@ -54,9 +55,9 @@ kind: sandbox
 name: test-agent
 sandbox:
   image: example/test:latest
-agent:
-  instructionsFile: TEST.md
-  instructions: "v2 content"
+agentInstructions:
+  filename: TEST.md
+  content: "v2 content"
 `
 	if err := os.WriteFile(filepath.Join(dir, "spec.yaml"), []byte(specYAML), 0o644); err != nil {
 		t.Fatal(err)
@@ -68,10 +69,10 @@ agent:
 	}
 
 	if art.AgentContext != "v2 content" {
-		t.Errorf("AgentContext = %q; want v2 content (from agent.instructions)", art.AgentContext)
+		t.Errorf("AgentContext = %q; want v2 content (from agentInstructions.content)", art.AgentContext)
 	}
 	if art.Manifest.AIFilename != "TEST.md" {
-		t.Errorf("AIFilename = %q; want TEST.md (from agent.instructionsFile)", art.Manifest.AIFilename)
+		t.Errorf("AIFilename = %q; want TEST.md (from agentInstructions.filename)", art.Manifest.AIFilename)
 	}
 	if len(art.Warnings) != 0 {
 		t.Errorf("canonical v2 spec must not warn, got %v", art.Warnings)
@@ -171,8 +172,8 @@ kind: sandbox
 name: test
 sandbox:
   image: example/test:latest
-agent:
-  instructionsFile: TEST.md
+agentInstructions:
+  filename: TEST.md
 `
 	if err := os.WriteFile(filepath.Join(dir, "spec.yaml"), []byte(specYAML), 0o644); err != nil {
 		t.Fatal(err)
@@ -187,10 +188,8 @@ agent:
 	if art.Manifest.AIFilename != "TEST.md" {
 		t.Errorf("AIFilename = %q; want TEST.md", art.Manifest.AIFilename)
 	}
-	for _, w := range art.Warnings {
-		if strings.Contains(w, "agent:") {
-			t.Errorf("unexpected deprecation warning for v2 sandbox block: %s", w)
-		}
+	if len(art.Warnings) != 0 {
+		t.Errorf("unexpected warnings for canonical v2 sandbox block: %v", art.Warnings)
 	}
 }
 
@@ -695,7 +694,7 @@ oauth:
 	require.True(t, oauthWarn, "expected standalone oauth: deprecation warning, got %v", art.Warnings)
 }
 
-// TestV2Network_Accepted exercises the v2 top-level network block —
+// TestV2Network_Accepted exercises the v2 permissions.network block —
 // allow + deny lists with the three P2 formats (exact, exact:port,
 // single-label wildcard).
 func TestV2Network_Accepted(t *testing.T) {
@@ -705,9 +704,10 @@ kind: sandbox
 name: net-test
 sandbox:
   image: docker/sandbox-templates:shell-docker
-network:
-  allow: [api.anthropic.com, api.openai.com:443, "*.github.com"]
-  deny: [malware.example.com]
+permissions:
+  network:
+    allow: [api.anthropic.com, api.openai.com:443, "*.github.com"]
+    deny: [malware.example.com]
 `
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "spec.yaml"), []byte(specYAML), 0o644))
 	art, err := LoadFromDirectory(dir)

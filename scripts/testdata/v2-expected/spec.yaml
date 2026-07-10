@@ -12,17 +12,18 @@ sandbox:
             - --flag
         interactive:
             - --interactive
-agent:
-    instructionsFile: TEST.md
-    instructions: |
+agentInstructions:
+    filename: TEST.md
+    content: |
         Some legacy memory content.
         Should be carried over verbatim under agentContext after migration.
-network:
-    allow:
-        - api.anthropic.com:443
-        - registry.npmjs.org
-    deny:
-        - malware.example.com
+permissions:
+    network:
+        allow:
+            - api.anthropic.com:443
+            - registry.npmjs.org
+        deny:
+            - malware.example.com
 publishedPorts:
     - container: 8080
       protocol: tcp

@@ -25,8 +25,8 @@
 //
 //	kind: agent                → kind: sandbox
 //	agent: (v1 sandbox alias)  → sandbox:
-//	sandbox.aiFilename         → agent.instructionsFile
-//	memory: / agentContext:    → agent.instructions
+//	sandbox.aiFilename         → agentInstructions.filename
+//	memory: / agentContext:    → agentInstructions.content
 //	sandbox.entrypoint.run     → sandbox.entrypoint (flat array)
 //	sandbox.entrypoint.args    → sandbox.command.default
 //	sandbox.entrypoint.ttyArgs → sandbox.command.interactive
@@ -37,8 +37,8 @@
 //	network.serviceAuth        │
 //	environment.proxyManaged   ┘
 //	oauth: (standalone)        → credentials[].oauth
-//	network.allowedDomains     → network.allow (top-level)
-//	network.deniedDomains      → network.deny (top-level)
+//	network.allowedDomains     → permissions.network.allow
+//	network.deniedDomains      → permissions.network.deny
 //	network.publishedPorts     → top-level publishedPorts
 //	commands: / commands.initFiles → setup: / setup.files
 //	settings:                  → dropped (move agent setup to setup.files)
@@ -216,19 +216,21 @@ func buildV2(a *spec.Artifact, srcSandbox *rawSandbox) *outSpec {
 		Credentials:    a.Credentials,
 	}
 
-	// agent: block — instructionsFile (was sandbox.aiFilename) +
-	// instructions (was top-level agentContext / v1 memory).
+	// agentInstructions: block — filename (was sandbox.aiFilename) +
+	// content (was top-level agentContext / v1 memory).
 	if a.Manifest.AIFilename != "" || a.AgentContext != "" {
-		out.Agent = &outAgent{
-			InstructionsFile: a.Manifest.AIFilename,
-			Instructions:     a.AgentContext,
+		out.AgentInstructions = &outAgentInstructions{
+			Filename: a.Manifest.AIFilename,
+			Content:  a.AgentContext,
 		}
 	}
 
-	// network: block — top-level allow/deny (was caps.network).
+	// permissions.network block — allow/deny (was caps.network).
 	if a.Caps != nil && a.Caps.Network != nil &&
 		(len(a.Caps.Network.Allow) > 0 || len(a.Caps.Network.Deny) > 0) {
-		out.Network = &outNetwork{Allow: a.Caps.Network.Allow, Deny: a.Caps.Network.Deny}
+		out.Permissions = &outPermissions{
+			Network: &outNetwork{Allow: a.Caps.Network.Allow, Deny: a.Caps.Network.Deny},
+		}
 	}
 
 	// setup: block — install/startup + files (was commands, with initFiles
@@ -276,24 +278,24 @@ func buildV2(a *spec.Artifact, srcSandbox *rawSandbox) *outSpec {
 // environment.proxyManaged) deliberately have no field here, so they never
 // appear in the output.
 type outSpec struct {
-	SchemaVersion  string               `yaml:"schemaVersion"`
-	Kind           string               `yaml:"kind"`
-	Name           string               `yaml:"name"`
-	Version        string               `yaml:"version,omitempty"`
-	DisplayName    string               `yaml:"displayName,omitempty"`
-	Description    string               `yaml:"description,omitempty"`
-	SourceURL      string               `yaml:"sourceURL,omitempty"`
-	Extends        string               `yaml:"extends,omitempty"`
-	Locked         []string             `yaml:"locked,omitempty"`
-	Sandbox        *outSandbox          `yaml:"sandbox,omitempty"`
-	Agent          *outAgent            `yaml:"agent,omitempty"`
-	Network        *outNetwork          `yaml:"network,omitempty"`
-	Volumes        []spec.MountSpec     `yaml:"volumes,omitempty"`
-	Security       *spec.Security       `yaml:"security,omitempty"`
-	PublishedPorts []spec.PublishedPort `yaml:"publishedPorts,omitempty"`
-	Credentials    []spec.Credential    `yaml:"credentials,omitempty"`
-	Environment    *outEnv              `yaml:"environment,omitempty"`
-	Setup          *outSetup            `yaml:"setup,omitempty"`
+	SchemaVersion     string                `yaml:"schemaVersion"`
+	Kind              string                `yaml:"kind"`
+	Name              string                `yaml:"name"`
+	Version           string                `yaml:"version,omitempty"`
+	DisplayName       string                `yaml:"displayName,omitempty"`
+	Description       string                `yaml:"description,omitempty"`
+	SourceURL         string                `yaml:"sourceURL,omitempty"`
+	Extends           string                `yaml:"extends,omitempty"`
+	Locked            []string              `yaml:"locked,omitempty"`
+	Sandbox           *outSandbox           `yaml:"sandbox,omitempty"`
+	AgentInstructions *outAgentInstructions `yaml:"agentInstructions,omitempty"`
+	Permissions       *outPermissions       `yaml:"permissions,omitempty"`
+	Volumes           []spec.MountSpec      `yaml:"volumes,omitempty"`
+	Security          *spec.Security        `yaml:"security,omitempty"`
+	PublishedPorts    []spec.PublishedPort  `yaml:"publishedPorts,omitempty"`
+	Credentials       []spec.Credential     `yaml:"credentials,omitempty"`
+	Environment       *outEnv               `yaml:"environment,omitempty"`
+	Setup             *outSetup             `yaml:"setup,omitempty"`
 }
 
 // outSandbox is the v2 sandbox: block emit shape. entrypoint is the flat
@@ -320,13 +322,21 @@ type outResources struct {
 	GPU    string  `yaml:"gpu,omitempty"`
 }
 
-// outAgent is the v2 agent: block emit shape.
-type outAgent struct {
-	InstructionsFile string `yaml:"instructionsFile,omitempty"`
-	Instructions     string `yaml:"instructions,omitempty"`
+// outAgentInstructions is the v2 top-level agentInstructions: block emit
+// shape. filename is only meaningful for a sandbox kit; for a mixin it is
+// empty (mixins carry no AIFilename) so it is omitted.
+type outAgentInstructions struct {
+	Filename string `yaml:"filename,omitempty"`
+	Content  string `yaml:"content,omitempty"`
 }
 
-// outNetwork is the v2 top-level network: block emit shape.
+// outPermissions is the v2 permissions: block emit shape; today it wraps only
+// the network egress policy.
+type outPermissions struct {
+	Network *outNetwork `yaml:"network,omitempty"`
+}
+
+// outNetwork is the v2 permissions.network block emit shape.
 type outNetwork struct {
 	Allow []string `yaml:"allow,omitempty"`
 	Deny  []string `yaml:"deny,omitempty"`

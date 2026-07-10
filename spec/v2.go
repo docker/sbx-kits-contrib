@@ -30,15 +30,15 @@ type specFileV2 struct {
 	Locked   []string `yaml:"locked,omitempty"`
 	Licenses []string `yaml:"licenses,omitempty"`
 
-	Sandbox *sandboxBlockV2 `yaml:"sandbox,omitempty"`
-	Agent   *agentBlockV2   `yaml:"agent,omitempty"`
+	Sandbox           *sandboxBlockV2           `yaml:"sandbox,omitempty"`
+	AgentInstructions *agentInstructionsBlockV2 `yaml:"agentInstructions,omitempty"`
 
-	Network        *networkBlockV2    `yaml:"network,omitempty"`
-	PublishedPorts []PublishedPort    `yaml:"publishedPorts,omitempty"`
-	Credentials    []Credential       `yaml:"credentials,omitempty"`
-	Environment    *EnvironmentPolicy `yaml:"environment,omitempty"`
-	Volumes        []MountSpec        `yaml:"volumes,omitempty"`
-	Setup          *setupBlockV2      `yaml:"setup,omitempty"`
+	Permissions    *permissionsBlockV2 `yaml:"permissions,omitempty"`
+	PublishedPorts []PublishedPort     `yaml:"publishedPorts,omitempty"`
+	Credentials    []Credential        `yaml:"credentials,omitempty"`
+	Environment    *EnvironmentPolicy  `yaml:"environment,omitempty"`
+	Volumes        []MountSpec         `yaml:"volumes,omitempty"`
+	Setup          *setupBlockV2       `yaml:"setup,omitempty"`
 }
 
 // sandboxBlockV2 groups the container-launch configuration. Entrypoint is the
@@ -53,12 +53,21 @@ type sandboxBlockV2 struct {
 	Resources  *resourcesV2   `yaml:"resources,omitempty"`
 }
 
-// agentBlockV2 groups the agent-workload fields. InstructionsFile is the AI
-// profile filename (canonical Manifest.AIFilename); Instructions is the
-// markdown appended to the AI profile (canonical Artifact.AgentContext).
-type agentBlockV2 struct {
-	InstructionsFile string `yaml:"instructionsFile,omitempty"`
-	Instructions     string `yaml:"instructions,omitempty"`
+// agentInstructionsBlockV2 groups the agent-instruction fields. Filename is the
+// AI profile filename (canonical Manifest.AIFilename) and is only meaningful
+// for a sandbox kit (an "agent"); it is ignored for a mixin, which cannot own
+// the profile filename. Content is the markdown appended to the AI profile
+// (canonical Artifact.AgentContext) and applies to both kinds.
+type agentInstructionsBlockV2 struct {
+	Filename string `yaml:"filename,omitempty"`
+	Content  string `yaml:"content,omitempty"`
+}
+
+// permissionsBlockV2 groups the sandbox's capability grants. Today it carries
+// only the network egress policy; it is the v2 home for what v1 spelled as the
+// top-level caps: block.
+type permissionsBlockV2 struct {
+	Network *networkBlockV2 `yaml:"network,omitempty"`
 }
 
 // networkBlockV2 is the v2 canonical egress policy. It maps onto the internal
@@ -209,8 +218,14 @@ func (s *specFileV2) toArtifact(w *warnings) (*Artifact, error) {
 		}
 	}
 
-	if s.Agent != nil {
-		m.AIFilename = s.Agent.InstructionsFile
+	if s.AgentInstructions != nil && s.AgentInstructions.Filename != "" {
+		// filename names the AI profile the sandbox owns; a mixin only
+		// contributes content, so its filename is ignored (not an error).
+		if isSandbox {
+			m.AIFilename = s.AgentInstructions.Filename
+		} else {
+			w.ignored("agentInstructions.filename", fmt.Sprintf("only used for kind %q, not %q", KindSandbox, s.Kind))
+		}
 	}
 
 	if len(s.Mixins) > 0 {
@@ -226,12 +241,15 @@ func (s *specFileV2) toArtifact(w *warnings) (*Artifact, error) {
 		PublishedPorts: s.PublishedPorts,
 		Environment:    s.Environment,
 	}
-	if s.Agent != nil {
-		art.AgentContext = s.Agent.Instructions
+	if s.AgentInstructions != nil {
+		art.AgentContext = s.AgentInstructions.Content
 	}
 
-	if s.Network != nil && (len(s.Network.Allow) > 0 || len(s.Network.Deny) > 0) {
-		art.Caps = &Caps{Network: &CapsNetwork{Allow: s.Network.Allow, Deny: s.Network.Deny}}
+	if s.Permissions != nil && s.Permissions.Network != nil {
+		net := s.Permissions.Network
+		if len(net.Allow) > 0 || len(net.Deny) > 0 {
+			art.Caps = &Caps{Network: &CapsNetwork{Allow: net.Allow, Deny: net.Deny}}
+		}
 	}
 
 	if s.Setup != nil {
