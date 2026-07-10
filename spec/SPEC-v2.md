@@ -732,7 +732,9 @@ job, and it only runs on the `schemaVersion: "1"` path.
 Remote references (in `extends`, `mixins`, and `--kit`) MUST be immutably
 pinned — Git by 40-hex commit SHA, OCI by digest. See
 [Composition](../skills/kit-author/topics/composition.md) for merge rules and
-[Distribution](../skills/kit-author/topics/distribution.md) for packaging.
+[Distribution](../skills/kit-author/topics/distribution.md) for packaging. The
+wire format a kit takes when pushed to an OCI registry — manifest shape, media
+types, layer layout, and annotations — is specified in [OCI-v2.md](OCI-v2.md).
 
 A `schemaVersion: "2"` kit only loads on an `sbx` whose spec library understands
 this grammar; older or earlier-draft releases reject the fields under strict
