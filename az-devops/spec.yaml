@@ -1,0 +1,30 @@
+schemaVersion: "1"
+kind: mixin
+name: az-devops
+displayName: Azure DevOps MCP
+description: Azure DevOps MCP
+
+network:
+  allowedDomains:
+    - dev.azure.com
+    - "*.dev.azure.com"
+    - "*.visualstudio.com"
+    - dc.services.visualstudio.com
+    - aka.ms
+    - registry.nmpjs.org
+  serviceDomains:
+    "*.dev.azure.com": az-devops
+    "*.visualstudio.com": az-devops
+    dev.azure.com: az-devops
+    mcp.dev.azure.com: az-devops
+    vssps.dev.azure.com: az-devops
+  serviceAuth:
+    az-devops:
+      headerName: Authorization
+      valueFormat: "Basic %s"
+
+commands:
+  install:
+    - command: "mkdir -p /usr/local/share/npm-global/lib"
+      user: "0"
+      description: Create missing folder
