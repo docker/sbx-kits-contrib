@@ -64,5 +64,3 @@ $ sbx run claude --kit "git+https://github.com/docker/sbx-kits-contrib.git#dir=c
 
 The script and the install merge both use `jq`, which is present on the `claude-code` base
 image. It also uses `git`, `awk`, and `hostname` — all standard on the base image.
-
-<!-- CI experiment: trigger test-kit-e2e on sbx v0.35.0 to check whether the container-start 500 is version-wide or Playwright-specific. Revert after. -->

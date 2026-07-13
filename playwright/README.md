@@ -74,3 +74,5 @@ Kits are cached in user workflows and re-run on every sandbox creation, so a flo
 ## Cleanup
 
 Everything is sandbox-local: npm packages, browsers in `/opt/ms-playwright`, and apt-installed libraries all disappear with the sandbox (`sbx rm <name>`). Nothing touches the host's browsers, caches, or displays.
+
+<!-- CI diag: probe Playwright container-start 500 on v0.35.0; dumps sandboxd log on failure. Revert after. -->

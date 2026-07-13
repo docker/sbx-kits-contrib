@@ -276,6 +276,26 @@ jobs:
         # kit deny-rules win over allow-rules (deny-wins).
         run: ./scripts/test-kit-e2e.sh "${{ matrix.kit }}"
 
+      - name: Dump sandboxd daemon log (diagnostics)
+        # TEMP (revert with the README no-op): capture the real daemon-side
+        # error behind sbx's opaque "500 failed to run sandbox container".
+        if: always()
+        run: |
+          echo "=== sbx version ==="; sbx version || true
+          echo "=== daemon.log files ==="
+          found=0
+          while IFS= read -r f; do
+            found=1
+            echo "############### $f ###############"
+            tail -300 "$f" || true
+          done < <(find "$HOME" -name 'daemon.log' -path '*sbx-kits-contrib-tck*' 2>/dev/null)
+          if [ "$found" = 0 ]; then
+            echo "no scoped daemon.log found; listing any daemon.log:"
+            find "$HOME" -name 'daemon.log' 2>/dev/null | while read -r f; do
+              echo "############### $f ###############"; tail -300 "$f" || true
+            done
+          fi
+
       - name: Sign out of Docker Hub
         if: always()
         run: sbx logout --yes || true
