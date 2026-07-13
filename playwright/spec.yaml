@@ -29,6 +29,13 @@ caps:
       # is the documented fallback Playwright rotates to on CDN failure.
       - "cdn.playwright.dev:443"
       - "playwright.download.prss.microsoft.com:443"
+      # On amd64, Playwright's Chromium is a "Chrome for Testing" build:
+      # cdn.playwright.dev only issues a 302 redirect and the actual
+      # chrome-linux64.zip is served from Google's Chrome-for-Testing bucket
+      # on storage.googleapis.com. Without this, `playwright install chromium`
+      # fails with a proxy 403 (Blocked by network policy) under deny-all.
+      # (arm64 builds come from prss.microsoft.com instead, hence the split.)
+      - "storage.googleapis.com:443"
       # `playwright install --with-deps` apt-installs Chromium's system
       # libraries. `apt-get update` refreshes every configured source, so all
       # template sources must be reachable: Ubuntu hosts amd64 packages on
