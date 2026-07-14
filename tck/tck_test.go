@@ -144,13 +144,17 @@ func TestContainerImage(t *testing.T) {
 		require.Equal(t, wellKnownTemplates["codex"], img)
 	})
 
-	t.Run("mixin_requires_unknown_agent_errors", func(t *testing.T) {
+	t.Run("mixin_requires_unknown_agent_falls_back_to_shell", func(t *testing.T) {
+		// Unlike extends, an unresolvable requires.agent is not an error: the
+		// affinity may name a custom agent, so the TCK falls back to shell
+		// (WithImage overrides when a specific image is needed).
 		a := &spec.Artifact{
 			Manifest: spec.Manifest{Kind: spec.KindMixin, Name: "test"},
 			Requires: &spec.Requires{Agent: "unknown-agent"},
 		}
-		_, err := containerImage(a)
-		require.ErrorContains(t, err, "requires.agent")
+		img, err := containerImage(a)
+		require.NoError(t, err)
+		require.Equal(t, DefaultShellImage, img)
 	})
 }
 

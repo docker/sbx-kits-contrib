@@ -578,24 +578,27 @@ func containerImage(a *spec.Artifact) (string, error) {
 		return a.Manifest.Template, nil
 	}
 
-	// kind=mixin: resolve the base agent from extends, then from
-	// requires.agent affinity, else default to shell. A mixin that declares
-	// affinity is exercised in that agent's image so install/startup
-	// assertions run in the base the mixin is designed for.
-	agent := a.Extends
-	source := "extends"
-	if agent == "" && a.Requires != nil {
-		agent = a.Requires.Agent
-		source = "requires.agent"
-	}
-	if agent != "" {
-		if tmpl, ok := wellKnownTemplates[agent]; ok {
+	// kind=mixin: extends must resolve to a well-known agent template — an
+	// extends parent the TCK can't resolve is an authoring error.
+	if a.Extends != "" {
+		if tmpl, ok := wellKnownTemplates[a.Extends]; ok {
 			return tmpl, nil
 		}
 		return "", fmt.Errorf(
-			"mixin %q %s references unknown agent %q; use WithImage to specify the container image",
-			a.Manifest.Name, source, agent,
+			"mixin %q extends unknown agent %q; use WithImage to specify the container image",
+			a.Manifest.Name, a.Extends,
 		)
+	}
+
+	// requires.agent affinity: when the target is a well-known agent, run the
+	// container tests in its image so install/startup assertions exercise the
+	// base the mixin is designed for. Otherwise fall back to the shell default
+	// — affinity may name a custom agent whose template the TCK can't resolve,
+	// and the author can still override with WithImage.
+	if a.Requires != nil && a.Requires.Agent != "" {
+		if tmpl, ok := wellKnownTemplates[a.Requires.Agent]; ok {
+			return tmpl, nil
+		}
 	}
 
 	return DefaultShellImage, nil
