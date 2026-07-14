@@ -49,16 +49,9 @@ commands:
 agentContext: |
   ## Kitty SSH integration
 
-  The Kitty terminal SSH integration is pre-installed at
-  ~/.local/share/kitty-ssh-kitten. Connect with `kitten ssh <sandbox>` from a
-  kitty terminal for silent bootstrap — no visible KITTY_DATA_START block.
+  Kitty terminal shell integration is pre-installed. Connect from a kitty
+  terminal with `kitten ssh <sandbox>.sbx`.
 
-  Shell integration features available when connected via kitten ssh:
-  - Prompt marks: semantic scroll zones around each command and its output
-  - Kitty scrollback, copy/paste, and image display
-  - Remote file transfer with `kitten transfer`
-  - Jump-to-prompt and last-visited-prompt navigation (default: Ctrl+Shift+Z / X)
-
-  A colorized bash prompt (green user@host, blue cwd) is configured for
-  xterm-kitty and other color-capable terminals. To customize it, redefine
-  PS1 in ~/.bashrc after the source line added by this kit.
+  A colorized bash prompt is configured for xterm-kitty and other
+  color-capable terminals. To customize it, redefine PS1 in ~/.bashrc after
+  the source line added by this kit.
