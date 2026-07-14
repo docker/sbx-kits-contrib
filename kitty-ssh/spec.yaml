@@ -1,0 +1,63 @@
+schemaVersion: "2"
+kind: mixin
+name: kitty-ssh
+displayName: Kitty SSH
+description: |
+  Pre-installs Kitty terminal shell integration so kitten ssh connects
+  without the visible KITTY_DATA_START bootstrap dance. Also sets up a
+  colorized bash prompt that works with xterm-kitty and other color-capable
+  terminal sessions.
+
+  When kitten ssh connects, it detects the pre-installed directory at
+  ~/.local/share/kitty-ssh-kitten and takes the silent update path rather
+  than printing the full data block. Version mismatches trigger a silent
+  re-upload — the directory presence is what suppresses the visible bootstrap.
+
+  See https://sw.kovidgoyal.net/kitty/kittens/ssh/ for the full feature set
+  that shell integration unlocks (prompt marks, scrollback navigation,
+  copy/paste, image display, remote file transfer, etc.).
+
+caps:
+  network:
+    allow:
+      # Shell integration source file (install time, one-shot).
+      - "raw.githubusercontent.com:443"
+
+commands:
+  install:
+    - command: |
+        set -euo pipefail
+        KITTY_VERSION="0.42.1"
+        KITTY_DIR=/home/agent/.local/share/kitty-ssh-kitten/kitty
+
+        mkdir -p "$KITTY_DIR/shell-integration/bash"
+
+        curl --proto '=https' --tlsv1.2 -fsSL \
+          "https://raw.githubusercontent.com/kovidgoyal/kitty/v${KITTY_VERSION}/shell-integration/bash/kitty.bash" \
+          -o "$KITTY_DIR/shell-integration/bash/kitty.bash"
+
+        printf '%s' "$KITTY_VERSION" > "$KITTY_DIR/version"
+        chown -R agent:agent /home/agent/.local
+
+        # Guard against duplicate entries when `sbx kit add` is run more than once.
+        grep -qF 'kitty-ssh-kitten/bash-integration.sh' /home/agent/.bashrc 2>/dev/null || \
+          printf '\n# kitty SSH integration (kitty-ssh mixin)\n[ -f ~/.local/share/kitty-ssh-kitten/bash-integration.sh ] && . ~/.local/share/kitty-ssh-kitten/bash-integration.sh\n' >> /home/agent/.bashrc
+      user: "0"
+      description: "Download Kitty v0.42.1 shell integration into ~/.local/share/kitty-ssh-kitten and register bash-integration.sh in ~/.bashrc"
+
+agentContext: |
+  ## Kitty SSH integration
+
+  The Kitty terminal SSH integration is pre-installed at
+  ~/.local/share/kitty-ssh-kitten. Connect with `kitten ssh <sandbox>` from a
+  kitty terminal for silent bootstrap — no visible KITTY_DATA_START block.
+
+  Shell integration features available when connected via kitten ssh:
+  - Prompt marks: semantic scroll zones around each command and its output
+  - Kitty scrollback, copy/paste, and image display
+  - Remote file transfer with `kitten transfer`
+  - Jump-to-prompt and last-visited-prompt navigation (default: Ctrl+Shift+Z / X)
+
+  A colorized bash prompt (green user@host, blue cwd) is configured for
+  xterm-kitty and other color-capable terminals. To customize it, redefine
+  PS1 in ~/.bashrc after the source line added by this kit.
