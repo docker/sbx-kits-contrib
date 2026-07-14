@@ -528,6 +528,32 @@ func TestValidateArtifact(t *testing.T) {
 		}
 		require.ErrorContains(t, ValidateArtifact(a), "requires.agent is only valid for kind")
 	})
+
+	t.Run("v2_mixin_with_extends_rejected", func(t *testing.T) {
+		a := &Artifact{
+			Manifest: Manifest{SchemaVersion: "2", Kind: KindMixin, Name: "ok"},
+			Extends:  "claude",
+		}
+		require.ErrorContains(t, ValidateArtifact(a), "must not set extends")
+	})
+
+	t.Run("v1_mixin_with_extends_grandfathered", func(t *testing.T) {
+		// Backwards compatibility: the v2 rule must not invalidate a v1 kit
+		// that predates it.
+		a := &Artifact{
+			Manifest: Manifest{SchemaVersion: "1", Kind: KindMixin, Name: "ok"},
+			Extends:  "claude",
+		}
+		require.NoError(t, ValidateArtifact(a))
+	})
+
+	t.Run("v2_sandbox_with_extends_allowed", func(t *testing.T) {
+		a := &Artifact{
+			Manifest: Manifest{SchemaVersion: "2", Kind: KindSandbox, Name: "ok"},
+			Extends:  "claude",
+		}
+		require.NoError(t, ValidateArtifact(a))
+	})
 }
 
 func TestResolvedResponseFields(t *testing.T) {

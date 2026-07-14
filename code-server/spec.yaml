@@ -1,7 +1,11 @@
 schemaVersion: "1"
 kind: mixin
 name: code-server
-extends: claude
+# Layered onto the claude base agent (the bundled VS Code extension is Claude
+# Code). Declares base-agent affinity instead of extends: as a mixin it already
+# runs in the base agent's container and inherits its credentials at compose time.
+requires:
+  agent: claude
 displayName: code-server (web VS Code) with Claude Code
 description: Runs code-server on port 8080, opened on the sandbox workspace, with the Claude Code VS Code extension preinstalled. Pair with the built-in claude agent so the extension inherits the sandbox's Anthropic credentials.
 

@@ -1,7 +1,11 @@
 schemaVersion: "1"
 kind: mixin
 name: claude-model-runner
-extends: claude
+# Reroutes Claude Code's Anthropic API; only meaningful on the claude base
+# agent. Declares base-agent affinity instead of extends: as a mixin it just
+# overlays environment variables onto the base agent at compose time.
+requires:
+  agent: claude
 displayName: Claude Code (Docker Model Runner)
 description: Route Claude Code's Anthropic API calls to a local Docker Model Runner endpoint at host.docker.internal:12434.
 

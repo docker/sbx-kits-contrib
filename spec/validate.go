@@ -293,6 +293,15 @@ func ValidateArtifact(a *Artifact) error {
 	if a.Requires != nil && a.Requires.Agent != "" && a.Manifest.Kind != KindMixin {
 		return fmt.Errorf("requires.agent is only valid for kind %q, not %q — base-agent affinity applies to a mixin layered onto an agent", KindMixin, a.Manifest.Kind)
 	}
+	// kit-spec v2 forbids a mixin from using extends: mixins are minimally
+	// scoped, base-agnostic additions layered onto a base agent, not
+	// single-parent-inheriting kits. To derive from a parent agent, use a
+	// kind: sandbox kit with extends. Gated on schemaVersion "2" so v1 kits
+	// authored before the rule keep validating — the check is additive, never
+	// invalidating a previously-accepted v1 spec.
+	if a.Manifest.SchemaVersion == "2" && a.Manifest.Kind == KindMixin && a.Extends != "" {
+		return fmt.Errorf("kind %q must not set extends (kit-spec v2): mixins are base-agnostic additions; use a kind %q kit with extends to derive from a parent agent", KindMixin, KindSandbox)
+	}
 	if err := ValidateLocked(a.Locked); err != nil {
 		return err
 	}
