@@ -20,6 +20,8 @@ func TestLoadFromDirectory(t *testing.T) {
 		require.Equal(t, "1.0.0", a.Manifest.Version)
 		require.Equal(t, "https://example.com/sample-mixin", a.Manifest.SourceURL)
 		require.Empty(t, a.Manifest.Template, "mixins have no template")
+		require.NotNil(t, a.Requires, "sample-mixin declares base-agent affinity")
+		require.Equal(t, "sample-agent", a.Requires.Agent)
 		require.NotEmpty(t, a.PublishedPorts)
 		require.NotNil(t, a.Credentials)
 		require.NotNil(t, a.Environment)
