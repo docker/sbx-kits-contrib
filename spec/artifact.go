@@ -349,6 +349,7 @@ func parseArtifactBytes(data []byte) (*Artifact, error) {
 		Manifest:       spec.Manifest,
 		Extends:        spec.Extends,
 		Mixins:         spec.Mixins,
+		Requires:       spec.Requires,
 		Locked:         spec.Locked,
 		Licenses:       spec.Licenses,
 		PublishedPorts: spec.PublishedPorts,

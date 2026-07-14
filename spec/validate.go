@@ -35,8 +35,17 @@ var supportedPlaceholders = map[string]bool{
 	"${WORKDIR}": true,
 }
 
-// ValidateManifest validates a Manifest for correctness.
+// ValidateManifest validates a Manifest for correctness. A sandbox kit must
+// declare a template (image source); use validateManifest with inheritsImage
+// when the artifact supplies its image through the extends chain instead.
 func ValidateManifest(m *Manifest) error {
+	return validateManifest(m, false)
+}
+
+// validateManifest is the extends-aware core. When inheritsImage is true the
+// template-required check for sandbox kinds is skipped, because the artifact
+// resolves its image from its extends parent rather than declaring one.
+func validateManifest(m *Manifest, inheritsImage bool) error {
 	if m.SchemaVersion == "" {
 		return fmt.Errorf("manifest: schemaVersion is required")
 	}
@@ -61,7 +70,7 @@ func ValidateManifest(m *Manifest) error {
 		return fmt.Errorf("manifest: invalid name %q (must be lowercase alphanumeric with hyphens, 1-64 chars)", m.Name)
 	}
 
-	if m.Kind == KindSandbox || m.Kind == KindAgent {
+	if (m.Kind == KindSandbox || m.Kind == KindAgent) && !inheritsImage {
 		if m.Template == "" {
 			return fmt.Errorf("manifest: template is required for kind %q", KindSandbox)
 		}
@@ -262,13 +271,19 @@ func ValidateVolumes(volumes []MountSpec) error {
 
 // ValidateArtifact validates a complete Artifact for internal consistency.
 func ValidateArtifact(a *Artifact) error {
-	if err := ValidateManifest(&a.Manifest); err != nil {
+	// A sandbox kit that extends a parent inherits its image, so the leaf
+	// need not declare a template of its own; the image requirement is
+	// satisfied once the extends chain is resolved.
+	if err := validateManifest(&a.Manifest, a.Extends != ""); err != nil {
 		return err
 	}
 	if err := ValidateSecurity(a.Manifest.Security); err != nil {
 		return err
 	}
 	if err := ValidateVolumes(a.Manifest.Volumes); err != nil {
+		return err
+	}
+	if err := ValidateRequires(a.Requires); err != nil {
 		return err
 	}
 	if err := ValidateLocked(a.Locked); err != nil {
@@ -303,6 +318,21 @@ func ValidateArtifact(a *Artifact) error {
 		}
 	}
 
+	return nil
+}
+
+// ValidateRequires validates the well-formedness of a kit's composition
+// preconditions. When set, requires.agent must be a valid kit name (the same
+// charset as a Manifest.Name). Whether a given base agent actually satisfies
+// the affinity is decided by the consumer that performs composition. A nil
+// block, or an empty agent, is valid (no affinity declared).
+func ValidateRequires(r *Requires) error {
+	if r == nil || r.Agent == "" {
+		return nil
+	}
+	if !namePattern.MatchString(r.Agent) {
+		return fmt.Errorf("requires.agent %q is not a valid agent name (must be lowercase alphanumeric with hyphens, 1-64 chars)", r.Agent)
+	}
 	return nil
 }
 

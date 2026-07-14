@@ -377,6 +377,24 @@ func TestValidateLocked(t *testing.T) {
 	})
 }
 
+func TestValidateRequires(t *testing.T) {
+	t.Run("nil_is_valid", func(t *testing.T) {
+		require.NoError(t, ValidateRequires(nil))
+	})
+
+	t.Run("empty_agent_is_valid", func(t *testing.T) {
+		require.NoError(t, ValidateRequires(&Requires{}))
+	})
+
+	t.Run("valid_agent", func(t *testing.T) {
+		require.NoError(t, ValidateRequires(&Requires{Agent: "claude"}))
+	})
+
+	t.Run("invalid_name", func(t *testing.T) {
+		require.ErrorContains(t, ValidateRequires(&Requires{Agent: "Not A Name"}), "not a valid agent name")
+	})
+}
+
 func TestValidateLicenses(t *testing.T) {
 	t.Run("nil_is_valid", func(t *testing.T) {
 		require.NoError(t, ValidateLicenses(nil))
@@ -480,6 +498,19 @@ func TestValidateArtifact(t *testing.T) {
 			Files:    []ArtifactFile{{RelativePath: "../escape", Target: TargetHome}},
 		}
 		require.ErrorContains(t, ValidateArtifact(a), "escapes the target directory")
+	})
+
+	t.Run("sandbox_missing_template_without_extends", func(t *testing.T) {
+		a := &Artifact{Manifest: Manifest{SchemaVersion: SchemaVersion, Kind: KindSandbox, Name: "ok"}}
+		require.ErrorContains(t, ValidateArtifact(a), "template is required")
+	})
+
+	t.Run("sandbox_inherits_template_via_extends", func(t *testing.T) {
+		a := &Artifact{
+			Manifest: Manifest{SchemaVersion: SchemaVersion, Kind: KindSandbox, Name: "ok"},
+			Extends:  "claude",
+		}
+		require.NoError(t, ValidateArtifact(a))
 	})
 }
 

@@ -52,6 +52,14 @@ func TestNormalizeSandbox(t *testing.T) {
 		}
 		require.ErrorContains(t, s.normalize(&warnings{}), "requires a 'sandbox:' block")
 	})
+
+	t.Run("sandbox_with_extends_needs_no_sandbox_block", func(t *testing.T) {
+		s := SpecFile{
+			Manifest: Manifest{Kind: KindSandbox, SchemaVersion: SchemaVersion, Name: "a"},
+			Extends:  "claude",
+		}
+		require.NoError(t, s.normalize(&warnings{}))
+	})
 }
 
 func TestNormalizeSecrets(t *testing.T) {

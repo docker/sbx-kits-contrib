@@ -32,6 +32,8 @@ extends: shell              # optional, single-parent inheritance (opt-in resolu
 mixins:                     # optional (P1), multi-parent composition (sandbox kits only)
   - my-org-tools
   - "oci://ghcr.io/org/auditor@sha256:<digest>"
+requires:                   # optional, base-agent affinity (mixins)
+  agent: claude
 locked:                     # optional (P2), dotted paths child kits may not override
   - sandbox.image
   - credentials[service=anthropic]
@@ -66,6 +68,30 @@ Resolution order when a kit uses both `extends` and `mixins`:
 3. Apply declared mixins in declaration order, using the same additive semantics.
 
 The `--kit` CLI flag is the runtime equivalent — see [composition.md](composition.md).
+
+### `requires`
+
+Optional composition preconditions. Today it carries only **base-agent affinity**:
+
+```yaml
+kind: mixin
+requires:
+  agent: claude              # single base-agent name
+```
+
+A mixin often injects agent-specific configuration — Claude Code's `ANTHROPIC_*`
+environment variables, for instance, mean nothing to a `codex` sandbox. Set
+`requires.agent` to the base agent the mixin is designed for; composing it onto
+any other base agent is a composition error (rather than silently producing a
+nonsensical-but-valid sandbox).
+
+`requires.agent` is a **single agent name**, not a set — affinity exists to
+prevent misapplication, so an "any of these" list would defeat the guarantee.
+The spec library validates only that the name is well-formed (same charset as
+`name`); the affinity itself is enforced at composition time by the consumer.
+Broader family matching (e.g. `claude` and its `claude-vertex` / `claude-bedrock`
+variants) is left to the consumer's `extends`-lineage check. Absent or empty
+means the kit declares no affinity and layers onto any base agent.
 
 ## `sandbox:` (only for `kind: sandbox`)
 
