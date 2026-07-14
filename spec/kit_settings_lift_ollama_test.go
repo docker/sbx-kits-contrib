@@ -38,4 +38,11 @@ func TestClaudeOllamaSettingsLift(t *testing.T) {
 		runSettingsInstallScript(t, ic.Command, "SBX_CRED_ANTHROPIC_MODE=none"))
 	require.Equal(t, claudeSettingsNone,
 		runSettingsInstallScript(t, ic.Command, "SBX_CRED_ANTHROPIC_MODE="))
+
+	// (c) apikey branch parity: the lifted script is copy-shared across the
+	// claude-family kits, so its apikey path must still produce the
+	// apiKeyHelper oracle even though this kit never sets the mode in a real
+	// container. This guards the shared script contract against drift.
+	require.Equal(t, claudeSettingsAPIKey,
+		runSettingsInstallScript(t, ic.Command, "SBX_CRED_ANTHROPIC_MODE=apikey"))
 }
