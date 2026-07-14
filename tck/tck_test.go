@@ -207,6 +207,20 @@ func TestNewSuiteFromDir(t *testing.T) {
 		require.Equal(t, "custom:latest", suite.Image)
 	})
 
+	t.Run("with_image_rescues_unresolved_image", func(t *testing.T) {
+		// A sandbox that inherits its image via an unknown extends cannot
+		// resolve an image from the spec...
+		_, err := NewSuiteFromDir("testdata/unresolved-image")
+		require.ErrorContains(t, err, "use WithImage")
+
+		// ...and WithImage must be able to override that, since the error
+		// instructs the caller to do so. Regression: options are applied
+		// before image resolution, so WithImage short-circuits it.
+		suite, err := NewSuiteFromDir("testdata/unresolved-image", WithImage("custom/img:v1"))
+		require.NoError(t, err)
+		require.Equal(t, "custom/img:v1", suite.Image)
+	})
+
 	t.Run("invalid_dir", func(t *testing.T) {
 		_, err := NewSuiteFromDir("../spec/testdata/does-not-exist")
 		require.Error(t, err)

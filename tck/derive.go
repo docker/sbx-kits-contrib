@@ -37,14 +37,8 @@ func NewSuiteFromDir(dir string, opts ...Option) (*Suite, error) {
 		return nil, fmt.Errorf("load artifact from %q: %w", dir, err)
 	}
 
-	image, err := containerImage(artifact)
-	if err != nil {
-		return nil, err
-	}
-
 	suite := &Suite{
 		Artifact:               artifact,
-		Image:                  image,
 		ExpectedEnvVars:        deriveEnvVars(artifact.Environment),
 		ExpectedContainerFiles: deriveContainerFiles(artifact.Files, artifact.Commands),
 		ExpectedTmpfs:          deriveTmpfs(artifact.Manifest.TmpfsVolumes()),
@@ -85,9 +79,22 @@ func NewSuiteFromDir(dir string, opts ...Option) (*Suite, error) {
 		}
 	}
 
-	// Apply functional options (e.g., WithImage)
+	// Apply functional options first, so WithImage can override image
+	// resolution — including rescuing an artifact whose image cannot be
+	// derived from the spec (unknown extends, or a sandbox with no template).
 	for _, opt := range opts {
 		opt(suite)
+	}
+
+	// Resolve the container image from the spec only when WithImage has not
+	// already supplied one. This keeps the "use WithImage" guidance in
+	// containerImage's error messages truthful: a caller can always override.
+	if suite.Image == "" {
+		image, err := containerImage(artifact)
+		if err != nil {
+			return nil, err
+		}
+		suite.Image = image
 	}
 
 	return suite, nil
