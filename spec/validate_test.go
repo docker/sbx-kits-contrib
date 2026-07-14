@@ -512,6 +512,22 @@ func TestValidateArtifact(t *testing.T) {
 		}
 		require.NoError(t, ValidateArtifact(a))
 	})
+
+	t.Run("requires_on_mixin_allowed", func(t *testing.T) {
+		a := &Artifact{
+			Manifest: Manifest{SchemaVersion: SchemaVersion, Kind: KindMixin, Name: "ok"},
+			Requires: &Requires{Agent: "claude"},
+		}
+		require.NoError(t, ValidateArtifact(a))
+	})
+
+	t.Run("requires_on_sandbox_rejected", func(t *testing.T) {
+		a := &Artifact{
+			Manifest: Manifest{SchemaVersion: SchemaVersion, Kind: KindSandbox, Name: "ok", Template: "img"},
+			Requires: &Requires{Agent: "claude"},
+		}
+		require.ErrorContains(t, ValidateArtifact(a), "requires.agent is only valid for kind")
+	})
 }
 
 func TestResolvedResponseFields(t *testing.T) {

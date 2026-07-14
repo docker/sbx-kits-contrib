@@ -49,7 +49,7 @@ Optional SPDX license list. Non-empty list of strings if present. Implementation
 
 ### `mixins`
 
-Multi-parent composition for `kind: sandbox` kits. Only valid for sandbox kits — mixins themselves cannot use `mixins:` (or `extends:`).
+Multi-parent composition for `kind: sandbox` kits. The `mixins:` field itself is only valid on sandbox kits — a mixin cannot declare `mixins:`. A mixin *can* use `extends:` for single-parent inheritance (e.g. a Claude-specific mixin that `extends: claude` to inherit the base agent's config).
 
 ```yaml
 mixins:
@@ -84,6 +84,10 @@ environment variables, for instance, mean nothing to a `codex` sandbox. Set
 `requires.agent` to the base agent the mixin is designed for; composing it onto
 any other base agent is a composition error (rather than silently producing a
 nonsensical-but-valid sandbox).
+
+`requires` is **only valid on `kind: mixin`**. A `kind: sandbox` *is* the base
+agent, so affinity is meaningless there and is rejected at validation time
+rather than silently ignored.
 
 `requires.agent` is a **single agent name**, not a set — affinity exists to
 prevent misapplication, so an "any of these" list would defeat the guarantee.

@@ -286,6 +286,13 @@ func ValidateArtifact(a *Artifact) error {
 	if err := ValidateRequires(a.Requires); err != nil {
 		return err
 	}
+	// Base-agent affinity only means something for a mixin (which is layered
+	// onto a base agent). On a kind: sandbox — which IS a base agent — it is
+	// silently ignored at composition time, so reject it here rather than let
+	// an author believe it is enforced.
+	if a.Requires != nil && a.Requires.Agent != "" && a.Manifest.Kind != KindMixin {
+		return fmt.Errorf("requires.agent is only valid for kind %q, not %q — base-agent affinity applies to a mixin layered onto an agent", KindMixin, a.Manifest.Kind)
+	}
 	if err := ValidateLocked(a.Locked); err != nil {
 		return err
 	}
