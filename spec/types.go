@@ -25,8 +25,10 @@ const SchemaVersion = "1"
 
 // SupportedSchemaVersions enumerates every schemaVersion value the
 // loader accepts. "1" is the legacy shape (the current default); "2"
-// opts the kit into the v2 OCI artifact format at distribution time —
-// the spec fields themselves are unchanged across the two versions.
+// opts the kit into the v2 OCI artifact format at distribution time.
+// The set of decodable fields is the same across both versions, but
+// "2" additionally carries the v2 validation rules — currently that a
+// mixin must not set extends (ValidateArtifact); v1 kits are exempt.
 //
 // New entries should be appended (never reordered) so existing kits
 // continue to validate.
