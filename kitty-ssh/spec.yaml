@@ -10,8 +10,8 @@ description: |
 
   When kitten ssh connects, it detects the pre-installed directory at
   ~/.local/share/kitty-ssh-kitten and takes the silent update path rather
-  than printing the full data block. Version mismatches trigger a silent
-  re-upload — the directory presence is what suppresses the visible bootstrap.
+  than printing the full data block. The directory presence is what suppresses
+  the visible bootstrap; a version mismatch only triggers a silent re-upload.
 
   See https://sw.kovidgoyal.net/kitty/kittens/ssh/ for the full feature set
   that shell integration unlocks (prompt marks, scrollback navigation,
@@ -27,23 +27,24 @@ commands:
   install:
     - command: |
         set -euo pipefail
-        KITTY_VERSION="0.42.1"
         KITTY_DIR=/home/agent/.local/share/kitty-ssh-kitten/kitty
 
         mkdir -p "$KITTY_DIR/shell-integration/bash"
 
+        # Download from the main branch so this always tracks the latest release.
+        # The directory presence is what suppresses the visible KITTY_DATA_START
+        # bootstrap; a version mismatch only triggers a silent re-upload.
         curl --proto '=https' --tlsv1.2 -fsSL \
-          "https://raw.githubusercontent.com/kovidgoyal/kitty/v${KITTY_VERSION}/shell-integration/bash/kitty.bash" \
+          "https://raw.githubusercontent.com/kovidgoyal/kitty/main/shell-integration/bash/kitty.bash" \
           -o "$KITTY_DIR/shell-integration/bash/kitty.bash"
 
-        printf '%s' "$KITTY_VERSION" > "$KITTY_DIR/version"
         chown -R agent:agent /home/agent/.local
 
         # Guard against duplicate entries when `sbx kit add` is run more than once.
         grep -qF 'kitty-ssh-kitten/bash-integration.sh' /home/agent/.bashrc 2>/dev/null || \
           printf '\n# kitty SSH integration (kitty-ssh mixin)\n[ -f ~/.local/share/kitty-ssh-kitten/bash-integration.sh ] && . ~/.local/share/kitty-ssh-kitten/bash-integration.sh\n' >> /home/agent/.bashrc
       user: "0"
-      description: "Download Kitty v0.42.1 shell integration into ~/.local/share/kitty-ssh-kitten and register bash-integration.sh in ~/.bashrc"
+      description: "Download Kitty shell integration from main into ~/.local/share/kitty-ssh-kitten and register bash-integration.sh in ~/.bashrc"
 
 agentContext: |
   ## Kitty SSH integration
