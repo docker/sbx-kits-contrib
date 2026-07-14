@@ -572,10 +572,23 @@ func readOutput(t *testing.T, r io.Reader) string {
 // specs that never wrote `kind: agent`.
 func containerImage(a *spec.Artifact) (string, error) {
 	if a.Manifest.Kind == spec.KindSandbox {
-		if a.Manifest.Template == "" {
-			return "", fmt.Errorf("sandbox artifact %q has no template", a.Manifest.Name)
+		if a.Manifest.Template != "" {
+			return a.Manifest.Template, nil
 		}
-		return a.Manifest.Template, nil
+		// A sandbox may omit template when it inherits its image from an
+		// extends parent — ValidateArtifact allows this, and it is the
+		// recommended shape for a derived agent. Resolve a well-known extends
+		// parent's template; otherwise the author must supply WithImage.
+		if a.Extends != "" {
+			if tmpl, ok := wellKnownTemplates[a.Extends]; ok {
+				return tmpl, nil
+			}
+			return "", fmt.Errorf(
+				"sandbox %q extends unknown agent %q and sets no template; use WithImage to specify the container image",
+				a.Manifest.Name, a.Extends,
+			)
+		}
+		return "", fmt.Errorf("sandbox artifact %q has no template", a.Manifest.Name)
 	}
 
 	// kind=mixin: extends must resolve to a well-known agent template — an

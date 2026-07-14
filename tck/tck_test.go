@@ -106,6 +106,27 @@ func TestContainerImage(t *testing.T) {
 		require.ErrorContains(t, err, "no template")
 	})
 
+	t.Run("sandbox_without_template_resolves_from_extends", func(t *testing.T) {
+		// ValidateArtifact allows a sandbox to omit template when it extends a
+		// parent; the container image resolves from the well-known parent.
+		a := &spec.Artifact{
+			Manifest: spec.Manifest{Kind: spec.KindSandbox, Name: "derived"},
+			Extends:  "claude",
+		}
+		img, err := containerImage(a)
+		require.NoError(t, err)
+		require.Equal(t, wellKnownTemplates["claude"], img)
+	})
+
+	t.Run("sandbox_extends_unknown_without_template_errors", func(t *testing.T) {
+		a := &spec.Artifact{
+			Manifest: spec.Manifest{Kind: spec.KindSandbox, Name: "derived"},
+			Extends:  "unknown-agent",
+		}
+		_, err := containerImage(a)
+		require.ErrorContains(t, err, "use WithImage")
+	})
+
 	t.Run("mixin_defaults_to_shell", func(t *testing.T) {
 		a := &spec.Artifact{
 			Manifest: spec.Manifest{Kind: spec.KindMixin},
