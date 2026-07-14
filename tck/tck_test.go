@@ -133,6 +133,25 @@ func TestContainerImage(t *testing.T) {
 		_, err := containerImage(a)
 		require.ErrorContains(t, err, "unknown agent")
 	})
+
+	t.Run("mixin_requires_agent_resolves_image", func(t *testing.T) {
+		a := &spec.Artifact{
+			Manifest: spec.Manifest{Kind: spec.KindMixin},
+			Requires: &spec.Requires{Agent: "codex"},
+		}
+		img, err := containerImage(a)
+		require.NoError(t, err)
+		require.Equal(t, wellKnownTemplates["codex"], img)
+	})
+
+	t.Run("mixin_requires_unknown_agent_errors", func(t *testing.T) {
+		a := &spec.Artifact{
+			Manifest: spec.Manifest{Kind: spec.KindMixin, Name: "test"},
+			Requires: &spec.Requires{Agent: "unknown-agent"},
+		}
+		_, err := containerImage(a)
+		require.ErrorContains(t, err, "requires.agent")
+	})
 }
 
 func TestNewSuiteFromDir(t *testing.T) {

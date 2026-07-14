@@ -562,8 +562,9 @@ func readOutput(t *testing.T, r io.Reader) string {
 	return strings.TrimRight(buf.String(), "\n\r ")
 }
 
-// containerImage returns the image to use for container tests,
-// resolving well-known agent templates for mixins with extends.
+// containerImage returns the image to use for container tests, resolving a
+// well-known agent template for a mixin from either extends or its declared
+// base-agent affinity (requires.agent).
 //
 // After normalize, both v1 `kind: agent` and v2 `kind: sandbox` end up as
 // KindSandbox (spec/normalize.go migrates the v1 alias with a deprecation
@@ -577,14 +578,23 @@ func containerImage(a *spec.Artifact) (string, error) {
 		return a.Manifest.Template, nil
 	}
 
-	// kind=mixin: resolve from extends or default to shell
-	if a.Extends != "" {
-		if tmpl, ok := wellKnownTemplates[a.Extends]; ok {
+	// kind=mixin: resolve the base agent from extends, then from
+	// requires.agent affinity, else default to shell. A mixin that declares
+	// affinity is exercised in that agent's image so install/startup
+	// assertions run in the base the mixin is designed for.
+	agent := a.Extends
+	source := "extends"
+	if agent == "" && a.Requires != nil {
+		agent = a.Requires.Agent
+		source = "requires.agent"
+	}
+	if agent != "" {
+		if tmpl, ok := wellKnownTemplates[agent]; ok {
 			return tmpl, nil
 		}
 		return "", fmt.Errorf(
-			"mixin %q extends unknown agent %q; use WithImage to specify the container image",
-			a.Manifest.Name, a.Extends,
+			"mixin %q %s references unknown agent %q; use WithImage to specify the container image",
+			a.Manifest.Name, source, agent,
 		)
 	}
 

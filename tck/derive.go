@@ -27,8 +27,9 @@ func WithImage(image string) Option {
 // only one file at a time.
 //
 // For kind=agent artifacts, the container image is taken from the manifest's template.
-// For kind=mixin artifacts, the image is resolved from the extends field using
-// well-known agent templates, or defaults to the shell template.
+// For kind=mixin artifacts, the image is resolved from extends or the declared
+// base-agent affinity (requires.agent) using well-known agent templates, or
+// defaults to the shell template.
 // Use WithImage to override the image for any artifact.
 func NewSuiteFromDir(dir string, opts ...Option) (*Suite, error) {
 	artifact, err := spec.OpenFromDirectory(dir)
