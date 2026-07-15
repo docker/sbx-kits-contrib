@@ -35,8 +35,17 @@ var supportedPlaceholders = map[string]bool{
 	"${WORKDIR}": true,
 }
 
-// ValidateManifest validates a Manifest for correctness.
+// ValidateManifest validates a Manifest for correctness. A sandbox kit must
+// declare a template (image source); use validateManifest with inheritsImage
+// when the artifact supplies its image through the extends chain instead.
 func ValidateManifest(m *Manifest) error {
+	return validateManifest(m, false)
+}
+
+// validateManifest is the extends-aware core. When inheritsImage is true the
+// template-required check for sandbox kinds is skipped, because the artifact
+// resolves its image from its extends parent rather than declaring one.
+func validateManifest(m *Manifest, inheritsImage bool) error {
 	if m.SchemaVersion == "" {
 		return fmt.Errorf("manifest: schemaVersion is required")
 	}
@@ -61,7 +70,7 @@ func ValidateManifest(m *Manifest) error {
 		return fmt.Errorf("manifest: invalid name %q (must be lowercase alphanumeric with hyphens, 1-64 chars)", m.Name)
 	}
 
-	if m.Kind == KindSandbox || m.Kind == KindAgent {
+	if (m.Kind == KindSandbox || m.Kind == KindAgent) && !inheritsImage {
 		if m.Template == "" {
 			return fmt.Errorf("manifest: template is required for kind %q", KindSandbox)
 		}
@@ -262,7 +271,10 @@ func ValidateVolumes(volumes []MountSpec) error {
 
 // ValidateArtifact validates a complete Artifact for internal consistency.
 func ValidateArtifact(a *Artifact) error {
-	if err := ValidateManifest(&a.Manifest); err != nil {
+	// A sandbox kit that extends a parent inherits its image, so the leaf
+	// need not declare a template of its own; the image requirement is
+	// satisfied once the extends chain is resolved.
+	if err := validateManifest(&a.Manifest, a.Extends != ""); err != nil {
 		return err
 	}
 	if err := ValidateSecurity(a.Manifest.Security); err != nil {
@@ -270,6 +282,25 @@ func ValidateArtifact(a *Artifact) error {
 	}
 	if err := ValidateVolumes(a.Manifest.Volumes); err != nil {
 		return err
+	}
+	if err := ValidateRequires(a.Requires); err != nil {
+		return err
+	}
+	// Base-agent affinity only means something for a mixin (which is layered
+	// onto a base agent). On a kind: sandbox — which IS a base agent — it is
+	// silently ignored at composition time, so reject it here rather than let
+	// an author believe it is enforced.
+	if a.Requires != nil && a.Requires.Agent != "" && a.Manifest.Kind != KindMixin {
+		return fmt.Errorf("requires.agent is only valid for kind %q, not %q — base-agent affinity applies to a mixin layered onto an agent", KindMixin, a.Manifest.Kind)
+	}
+	// kit-spec v2 forbids a mixin from using extends: mixins are minimally
+	// scoped, base-agnostic additions layered onto a base agent, not
+	// single-parent-inheriting kits. To derive from a parent agent, use a
+	// kind: sandbox kit with extends. Gated on schemaVersion "2" so v1 kits
+	// authored before the rule keep validating — the check is additive, never
+	// invalidating a previously-accepted v1 spec.
+	if a.Manifest.SchemaVersion == "2" && a.Manifest.Kind == KindMixin && a.Extends != "" {
+		return fmt.Errorf("kind %q must not set extends (kit-spec v2): mixins are base-agnostic additions; use a kind %q kit with extends to derive from a parent agent", KindMixin, KindSandbox)
 	}
 	if err := ValidateLocked(a.Locked); err != nil {
 		return err
@@ -303,6 +334,21 @@ func ValidateArtifact(a *Artifact) error {
 		}
 	}
 
+	return nil
+}
+
+// ValidateRequires validates the well-formedness of a kit's composition
+// preconditions. When set, requires.agent must be a valid kit name (the same
+// charset as a Manifest.Name). Whether a given base agent actually satisfies
+// the affinity is decided by the consumer that performs composition. A nil
+// block, or an empty agent, is valid (no affinity declared).
+func ValidateRequires(r *Requires) error {
+	if r == nil || r.Agent == "" {
+		return nil
+	}
+	if !namePattern.MatchString(r.Agent) {
+		return fmt.Errorf("requires.agent %q is not a valid agent name (must be lowercase alphanumeric with hyphens, 1-64 chars)", r.Agent)
+	}
 	return nil
 }
 

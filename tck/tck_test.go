@@ -106,6 +106,27 @@ func TestContainerImage(t *testing.T) {
 		require.ErrorContains(t, err, "no template")
 	})
 
+	t.Run("sandbox_without_template_resolves_from_extends", func(t *testing.T) {
+		// ValidateArtifact allows a sandbox to omit template when it extends a
+		// parent; the container image resolves from the well-known parent.
+		a := &spec.Artifact{
+			Manifest: spec.Manifest{Kind: spec.KindSandbox, Name: "derived"},
+			Extends:  "claude",
+		}
+		img, err := containerImage(a)
+		require.NoError(t, err)
+		require.Equal(t, wellKnownTemplates["claude"], img)
+	})
+
+	t.Run("sandbox_extends_unknown_without_template_errors", func(t *testing.T) {
+		a := &spec.Artifact{
+			Manifest: spec.Manifest{Kind: spec.KindSandbox, Name: "derived"},
+			Extends:  "unknown-agent",
+		}
+		_, err := containerImage(a)
+		require.ErrorContains(t, err, "use WithImage")
+	})
+
 	t.Run("mixin_defaults_to_shell", func(t *testing.T) {
 		a := &spec.Artifact{
 			Manifest: spec.Manifest{Kind: spec.KindMixin},
@@ -132,6 +153,29 @@ func TestContainerImage(t *testing.T) {
 		}
 		_, err := containerImage(a)
 		require.ErrorContains(t, err, "unknown agent")
+	})
+
+	t.Run("mixin_requires_agent_resolves_image", func(t *testing.T) {
+		a := &spec.Artifact{
+			Manifest: spec.Manifest{Kind: spec.KindMixin},
+			Requires: &spec.Requires{Agent: "codex"},
+		}
+		img, err := containerImage(a)
+		require.NoError(t, err)
+		require.Equal(t, wellKnownTemplates["codex"], img)
+	})
+
+	t.Run("mixin_requires_unknown_agent_falls_back_to_shell", func(t *testing.T) {
+		// Unlike extends, an unresolvable requires.agent is not an error: the
+		// affinity may name a custom agent, so the TCK falls back to shell
+		// (WithImage overrides when a specific image is needed).
+		a := &spec.Artifact{
+			Manifest: spec.Manifest{Kind: spec.KindMixin, Name: "test"},
+			Requires: &spec.Requires{Agent: "unknown-agent"},
+		}
+		img, err := containerImage(a)
+		require.NoError(t, err)
+		require.Equal(t, DefaultShellImage, img)
 	})
 }
 
@@ -161,6 +205,20 @@ func TestNewSuiteFromDir(t *testing.T) {
 		require.NoError(t, err)
 
 		require.Equal(t, "custom:latest", suite.Image)
+	})
+
+	t.Run("with_image_rescues_unresolved_image", func(t *testing.T) {
+		// A sandbox that inherits its image via an unknown extends cannot
+		// resolve an image from the spec...
+		_, err := NewSuiteFromDir("testdata/unresolved-image")
+		require.ErrorContains(t, err, "use WithImage")
+
+		// ...and WithImage must be able to override that, since the error
+		// instructs the caller to do so. Regression: options are applied
+		// before image resolution, so WithImage short-circuits it.
+		suite, err := NewSuiteFromDir("testdata/unresolved-image", WithImage("custom/img:v1"))
+		require.NoError(t, err)
+		require.Equal(t, "custom/img:v1", suite.Image)
 	})
 
 	t.Run("invalid_dir", func(t *testing.T) {

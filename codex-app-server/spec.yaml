@@ -1,7 +1,11 @@
 schemaVersion: "1"
 kind: mixin
 name: codex-app-server
-extends: codex
+# sshd + codex bridge; only meaningful on the codex base agent. Declares
+# base-agent affinity instead of extends: as a mixin it already runs in the
+# base agent's container and inherits its credentials at compose time.
+requires:
+  agent: codex
 displayName: Codex app-server (via SSH)
 description: Runs sshd in the sandbox and pre-populates `authorized_keys` from the host's forwarded SSH agent, so the Codex Mac GUI can add the sandbox as an SSH Connection and drive `codex app-server` remotely. The kit declares port 22 in `network.publishedPorts`, so the runtime exposes sshd on an ephemeral host port at sandbox start.
 

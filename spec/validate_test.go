@@ -377,6 +377,24 @@ func TestValidateLocked(t *testing.T) {
 	})
 }
 
+func TestValidateRequires(t *testing.T) {
+	t.Run("nil_is_valid", func(t *testing.T) {
+		require.NoError(t, ValidateRequires(nil))
+	})
+
+	t.Run("empty_agent_is_valid", func(t *testing.T) {
+		require.NoError(t, ValidateRequires(&Requires{}))
+	})
+
+	t.Run("valid_agent", func(t *testing.T) {
+		require.NoError(t, ValidateRequires(&Requires{Agent: "claude"}))
+	})
+
+	t.Run("invalid_name", func(t *testing.T) {
+		require.ErrorContains(t, ValidateRequires(&Requires{Agent: "Not A Name"}), "not a valid agent name")
+	})
+}
+
 func TestValidateLicenses(t *testing.T) {
 	t.Run("nil_is_valid", func(t *testing.T) {
 		require.NoError(t, ValidateLicenses(nil))
@@ -480,6 +498,61 @@ func TestValidateArtifact(t *testing.T) {
 			Files:    []ArtifactFile{{RelativePath: "../escape", Target: TargetHome}},
 		}
 		require.ErrorContains(t, ValidateArtifact(a), "escapes the target directory")
+	})
+
+	t.Run("sandbox_missing_template_without_extends", func(t *testing.T) {
+		a := &Artifact{Manifest: Manifest{SchemaVersion: SchemaVersion, Kind: KindSandbox, Name: "ok"}}
+		require.ErrorContains(t, ValidateArtifact(a), "template is required")
+	})
+
+	t.Run("sandbox_inherits_template_via_extends", func(t *testing.T) {
+		a := &Artifact{
+			Manifest: Manifest{SchemaVersion: SchemaVersion, Kind: KindSandbox, Name: "ok"},
+			Extends:  "claude",
+		}
+		require.NoError(t, ValidateArtifact(a))
+	})
+
+	t.Run("requires_on_mixin_allowed", func(t *testing.T) {
+		a := &Artifact{
+			Manifest: Manifest{SchemaVersion: SchemaVersion, Kind: KindMixin, Name: "ok"},
+			Requires: &Requires{Agent: "claude"},
+		}
+		require.NoError(t, ValidateArtifact(a))
+	})
+
+	t.Run("requires_on_sandbox_rejected", func(t *testing.T) {
+		a := &Artifact{
+			Manifest: Manifest{SchemaVersion: SchemaVersion, Kind: KindSandbox, Name: "ok", Template: "img"},
+			Requires: &Requires{Agent: "claude"},
+		}
+		require.ErrorContains(t, ValidateArtifact(a), "requires.agent is only valid for kind")
+	})
+
+	t.Run("v2_mixin_with_extends_rejected", func(t *testing.T) {
+		a := &Artifact{
+			Manifest: Manifest{SchemaVersion: "2", Kind: KindMixin, Name: "ok"},
+			Extends:  "claude",
+		}
+		require.ErrorContains(t, ValidateArtifact(a), "must not set extends")
+	})
+
+	t.Run("v1_mixin_with_extends_grandfathered", func(t *testing.T) {
+		// Backwards compatibility: the v2 rule must not invalidate a v1 kit
+		// that predates it.
+		a := &Artifact{
+			Manifest: Manifest{SchemaVersion: "1", Kind: KindMixin, Name: "ok"},
+			Extends:  "claude",
+		}
+		require.NoError(t, ValidateArtifact(a))
+	})
+
+	t.Run("v2_sandbox_with_extends_allowed", func(t *testing.T) {
+		a := &Artifact{
+			Manifest: Manifest{SchemaVersion: "2", Kind: KindSandbox, Name: "ok"},
+			Extends:  "claude",
+		}
+		require.NoError(t, ValidateArtifact(a))
 	})
 }
 

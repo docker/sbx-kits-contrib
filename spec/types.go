@@ -25,8 +25,10 @@ const SchemaVersion = "1"
 
 // SupportedSchemaVersions enumerates every schemaVersion value the
 // loader accepts. "1" is the legacy shape (the current default); "2"
-// opts the kit into the v2 OCI artifact format at distribution time —
-// the spec fields themselves are unchanged across the two versions.
+// opts the kit into the v2 OCI artifact format at distribution time.
+// The set of decodable fields is the same across both versions, but
+// "2" additionally carries the v2 validation rules — currently that a
+// mixin must not set extends (ValidateArtifact); v1 kits are exempt.
 //
 // New entries should be appended (never reordered) so existing kits
 // continue to validate.
@@ -465,6 +467,26 @@ type CapsNetwork struct {
 	Deny  []string `json:"deny,omitempty" yaml:"deny,omitempty"`
 }
 
+// Requires declares composition preconditions for a kit. Today it carries
+// only base-agent affinity — the base agent a mixin is designed to layer onto.
+// Env vars, credentials, and settings a mixin injects are often agent-specific
+// (e.g. Claude Code's ANTHROPIC_* variables mean nothing to a codex sandbox),
+// so a mixin can pin the base agent it makes sense on.
+//
+// The spec library validates only well-formedness; enforcement — rejecting a
+// mixin applied to a non-matching base agent — lives in the consumer that
+// performs composition, alongside Locked and Licenses.
+type Requires struct {
+	// Agent is the base-agent name this kit is designed for. When set,
+	// composing the kit onto a different base agent is a composition error.
+	// Absent or empty means the kit declares no affinity and layers onto any
+	// base agent. A single agent, not a set: affinity exists to prevent
+	// misapplication, and an "any of these" set would defeat that guarantee.
+	// Broader family matching (claude and its claude-* variants) is left to
+	// the consumer's extends-lineage check, not an explicit list.
+	Agent string `json:"agent,omitempty" yaml:"agent,omitempty"`
+}
+
 // EnvironmentPolicy defines environment variables to set in the container.
 type EnvironmentPolicy struct {
 	// Variables are static environment variables to set in the container.
@@ -609,6 +631,11 @@ type Artifact struct {
 	// mixin composition is not wired in this release — the field has no
 	// runtime effect yet (a load-time warning fires when it is used).
 	Mixins []string `json:"mixins,omitempty"`
+
+	// Requires declares composition preconditions — currently base-agent
+	// affinity (see Requires). The spec library validates well-formedness;
+	// enforcement lives in the consumer that performs composition.
+	Requires *Requires `json:"requires,omitempty"`
 
 	// Locked lists dotted YAML paths (e.g. "agent.image") on this artifact
 	// that child kits must not override during single-parent inheritance.
@@ -792,6 +819,7 @@ type SpecFile struct {
 	Volumes  volumesField  `yaml:"volumes,omitempty"`
 	Extends  string        `yaml:"extends,omitempty"`
 	Mixins   []string      `yaml:"mixins,omitempty"`
+	Requires *Requires     `yaml:"requires,omitempty"`
 	Locked   []string      `yaml:"locked,omitempty"`
 	Licenses []string      `yaml:"licenses,omitempty"`
 	Sandbox  *sandboxBlock `yaml:"sandbox,omitempty"`

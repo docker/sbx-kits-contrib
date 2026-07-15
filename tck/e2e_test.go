@@ -378,12 +378,16 @@ func waitForAgentReady(t *testing.T, ctx context.Context, name, readyFile string
 }
 
 // agentForKit picks the positional agent argument for `sbx create`. Sandbox
-// kits must be invoked with their own name as the agent; mixin kits
-// piggy-back on whichever agent kit-author wants to exercise — claude is
-// the default.
+// kits must be invoked with their own name as the agent. A mixin that declares
+// base-agent affinity (requires.agent) must be exercised on that agent —
+// composing it onto any other base is a hard error, since affinity is enforced
+// at compose time. Mixins without affinity default to claude.
 func agentForKit(a *spec.Artifact) string {
 	if a.Manifest.Kind == spec.KindSandbox {
 		return a.Manifest.Name
+	}
+	if a.Requires != nil && a.Requires.Agent != "" {
+		return a.Requires.Agent
 	}
 	return "claude"
 }
