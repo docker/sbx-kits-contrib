@@ -155,8 +155,11 @@ sandbox:
 
 A pre-built base image reference. For `kind: sandbox`, an image reference is
 **REQUIRED** at validation time (`Manifest.Template`): a sandbox always resolves
-to a concrete image, whether written directly as `image:` or produced by
-`sbx kit push` from a `build:` block.
+to a concrete image, whether written directly as `image:`, produced by
+`sbx kit push` from a `build:` block, **or inherited from an `extends` parent**.
+A leaf that sets `extends:` MAY omit its own `image`/`build` and inherit the
+parent's; the requirement is then checked on the *resolved* artifact, not the
+leaf (see [§3.4](#34-extends-single-parent-inheritance)).
 
 #### 3.2.2 `build`
 
@@ -238,6 +241,9 @@ extends: shell               # a single parent kit (built-in name or pinned remo
 - Not auto-resolved at load — callers opt in via the resolver (walks up to 5
   levels with cycle detection).
 - Merge is additive; see [Composition](../skills/kit-author/topics/composition.md).
+- Because merge is additive, a leaf that sets `extends:` MAY omit its own
+  `sandbox.image`/`build` and inherit the parent's — the image requirement
+  ([§3.2.1](#321-image)) is satisfied on the resolved artifact, not the leaf.
 
 ### 3.5 `mixins` (author-time composition)
 
@@ -325,6 +331,7 @@ sandbox can carry, a mixin can carry.
 | `sandbox` | **FORBIDDEN** | Declaring it is a hard error. |
 | `extends` | **FORBIDDEN** | Mixins cannot inherit. |
 | `mixins` | **FORBIDDEN** | Mixins cannot compose other mixins. |
+| [`requires`](#43-requires-base-agent-affinity) | optional | Base-agent affinity — the base agent this mixin may layer onto. |
 | [`agentInstructions`](#51-agentinstructions) | `content` only | `filename` is **ignored** (a warning, not an error) — a mixin contributes to the base sandbox's profile, it does not own one. |
 | [`permissions`](#52-permissionsnetwork) | yes | Egress allow/deny, unioned into the composition. |
 | [`ports`](#53-ports) | yes | |
@@ -344,7 +351,31 @@ stacking many mixins does not bloat the always-loaded profile.
 
 If a mixin sets `agentInstructions.filename`, it is dropped with a warning.
 
-### 4.3 Complete mixin examples
+### 4.3 `requires` (base-agent affinity)
+
+```yaml
+requires:
+  agent: claude              # a single base-agent name
+```
+
+A mixin often injects agent-specific configuration — Claude Code's `ANTHROPIC_*`
+variables mean nothing to a `codex` sandbox. `requires.agent` pins the base
+agent the mixin is designed for; composing it onto any other base agent is a
+composition error, rather than silently producing a nonsensical-but-valid
+sandbox.
+
+- **Mixin-only.** `requires` on a `kind: sandbox` is rejected — a sandbox *is* a
+  base agent, so affinity is meaningless there.
+- **A single agent name, not a set.** Affinity exists to prevent misapplication;
+  an "any of these" list would defeat the guarantee. Broader family matching
+  (e.g. `claude` and its `claude-vertex` / `claude-bedrock` variants) is left to
+  the consumer's `extends`-lineage check, not an explicit list.
+- The spec library validates only well-formedness (the `agent` name matches the
+  kit-name charset); the affinity itself is enforced at **composition time** by
+  the consumer — a mixin declaring `requires.agent` is base-agnostic to the spec
+  loader but rejected by `Compose` when layered onto a non-matching base agent.
+
+### 4.4 Complete mixin examples
 
 A tool-installing mixin that needs extra egress:
 
@@ -700,7 +731,10 @@ the per-field rules above:
 
 - **Manifest**: `schemaVersion` in the supported set; `kind` is `sandbox` or
   `mixin`; `name` matches the name pattern; a sandbox kit has an image
-  (`Template`); `resources.cpu` ≥ 0 and `resources.memory` is a valid byte-size.
+  (`Template`) unless it is inherited via `extends` (checked on the resolved
+  artifact); `resources.cpu` ≥ 0 and `resources.memory` is a valid byte-size.
+- **requires**: `requires.agent` is a valid agent name; `requires` appears only
+  on a `kind: mixin` (rejected on `kind: sandbox`).
 - **Volumes**: `type` is `""` or `tmpfs`; `path` absolute; `size` a valid
   byte-size; `mode` octal.
 - **ports**: `container` in 1..65535; `protocol` in `{"", tcp, udp}` (validation error messages spell this `publishedPorts[...]`, the canonical field name).
