@@ -25,10 +25,11 @@ type specFileV2 struct {
 	SourceURL     string    `yaml:"sourceURL,omitempty"`
 	Security      *Security `yaml:"security,omitempty"`
 
-	Extends  string   `yaml:"extends,omitempty"`
-	Mixins   []string `yaml:"mixins,omitempty"`
-	Locked   []string `yaml:"locked,omitempty"`
-	Licenses []string `yaml:"licenses,omitempty"`
+	Extends  string    `yaml:"extends,omitempty"`
+	Mixins   []string  `yaml:"mixins,omitempty"`
+	Requires *Requires `yaml:"requires,omitempty"`
+	Locked   []string  `yaml:"locked,omitempty"`
+	Licenses []string  `yaml:"licenses,omitempty"`
 
 	Sandbox           *sandboxBlockV2           `yaml:"sandbox,omitempty"`
 	AgentInstructions *agentInstructionsBlockV2 `yaml:"agentInstructions,omitempty"`
@@ -173,7 +174,9 @@ func (s *specFileV2) toArtifact(w *warnings) (*Artifact, error) {
 	if s.Sandbox != nil && !isSandbox {
 		return nil, fmt.Errorf("'sandbox:' block is only valid for kind %q, not %q", KindSandbox, s.Kind)
 	}
-	if s.Sandbox == nil && isSandbox {
+	// A sandbox that extends a parent inherits the parent's image, so it may
+	// omit its own sandbox block; only a root sandbox must supply one.
+	if s.Sandbox == nil && isSandbox && s.Extends == "" {
 		return nil, fmt.Errorf("kind %q requires a 'sandbox:' block with at least 'sandbox.image'", KindSandbox)
 	}
 
@@ -236,6 +239,7 @@ func (s *specFileV2) toArtifact(w *warnings) (*Artifact, error) {
 		Manifest:       m,
 		Extends:        s.Extends,
 		Mixins:         s.Mixins,
+		Requires:       s.Requires,
 		Locked:         s.Locked,
 		Licenses:       s.Licenses,
 		PublishedPorts: s.PublishedPorts,
