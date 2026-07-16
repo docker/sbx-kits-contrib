@@ -249,3 +249,32 @@ environment: {proxyManaged: [OPENAI_API_KEY]}
 		t.Fatalf("migrated output missing 'proxyManaged: true':\n%s", out)
 	}
 }
+
+// TestMigratePreservesRequires confirms a mixin's requires: agent: (base-agent
+// affinity) survives the round-trip. The migrator loads the source through the
+// spec package and re-emits it, so a missing Requires field in the emit shape
+// silently drops affinity — producing a mixin that can be applied to the wrong
+// base agent. The network: block forces a re-emit (affinity alone is not a v1
+// construct, so it would not trigger migration on its own).
+func TestMigratePreservesRequires(t *testing.T) {
+	v1 := []byte(`schemaVersion: "1"
+kind: mixin
+name: t
+requires:
+  agent: claude
+network:
+  serviceDomains: {api.openai.com: openai}
+  serviceAuth: {openai: {headerName: Authorization, valueFormat: "Bearer %s"}}
+credentials: {sources: {openai: {env: [OPENAI_API_KEY]}}}
+`)
+	out, changes, err := migrateSpec(v1)
+	if err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+	if len(changes) == 0 {
+		t.Fatalf("expected migration changes")
+	}
+	if !strings.Contains(string(out), "requires:") || !strings.Contains(string(out), "agent: claude") {
+		t.Fatalf("migrated output dropped 'requires.agent: claude':\n%s", out)
+	}
+}
