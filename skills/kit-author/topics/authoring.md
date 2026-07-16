@@ -252,7 +252,7 @@ For changes that affect immutable container settings (privileged, volumes, tmpfs
 
 ## Before opening a PR
 
-CI on the repo skips the `test-kit-e2e` job for fork PRs (Docker Hub secrets aren't exposed to fork-triggered workflows). Run e2e locally before you ask for review:
+CI on the repo skips the e2e legs (`e2e-release`, `e2e-nightly`) for fork PRs (Docker Hub secrets aren't exposed to fork-triggered workflows). Run e2e locally before you ask for review:
 
 ```bash
 cd my-kit && ../scripts/test-kit-e2e.sh
