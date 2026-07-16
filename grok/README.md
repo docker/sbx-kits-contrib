@@ -1,0 +1,62 @@
+# grok
+
+A standalone agent kit (`kind: agent`) for [Grok Build](https://github.com/xai-org/grok-build)
+(`grok`), xAI's terminal-based coding agent. The kit installs Grok Build into
+the sandbox at creation time, wires its API auth through the sandbox proxy,
+and runs `grok --yolo --no-auto-update` as the entrypoint when you attach.
+
+## Prerequisites
+
+- An [xAI](https://console.x.ai) account and API key.
+- `$XAI_API_KEY` exported on your host. The sandbox proxy manages it — the
+  key itself never enters the sandbox.
+
+## Usage
+
+Run the kit. Pass the kit's name (`grok`) as the agent argument:
+
+```console
+$ sbx run --kit "git+https://github.com/docker/sbx-kits-contrib.git#dir=grok" grok
+```
+
+Or with a local clone of this repo:
+
+```console
+$ sbx run --kit ./grok/ grok
+```
+
+The first launch installs Grok Build via its official install script.
+Subsequent launches reuse the sandbox.
+
+## How auth works
+
+`network.serviceDomains` maps `api.x.ai` (the xAI chat-completions API) to
+the `xai` service, and `network.serviceAuth.xai` tells the proxy to inject
+`Authorization: Bearer <key>` on outbound requests to that host. The key
+comes from `XAI_API_KEY`, sourced via `credentials.sources.xai.env` and
+marked `environment.proxyManaged` so it's substituted by the proxy rather
+than baked into the container.
+
+`grok`'s browser-based OAuth login (`grok login`, the interactive default)
+isn't wired up by this kit — there's no browser inside the sandbox to
+complete it. Setting `XAI_API_KEY` sidesteps that entirely: per Grok's own
+[auth precedence](https://github.com/xai-org/grok-build/blob/main/crates/codegen/xai-grok-pager/docs/user-guide/02-authentication.md#auth-precedence),
+the API key is used whenever no session token is already active, which is
+always true for a fresh sandbox.
+
+## How the install works
+
+Grok Build's installer (`x.ai/cli/install.sh`) only symlinks `grok` onto an
+existing, writable `PATH` directory — either `~/.local/bin` or
+`/usr/local/bin` — it never creates one. `~/.local/bin` is on `PATH` already
+via the `shell-docker` base image, but the image never creates the
+directory itself, so on a fresh container the installer would silently fall
+back to appending `~/.bashrc`, which a non-interactive kit entrypoint never
+sources. `commands.install` works around this by `mkdir -p ~/.local/bin`
+before running the installer, so `grok` is on `PATH` immediately.
+
+## Customization
+
+Grok Build reads project rules from `AGENTS.md` (also `CLAUDE.md` and a few
+other filenames, for compatibility with other agents' conventions — see
+[Project Rules](https://github.com/xai-org/grok-build/blob/main/crates/codegen/xai-grok-pager/docs/user-guide/12-project-rules.md)).
