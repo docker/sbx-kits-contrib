@@ -31,15 +31,15 @@ Use this skill when:
 
 Primary topics describe the **v2** spec form (`schemaVersion: "2"`):
 
-- [Spec anatomy](topics/spec-anatomy.md) — `spec.yaml` top-level fields (`mixins`, `licenses`, `extends`, `locked`) and every section (`sandbox` with `image:` or `build:`, `credentials[]` with `apiKey`/`oauth`/`sshAgent`, `caps.network`, `publishedPorts`, `environment`, `commands`, `volumes`, `agentContext`, `files/`).
-- [Lifecycle](topics/lifecycle.md) — Sourcing → load → normalize → validate → extends → compose → configure → hooks → container → runtime. What happens at each stage as observed by the kit author.
+- [Spec anatomy](topics/spec-anatomy.md) — `spec.yaml` top-level fields (`mixins`, `licenses`, `extends`, `locked`) and every section (`sandbox` with `image:`/`build:` + `entrypoint`/`command`, `agentInstructions` with `filename`/`content`, `credentials[]` with `apiKey`/`oauth`/`sshAgent` and the `scheme` sugar, `permissions.network`, `ports`, `environment`, `setup` with `install`/`startup`/`files`, `volumes`, `files/`).
+- [Lifecycle](topics/lifecycle.md) — Sourcing → load (schemaVersion-forked decode) → normalize → validate → extends → compose → configure → hooks → container → runtime. What happens at each stage as observed by the kit author.
 - [Composition](topics/composition.md) — `extends:` inheritance vs `--kit` composition. Merge strategies per section, conflict rules, what "last wins" means.
-- [Authoring guide](topics/authoring.md) — Step-by-step recipes for a minimal mixin and a full sandbox kit. Where to put files. When to use `files/` vs `initFiles`.
+- [Authoring guide](topics/authoring.md) — Step-by-step recipes for a minimal mixin and a full sandbox kit. Where to put files. When to use `files/` vs `setup.files`.
 - [Bindings](topics/bindings.md) — The user-side `~/.config/sbx/credentials.yaml` file: how kits and users split the credential contract.
-- [Distribution](topics/distribution.md) — Local dir, OCI digests, git commit-SHA references. Strict pinning rule. Schema-version compatibility. `sbx kit push/pull/inspect/validate/delete`.
+- [Distribution](topics/distribution.md) — Local dir, OCI digests, git commit-SHA references. Strict pinning rule. Schema-version compatibility (v2 is a breaking grammar). `sbx kit push/pull/inspect/validate/delete`.
 - [Testing](topics/testing.md) — TCK suite, e2e under `deny-all` (mandatory locally — CI's e2e legs are skipped for fork PRs), manual `sbx kit add` verification, proving allow-list enforcement.
-- [Pitfalls](topics/pitfalls.md) — Surprises seen in practice: install-completed is exit-code only, `commands.startup` runs on **every** container start (idempotency required), `kit add` cannot apply immutable settings, `commands.install` idempotency + duplication footguns + `SBX_CRED_<SERVICE>_MODE` contract, inject/binding domain intersection.
+- [Pitfalls](topics/pitfalls.md) — Surprises seen in practice: install-completed is exit-code only, `setup.startup` runs on **every** container start (idempotency required), `kit add` cannot apply immutable settings, `setup.install` idempotency + duplication footguns + `SBX_CRED_<SERVICE>_MODE` contract, inject/binding domain intersection.
 
 Legacy reference:
 
-- [v1 → v2 migration](topics/v1-migration.md) — Every v1 surface, its v2 equivalent, the `migrate-v1-to-v2.go` script's coverage, and what to migrate by hand. Phase 6 cutover removes the v1 shims; until then v1 keeps loading with deprecation warnings on `Artifact.Warnings`.
+- [v1 → v2 migration](topics/v1-migration.md) — Every v1 surface, its v2 equivalent, the `migrate-v1-to-v2.go` script's coverage, and what to migrate by hand. The loader forks on `schemaVersion`; v2 is a clean grammar with no shims, while v1 keeps loading with deprecation warnings on `Artifact.Warnings` until the Phase 6 cutover.

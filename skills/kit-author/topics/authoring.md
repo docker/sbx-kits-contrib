@@ -20,7 +20,7 @@ name: mcp-postgres
 displayName: PostgreSQL MCP Server
 description: "Adds PostgreSQL access via MCP"
 
-commands:
+setup:
   install:
     - command: "npm install -g @mcp/postgres-server"
       description: Install PostgreSQL MCP server
@@ -32,10 +32,10 @@ Use it:
 sbx run claude --kit ./mcp-postgres/ .
 ```
 
-If your install command needs network access beyond what the base agent allows, add `caps.network.allow`:
+If your install command needs network access beyond what the base agent allows, add `permissions.network.allow`:
 
 ```yaml
-caps:
+permissions:
   network:
     allow:
       - registry.npmjs.org
@@ -56,11 +56,11 @@ mcp-postgres/
         └── .mcp/postgres.json
 ```
 
-If the content needs `${WORKDIR}` substitution or must not overwrite an existing file on a persistent volume, use `initFiles`:
+If the content needs `${WORKDIR}` substitution or must not overwrite an existing file on a persistent volume, use `setup.files`:
 
 ```yaml
-commands:
-  initFiles:
+setup:
+  files:
     - path: /home/agent/.copilot/config.json
       content: '{"trusted_folders": ["${WORKDIR}"]}'
       onlyIfMissing: true
@@ -70,9 +70,9 @@ Decision rule:
 
 - **Static file under home** → `files/home/<path>`.
 - **Static file under workspace** → `files/workspace/<path>`. Safe with `sbx run --clone`: the kit's hook fires after the in-container `git clone` populates the workspace, so the file lands in the cloned working copy.
-- **Dynamic content** (needs `${WORKDIR}` substitution in *content*) **or** **write-once semantics** (`onlyIfMissing`) → `commands.initFiles`.
+- **Dynamic content** (needs `${WORKDIR}` substitution in *content*) **or** **write-once semantics** (`onlyIfMissing`) → `setup.files`.
 
-`commands.initFiles` cannot target a path under the in-container clone directory — under `--clone` the CLI rejects such kits up front and points you here. If you want a static file at the workspace root, use `files/workspace/`.
+`setup.files` cannot target a path under the in-container clone directory — under `--clone` the CLI rejects such kits up front and points you here. If you want a static file at the workspace root, use `files/workspace/`.
 
 Heads-up on overlay: a `files/workspace/<path>` whose relative path matches a real file in the user's repo will silently overwrite that file on **every** sandbox start. Overlay is the intended semantic, but if it isn't what you want, name the file differently or move it under `files/home/<path>`. See [`pitfalls.md`](pitfalls.md).
 
@@ -90,17 +90,14 @@ credentials:
       name: GITHUB_TOKEN
       inject:
         - domain: api.github.com
-          header: Authorization
-          format: "Bearer %s"
+          scheme: bearer
         - domain: raw.githubusercontent.com
-          header: Authorization
-          format: "Bearer %s"
+          scheme: bearer
         - domain: github.com                   # HTTPS git clone over HTTP Basic
-          header: Authorization
-          format: "Basic %s"
+          scheme: basic
           username: x-access-token
 
-caps:
+permissions:
   network:
     allow:
       - "*.github.com"
@@ -119,18 +116,18 @@ kind: mixin
 name: code-server
 displayName: code-server
 
-publishedPorts:
+ports:
   - container: 8080
     protocol: tcp
     name: web
 
-caps:
+permissions:
   network:
     allow:
       - openvsx.eclipsecontent.org             # extension marketplace
       - "*.vsassets.io"
 
-commands:
+setup:
   install:
     - command: "curl -fsSL https://code-server.dev/install.sh | sh"
       description: Install code-server
@@ -164,10 +161,10 @@ name: myagent
 displayName: My Agent
 sandbox:
   image: docker/sandbox-templates:myagent
-  aiFilename: MYAGENT.md
-  entrypoint:
-    run: [myagent]
-    args: []
+  entrypoint: [myagent]
+
+agentInstructions:
+  filename: MYAGENT.md
 
 credentials:
   - service: myservice
@@ -175,10 +172,9 @@ credentials:
       name: MYSERVICE_API_KEY
       inject:
         - domain: api.myservice.com
-          header: Authorization
-          format: "Bearer %s"
+          scheme: bearer
 
-caps:
+permissions:
   network:
     allow:
       - "*.myservice.com"
@@ -187,7 +183,7 @@ environment:
   variables:
     IS_SANDBOX: "1"
 
-commands:
+setup:
   install:
     - command: "curl -fsSL https://myservice.com/install.sh | bash"
       description: Install my-agent
@@ -211,7 +207,7 @@ promptArgs: ["-p"]
 readyFile: "/home/agent/.my-agent-installed"
 
 # Optional: only needed when the sandbox entrypoint is a wrapper script whose
-# name differs from the real binary. Omit for kits where entrypoint.run[0]
+# name differs from the real binary. Omit for kits where entrypoint[0]
 # already names the binary (amp, crush, junie, nanobot, opencode, pi, etc.).
 binary: "my-agent"
 ```
@@ -258,11 +254,11 @@ CI on the repo skips the e2e legs (`e2e-release`, `e2e-nightly`) for fork PRs (D
 cd my-kit && ../scripts/test-kit-e2e.sh
 ```
 
-The script handles the dance for you — it scopes everything to `--app-name sbx-kits-contrib-tck` (the same app-name the harness uses internally) and applies the `deny-all` default policy CI uses, so the only `network.allowedDomains` entries that survive are the ones you actually need. Your main sbx state is untouched.
+The script handles the dance for you — it scopes everything to `--app-name sbx-kits-contrib-tck` (the same app-name the harness uses internally) and applies the `deny-all` default policy CI uses, so the only `permissions.network.allow` entries that survive are the ones you actually need. Your main sbx state is untouched.
 
 One-time per machine: `sbx --app-name sbx-kits-contrib-tck login`.
 
-When it fails, read what the proxy blocked, add the host to `network.allowedDomains`, re-run:
+When it fails, read what the proxy blocked, add the host to `permissions.network.allow`, re-run:
 
 ```bash
 APP=sbx-kits-contrib-tck
@@ -280,13 +276,13 @@ sbx kit validate ./my-kit/
 sbx kit inspect ./my-kit/ --output json | jq '.warnings'   # should be empty
 ```
 
-The script handles Phase 1 cosmetic renames; everything else (volumes, credentials, OAuth, caps) is documented in [`v1-migration.md`](v1-migration.md) with per-surface manual recipes.
+The script runs your v1 spec through the same normalize pass the engine uses and re-emits a canonical v2 spec (renames, credential/network/oauth consolidation, `caps.network` → `permissions.network`, `commands` → `setup`, the entrypoint split). Anything it can't express — e.g. a `settings:` block — is called out in [`v1-migration.md`](v1-migration.md) with a manual recipe.
 
 ## Style notes
 
 - One concern per mixin. Easier to compose, easier to debug.
 - Use `description:` on every install/startup command. It shows up in progress output and PR review diffs.
 - Pin install URLs to a version or commit when possible — kits are cached in users' workflows.
-- `caps.network.allow` should be the minimum that makes the install succeed. The proxy denies anything else; over-broad allowlists weaken the security posture.
+- `permissions.network.allow` should be the minimum that makes the install succeed. The proxy denies anything else; over-broad allowlists weaken the security posture.
 - Declare `sandbox.resources` only when the kit's behaviour genuinely depends on it (e.g. a GPU-bound agent). Unset means "no constraint from the spec", which is almost always the right default.
 - Use lowercase-kebab for `credentials[].service` IDs — `anthropic`, `openai`, `github`, `my-service`.

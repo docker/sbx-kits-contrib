@@ -325,11 +325,32 @@ func parseSpecFileBytes(data []byte) (*SpecFile, error) {
 	return &spec, nil
 }
 
+// peekSchemaVersion does a cheap, non-strict decode of just the
+// schemaVersion field so the loader can fork on it before committing to a
+// version-specific grammar. A malformed document returns "" (routed to the
+// v1 decoder, which surfaces the real parse error).
+func peekSchemaVersion(data []byte) string {
+	var probe struct {
+		SchemaVersion string `yaml:"schemaVersion"`
+	}
+	_ = yaml.Unmarshal(data, &probe)
+	return probe.SchemaVersion
+}
+
 // parseArtifactBytes decodes spec.yaml bytes and applies normalization.
 // It does not validate; callers that need a validated Artifact must call
 // ValidateArtifact themselves (LoadFromDirectory and LoadFromFS already
 // do, after populating Files).
+//
+// The loader forks on schemaVersion: "2" uses the clean v2 grammar
+// (parseArtifactV2); "1"/"" (and any other value, which fails validation
+// downstream) use the frozen v1 decoder + normalize below. Both paths
+// produce the same canonical Artifact and preserve Manifest.SchemaVersion —
+// the signal the credential-binding regime keys on.
 func parseArtifactBytes(data []byte) (*Artifact, error) {
+	if peekSchemaVersion(data) == "2" {
+		return parseArtifactV2(data)
+	}
 	spec, err := decodeSpecFile(data)
 	if err != nil {
 		return nil, fmt.Errorf("artifact: invalid %s: %w", specFileName, err)

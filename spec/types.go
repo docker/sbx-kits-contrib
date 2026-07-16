@@ -99,8 +99,18 @@ type Manifest struct {
 	// AIFilename is the AI profile markdown filename (e.g., "CLAUDE.md").
 	AIFilename string `json:"aiFilename,omitempty" yaml:"aiFilename,omitempty"`
 
-	// RunOptions are CLI arguments passed to the agent binary at startup.
+	// RunOptions are CLI arguments passed to the agent binary in
+	// detached/default mode (the baked start script). In v2 this is
+	// entrypoint[1:] plus sandbox.command.default.
 	RunOptions []string `json:"runOptions,omitempty" yaml:"runOptions,omitempty"`
+
+	// InteractiveOptions are CLI arguments passed to the agent binary when a
+	// TTY/interactive session is attached, in place of RunOptions. In v2 this
+	// is entrypoint[1:] plus sandbox.command.interactive (falling back to
+	// sandbox.command.default when interactive is unset). Empty for v1 kits
+	// and for v2 kits with no command distinction; callers on the interactive
+	// attach path fall back to RunOptions when this is empty.
+	InteractiveOptions []string `json:"interactiveOptions,omitempty" yaml:"interactiveOptions,omitempty"`
 
 	// Resources optionally constrains container CPU, memory, and GPU.
 	Resources *Resources `json:"resources,omitempty" yaml:"resources,omitempty"`
@@ -256,7 +266,7 @@ type NetworkPolicy struct {
 
 	// PublishedPorts is the v1 location for declared ports
 	// (`network.publishedPorts`). In v2 this moved to the top-level
-	// `publishedPorts:` field; normalize promotes this shim there with a
+	// `ports:` field; normalize promotes this shim there with a
 	// deprecation warning. Retained only so v1 spec.yaml still decodes
 	// under strict (KnownFields) decoding. Removed in the Phase 6 cutover.
 	//
@@ -398,6 +408,16 @@ type ApiKeyInject struct {
 	// as the password. Used by the github kit for git HTTPS clone
 	// (`x-access-token` as the literal username).
 	Username string `json:"username,omitempty" yaml:"username,omitempty"`
+
+	// Scheme is a v2-only decode-time sugar that selects the header
+	// encoding without spelling out Format: "bearer" expands to
+	// Format "Bearer %s"; "basic" marks the entry as HTTP Basic Auth
+	// (username-driven). normalizeV2 expands Scheme into Format/Username
+	// and clears it, so the canonical Artifact never carries a scheme —
+	// consumers read Format/Username exactly as before. Mutually
+	// exclusive with a raw Format (validated at load). Always empty on a
+	// normalized Artifact.
+	Scheme string `json:"-" yaml:"scheme,omitempty"`
 }
 
 // CredentialSource defines how to discover a credential for a specific service.
@@ -815,7 +835,8 @@ type SpecFile struct {
 	// LegacyNetwork / LegacyOAuth / Environment.ProxyManaged
 	// shims into Artifact.Credentials.
 	Credentials credentialsField `yaml:"credentials,omitempty"`
-	// PublishedPorts is the v2 canonical top-level `publishedPorts:` list.
+	// PublishedPorts is the v1 top-level `publishedPorts:` list (the v2
+	// grammar spells this key `ports` in the separate specFileV2 decoder).
 	// Decoded directly from YAML; normalize also promotes the v1
 	// LegacyNetwork.PublishedPorts shim into this slice.
 	PublishedPorts []PublishedPort `yaml:"publishedPorts,omitempty"`

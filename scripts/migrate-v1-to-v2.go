@@ -23,19 +23,26 @@
 // What it migrates (everything spec.normalize handles, plus the script-level
 // settings: drop below):
 //
-//	kind: agent              → kind: sandbox
-//	agent:                   → sandbox:
-//	memory:                  → agentContext:
-//	credentials.sources      ┐
-//	network.serviceDomains   ├→ unified credentials[] (apiKey.name + .inject)
-//	network.serviceAuth      │
-//	environment.proxyManaged ┘
-//	oauth: (standalone)      → credentials[].oauth
-//	network.allowedDomains   → caps.network.allow
-//	network.deniedDomains    → caps.network.deny
-//	network.publishedPorts   → top-level publishedPorts
-//	settings:                → dropped (move agent setup to commands.initFiles)
-//	schemaVersion: "1"       → schemaVersion: "2"
+//	kind: agent                → kind: sandbox
+//	agent: (v1 sandbox alias)  → sandbox:
+//	sandbox.aiFilename         → agentInstructions.filename
+//	memory: / agentContext:    → agentInstructions.content
+//	sandbox.entrypoint.run     → sandbox.entrypoint (flat array)
+//	sandbox.entrypoint.args    → sandbox.command.default
+//	sandbox.entrypoint.ttyArgs → sandbox.command.interactive
+//	sandbox.entrypoint.pipeMode→ dropped (no v2 equivalent)
+//	sandbox.resources.memoryMB → sandbox.resources.memory (byte-size string)
+//	credentials.sources        ┐
+//	network.serviceDomains     ├→ unified credentials[] (apiKey.name + .inject)
+//	network.serviceAuth        │
+//	environment.proxyManaged   ┘
+//	oauth: (standalone)        → credentials[].oauth
+//	network.allowedDomains     → permissions.network.allow
+//	network.deniedDomains      → permissions.network.deny
+//	network.publishedPorts     → top-level ports
+//	commands: / commands.initFiles → setup: / setup.files
+//	settings:                  → dropped (move agent setup to setup.files)
+//	schemaVersion: "1"         → schemaVersion: "2"
 //
 // schemaVersion is bumped to "2" so the migrated kit is a fully-declared v2
 // spec (matching the v2 design doc's migration-strategy step 1). Note this is
@@ -138,12 +145,24 @@ func migrateSpec(data []byte) ([]byte, []string, error) {
 		return nil, nil, err
 	}
 
-	// The spec loader flattens the sandbox entrypoint (run/args/ttyArgs/
-	// pipeMode) into Manifest.Binary/RunOptions and drops ttyArgs/pipeMode, so
-	// it cannot faithfully reconstruct the entrypoint block. Re-read the raw
-	// entrypoint directly from the source YAML (the v1 `agent:` and v2
-	// `sandbox:` blocks share an identical entrypoint shape) and carry it
-	// verbatim into the v2 sandbox: block.
+	// normalizeLegacySettings (in the spec package) now emits the settings:
+	// deprecation/lift notice into a.Warnings, so the dead Artifact.Settings
+	// detector that used to live here is gone — the notice flows through the
+	// warnings fold below. A spec that produced no warnings is already
+	// canonical v2: nothing to migrate. Returning before the entrypoint
+	// re-read below also means a clean v2 spec (whose entrypoint is the flat
+	// array shape, not the v1 run/args/ttyArgs mapping) is never fed to the
+	// mapping-shaped raw decoder.
+	changes := append([]string(nil), a.Warnings...)
+	if len(changes) == 0 {
+		return data, nil, nil
+	}
+
+	// The spec loader flattens the sandbox entrypoint (run/args/ttyArgs) into
+	// Manifest.Binary/RunOptions/InteractiveOptions, so it cannot faithfully
+	// reconstruct the source entrypoint block. Re-read the raw v1 entrypoint
+	// mapping directly from the source YAML and map it onto the v2 flat
+	// entrypoint + command split.
 	var raw rawSpec
 	if err := yaml.Unmarshal(data, &raw); err != nil {
 		return nil, nil, fmt.Errorf("re-read entrypoint: %w", err)
@@ -154,16 +173,6 @@ func migrateSpec(data []byte) ([]byte, []string, error) {
 	}
 
 	out := buildV2(a, srcSandbox)
-
-	// normalizeLegacySettings (in the spec package) now emits the settings:
-	// deprecation/lift notice into a.Warnings, so the dead Artifact.Settings
-	// detector that used to live here is gone — the notice flows through the
-	// warnings fold below.
-	changes := append([]string(nil), a.Warnings...)
-
-	if len(changes) == 0 {
-		return data, nil, nil
-	}
 
 	emitted, err := yaml.Marshal(out)
 	if err != nil {
@@ -181,10 +190,11 @@ func migrateSpec(data []byte) ([]byte, []string, error) {
 }
 
 // buildV2 assembles the canonical v2 output spec from a normalized Artifact.
-// The credentials/caps/publishedPorts/agentContext/kind values come from the
-// normalized Artifact (where the v1 → v2 consolidation already happened); the
-// sandbox entrypoint comes from srcSandbox (the raw source block) to preserve
-// the run/args/ttyArgs/pipeMode distinctions the Artifact flattens away.
+// The credentials/network/publishedPorts/kind values come from the normalized
+// Artifact (where the v1 → v2 consolidation already happened); the sandbox
+// entrypoint comes from srcSandbox (the raw source block) so the v1
+// run/args/ttyArgs split can be re-expressed as the v2 entrypoint + command
+// grammar. The v1 pipeMode has no v2 equivalent and is dropped.
 func buildV2(a *spec.Artifact, srcSandbox *rawSandbox) *outSpec {
 	out := &outSpec{
 		// Always emit the v2 schema version: a migrated kit is a fully-declared
@@ -199,30 +209,59 @@ func buildV2(a *spec.Artifact, srcSandbox *rawSandbox) *outSpec {
 		Description:    a.Manifest.Description,
 		SourceURL:      a.Manifest.SourceURL,
 		Extends:        a.Extends,
+		Requires:       a.Requires,
 		Locked:         a.Locked,
 		Volumes:        a.Manifest.Volumes,
 		Security:       a.Manifest.Security,
 		PublishedPorts: a.PublishedPorts,
-		Caps:           a.Caps,
 		Credentials:    a.Credentials,
-		Commands:       a.Commands,
-		AgentContext:   a.AgentContext,
 	}
 
-	hasEntrypoint := srcSandbox != nil && srcSandbox.Entrypoint != nil
-	if a.Manifest.Template != "" || a.Manifest.AIFilename != "" || a.Manifest.Resources != nil || hasEntrypoint {
-		sb := &outSandbox{
-			Image:      a.Manifest.Template,
-			AIFilename: a.Manifest.AIFilename,
-			Resources:  a.Manifest.Resources,
+	// agentInstructions: block — filename (was sandbox.aiFilename) +
+	// content (was top-level agentContext / v1 memory).
+	if a.Manifest.AIFilename != "" || a.AgentContext != "" {
+		out.AgentInstructions = &outAgentInstructions{
+			Filename: a.Manifest.AIFilename,
+			Content:  a.AgentContext,
 		}
-		if hasEntrypoint {
-			sb.Entrypoint = &outEntrypoint{
-				Run:      srcSandbox.Entrypoint.Run,
-				Args:     srcSandbox.Entrypoint.Args,
-				TtyArgs:  srcSandbox.Entrypoint.TtyArgs,
-				PipeMode: srcSandbox.Entrypoint.PipeMode,
+	}
+
+	// permissions.network block — allow/deny (was caps.network).
+	if a.Caps != nil && a.Caps.Network != nil &&
+		(len(a.Caps.Network.Allow) > 0 || len(a.Caps.Network.Deny) > 0) {
+		out.Permissions = &outPermissions{
+			Network: &outNetwork{Allow: a.Caps.Network.Allow, Deny: a.Caps.Network.Deny},
+		}
+	}
+
+	// setup: block — install/startup + files (was commands, with initFiles
+	// renamed to files).
+	if a.Commands != nil &&
+		(len(a.Commands.Install) > 0 || len(a.Commands.Startup) > 0 || len(a.Commands.InitFiles) > 0) {
+		out.Setup = &outSetup{
+			Install: a.Commands.Install,
+			Startup: a.Commands.Startup,
+			Files:   a.Commands.InitFiles,
+		}
+	}
+
+	srcEntry := v1Entrypoint(srcSandbox)
+	if a.Manifest.Template != "" || a.Manifest.Resources != nil || srcEntry != nil {
+		sb := &outSandbox{Image: a.Manifest.Template}
+		if srcEntry != nil {
+			sb.Entrypoint = srcEntry.Run
+			if len(srcEntry.Args) > 0 || len(srcEntry.TtyArgs) > 0 {
+				sb.Command = &outCommand{Default: srcEntry.Args, Interactive: srcEntry.TtyArgs}
 			}
+		}
+		if r := a.Manifest.Resources; r != nil {
+			or := &outResources{CPU: r.CPU, GPU: r.GPU}
+			if r.MemoryMB > 0 {
+				// MemoryMB is whole megabytes; emit the byte-size string the
+				// v2 grammar expects (round-trips through units.RAMInBytes).
+				or.Memory = fmt.Sprintf("%dm", r.MemoryMB)
+			}
+			sb.Resources = or
 		}
 		out.Sandbox = sb
 	}
@@ -236,44 +275,80 @@ func buildV2(a *spec.Artifact, srcSandbox *rawSandbox) *outSpec {
 
 // outSpec is the canonical v2 spec.yaml emit shape. Field order here is the
 // emit order; yaml.Marshal writes struct fields in declaration order. Folded
-// and removed v1 blocks (network:, oauth:, settings:, credentials.sources,
+// and removed v1 blocks (v1 network:, oauth:, settings:, credentials.sources,
 // environment.proxyManaged) deliberately have no field here, so they never
 // appear in the output.
 type outSpec struct {
-	SchemaVersion  string               `yaml:"schemaVersion"`
-	Kind           string               `yaml:"kind"`
-	Name           string               `yaml:"name"`
-	Version        string               `yaml:"version,omitempty"`
-	DisplayName    string               `yaml:"displayName,omitempty"`
-	Description    string               `yaml:"description,omitempty"`
-	SourceURL      string               `yaml:"sourceURL,omitempty"`
-	Extends        string               `yaml:"extends,omitempty"`
-	Locked         []string             `yaml:"locked,omitempty"`
-	Sandbox        *outSandbox          `yaml:"sandbox,omitempty"`
-	Volumes        []spec.MountSpec     `yaml:"volumes,omitempty"`
-	Security       *spec.Security       `yaml:"security,omitempty"`
-	PublishedPorts []spec.PublishedPort `yaml:"publishedPorts,omitempty"`
-	Caps           *spec.Caps           `yaml:"caps,omitempty"`
-	Credentials    []spec.Credential    `yaml:"credentials,omitempty"`
-	Environment    *outEnv              `yaml:"environment,omitempty"`
-	Commands       *spec.CommandsPolicy `yaml:"commands,omitempty"`
-	AgentContext   string               `yaml:"agentContext,omitempty"`
+	SchemaVersion     string                `yaml:"schemaVersion"`
+	Kind              string                `yaml:"kind"`
+	Name              string                `yaml:"name"`
+	Version           string                `yaml:"version,omitempty"`
+	DisplayName       string                `yaml:"displayName,omitempty"`
+	Description       string                `yaml:"description,omitempty"`
+	SourceURL         string                `yaml:"sourceURL,omitempty"`
+	Extends           string                `yaml:"extends,omitempty"`
+  Requires          *spec.Requires        `yaml:"requires,omitempty"`
+	Locked            []string              `yaml:"locked,omitempty"`
+	Sandbox           *outSandbox           `yaml:"sandbox,omitempty"`
+	AgentInstructions *outAgentInstructions `yaml:"agentInstructions,omitempty"`
+	Permissions       *outPermissions       `yaml:"permissions,omitempty"`
+	Volumes           []spec.MountSpec      `yaml:"volumes,omitempty"`
+	Security          *spec.Security        `yaml:"security,omitempty"`
+	PublishedPorts    []spec.PublishedPort  `yaml:"ports,omitempty"`
+	Credentials       []spec.Credential     `yaml:"credentials,omitempty"`
+	Environment       *outEnv               `yaml:"environment,omitempty"`
+	Setup             *outSetup             `yaml:"setup,omitempty"`
 }
 
-// outSandbox is the v2 sandbox: block emit shape.
+// outSandbox is the v2 sandbox: block emit shape. entrypoint is the flat
+// process prefix; command carries the detached/interactive arg split.
 type outSandbox struct {
-	Image      string          `yaml:"image,omitempty"`
-	AIFilename string          `yaml:"aiFilename,omitempty"`
-	Entrypoint *outEntrypoint  `yaml:"entrypoint,omitempty"`
-	Resources  *spec.Resources `yaml:"resources,omitempty"`
+	Image      string        `yaml:"image,omitempty"`
+	Entrypoint []string      `yaml:"entrypoint,omitempty"`
+	Command    *outCommand   `yaml:"command,omitempty"`
+	Resources  *outResources `yaml:"resources,omitempty"`
 }
 
-// outEntrypoint is the sandbox.entrypoint emit shape.
-type outEntrypoint struct {
-	Run      []string `yaml:"run,omitempty"`
-	Args     []string `yaml:"args,omitempty"`
-	TtyArgs  []string `yaml:"ttyArgs,omitempty"`
-	PipeMode string   `yaml:"pipeMode,omitempty"`
+// outCommand is the sandbox.command emit shape (always the structured form;
+// the migrator does not collapse to the shorthand list).
+type outCommand struct {
+	Default     []string `yaml:"default,omitempty"`
+	Interactive []string `yaml:"interactive,omitempty"`
+}
+
+// outResources is the sandbox.resources emit shape with memory as a byte-size
+// string.
+type outResources struct {
+	CPU    float64 `yaml:"cpu,omitempty"`
+	Memory string  `yaml:"memory,omitempty"`
+	GPU    string  `yaml:"gpu,omitempty"`
+}
+
+// outAgentInstructions is the v2 top-level agentInstructions: block emit
+// shape. filename is only meaningful for a sandbox kit; for a mixin it is
+// empty (mixins carry no AIFilename) so it is omitted.
+type outAgentInstructions struct {
+	Filename string `yaml:"filename,omitempty"`
+	Content  string `yaml:"content,omitempty"`
+}
+
+// outPermissions is the v2 permissions: block emit shape; today it wraps only
+// the network egress policy.
+type outPermissions struct {
+	Network *outNetwork `yaml:"network,omitempty"`
+}
+
+// outNetwork is the v2 permissions.network block emit shape.
+type outNetwork struct {
+	Allow []string `yaml:"allow,omitempty"`
+	Deny  []string `yaml:"deny,omitempty"`
+}
+
+// outSetup is the v2 setup: block emit shape (install/startup + files).
+type outSetup struct {
+	Install []spec.InstallCommand `yaml:"install,omitempty"`
+	Startup []spec.StartupCommand `yaml:"startup,omitempty"`
+	Files   []spec.InitFile       `yaml:"files,omitempty"`
 }
 
 // outEnv is the environment: block emit shape, restricted to the canonical v2
@@ -283,22 +358,37 @@ type outEnv struct {
 	Variables map[string]string `yaml:"variables,omitempty"`
 }
 
-// rawSpec / rawSandbox / rawEntrypoint capture only the entrypoint block from
-// the source spec.yaml, accepting both the v1 `agent:` and v2 `sandbox:`
-// spellings. They exist solely to preserve run/args/ttyArgs/pipeMode through
-// the migration, since the normalized Artifact discards that structure.
+// rawSpec / rawSandbox capture only the entrypoint node from the source
+// spec.yaml, accepting both the v1 `agent:` and v2 `sandbox:` spellings. The
+// entrypoint is held as a raw node so the v1 mapping shape (run/args/ttyArgs)
+// and the v2 flat-array shape can be told apart at decode time.
 type rawSpec struct {
 	Sandbox *rawSandbox `yaml:"sandbox,omitempty"`
 	Agent   *rawSandbox `yaml:"agent,omitempty"`
 }
 
 type rawSandbox struct {
-	Entrypoint *rawEntrypoint `yaml:"entrypoint,omitempty"`
+	Entrypoint yaml.Node `yaml:"entrypoint,omitempty"`
 }
 
+// rawEntrypoint is the v1 entrypoint mapping shape.
 type rawEntrypoint struct {
-	Run      []string `yaml:"run,omitempty"`
-	Args     []string `yaml:"args,omitempty"`
-	TtyArgs  []string `yaml:"ttyArgs,omitempty"`
-	PipeMode string   `yaml:"pipeMode,omitempty"`
+	Run     []string `yaml:"run,omitempty"`
+	Args    []string `yaml:"args,omitempty"`
+	TtyArgs []string `yaml:"ttyArgs,omitempty"`
+}
+
+// v1Entrypoint extracts the v1 run/args/ttyArgs mapping from a source sandbox
+// block. It returns nil when there is no entrypoint or when the entrypoint is
+// the v2 flat-array shape (which the migrator would never legitimately see,
+// since v2 inputs are no-ops before this point).
+func v1Entrypoint(src *rawSandbox) *rawEntrypoint {
+	if src == nil || src.Entrypoint.Kind != yaml.MappingNode {
+		return nil
+	}
+	var e rawEntrypoint
+	if err := src.Entrypoint.Decode(&e); err != nil {
+		return nil
+	}
+	return &e
 }

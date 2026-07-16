@@ -5,26 +5,29 @@ displayName: Legacy Kit
 description: exercises every v1 → v2 transform at once
 sandbox:
     image: example/test:latest
-    aiFilename: TEST.md
     entrypoint:
-        run:
-            - test-bin
-        args:
+        - test-bin
+    command:
+        default:
             - --flag
-        ttyArgs:
+        interactive:
             - --interactive
-        pipeMode: append
-publishedPorts:
-    - container: 8080
-      protocol: tcp
-      name: web
-caps:
+agentInstructions:
+    filename: TEST.md
+    content: |
+        Some legacy memory content.
+        Should be carried over verbatim under agentContext after migration.
+permissions:
     network:
         allow:
             - api.anthropic.com:443
             - registry.npmjs.org
         deny:
             - malware.example.com
+ports:
+    - container: 8080
+      protocol: tcp
+      name: web
 credentials:
     - service: anthropic
       apiKey:
@@ -54,11 +57,8 @@ credentials:
 environment:
     variables:
         IS_SANDBOX: "1"
-commands:
+setup:
     install:
         - command: echo install
           user: "0"
           description: Install step
-agentContext: |
-    Some legacy memory content.
-    Should be carried over verbatim under agentContext after migration.

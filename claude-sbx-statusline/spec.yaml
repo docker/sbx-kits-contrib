@@ -1,4 +1,4 @@
-schemaVersion: "2"
+schemaVersion: "1"
 kind: mixin
 name: claude-sbx-statusline
 displayName: Claude Code Status Line
