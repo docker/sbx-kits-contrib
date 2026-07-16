@@ -209,6 +209,7 @@ func buildV2(a *spec.Artifact, srcSandbox *rawSandbox) *outSpec {
 		Description:    a.Manifest.Description,
 		SourceURL:      a.Manifest.SourceURL,
 		Extends:        a.Extends,
+		Requires:       a.Requires,
 		Locked:         a.Locked,
 		Volumes:        a.Manifest.Volumes,
 		Security:       a.Manifest.Security,
@@ -286,6 +287,7 @@ type outSpec struct {
 	Description       string                `yaml:"description,omitempty"`
 	SourceURL         string                `yaml:"sourceURL,omitempty"`
 	Extends           string                `yaml:"extends,omitempty"`
+  Requires          *spec.Requires        `yaml:"requires,omitempty"`
 	Locked            []string              `yaml:"locked,omitempty"`
 	Sandbox           *outSandbox           `yaml:"sandbox,omitempty"`
 	AgentInstructions *outAgentInstructions `yaml:"agentInstructions,omitempty"`
