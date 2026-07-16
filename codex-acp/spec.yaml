@@ -4,7 +4,7 @@ name: codex-acp
 displayName: Codex ACP
 description: Runs the Codex ACP adapter inside a Codex sandbox over stdio.
 
-caps:
+permissions:
   network:
     allow:
       - api.github.com
@@ -13,8 +13,8 @@ caps:
       - registry.npmjs.org
       - raw.githubusercontent.com
 
-commands:
-  initFiles:
+setup:
+  files:
     - path: /home/agent/.local/bin/codex-acp
       mode: "0755"
       description: Launch the Codex ACP adapter with the sandboxed Codex binary.
@@ -26,9 +26,10 @@ commands:
         fi
         exec npx -y @agentclientprotocol/codex-acp@1.1.0 "$@"
 
-agentContext: |
-  The Codex ACP adapter is available at `/home/agent/.local/bin/codex-acp`.
-  Host tools should run it with a non-TTY stdin/stdout stream, for example
-  `sbx exec -i <sandbox> /home/agent/.local/bin/codex-acp`.
-  If the host has a global sbx GitHub secret, `GH_TOKEN` is available in the
-  sandbox as a proxy-managed sentinel for `gh` and git HTTPS operations.
+agentInstructions:
+  content: |
+    The Codex ACP adapter is available at `/home/agent/.local/bin/codex-acp`.
+    Host tools should run it with a non-TTY stdin/stdout stream, for example
+    `sbx exec -i <sandbox> /home/agent/.local/bin/codex-acp`.
+    If the host has a global sbx GitHub secret, `GH_TOKEN` is available in the
+    sandbox as a proxy-managed sentinel for `gh` and git HTTPS operations.
