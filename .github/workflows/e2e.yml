@@ -1,0 +1,190 @@
+name: Kit e2e
+
+# Reusable e2e runner. Installs a real `sbx` CLI for the requested
+# `channel`, authenticates against Docker Hub non-interactively, and runs
+# `./scripts/test-kit-e2e.sh <kit>` across the caller-supplied kit matrix.
+#
+# The whole point of parametrizing `channel` here — instead of hardcoding a
+# version — is that tck.yml calls this twice:
+#   * channel: release  → the last tagged sbx (gates the PR via the `e2e` job)
+#   * channel: nightly  → the rolling nightly build (informational only)
+# so kits are exercised against both what users have today and what they'll
+# get next, without the (currently flaky) nightly ever blocking a merge.
+
+on:
+  workflow_call:
+    inputs:
+      kits:
+        description: JSON array of kit directories to test.
+        required: true
+        type: string
+      channel:
+        description: sbx build channel to test against — "release" or "nightly".
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+env:
+  APP_NAME: sbx-kits-contrib-tck
+
+jobs:
+  test-kit-e2e:
+    # End-to-end test: install sbx for the requested channel, authenticate
+    # against Docker Hub non-interactively, and run the e2e TCK to prove the
+    # kit composes with a real CLI. The caller guards this against fork PRs
+    # (Docker Hub secrets are not exposed there).
+    strategy:
+      fail-fast: false
+      matrix:
+        kit: ${{ fromJson(inputs.kits) }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
+        with:
+          go-version-file: go.mod
+
+      - name: Enable KVM access
+        run: |
+          sudo chmod 666 /dev/kvm
+          ls -la /dev/kvm
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+
+      - name: Download sbx (${{ inputs.channel }})
+        run: |
+          set -euo pipefail
+          if [ "${CHANNEL}" = "nightly" ]; then
+            # Rolling "nightly" build: kits adopting new spec fields are
+            # exercised against the latest sbx instead of the last tag.
+            VERSION=nightly
+            echo "Using rolling nightly sbx build"
+          else
+            VERSION=$(curl -fsSL \
+              -H "Authorization: Bearer ${GITHUB_TOKEN}" \
+              https://api.github.com/repos/docker/sbx-releases/releases/latest \
+              | jq -r .tag_name)
+            echo "Resolved latest sbx release: ${VERSION}"
+          fi
+          echo "SBX_VERSION=${VERSION}" >> "$GITHUB_ENV"
+
+          curl -fsSL \
+            -H "Authorization: Bearer ${GITHUB_TOKEN}" \
+            "https://github.com/docker/sbx-releases/releases/download/${VERSION}/DockerSandboxes-linux.tar.gz" \
+            -o /tmp/DockerSandboxes-linux.tar.gz
+          tar xzf /tmp/DockerSandboxes-linux.tar.gz -C /tmp
+        env:
+          CHANNEL: ${{ inputs.channel }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Install sbx
+        run: |
+          set -euo pipefail
+          sudo PREFIX="${HOME}/.docker/sbx" /tmp/docker-sbx/install.sh
+          echo "${HOME}/.docker/sbx/bin" >> "$GITHUB_PATH"
+
+      - name: Verify sbx installation
+        run: sbx version
+
+      - name: Set up Secret Service for sbx login
+        # sbx's released Linux binary persists credentials via libsecret,
+        # which talks to org.freedesktop.secrets over D-Bus. GHA's
+        # ubuntu-latest is headless, so no Secret Service is running and
+        # `sbx login` blocks. The recipe below mirrors the maintainers'
+        # own CI script in docker/secrets-engine
+        # (store/scripts/gnome-keyring), which is the canonical reference:
+        #
+        #   1. Install gnome-keyring + dbus-daemon.
+        #   2. Pre-create ~/.local/share/keyrings/login.keyring as a
+        #      passwordless ini stanza. With the file already on disk,
+        #      `gnome-keyring-daemon --start` adopts it instead of
+        #      prompting via gcr-prompter for a password — that prompt
+        #      activation was the root cause of every earlier iteration
+        #      failing on headless runners.
+        #   3. Start a dbus session bus (dbus-daemon, not dbus-launch or
+        #      dbus-run-session — the former leaves no persistent bus,
+        #      the latter dies when its wrapped command exits).
+        #   4. Start gnome-keyring-daemon's secrets component.
+        #   5. Poll until org.freedesktop.secrets is owned on D-Bus
+        #      before letting the next step run sbx.
+        #
+        # Both DBUS_SESSION_BUS_ADDRESS and the daemon's env are exported
+        # to $GITHUB_ENV so the sbx login + go test steps inherit them.
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq gnome-keyring dbus
+
+          mkdir -p "$HOME/.local/share/keyrings"
+          cat > "$HOME/.local/share/keyrings/login.keyring" <<'KEYRING'
+          [keyring]
+          display-name=login
+          ctime=1750965549
+          mtime=0
+          lock-on-idle=false
+          lock-after=false
+          KEYRING
+
+          DBUS_SESSION_BUS_ADDRESS=$(dbus-daemon --session --print-address --fork)
+          echo "DBUS_SESSION_BUS_ADDRESS=$DBUS_SESSION_BUS_ADDRESS" >> "$GITHUB_ENV"
+          export DBUS_SESSION_BUS_ADDRESS
+
+          gnome-keyring-daemon --start --components=secrets >/dev/null
+
+          # Poll until the daemon registers on the bus. 5s is what the
+          # secrets-engine reference script uses.
+          for _ in $(seq 1 50); do
+            if gdbus call --session \
+                --dest org.freedesktop.DBus \
+                --object-path /org/freedesktop/DBus \
+                --method org.freedesktop.DBus.GetNameOwner \
+                org.freedesktop.secrets >/dev/null 2>&1; then
+              echo "Secret Service registered on D-Bus"
+              exit 0
+            fi
+            sleep 0.1
+          done
+          echo "Timed out waiting for org.freedesktop.secrets to register"
+          exit 1
+
+      - name: Sign in to Docker Hub via sbx
+        env:
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+        run: |
+          if [ -z "${DOCKERHUB_USERNAME}" ] || [ -z "${DOCKERHUB_TOKEN}" ]; then
+            echo "DOCKERHUB_USERNAME / DOCKERHUB_TOKEN not configured; cannot run e2e."
+            exit 1
+          fi
+          # Defensive trim: GH preserves any whitespace pasted into the
+          # secret editor, and sbx's readPasswordStdin only strips trailing
+          # \r\n. Hub usernames and PATs are alphanumeric + hyphens, so
+          # stripping all whitespace can't corrupt a legitimate value.
+          USER_CLEAN=$(printf '%s' "$DOCKERHUB_USERNAME" | tr -d '[:space:]')
+          TOKEN_CLEAN=$(printf '%s' "$DOCKERHUB_TOKEN"    | tr -d '[:space:]')
+          printf '%s' "$TOKEN_CLEAN" | sbx --app-name "$APP_NAME" login --username "$USER_CLEAN" --password-stdin
+
+      - name: Run e2e TCK for ${{ matrix.kit }}
+        # Runs TestE2EKit: verifies kit content (env, files, tmpfs, agentContext)
+        # for all kits, then — for kind:sandbox kits with testdata/tck.yaml —
+        # also sends a non-interactive prompt to the agent.
+        #
+        # The script handles `sbx --app-name $APP_NAME policy init
+        # deny-all` internally, so CI and local runs converge on the same
+        # baseline: each kit gets *exactly* the outbound reachability it
+        # declares in `network.allowedDomains` and nothing more, making
+        # this a real contract test. Kit allow-rules are scoped per
+        # sandbox and punch through the default deny (see
+        # `ApplyKitNetworkPolicyScoped` in
+        # docker/sandboxes:sandboxd/pkg/server/options_governance.go);
+        # kit deny-rules win over allow-rules (deny-wins).
+        run: ./scripts/test-kit-e2e.sh "${{ matrix.kit }}"
+
+      - name: Sign out of Docker Hub
+        if: always()
+        run: sbx logout --yes || true

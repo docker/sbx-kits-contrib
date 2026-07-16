@@ -37,7 +37,7 @@ Primary topics describe the **v2** spec form (`schemaVersion: "2"`):
 - [Authoring guide](topics/authoring.md) — Step-by-step recipes for a minimal mixin and a full sandbox kit. Where to put files. When to use `files/` vs `initFiles`.
 - [Bindings](topics/bindings.md) — The user-side `~/.config/sbx/credentials.yaml` file: how kits and users split the credential contract.
 - [Distribution](topics/distribution.md) — Local dir, OCI digests, git commit-SHA references. Strict pinning rule. Schema-version compatibility. `sbx kit push/pull/inspect/validate/delete`.
-- [Testing](topics/testing.md) — TCK suite, e2e under `deny-all` (mandatory locally — CI's e2e job is skipped for fork PRs), manual `sbx kit add` verification, proving allow-list enforcement.
+- [Testing](topics/testing.md) — TCK suite, e2e under `deny-all` (mandatory locally — CI's e2e legs are skipped for fork PRs), manual `sbx kit add` verification, proving allow-list enforcement.
 - [Pitfalls](topics/pitfalls.md) — Surprises seen in practice: install-completed is exit-code only, `commands.startup` runs on **every** container start (idempotency required), `kit add` cannot apply immutable settings, `commands.install` idempotency + duplication footguns + `SBX_CRED_<SERVICE>_MODE` contract, inject/binding domain intersection.
 
 Legacy reference:
