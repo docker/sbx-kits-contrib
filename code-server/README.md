@@ -24,7 +24,7 @@ Once the sandbox is up, find the assigned host port:
 $ sbx ports <sandbox-name>
 ```
 
-Open `http://localhost:<host-port>/` in a browser. code-server opens
+Open `http://127.0.0.1:<host-port>/` in a browser. Be sure to use `127.0.0.1` and not `localhost`. code-server opens
 the sandbox workspace on launch — no **File → Open Folder…** needed.
 Click the **Spark** icon in the editor toolbar (top-right) to open the
 Claude Code panel; it picks up the same auth the CLI uses.
@@ -57,7 +57,7 @@ hardcoded in a static file or a shell-string command.
 ## About authentication
 
 The startup command passes `--auth none`. code-server is only reachable
-through the runtime's published-port binding, which lands on `localhost`
+through the runtime's published-port binding, which lands on `127.0.0.1`
 on your host by default, so you're already behind the sandbox boundary.
 If you want a password anyway, override the startup command in a forked
 kit.
