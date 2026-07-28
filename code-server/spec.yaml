@@ -44,9 +44,16 @@ commands:
   initFiles:
     - path: /home/agent/.local/bin/start-code-server.sh
       content: |
-        exec code-server --bind-addr 0.0.0.0:8080 --auth none "${WORKDIR}"
+        #!/bin/sh
+        # --app-name puts the sandbox name in the browser tab title, so tabs for
+        # concurrent sandboxes on one workspace are tellable apart. No braces
+        # around SANDBOX_VM_ID: only WORKDIR may be brace-interpolated here.
+        name=$SANDBOX_VM_ID
+        [ -n "$name" ] || name=$(hostname)
+        exec code-server --bind-addr 0.0.0.0:8080 --auth none \
+          --app-name "$name" "${WORKDIR}"
       mode: "0755"
-      description: Startup wrapper with the workspace path baked in at sandbox start
+      description: Startup wrapper with the workspace path and sandbox name baked in at sandbox start
   startup:
     - command: ["sh", "-c", "nohup /home/agent/.local/bin/start-code-server.sh > /tmp/code-server.log 2>&1 &"]
       user: "1000"
