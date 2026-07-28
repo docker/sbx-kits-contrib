@@ -505,13 +505,21 @@ key.)
 ```yaml
 ports:
   - container: 8080          # REQUIRED, 1..65535
-    protocol: tcp            # "" (→ tcp) | "tcp" | "udp"
+    protocol: tcp            # "" (→ tcp) | tcp | tcp4 | tcp6 | udp | udp4 | udp6
     name: web                # optional informational label
 ```
 
-Host ports are always allocated **ephemerally on `127.0.0.1`**; a kit cannot pin
+Host ports are always allocated **ephemerally on loopback**; a kit cannot pin
 a host port (two kits requesting the same one would collide). Users pin with
 `sbx ports --publish <host>:<container>`.
+
+The bare `tcp`/`udp` forms bind whichever loopback families the sandbox
+endpoint supports — on a dual-stack host, both `127.0.0.1` and `::1` under one
+host port. The family-qualified forms pin it: `tcp4`/`udp4` bind `127.0.0.1`
+only, `tcp6`/`udp6` bind `::1` only. Declare a v4-only form when the service
+in the container listens on IPv4 only (e.g. `--bind 0.0.0.0`), so a browser
+resolving `localhost` to `::1` cannot land on a host binding with nothing
+behind it.
 
 ### 5.4 `credentials`
 
@@ -737,7 +745,7 @@ the per-field rules above:
   on a `kind: mixin` (rejected on `kind: sandbox`).
 - **Volumes**: `type` is `""` or `tmpfs`; `path` absolute; `size` a valid
   byte-size; `mode` octal.
-- **ports**: `container` in 1..65535; `protocol` in `{"", tcp, udp}` (validation error messages spell this `publishedPorts[...]`, the canonical field name).
+- **ports**: `container` in 1..65535; `protocol` in `{"", tcp, tcp4, tcp6, udp, udp4, udp6}` (validation error messages spell this `publishedPorts[...]`, the canonical field name).
 - **environment**: variable keys are valid shell identifiers.
 - **setup**: `install[].command` non-empty; `startup[].command` non-empty;
   `files[].path` absolute; `files[].mode` octal; only `${WORKDIR}` placeholder

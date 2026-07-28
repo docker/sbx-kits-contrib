@@ -180,6 +180,17 @@ func TestValidatePublishedPorts(t *testing.T) {
 		}))
 	})
 
+	t.Run("family_qualified_protocols", func(t *testing.T) {
+		// The runtime's port-publish API accepts the family-qualified forms
+		// to pin a binding to one loopback address; kits must be able to
+		// declare them for services that listen on a single IP family.
+		for _, proto := range SupportedPortProtocols {
+			require.NoError(t,
+				ValidatePublishedPorts([]PublishedPort{{Container: 8080, Protocol: proto}}),
+				"protocol=%s", proto)
+		}
+	})
+
 	t.Run("container_out_of_range", func(t *testing.T) {
 		for _, p := range []int{0, -1, 65536, 70000} {
 			require.ErrorContains(t, ValidatePublishedPorts([]PublishedPort{{Container: p}}),
@@ -189,9 +200,14 @@ func TestValidatePublishedPorts(t *testing.T) {
 	})
 
 	t.Run("invalid_protocol", func(t *testing.T) {
-		require.ErrorContains(t,
-			ValidatePublishedPorts([]PublishedPort{{Container: 8080, Protocol: "sctp"}}),
-			"publishedPorts[0].protocol must be empty, \"tcp\" or \"udp\"")
+		// "TCP" stays rejected: widening the set to the family-qualified
+		// forms does not also make the match case-insensitive.
+		for _, proto := range []string{"sctp", "tcp5", "TCP", "tcp/4"} {
+			require.ErrorContains(t,
+				ValidatePublishedPorts([]PublishedPort{{Container: 8080, Protocol: proto}}),
+				"publishedPorts[0].protocol must be empty or one of tcp, tcp4, tcp6, udp, udp4, udp6",
+				"protocol=%s", proto)
+		}
 	})
 }
 

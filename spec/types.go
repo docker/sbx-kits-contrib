@@ -284,7 +284,17 @@ type PublishedPort struct {
 	// Required. Must be in 1..65535.
 	Container int `json:"container" yaml:"container"`
 
-	// Protocol is "tcp" or "udp". Optional; defaults to "tcp" if empty.
+	// Protocol is one of SupportedPortProtocols. Optional; defaults to
+	// "tcp" if empty.
+	//
+	// The bare "tcp"/"udp" forms let the runtime bind whichever loopback
+	// families the sandbox endpoint supports — on a dual-stack host that is
+	// both 127.0.0.1 and ::1 under one host port. The family-qualified
+	// forms pin the binding: "tcp4"/"udp4" bind 127.0.0.1 only,
+	// "tcp6"/"udp6" bind ::1 only. Declare a v4-only form when the service
+	// inside the container listens on IPv4 only (e.g. `--bind 0.0.0.0`),
+	// so a browser resolving `localhost` to ::1 cannot land on a host
+	// binding with nothing behind it.
 	Protocol string `json:"protocol,omitempty" yaml:"protocol,omitempty"`
 
 	// Name is an optional human-readable label for the port, surfaced by
