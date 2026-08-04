@@ -119,7 +119,11 @@ func (s *SpecFile) normalizeLegacySettings(w *warnings) {
 		return
 	}
 	s.LegacySettings = nil
-	w.deprecate("settings", "container settings are now lifted into kit commands.startup; remove this block (kit-spec v2)")
+	w.deprecate(v1Field("LegacySettings"), fmt.Sprintf(
+		"container settings are now lifted into kit %s/%s (schemaVersion 1) or %s/%s (kit-spec v2); remove this block",
+		v1Field("Commands", "InitFiles"), v1Field("Commands", "Startup"),
+		v2Field("Setup", "Files"), v2Field("Setup", "Startup"),
+	))
 }
 
 // normalizeVolumes folds the SpecFile-level volumes wrapper into the
@@ -174,7 +178,7 @@ func (s *SpecFile) normalizeLegacyTmpfs(w *warnings) {
 			Size: s.LegacyTmpfs[p],
 		})
 	}
-	w.deprecate("tmpfs", "use 'volumes:' entries with 'type: tmpfs' instead (kit-spec v2)")
+	w.deprecate("tmpfs", fmt.Sprintf("use '%s:' entries with 'type: tmpfs' instead (kit-spec v2)", v2Field("Volumes")))
 	s.LegacyTmpfs = nil
 }
 
@@ -187,7 +191,7 @@ func (s *SpecFile) normalizeLegacyPersistence(w *warnings) {
 	if s.LegacyPersistence == "" {
 		return
 	}
-	w.deprecate("persistence", "field has no effect and is removed in kit-spec v2; safe to delete")
+	w.deprecate(v1Field("LegacyPersistence"), "field has no effect and is removed in kit-spec v2; safe to delete")
 	s.LegacyPersistence = ""
 }
 
@@ -199,7 +203,7 @@ func (s *SpecFile) normalizeLegacyKitDir(w *warnings) {
 	if s.LegacyKitDir == "" {
 		return
 	}
-	w.deprecate("kitDir", "field has no effect and is removed in kit-spec v2; safe to delete")
+	w.deprecate(v1Field("LegacyKitDir"), "field has no effect and is removed in kit-spec v2; safe to delete")
 	s.LegacyKitDir = ""
 }
 
@@ -213,7 +217,8 @@ func (s *SpecFile) normalizePublishedPorts(w *warnings) {
 	}
 	s.PublishedPorts = append(s.PublishedPorts, s.LegacyNetwork.PublishedPorts...)
 	s.LegacyNetwork.PublishedPorts = nil
-	w.deprecate("network.publishedPorts", "use the top-level 'ports' field instead (kit-spec v2)")
+	w.deprecate(v1Field("LegacyNetwork", "PublishedPorts"), fmt.Sprintf(
+		"use the top-level '%s' field instead (kit-spec v2)", v2Field("PublishedPorts")))
 }
 
 // normalizeKind maps the v1 `kind: agent` value to `sandbox`. The v2 value
@@ -221,7 +226,8 @@ func (s *SpecFile) normalizePublishedPorts(w *warnings) {
 func (s *SpecFile) normalizeKind(w *warnings) {
 	if s.Manifest.Kind == KindAgent {
 		s.Manifest.Kind = KindSandbox
-		w.deprecate("kind: agent", "use 'kind: sandbox' instead (kit-spec v2)")
+		w.deprecate(fmt.Sprintf("%s: %s", v1Field("Kind"), KindAgent),
+			fmt.Sprintf("use '%s: %s' instead (kit-spec v2)", v1Field("Kind"), KindSandbox))
 	}
 }
 
@@ -247,7 +253,9 @@ func (s *SpecFile) normalizeAgentContext(w *warnings) {
 	if s.AgentContext == "" {
 		s.AgentContext = s.LegacyMemory
 	}
-	w.deprecate("memory", "use 'agentContext' instead (kit-spec v2)")
+	w.deprecate(v1Field("LegacyMemory"), fmt.Sprintf(
+		"use '%s' (schemaVersion 1) or '%s' (kit-spec v2) instead",
+		v1Field("AgentContext"), v2Field("AgentInstructions", "Content")))
 	s.LegacyMemory = ""
 }
 
@@ -260,7 +268,7 @@ func (s *SpecFile) normalizeSandbox(w *warnings) error {
 		if s.Sandbox == nil {
 			s.Sandbox = s.LegacyAgent
 		}
-		w.deprecate("agent:", "use 'sandbox:' block instead (kit-spec v2)")
+		w.deprecate(v1Field("LegacyAgent")+":", fmt.Sprintf("use '%s:' block instead (kit-spec v2)", v2Field("Sandbox")))
 		s.LegacyAgent = nil
 	}
 	// `persistence:` lived both at the spec root (handled by
@@ -269,7 +277,7 @@ func (s *SpecFile) normalizeSandbox(w *warnings) error {
 	// warning here rather than letting strict decode reject Andre's
 	// kit shape.
 	if s.Sandbox != nil && s.Sandbox.LegacyPersistence != "" {
-		w.deprecate("sandbox.persistence", "field has no effect and is removed in kit-spec v2; safe to delete")
+		w.deprecate(v1Field("Sandbox", "LegacyPersistence"), "field has no effect and is removed in kit-spec v2; safe to delete")
 		s.Sandbox.LegacyPersistence = ""
 	}
 
@@ -309,7 +317,9 @@ func (s *SpecFile) normalizeSandbox(w *warnings) error {
 	// still required this release, so a kit that supplies only `build:` would
 	// otherwise fail later with the generic "template is required" error.
 	if s.Build != nil {
-		w.notImplemented("sandbox.build", "Dockerfile builds are accepted in the schema but not yet built by the runtime; the image is taken from sandbox.image")
+		w.notImplemented(v1Field("Sandbox", "Build"), fmt.Sprintf(
+			"Dockerfile builds are accepted in the schema but not yet built by the runtime; the image is taken from %s",
+			v1Field("Sandbox", "Image")))
 		if s.Sandbox.Image == "" {
 			return fmt.Errorf("sandbox.build is accepted in the schema but not yet implemented — specify sandbox.image")
 		}
@@ -559,16 +569,30 @@ func (s *SpecFile) normalizeLegacyCredentials(w *warnings) error {
 	}
 
 	if sawSources {
-		w.deprecate("credentials.sources", "use the top-level credentials: list with apiKey: sub-blocks (kit-spec v2)")
+		// credentialsField.LegacySources has no yaml tag of its own — the v1
+		// mapping shape is decoded via a locally-scoped anonymous struct
+		// inside credentialsField.UnmarshalYAML (see types.go), which isn't
+		// reachable through reflection off a named field. "credentials.sources"
+		// is hand-typed for that reason; the v2 side is still grammar-derived.
+		_, apiKeyLeaf := splitLeaf(v2Field("Credentials", "ApiKey"))
+		w.deprecate("credentials.sources", fmt.Sprintf(
+			"use the top-level '%s:' list with '%s:' sub-blocks (kit-spec v2)", v2Field("Credentials"), apiKeyLeaf))
 	}
 	if sawServiceAuth {
-		w.deprecate("network.serviceAuth", "use credentials[].apiKey.inject[].header/format (kit-spec v2)")
+		prefix, headerLeaf := splitLeaf(v2Field("Credentials", "ApiKey", "Inject", "Header"))
+		_, formatLeaf := splitLeaf(v2Field("Credentials", "ApiKey", "Inject", "Format"))
+		w.deprecate(v1Field("LegacyNetwork", "ServiceAuth"), fmt.Sprintf(
+			"use %s.%s/%s (kit-spec v2)", prefix, headerLeaf, formatLeaf))
 	}
 	if sawServiceDomains {
-		w.deprecate("network.serviceDomains", "use credentials[].apiKey.inject[].domain (kit-spec v2)")
+		w.deprecate(v1Field("LegacyNetwork", "ServiceDomains"), fmt.Sprintf(
+			"use %s (kit-spec v2)", v2Field("Credentials", "ApiKey", "Inject", "Domain")))
 	}
 	if sawProxyManaged {
-		w.deprecate("environment.proxyManaged", "use credentials[].apiKey.name (kit-spec v2)")
+		prefix, nameLeaf := splitLeaf(v2Field("Credentials", "ApiKey", "Name"))
+		_, proxyManagedLeaf := splitLeaf(v2Field("Credentials", "ApiKey", "ProxyManaged"))
+		w.deprecate(v1Field("Environment", "ProxyManaged"), fmt.Sprintf(
+			"use %s.%s with %s.%s: true (kit-spec v2)", prefix, nameLeaf, prefix, proxyManagedLeaf))
 	}
 
 	return nil
@@ -627,7 +651,7 @@ func (s *SpecFile) normalizeLegacyOAuthBlock(w *warnings) error {
 				sort.Strings(target.ResourceHosts)
 				target.ResourceHosts = slices.Compact(target.ResourceHosts)
 			}
-			w.deprecate("oauth: (standalone block)", "use credentials[].oauth (kit-spec v2)")
+			w.deprecate(v1Field("LegacyOAuth")+": (standalone block)", fmt.Sprintf("use %s (kit-spec v2)", v2Field("Credentials", "OAuth")))
 			return nil
 		}
 	}
@@ -660,11 +684,13 @@ func (s *SpecFile) normalizeCapsNetwork(w *warnings) error {
 
 	if hasV1Allow {
 		s.Caps.Network.Allow = append(s.Caps.Network.Allow, s.LegacyNetwork.AllowedDomains...)
-		w.deprecate("network.allowedDomains", "use 'caps.network.allow' instead (kit-spec v2)")
+		w.deprecate(v1Field("LegacyNetwork", "AllowedDomains"), fmt.Sprintf(
+			"use '%s' instead (kit-spec v2)", v2Field("Permissions", "Network", "Allow")))
 	}
 	if hasV1Deny {
 		s.Caps.Network.Deny = append(s.Caps.Network.Deny, s.LegacyNetwork.DeniedDomains...)
-		w.deprecate("network.deniedDomains", "use 'caps.network.deny' instead (kit-spec v2)")
+		w.deprecate(v1Field("LegacyNetwork", "DeniedDomains"), fmt.Sprintf(
+			"use '%s' instead (kit-spec v2)", v2Field("Permissions", "Network", "Deny")))
 	}
 
 	return nil
