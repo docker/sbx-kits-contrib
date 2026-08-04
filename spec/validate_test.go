@@ -483,6 +483,75 @@ func TestValidateOAuthPolicy(t *testing.T) {
 	})
 }
 
+func TestValidateOAuth(t *testing.T) {
+	t.Run("nil_is_valid", func(t *testing.T) {
+		require.NoError(t, ValidateOAuth(nil))
+	})
+
+	t.Run("missing_token_endpoint_host", func(t *testing.T) {
+		o := &OAuth{TokenEndpoint: OAuthTokenEndpoint{Path: "/token"}}
+		require.ErrorContains(t, ValidateOAuth(o), "host is required")
+	})
+
+	t.Run("missing_token_endpoint_path", func(t *testing.T) {
+		o := &OAuth{TokenEndpoint: OAuthTokenEndpoint{Host: "auth.example.com"}}
+		require.ErrorContains(t, ValidateOAuth(o), "path is required")
+	})
+
+	t.Run("missing_sentinels", func(t *testing.T) {
+		o := &OAuth{TokenEndpoint: OAuthTokenEndpoint{Host: "h", Path: "/p"}}
+		require.ErrorContains(t, ValidateOAuth(o), "accessToken is required")
+	})
+
+	t.Run("valid_full", func(t *testing.T) {
+		o := &OAuth{
+			TokenEndpoint: OAuthTokenEndpoint{Host: "h", Path: "/p"},
+			Sentinels:     OAuthSentinels{AccessToken: "at", RefreshToken: "rt"},
+		}
+		require.NoError(t, ValidateOAuth(o))
+	})
+
+	t.Run("credential_file_missing_path", func(t *testing.T) {
+		o := &OAuth{
+			TokenEndpoint:  OAuthTokenEndpoint{Host: "h", Path: "/p"},
+			Sentinels:      OAuthSentinels{AccessToken: "at", RefreshToken: "rt"},
+			CredentialFile: &OAuthCredentialFile{Template: "tmpl"},
+		}
+		require.ErrorContains(t, ValidateOAuth(o), "credentialFile.path is required")
+	})
+
+	t.Run("credential_file_missing_template_and_structure", func(t *testing.T) {
+		o := &OAuth{
+			TokenEndpoint:  OAuthTokenEndpoint{Host: "h", Path: "/p"},
+			Sentinels:      OAuthSentinels{AccessToken: "at", RefreshToken: "rt"},
+			CredentialFile: &OAuthCredentialFile{Path: "/cred"},
+		}
+		require.ErrorContains(t, ValidateOAuth(o), "credentialFile requires either template or structure")
+	})
+
+	t.Run("credential_file_structure_only_valid", func(t *testing.T) {
+		o := &OAuth{
+			TokenEndpoint:  OAuthTokenEndpoint{Host: "h", Path: "/p"},
+			Sentinels:      OAuthSentinels{AccessToken: "at", RefreshToken: "rt"},
+			CredentialFile: &OAuthCredentialFile{Path: "/cred", Structure: map[string]interface{}{"k": "{{.AccessToken}}"}},
+		}
+		require.NoError(t, ValidateOAuth(o))
+	})
+
+	t.Run("passthrough_does_not_require_sentinels", func(t *testing.T) {
+		o := &OAuth{
+			TokenEndpoint: OAuthTokenEndpoint{Host: "h", Path: "/p"},
+			Passthrough:   true,
+		}
+		require.NoError(t, ValidateOAuth(o))
+	})
+
+	t.Run("passthrough_still_requires_token_endpoint", func(t *testing.T) {
+		o := &OAuth{Passthrough: true}
+		require.ErrorContains(t, ValidateOAuth(o), "host is required")
+	})
+}
+
 func TestValidateArtifact(t *testing.T) {
 	t.Run("valid_mixin", func(t *testing.T) {
 		a := &Artifact{Manifest: Manifest{SchemaVersion: SchemaVersion, Kind: KindMixin, Name: "ok"}}
@@ -564,6 +633,59 @@ func TestValidateArtifact(t *testing.T) {
 		a := &Artifact{
 			Manifest: Manifest{SchemaVersion: "2", Kind: KindSandbox, Name: "ok"},
 			Extends:  "claude",
+		}
+		require.NoError(t, ValidateArtifact(a))
+	})
+
+	// Regression coverage for https://github.com/docker/sandboxes/issues/4835:
+	// a credentials[].oauth block with neither credentialFile.template nor
+	// .structure, or with no sentinels block at all, used to load as VALID
+	// and only fail much later — at first `sbx create`, as an opaque engine
+	// error, or (for missing sentinels) not at all, silently leaving real
+	// OAuth tokens unmasked in the sandbox.
+	t.Run("oauth_credential_file_neither_template_nor_structure_rejected", func(t *testing.T) {
+		a := &Artifact{
+			Manifest: Manifest{SchemaVersion: SchemaVersion, Kind: KindMixin, Name: "ok"},
+			Credentials: []Credential{{
+				Service: "anthropic",
+				OAuth: &OAuth{
+					TokenEndpoint:  OAuthTokenEndpoint{Host: "h", Path: "/p"},
+					Sentinels:      OAuthSentinels{AccessToken: "at", RefreshToken: "rt"},
+					CredentialFile: &OAuthCredentialFile{Path: "/cred"},
+				},
+			}},
+		}
+		err := ValidateArtifact(a)
+		require.ErrorContains(t, err, "credentials[0]")
+		require.ErrorContains(t, err, `"anthropic"`)
+		require.ErrorContains(t, err, "credentialFile requires either template or structure")
+	})
+
+	t.Run("oauth_missing_sentinels_rejected", func(t *testing.T) {
+		a := &Artifact{
+			Manifest: Manifest{SchemaVersion: SchemaVersion, Kind: KindMixin, Name: "ok"},
+			Credentials: []Credential{{
+				Service: "anthropic",
+				OAuth:   &OAuth{TokenEndpoint: OAuthTokenEndpoint{Host: "h", Path: "/p"}},
+			}},
+		}
+		require.ErrorContains(t, ValidateArtifact(a), "accessToken is required")
+	})
+
+	t.Run("oauth_credential_file_structure_only_accepted", func(t *testing.T) {
+		a := &Artifact{
+			Manifest: Manifest{SchemaVersion: SchemaVersion, Kind: KindMixin, Name: "ok"},
+			Credentials: []Credential{{
+				Service: "anthropic",
+				OAuth: &OAuth{
+					TokenEndpoint: OAuthTokenEndpoint{Host: "h", Path: "/p"},
+					Sentinels:     OAuthSentinels{AccessToken: "at", RefreshToken: "rt"},
+					CredentialFile: &OAuthCredentialFile{
+						Path:      "/cred",
+						Structure: map[string]interface{}{"accessToken": "{{.AccessToken}}"},
+					},
+				},
+			}},
 		}
 		require.NoError(t, ValidateArtifact(a))
 	})

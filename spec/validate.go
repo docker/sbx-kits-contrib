@@ -317,6 +317,11 @@ func ValidateArtifact(a *Artifact) error {
 	if err := ValidateCommandsPolicy(a.Commands); err != nil {
 		return err
 	}
+	for i, c := range a.Credentials {
+		if err := ValidateOAuth(c.OAuth); err != nil {
+			return fmt.Errorf("artifact: credentials[%d] (service %q): %w", i, c.Service, err)
+		}
+	}
 
 	for i, f := range a.Files {
 		if f.Target != TargetHome && f.Target != TargetWorkspace {
@@ -419,6 +424,50 @@ func ValidateOAuthPolicy(p *OAuthPolicy) error {
 		}
 		if p.CredentialFile.Template == "" && len(p.CredentialFile.Structure) == 0 {
 			return fmt.Errorf("artifact: oauth: credentialFile requires either template or structure")
+		}
+	}
+	return nil
+}
+
+// ValidateOAuth validates a v2 credentials[].oauth block for structural
+// completeness. Same requirements as ValidateOAuthPolicy (its v1
+// counterpart), minus Service — that identity lives on the parent
+// Credential, not on OAuth itself — and with sentinels not required when
+// Passthrough is set: passthrough's whole point is opting out of sentinel
+// masking, so an entry that only routes+refreshes a token without ever
+// substituting a sentinel for it (e.g. resourceHosts-only OAuth routing)
+// legitimately has no sentinels block.
+//
+// Before this existed, neither of these was caught until much later: a
+// missing sentinels block (outside the passthrough case) loads and runs
+// with real OAuth tokens never masked in the sandbox, and a credentialFile
+// with neither template nor structure loads clean and only fails at first
+// `sbx create`, as an opaque engine error with the real cause buried in
+// daemon.log rather than at `sbx kit validate` time.
+func ValidateOAuth(o *OAuth) error {
+	if o == nil {
+		return nil
+	}
+	if o.TokenEndpoint.Host == "" {
+		return fmt.Errorf("oauth: tokenEndpoint.host is required")
+	}
+	if o.TokenEndpoint.Path == "" {
+		return fmt.Errorf("oauth: tokenEndpoint.path is required")
+	}
+	if !o.Passthrough {
+		if o.Sentinels.AccessToken == "" {
+			return fmt.Errorf("oauth: sentinels.accessToken is required")
+		}
+		if o.Sentinels.RefreshToken == "" {
+			return fmt.Errorf("oauth: sentinels.refreshToken is required")
+		}
+	}
+	if o.CredentialFile != nil {
+		if o.CredentialFile.Path == "" {
+			return fmt.Errorf("oauth: credentialFile.path is required")
+		}
+		if o.CredentialFile.Template == "" && len(o.CredentialFile.Structure) == 0 {
+			return fmt.Errorf("oauth: credentialFile requires either template or structure")
 		}
 	}
 	return nil
