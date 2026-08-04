@@ -667,9 +667,21 @@ func (s *SpecFile) normalizeLegacyOAuthBlock(w *warnings) error {
 }
 
 // normalizeCapsNetwork promotes v1 network.allowedDomains/deniedDomains
-// (LegacyNetwork) into the canonical Caps.Network.Allow/Deny lists.
-// Emits one deprecation warning per legacy field touched.
+// (LegacyNetwork) into the canonical Caps.Network.Allow/Deny lists, and
+// warns on direct `caps:` usage. Emits one deprecation warning per legacy
+// surface touched.
 func (s *SpecFile) normalizeCapsNetwork(w *warnings) error {
+	// `caps:` decodes directly in the v1 grammar (SpecFile.Caps) — it predates
+	// the current v2 grammar's `permissions:` block (an earlier v2 draft used
+	// this exact spelling; see skills/kit-author/topics/v1-migration.md).
+	// Nothing else in normalize() touches s.Caps before this point, so seeing
+	// it non-nil here means the author wrote `caps:` directly rather than
+	// relying on the allowedDomains/deniedDomains fold below — warn either way,
+	// same as every other legacy surface in this file.
+	if s.Caps != nil {
+		w.deprecate(v1Field("Caps"), fmt.Sprintf("use '%s:' block instead (kit-spec v2)", v2Field("Permissions")))
+	}
+
 	hasV1Allow := s.LegacyNetwork != nil && len(s.LegacyNetwork.AllowedDomains) > 0
 	hasV1Deny := s.LegacyNetwork != nil && len(s.LegacyNetwork.DeniedDomains) > 0
 	if !hasV1Allow && !hasV1Deny {

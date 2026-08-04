@@ -718,6 +718,40 @@ permissions:
 	require.ElementsMatch(t, []string{"malware.example.com"}, art.Caps.Network.Deny)
 }
 
+// TestV1DirectCaps_Deprecated exercises a v1 spec that writes the `caps:`
+// block directly — an earlier v2 draft's spelling for what the current v2
+// grammar calls `permissions:` — rather than the still-live
+// network.allowedDomains/deniedDomains fold. It must load, keep working
+// (caps: is still a decodable v1-grammar field), and warn, same as every
+// other legacy surface in normalize.go.
+func TestV1DirectCaps_Deprecated(t *testing.T) {
+	dir := t.TempDir()
+	specYAML := `schemaVersion: "1"
+kind: sandbox
+name: caps-v1
+sandbox:
+  image: docker/sandbox-templates:shell-docker
+caps:
+  network:
+    allow: [api.anthropic.com]
+`
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "spec.yaml"), []byte(specYAML), 0o644))
+	art, err := LoadFromDirectory(dir)
+	require.NoError(t, err)
+
+	require.NotNil(t, art.Caps)
+	require.NotNil(t, art.Caps.Network)
+	require.Contains(t, art.Caps.Network.Allow, "api.anthropic.com")
+
+	var capsWarn bool
+	for _, w := range art.Warnings {
+		if strings.Contains(w, `"caps"`) {
+			capsWarn = true
+		}
+	}
+	require.True(t, capsWarn, "expected a deprecation warning for direct 'caps:' usage, got %v", art.Warnings)
+}
+
 // TestV1NetworkAllowedDomains_RoundTripsToCapsNetwork exercises the
 // parallel-load contract for the network -> caps.network rename: a v1
 // spec with network.allowedDomains / network.deniedDomains loads
