@@ -417,8 +417,8 @@ func ValidateOAuthPolicy(p *OAuthPolicy) error {
 		if p.CredentialFile.Path == "" {
 			return fmt.Errorf("artifact: oauth: credentialFile.path is required")
 		}
-		if p.CredentialFile.Template == "" {
-			return fmt.Errorf("artifact: oauth: credentialFile.template is required")
+		if p.CredentialFile.Template == "" && len(p.CredentialFile.Structure) == 0 {
+			return fmt.Errorf("artifact: oauth: credentialFile requires either template or structure")
 		}
 	}
 	return nil

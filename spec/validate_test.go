@@ -459,14 +459,27 @@ func TestValidateOAuthPolicy(t *testing.T) {
 		require.ErrorContains(t, ValidateOAuthPolicy(p), "credentialFile.path is required")
 	})
 
-	t.Run("credential_file_missing_template", func(t *testing.T) {
+	t.Run("credential_file_missing_template_and_structure", func(t *testing.T) {
 		p := &OAuthPolicy{
 			Service:        "svc",
 			TokenEndpoint:  OAuthTokenEndpoint{Host: "h", Path: "/p"},
 			Sentinels:      OAuthSentinels{AccessToken: "at", RefreshToken: "rt"},
 			CredentialFile: &OAuthCredentialFile{Path: "/cred"},
 		}
-		require.ErrorContains(t, ValidateOAuthPolicy(p), "credentialFile.template is required")
+		require.ErrorContains(t, ValidateOAuthPolicy(p), "credentialFile requires either template or structure")
+	})
+
+	t.Run("credential_file_structure_only_valid", func(t *testing.T) {
+		p := &OAuthPolicy{
+			Service:       "svc",
+			TokenEndpoint: OAuthTokenEndpoint{Host: "h", Path: "/p"},
+			Sentinels:     OAuthSentinels{AccessToken: "at", RefreshToken: "rt"},
+			CredentialFile: &OAuthCredentialFile{
+				Path:      "/cred",
+				Structure: map[string]any{"accessToken": "{{.AccessToken}}"},
+			},
+		}
+		require.NoError(t, ValidateOAuthPolicy(p))
 	})
 }
 
