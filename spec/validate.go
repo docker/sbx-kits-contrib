@@ -22,8 +22,9 @@ var placeholderPattern = regexp.MustCompile(`\$\{[^}]+\}`)
 
 // lockedPathPattern matches a dotted YAML path: lowercase letter or digit
 // start, then segments of letters/digits separated by single dots, e.g.
-// "agent.image" or "network.allowedDomains". Used only for well-formedness;
-// the consumer that performs the merge decides which paths are meaningful.
+// "sandbox.image" or "permissions.network.allow". Used only for
+// well-formedness; the consumer that performs the merge decides which paths
+// are meaningful.
 var lockedPathPattern = regexp.MustCompile(`^[a-z][a-zA-Z0-9]*(\.[a-z][a-zA-Z0-9]*)*$`)
 
 // octalModePattern matches file mode strings: 3 or 4 octal digits, with an
