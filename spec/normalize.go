@@ -178,7 +178,8 @@ func (s *SpecFile) normalizeLegacyTmpfs(w *warnings) {
 			Size: s.LegacyTmpfs[p],
 		})
 	}
-	w.deprecate("tmpfs", fmt.Sprintf("use '%s:' entries with 'type: tmpfs' instead (kit-spec v2)", v2Field("Volumes")))
+	w.deprecate(v1Field("LegacyTmpfs"), fmt.Sprintf(
+		"use '%s:' entries with 'type: %s' instead (kit-spec v2)", v2Field("Volumes"), MountTypeTmpfs))
 	s.LegacyTmpfs = nil
 }
 

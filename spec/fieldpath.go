@@ -7,9 +7,14 @@ import (
 )
 
 // specFileV2Type and specFileType are the reflect roots v2Field and v1Field
-// descend from. Computed once at package init so a typo'd field name in a
-// v1Field/v2Field call panics at program startup (and therefore in any test
-// run), not silently at some later call site.
+// descend from.
+//
+// Resolution is lazy: a bad field name panics when the enclosing v1Field /
+// v2Field call actually runs, not at package init. Since those calls sit
+// inside individual normalize branches, TestFieldPaths (fieldpath_test.go)
+// is what guarantees the drift alarm actually fires — it exercises every
+// path used in this package, so a rename or retag breaks the test suite
+// rather than waiting for a kit that happens to hit that branch.
 var (
 	specFileV2Type = reflect.TypeOf(specFileV2{})
 	specFileType   = reflect.TypeOf(SpecFile{})
@@ -38,6 +43,12 @@ func fieldPath(root reflect.Type, names ...string) string {
 		for t.Kind() == reflect.Ptr {
 			t = t.Elem()
 		}
+		// Guard before FieldByName: reflect panics on a non-struct with its
+		// own opaque message ("FieldByName of non-struct type ..."), which
+		// would defeat the point of the targeted panics below.
+		if t.Kind() != reflect.Struct {
+			panic(fmt.Sprintf("spec: fieldPath: cannot descend into %s to reach %q (chain %v)", t, name, names))
+		}
 		f, ok := t.FieldByName(name)
 		if !ok {
 			panic(fmt.Sprintf("spec: fieldPath: type %s has no field %q (chain %v)", t, name, names))
@@ -52,8 +63,12 @@ func fieldPath(root reflect.Type, names ...string) string {
 		}
 		parts = append(parts, tag)
 
+		// Descend to the type the NEXT name resolves against: unwrap
+		// pointers, and step slices/maps to their element type so a chain
+		// may continue through a collection (consistent with the "[]"
+		// suffix added above).
 		ft := f.Type
-		for ft.Kind() == reflect.Ptr || ft.Kind() == reflect.Slice {
+		for ft.Kind() == reflect.Ptr || ft.Kind() == reflect.Slice || ft.Kind() == reflect.Map {
 			ft = ft.Elem()
 		}
 		t = ft
