@@ -4,8 +4,11 @@ import (
 	"bytes"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
+
+	"github.com/docker/sbx-kits-contrib/spec"
 )
 
 // TestMigrateSpec_FullShape exercises a v1 spec.yaml that uses every v1 → v2
@@ -276,5 +279,46 @@ credentials: {sources: {openai: {env: [OPENAI_API_KEY]}}}
 	}
 	if !strings.Contains(string(out), "requires:") || !strings.Contains(string(out), "agent: claude") {
 		t.Fatalf("migrated output dropped 'requires.agent: claude':\n%s", out)
+	}
+}
+
+// TestMigrateSpec_PreservesLicensesAndMixins is a regression test for silent
+// data loss: the emitter used to be a hand-maintained struct local to this
+// tool, and it had no licenses/mixins fields — so a kit declaring either lost
+// it on migration, with no warning. The re-parse safety net did not catch it
+// because the output still parsed fine. The emit shape now comes from
+// spec.NewV2View, which covers the whole grammar.
+func TestMigrateSpec_PreservesLicensesAndMixins(t *testing.T) {
+	src := []byte(`schemaVersion: "1"
+kind: agent
+name: preserve
+licenses:
+  - MIT
+  - Apache-2.0
+mixins:
+  - some-mixin
+agent:
+  image: test/img:latest
+memory: |
+  ctx
+`)
+
+	out, changes, err := migrateSpec(src)
+	if err != nil {
+		t.Fatalf("migrateSpec: %v", err)
+	}
+	if len(changes) == 0 {
+		t.Fatal("expected v1 constructs to be migrated")
+	}
+
+	got, err := spec.LoadArtifactFromBytes(out)
+	if err != nil {
+		t.Fatalf("migrated spec failed to load: %v\n%s", err, out)
+	}
+	if want := []string{"MIT", "Apache-2.0"}; !slices.Equal(got.Licenses, want) {
+		t.Errorf("licenses: got %v, want %v\nmigrated spec:\n%s", got.Licenses, want, out)
+	}
+	if want := []string{"some-mixin"}; !slices.Equal(got.Mixins, want) {
+		t.Errorf("mixins: got %v, want %v\nmigrated spec:\n%s", got.Mixins, want, out)
 	}
 }

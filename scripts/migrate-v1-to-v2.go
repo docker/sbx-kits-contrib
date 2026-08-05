@@ -190,172 +190,36 @@ func migrateSpec(data []byte) ([]byte, []string, error) {
 }
 
 // buildV2 assembles the canonical v2 output spec from a normalized Artifact.
-// The credentials/network/publishedPorts/kind values come from the normalized
-// Artifact (where the v1 → v2 consolidation already happened); the sandbox
-// entrypoint comes from srcSandbox (the raw source block) so the v1
-// run/args/ttyArgs split can be re-expressed as the v2 entrypoint + command
-// grammar. The v1 pipeMode has no v2 equivalent and is dropped.
-func buildV2(a *spec.Artifact, srcSandbox *rawSandbox) *outSpec {
-	out := &outSpec{
-		// Always emit the v2 schema version: a migrated kit is a fully-declared
-		// v2 spec. This is reached only when there were v1 constructs to migrate
-		// (callers gate on a non-empty change list), so a clean v2 spec is never
-		// rewritten just to touch this field.
-		SchemaVersion:  "2",
-		Kind:           a.Manifest.Kind,
-		Name:           a.Manifest.Name,
-		Version:        a.Manifest.Version,
-		DisplayName:    a.Manifest.DisplayName,
-		Description:    a.Manifest.Description,
-		SourceURL:      a.Manifest.SourceURL,
-		Extends:        a.Extends,
-		Requires:       a.Requires,
-		Locked:         a.Locked,
-		Volumes:        a.Manifest.Volumes,
-		Security:       a.Manifest.Security,
-		PublishedPorts: a.PublishedPorts,
-		Credentials:    a.Credentials,
-	}
+//
+// The internal → v2 grammar mapping itself lives in spec.NewV2View, which the
+// engine's `sbx kit inspect --json` renders from too — this tool used to keep
+// a second copy of that mapping, which is how it came to silently drop
+// `licenses:` and `mixins:` (neither had a field in the old local emit
+// struct, so a kit declaring them lost them on migration with no warning;
+// the re-parse safety net below only proves the output parses, not that it
+// preserved anything).
+//
+// Two things stay this tool's own concern:
+//
+//   - schemaVersion is forced to "2": a migrated kit is a fully-declared v2
+//     spec. This is reached only when there were v1 constructs to migrate
+//     (callers gate on a non-empty change list), so a clean v2 spec is never
+//     rewritten just to touch this field.
+//   - the sandbox entrypoint is restored from srcSandbox (the raw source
+//     block), so the v1 run/args/ttyArgs split is re-expressed faithfully as
+//     the v2 entrypoint + command grammar. NewV2View cannot recover that
+//     split from the canonical model — the loader folds the entrypoint tail
+//     into RunOptions — so having the source YAML here is what makes the
+//     migration lossless. The v1 pipeMode has no v2 equivalent and is dropped.
+func buildV2(a *spec.Artifact, srcSandbox *rawSandbox) *spec.V2View {
+	out := spec.NewV2View(a)
+	out.SchemaVersion = "2"
 
-	// agentInstructions: block — filename (was sandbox.aiFilename) +
-	// content (was top-level agentContext / v1 memory).
-	if a.Manifest.AIFilename != "" || a.AgentContext != "" {
-		out.AgentInstructions = &outAgentInstructions{
-			Filename: a.Manifest.AIFilename,
-			Content:  a.AgentContext,
-		}
-	}
-
-	// permissions.network block — allow/deny (was caps.network).
-	if a.Caps != nil && a.Caps.Network != nil &&
-		(len(a.Caps.Network.Allow) > 0 || len(a.Caps.Network.Deny) > 0) {
-		out.Permissions = &outPermissions{
-			Network: &outNetwork{Allow: a.Caps.Network.Allow, Deny: a.Caps.Network.Deny},
-		}
-	}
-
-	// setup: block — install/startup + files (was commands, with initFiles
-	// renamed to files).
-	if a.Commands != nil &&
-		(len(a.Commands.Install) > 0 || len(a.Commands.Startup) > 0 || len(a.Commands.InitFiles) > 0) {
-		out.Setup = &outSetup{
-			Install: a.Commands.Install,
-			Startup: a.Commands.Startup,
-			Files:   a.Commands.InitFiles,
-		}
-	}
-
-	srcEntry := v1Entrypoint(srcSandbox)
-	if a.Manifest.Template != "" || a.Manifest.Resources != nil || srcEntry != nil {
-		sb := &outSandbox{Image: a.Manifest.Template}
-		if srcEntry != nil {
-			sb.Entrypoint = srcEntry.Run
-			if len(srcEntry.Args) > 0 || len(srcEntry.TtyArgs) > 0 {
-				sb.Command = &outCommand{Default: srcEntry.Args, Interactive: srcEntry.TtyArgs}
-			}
-		}
-		if r := a.Manifest.Resources; r != nil {
-			or := &outResources{CPU: r.CPU, GPU: r.GPU}
-			if r.MemoryMB > 0 {
-				// MemoryMB is whole megabytes; emit the byte-size string the
-				// v2 grammar expects (round-trips through units.RAMInBytes).
-				or.Memory = fmt.Sprintf("%dm", r.MemoryMB)
-			}
-			sb.Resources = or
-		}
-		out.Sandbox = sb
-	}
-
-	if a.Environment != nil && len(a.Environment.Variables) > 0 {
-		out.Environment = &outEnv{Variables: a.Environment.Variables}
+	if srcEntry := v1Entrypoint(srcSandbox); srcEntry != nil {
+		out.SetSandboxEntrypoint(srcEntry.Run, srcEntry.Args, srcEntry.TtyArgs)
 	}
 
 	return out
-}
-
-// outSpec is the canonical v2 spec.yaml emit shape. Field order here is the
-// emit order; yaml.Marshal writes struct fields in declaration order. Folded
-// and removed v1 blocks (v1 network:, oauth:, settings:, credentials.sources,
-// environment.proxyManaged) deliberately have no field here, so they never
-// appear in the output.
-type outSpec struct {
-	SchemaVersion     string                `yaml:"schemaVersion"`
-	Kind              string                `yaml:"kind"`
-	Name              string                `yaml:"name"`
-	Version           string                `yaml:"version,omitempty"`
-	DisplayName       string                `yaml:"displayName,omitempty"`
-	Description       string                `yaml:"description,omitempty"`
-	SourceURL         string                `yaml:"sourceURL,omitempty"`
-	Extends           string                `yaml:"extends,omitempty"`
-  Requires          *spec.Requires        `yaml:"requires,omitempty"`
-	Locked            []string              `yaml:"locked,omitempty"`
-	Sandbox           *outSandbox           `yaml:"sandbox,omitempty"`
-	AgentInstructions *outAgentInstructions `yaml:"agentInstructions,omitempty"`
-	Permissions       *outPermissions       `yaml:"permissions,omitempty"`
-	Volumes           []spec.MountSpec      `yaml:"volumes,omitempty"`
-	Security          *spec.Security        `yaml:"security,omitempty"`
-	PublishedPorts    []spec.PublishedPort  `yaml:"ports,omitempty"`
-	Credentials       []spec.Credential     `yaml:"credentials,omitempty"`
-	Environment       *outEnv               `yaml:"environment,omitempty"`
-	Setup             *outSetup             `yaml:"setup,omitempty"`
-}
-
-// outSandbox is the v2 sandbox: block emit shape. entrypoint is the flat
-// process prefix; command carries the detached/interactive arg split.
-type outSandbox struct {
-	Image      string        `yaml:"image,omitempty"`
-	Entrypoint []string      `yaml:"entrypoint,omitempty"`
-	Command    *outCommand   `yaml:"command,omitempty"`
-	Resources  *outResources `yaml:"resources,omitempty"`
-}
-
-// outCommand is the sandbox.command emit shape (always the structured form;
-// the migrator does not collapse to the shorthand list).
-type outCommand struct {
-	Default     []string `yaml:"default,omitempty"`
-	Interactive []string `yaml:"interactive,omitempty"`
-}
-
-// outResources is the sandbox.resources emit shape with memory as a byte-size
-// string.
-type outResources struct {
-	CPU    float64 `yaml:"cpu,omitempty"`
-	Memory string  `yaml:"memory,omitempty"`
-	GPU    string  `yaml:"gpu,omitempty"`
-}
-
-// outAgentInstructions is the v2 top-level agentInstructions: block emit
-// shape. filename is only meaningful for a sandbox kit; for a mixin it is
-// empty (mixins carry no AIFilename) so it is omitted.
-type outAgentInstructions struct {
-	Filename string `yaml:"filename,omitempty"`
-	Content  string `yaml:"content,omitempty"`
-}
-
-// outPermissions is the v2 permissions: block emit shape; today it wraps only
-// the network egress policy.
-type outPermissions struct {
-	Network *outNetwork `yaml:"network,omitempty"`
-}
-
-// outNetwork is the v2 permissions.network block emit shape.
-type outNetwork struct {
-	Allow []string `yaml:"allow,omitempty"`
-	Deny  []string `yaml:"deny,omitempty"`
-}
-
-// outSetup is the v2 setup: block emit shape (install/startup + files).
-type outSetup struct {
-	Install []spec.InstallCommand `yaml:"install,omitempty"`
-	Startup []spec.StartupCommand `yaml:"startup,omitempty"`
-	Files   []spec.InitFile       `yaml:"files,omitempty"`
-}
-
-// outEnv is the environment: block emit shape, restricted to the canonical v2
-// variables: map (the removed proxyManaged list has no field and so is never
-// emitted).
-type outEnv struct {
-	Variables map[string]string `yaml:"variables,omitempty"`
 }
 
 // rawSpec / rawSandbox capture only the entrypoint node from the source
