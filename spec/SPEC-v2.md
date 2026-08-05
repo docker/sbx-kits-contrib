@@ -739,6 +739,19 @@ the per-field rules above:
   byte-size; `mode` octal.
 - **ports**: `container` in 1..65535; `protocol` in `{"", tcp, udp}` (validation error messages spell this `publishedPorts[...]`, the canonical field name).
 - **environment**: variable keys are valid shell identifiers.
+- **credentials**: `service` non-empty on every entry. Its lowercase-kebab
+  charset ([§5.4](#54-credentials)) is **not** enforced here — the v1 fold
+  derives service keys from env-var names and keeps underscores
+  (`SAMPLE_PROXY_TOKEN` → `sample_proxy`), so enforcing it would reject v1
+  kits that load today.
+- **credentials[].oauth** (when present): `tokenEndpoint.host` and
+  `tokenEndpoint.path` non-empty; `sentinels.accessToken` and
+  `sentinels.refreshToken` non-empty **unless** `passthrough: true`;
+  and when `credentialFile` is set, its `path` is non-empty and at least one
+  of `template` / `structure` is present. This mirrors the proxy's own
+  runtime guard, so a kit that validates here will not fail the interceptor
+  later. Placeholder *correctness* inside `structure` is checked by the
+  engine at render time, not here.
 - **setup**: `install[].command` non-empty; `startup[].command` non-empty;
   `files[].path` absolute; `files[].mode` octal; only `${WORKDIR}` placeholder
   in `files[].content`.

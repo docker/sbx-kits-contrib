@@ -672,9 +672,10 @@ func TestValidateArtifact(t *testing.T) {
 		require.ErrorContains(t, ValidateArtifact(a), "accessToken is required")
 	})
 
-	// The engine rejects an empty service at runtime in two places
-	// (NewOAuthInterceptorFromConfig, and the configure hook's "oauth service
-	// name cannot be empty"), so validate must catch it first.
+	// SPEC-v2 §5.4 makes service REQUIRED on every credential entry. For
+	// OAuth the engine additionally rejects an empty service at runtime in
+	// two places (NewOAuthInterceptorFromConfig, and the configure hook's
+	// "oauth service name cannot be empty"), so validate must catch it first.
 	t.Run("oauth_without_service_rejected", func(t *testing.T) {
 		a := &Artifact{
 			Manifest: Manifest{SchemaVersion: SchemaVersion, Kind: KindMixin, Name: "ok"},
@@ -685,7 +686,28 @@ func TestValidateArtifact(t *testing.T) {
 				},
 			}},
 		}
-		require.ErrorContains(t, ValidateArtifact(a), "service is required for an oauth credential")
+		require.ErrorContains(t, ValidateArtifact(a), "credentials[0]: service is required")
+	})
+
+	t.Run("apikey_without_service_rejected", func(t *testing.T) {
+		a := &Artifact{
+			Manifest: Manifest{SchemaVersion: SchemaVersion, Kind: KindMixin, Name: "ok"},
+			Credentials: []Credential{{
+				ApiKey: &ApiKey{Name: "SOME_TOKEN"},
+			}},
+		}
+		require.ErrorContains(t, ValidateArtifact(a), "credentials[0]: service is required")
+	})
+
+	// The v1 fold derives service keys from env-var names and keeps
+	// underscores, so §5.4's lowercase-kebab charset is not enforced on the
+	// canonical artifact — such kits must keep loading.
+	t.Run("non_kebab_service_accepted", func(t *testing.T) {
+		a := &Artifact{
+			Manifest:    Manifest{SchemaVersion: SchemaVersion, Kind: KindMixin, Name: "ok"},
+			Credentials: []Credential{{Service: "sample_proxy", ApiKey: &ApiKey{Name: "SAMPLE_PROXY_TOKEN"}}},
+		}
+		require.NoError(t, ValidateArtifact(a))
 	})
 
 	t.Run("oauth_credential_file_structure_only_accepted", func(t *testing.T) {

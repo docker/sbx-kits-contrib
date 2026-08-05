@@ -318,13 +318,20 @@ func ValidateArtifact(a *Artifact) error {
 		return err
 	}
 	for i, c := range a.Credentials {
-		// The service identifier is what carries OAuth's identity in v2 (it
-		// moved off the OAuth block onto the parent Credential), and both
-		// engine entry points reject an empty one at runtime — the proxy's
-		// NewOAuthInterceptorFromConfig and the configure hook's
-		// "oauth service name cannot be empty". Catch it at validate time.
-		if c.OAuth != nil && c.Service == "" {
-			return fmt.Errorf("artifact: credentials[%d]: service is required for an oauth credential", i)
+		// SPEC-v2 §5.4 makes service REQUIRED on every credential entry: it is
+		// the identity the user-side bindings file matches on. For OAuth it
+		// carries what v2 moved off the OAuth block onto the parent
+		// Credential, and both engine entry points reject an empty one at
+		// runtime (the proxy's NewOAuthInterceptorFromConfig, and the
+		// configure hook's "oauth service name cannot be empty").
+		//
+		// §5.4 also specifies a lowercase-kebab charset. That is deliberately
+		// NOT enforced: the v1 fold synthesizes service keys from env-var
+		// names via deriveServiceKey, which keeps underscores for any
+		// multi-word variable (SAMPLE_PROXY_TOKEN -> "sample_proxy"), so
+		// enforcing the pattern would reject v1 kits that load today.
+		if c.Service == "" {
+			return fmt.Errorf("artifact: credentials[%d]: service is required", i)
 		}
 		if err := ValidateOAuth(c.OAuth); err != nil {
 			return fmt.Errorf("artifact: credentials[%d] (service %q): %w", i, c.Service, err)
