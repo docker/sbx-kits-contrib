@@ -672,6 +672,22 @@ func TestValidateArtifact(t *testing.T) {
 		require.ErrorContains(t, ValidateArtifact(a), "accessToken is required")
 	})
 
+	// The engine rejects an empty service at runtime in two places
+	// (NewOAuthInterceptorFromConfig, and the configure hook's "oauth service
+	// name cannot be empty"), so validate must catch it first.
+	t.Run("oauth_without_service_rejected", func(t *testing.T) {
+		a := &Artifact{
+			Manifest: Manifest{SchemaVersion: SchemaVersion, Kind: KindMixin, Name: "ok"},
+			Credentials: []Credential{{
+				OAuth: &OAuth{
+					TokenEndpoint: OAuthTokenEndpoint{Host: "h", Path: "/p"},
+					Sentinels:     OAuthSentinels{AccessToken: "at", RefreshToken: "rt"},
+				},
+			}},
+		}
+		require.ErrorContains(t, ValidateArtifact(a), "service is required for an oauth credential")
+	})
+
 	t.Run("oauth_credential_file_structure_only_accepted", func(t *testing.T) {
 		a := &Artifact{
 			Manifest: Manifest{SchemaVersion: SchemaVersion, Kind: KindMixin, Name: "ok"},
