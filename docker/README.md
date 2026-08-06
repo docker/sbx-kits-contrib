@@ -12,9 +12,6 @@ Compose with any agent kit:
 $ sbx run --kit <agent-kit> --kit "git+https://github.com/docker/sbx-kits-contrib.git#dir=docker" <agent>
 ```
 
-Works on `sbx --cloud` too. On cloud this mixin is what starts the daemon.
-On local sbx the runtime usually starts it first and this mixin is a no-op.
-
 ## Requirements
 
 - The image must ship `dockerd` (any `-docker` template does). The mixin
