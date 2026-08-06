@@ -131,7 +131,38 @@ readyFile: "/home/agent/nanoclaw/.installed"
 # automatically from sandbox.entrypoint[0]. Only set this when the
 # entrypoint is a wrapper script whose underlying binary has a different name.
 binary: "claude"
+
+# extractedFromBuiltin: set this only on a kind:sandbox kit whose name is still
+# that of an agent built into sbx. See "Kits that replace a built-in agent".
+extractedFromBuiltin: true
 ```
+
+#### Kits that replace a built-in agent
+
+sbx refuses to load a kit whose name collides with a built-in agent:
+
+```
+ERROR: agent "kiro" is already registered (built-in agents cannot be overridden by a kit)
+```
+
+The check is unconditional: `sbx` exposes no flag or environment variable to let a kit take
+precedence, and a built-in's deprecated aliases are refused as well. That creates a
+chicken-and-egg when a built-in agent is being moved out into a kit: the kit cannot pass e2e
+until a released `sbx` has dropped the built-in, but the kit is normally reviewed first.
+
+`extractedFromBuiltin: true` breaks the cycle by turning that one failure into a **skip**:
+
+| Situation | Result |
+|---|---|
+| Collision, flag set | `SKIP` with an explanatory message |
+| Collision, flag absent | **FAIL** — almost always a kit that took a built-in's name by accident |
+| No collision, flag set | Runs in full, plus a `NOTICE` that the flag is now obsolete |
+| No collision, no flag | Runs in full (the normal case) |
+
+It is deliberately not a blanket "skip e2e for this kit": only the collision error is
+tolerated, every other failure still fails, and nothing needs re-enabling afterwards —
+once the built-in is gone the test starts running on its own. Delete the line when you see
+the obsolete-flag notice.
 
 #### How `binary` is resolved
 
