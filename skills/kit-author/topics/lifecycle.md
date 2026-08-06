@@ -57,9 +57,9 @@ After normalization, only the canonical fields are populated. The legacy fields 
 
 `spec.ValidateArtifact` runs from each `Load*` path:
 
-- **Manifest** — `schemaVersion ∈ {"1", "2"}`, `kind ∈ {sandbox, mixin}` (also accepts v1 `agent` alias), `name` is lowercase alphanumeric + hyphen (1–64 chars), exactly one of `sandbox.image` / `sandbox.build` required for sandbox kits, `resources.cpu` must be a non-negative number and `resources.memory` (v2) a valid byte-size string if set.
+- **Manifest** — `schemaVersion ∈ {"1", "2"}`, `kind ∈ {sandbox, mixin}` (also accepts v1 `agent` alias), `name` is lowercase alphanumeric + hyphen (1–64 chars), `sandbox.image` required for sandbox kits unless inherited via `extends:` (required *even when* `sandbox.build` is set, since builds are forward-compat only — a `build:`-only kit is rejected at load), `resources.cpu` must be a non-negative number and `resources.memory` (v2) a valid byte-size string if set.
 - **permissions.network** — entry strings are exact host, exact host+port, or leading-label wildcard (`*.example.com`). Overlap between `allow` and `deny` is **legal** — at request time, deny wins.
-- **Credentials** — each entry has `service` set; `apiKey.inject[].format` (when set) is well-formed; a v2 `apiKey.inject[].scheme` is mutually exclusive with `format` and expands to it; `oauth.tokenEndpoint` has host+path.
+- **Credentials** — each entry has `service` set; `apiKey.inject[].format` (when set) is well-formed; a v2 `apiKey.inject[].scheme` is mutually exclusive with `format` and expands into `header` / `format` at decode time; `oauth.tokenEndpoint` has host+path. Note that inject domains being present in `permissions.network.allow` is **not** checked here — the engine enforces that.
 - **Volumes** — every entry has an absolute `path`; `type ∈ {"", "tmpfs"}`; `size` if set must parse as a byte-size string; `mode` if set must be octal.
 - **PublishedPorts** — `container` in 1..65535; `protocol ∈ {"", "tcp", "udp"}`.
 - **Locked** — each entry is a well-formed dotted YAML path; no duplicates.

@@ -101,7 +101,9 @@ means the kit declares no affinity and layers onto any base agent.
 
 ## `sandbox:` (only for `kind: sandbox`)
 
-A sandbox kit MUST specify **exactly one** of `image` or `build` — they are mutually exclusive. Specifying both is a hard validation error. (The constraint is relaxed when the missing field is inherited via `extends:`.)
+A sandbox kit MUST resolve to a concrete `image:` — directly, or inherited from an `extends:` parent (the requirement is checked on the resolved artifact, so a leaf with `extends:` may omit it).
+
+`build:` is **not** an alternative to `image:` today: builds are forward-compat only, so a kit that sets `build:` MUST **also** set `image:` — the image is what the runtime uses, and the `build:` block loads with a not-implemented warning. A build-only kit (no `image:`) is rejected at load. Setting both is correct and expected, not an error. Once the build path lands, `build:` alone is the intended end state: `sbx kit push` already runs the build, pins the result by digest, and rewrites the published spec to `image:`.
 
 ### Use `image:` to layer onto a pre-built image
 
@@ -165,7 +167,7 @@ Use `build:` when you need custom binaries, complex setup, or full control over 
 
 ### Validation
 
-- `sandbox.image` and `sandbox.build` are mutually exclusive — exactly one MUST be present for `kind: sandbox` (unless inherited via `extends:`).
+- `sandbox.image` MUST be present for `kind: sandbox` (unless inherited via `extends:`) — including when `sandbox.build` is set, since builds are not yet implemented. A `build:`-only kit is rejected at load; `image:` + `build:` together is valid and warns that `build:` is not yet wired.
 - `sandbox.resources.cpu` MUST be non-negative if specified.
 - `sandbox.resources.memory` MUST parse as a byte-size string (`units.RAMInBytes`, e.g. `4096m`, `8g`) if specified.
 - `sandbox.entrypoint` MUST be a flat string array; `entrypoint[0]` is the binary.
@@ -185,9 +187,9 @@ Per-entry fields:
 | `provider` | conditional | Explicit provider registry entry. Only needed when `service` doesn't match a known provider — sets the auth defaults the registry would otherwise derive from the name. |
 | `apiKey` | conditional | api-key shape (see below). |
 | `oauth` | conditional | OAuth shape (see below). |
-| `sshAgent` | no | SSH-agent forwarding (P2 — see below). |
+| `sshAgent` | no | SSH-agent forwarding. **Declared but not implemented** — writing it is a load error today (see below). |
 
-For custom services not in the provider registry, **at least one** of `apiKey.inject`, `oauth`, or `sshAgent` MUST be specified.
+For custom services not in the provider registry, **at least one** of `apiKey.inject` or `oauth` MUST be specified (`sshAgent` is not yet a usable option — see below).
 
 ### api-key shape
 
@@ -226,7 +228,7 @@ credentials:
 
 `scheme` and a raw `format` are **mutually exclusive** — set one or the other, not both. On the normalized artifact `scheme` is expanded away, so consumers only ever read `header` / `format` / `username`. You can still write `header` + `format` directly when you need a header the sugar doesn't cover.
 
-**Validation:** every `apiKey.inject[].domain` MUST appear in `permissions.network.allow`. The spec library rejects a kit whose injection domain isn't allow-listed — there is no auto-derived egress from credentials.
+**Validation:** every `apiKey.inject[].domain` MUST appear in `permissions.network.allow` — there is no auto-derived egress from credentials. This is a rule the **runtime** enforces, not `ValidateArtifact`: a kit whose injection domain is missing from the allow list still loads clean, and the mismatch surfaces at sandbox-create time. Do not rely on loading successfully as proof that the allow list is complete.
 
 ### OAuth shape
 
@@ -263,7 +265,17 @@ credentials:
 
 A credential entry can declare **both** `apiKey` and `oauth`. The precedence rule is: **api key wins when found**. If no API key value is present on the host, the user can authenticate via OAuth (e.g. `/login`). Setting both lets the kit support either auth method without the kit author choosing one.
 
-### SSH-agent shape (P2)
+### SSH-agent shape — declared, not implemented
+
+> **Not implemented. Do not write `sshAgent:` in a kit today.** Unlike the other
+> forward-compat fields (`sandbox.build`, `mixins:`, `sandbox.resources`), which
+> are accepted at decode time and merely not wired, `sshAgent` has no
+> representation on the loaded artifact at all: strict decoding rejects the key,
+> so a kit that declares it fails to load outright (`field sshAgent not found`).
+> The shape below is the planned grammar, recorded so the design is pinned — it
+> is not a usable field. Kits that need SSH access to a host today declare that
+> host under `permissions.network.allow` and do their SSH setup in
+> `setup.install` (see the `github-ssh` mixin in this repo).
 
 For services that authenticate via SSH (e.g. `git push` over SSH). Keys remain on the host — the container can request SSH operations through the agent socket but cannot extract key material.
 
@@ -284,7 +296,7 @@ permissions:
       - github.com:443
 ```
 
-Every `sshAgent.hosts` entry MUST also appear in `permissions.network.allow` — the spec validator rejects mismatches.
+Every `sshAgent.hosts` entry MUST also appear in `permissions.network.allow`. As with `apiKey.inject[].domain`, that is a rule for the runtime to enforce when the field lands — `ValidateArtifact` does not check it.
 
 ## `permissions` — capability grants
 
@@ -319,7 +331,7 @@ Entry formats:
 
 **Deny precedence.** When the same host matches both `allow` and `deny`, **deny wins** — the request is rejected. Overlap is legal (and intentional: a parent kit can allow `*.example.com` while a child or mixin denies `telemetry.example.com`).
 
-**All-domains-declared rule.** Every domain a credential injects into MUST appear in `permissions.network.allow`. There is no auto-derived egress — see the `credentials` validation note above.
+**All-domains-declared rule.** Every domain a credential injects into MUST appear in `permissions.network.allow`. There is no auto-derived egress, and the load-time validator does not check it for you — see the `credentials` validation note above.
 
 Composition: allow / deny lists append across kits. Use `sbx policy log <sandbox>` to see what got through.
 

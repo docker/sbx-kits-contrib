@@ -170,3 +170,29 @@ sandbox:
 	require.ErrorContains(t, err, "sandbox.build is accepted in the schema but not yet implemented")
 	require.ErrorContains(t, err, "specify sandbox.image")
 }
+
+// sshAgent is specified in SPEC-v2 §5.4.3 but is *declared only*: there is no
+// such field on Credential, so strict decoding rejects the key outright — a
+// stronger status than the other not-yet-wired fields, which at least decode.
+// This pins the behaviour the "declared, not implemented" notes in SPEC-v2.md
+// and the kit-author skill describe; if sshAgent is ever wired, this test fails
+// and both docs get revisited with it.
+func TestSshAgent_DeclaredButRejectedAtDecode(t *testing.T) {
+	yaml := []byte(`
+schemaVersion: "2"
+kind: mixin
+name: github-ssh
+permissions:
+  network:
+    allow:
+      - github.com:22
+credentials:
+  - service: github-ssh
+    sshAgent:
+      hosts:
+        - github.com:22
+`)
+	_, err := LoadArtifactFromBytes(yaml)
+	require.Error(t, err, "sshAgent is not implemented; it must not silently load")
+	require.ErrorContains(t, err, "field sshAgent not found")
+}

@@ -61,7 +61,9 @@ significant, not merely cosmetic.
 
 Some fields are accepted at decode time (so kits and this document can declare
 them) but are **not yet wired** by the runtime. They load without error and emit
-a load-time warning where noted:
+a load-time warning where noted. One field — `credentials[].sshAgent` — is
+specified here but **not accepted at all**; the "Declared only" status below
+marks that stronger case, and a kit that writes it fails to load:
 
 | Field | Status |
 |---|---|
@@ -69,6 +71,7 @@ a load-time warning where noted:
 | `mixins:` | Accepted; mixin composition is **not** applied by the runtime this release. |
 | `sandbox.resources` | Accepted; enforcement is best-effort / pending. |
 | `permissions.network` extended patterns | `**.` wildcards, CIDR, and port ranges are declared but **not** enforced this release (see [§5.2](#52-permissionsnetwork)). |
+| `credentials[].sshAgent` | **Declared only** — no such field exists on the loaded credential, so strict decoding **rejects** the key and the kit fails to load. The grammar in [§5.4.3](#543-sshagent) records the intended design; do not write it in a kit yet. |
 
 ---
 
@@ -491,8 +494,10 @@ Rules:
   while a child denies `telemetry.example.com`).
 - **All-egress-declared.** Every domain a credential injects into
   (`credentials[].apiKey.inject[].domain`) and every SSH host
-  (`credentials[].sshAgent.hosts[]`) **MUST** appear in
-  `permissions.network.allow`. The engine does not auto-derive egress.
+  (`credentials[].sshAgent.hosts[]`, once that field is implemented — see
+  [§1.4](#14-forward-compatible-fields)) **MUST** appear in
+  `permissions.network.allow`. The engine does not auto-derive egress, and
+  `ValidateArtifact` does not check the rule (see [§6](#6-validation-summary)).
 - Composition: `allow` and `deny` lists append across kits.
 
 ### 5.3 `ports`
@@ -528,7 +533,7 @@ never declare discovery.
 | `provider` | optional | Forward-compat stub for the provider registry; warns and has no effect. |
 | `apiKey` | conditional | api-key shape ([§5.4.1](#541-apikey)). |
 | `oauth` | conditional | OAuth shape ([§5.4.2](#542-oauth)). |
-| `sshAgent` | conditional | SSH-agent forwarding ([§5.4.3](#543-sshagent)). |
+| `sshAgent` | — | SSH-agent forwarding ([§5.4.3](#543-sshagent)). **Declared, not implemented** — the loader has no such field and rejects the key ([§1.4](#14-forward-compatible-fields)). |
 
 An entry MAY declare both `apiKey` and `oauth`; at runtime the API key wins when
 present, with OAuth as the fallback.
@@ -605,6 +610,12 @@ credentials:
 
 #### 5.4.3 `sshAgent`
 
+> **Declared, not implemented — MUST NOT be written in a kit today.** Unlike the
+> other not-yet-wired fields in [§1.4](#14-forward-compatible-fields), `sshAgent`
+> is not even accepted at decode time: there is no such field on the loaded
+> credential, so strict decoding rejects the key and the kit fails to load. The
+> grammar below is normative for when the field lands, not for what loads today.
+
 For services that authenticate over SSH. Keys stay on the host.
 
 ```yaml
@@ -618,7 +629,9 @@ credentials:
         - "SHA256:abc123..."
 ```
 
-Every `hosts` entry MUST also appear in `permissions.network.allow`.
+Every `hosts` entry MUST also appear in `permissions.network.allow` — an
+engine-side rule for when the field lands, like the `apiKey.inject[].domain`
+rule ([§6](#6-validation-summary)); `ValidateArtifact` does not check it.
 
 ### 5.5 `environment`
 

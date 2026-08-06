@@ -219,6 +219,33 @@ func TestValidateCredentialPolicy(t *testing.T) {
 	})
 }
 
+// The "every inject domain must appear in permissions.network.allow" rule is
+// the engine's to enforce, not ValidateArtifact's: a kit whose inject domain is
+// absent from the allow list loads and validates clean here, with no warning.
+// The docs say so; this pins the behaviour they describe.
+func TestValidateArtifact_InjectDomainNotAllowlisted_NotEnforced(t *testing.T) {
+	in := []byte(`schemaVersion: "2"
+kind: mixin
+name: cloudflare-dns
+permissions:
+  network:
+    allow:
+      - example.com
+credentials:
+  - service: cloudflare-api
+    apiKey:
+      name: CLOUDFLARE_API_TOKEN
+      inject:
+        - domain: api.cloudflare.com
+          scheme: bearer
+`)
+	a, err := LoadArtifactFromBytes(in)
+	require.NoError(t, err)
+	require.NoError(t, ValidateArtifact(a),
+		"inject-domain allow-listing is enforced by the engine, not the validator")
+	require.Empty(t, a.Warnings)
+}
+
 func TestValidateEnvironmentPolicy(t *testing.T) {
 	t.Run("invalid_variable_key", func(t *testing.T) {
 		e := &EnvironmentPolicy{
