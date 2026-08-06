@@ -17,25 +17,36 @@ name: Build kit base image
 # kit specs are consumed literally, with no env interpolation (see
 # spec/types.go). The `verify-spec-refs` job gates the build on those two never
 # drifting apart.
+#
+# Scope: this builds ONE image and names the kit directly. Unlike tck.yml it does
+# not discover kits, because it does not need a matrix — there is a single image
+# to build, so native `paths:` filtering answers "did anything relevant change".
+# When a second kit starts publishing its own image, this should adopt tck.yml's
+# shape instead: glob for kits shipping a Dockerfile, and fan out over them so
+# the kit name, base image and image name all come from the matrix rather than
+# from `env`.
 
 on:
   push:
     branches: [main]
-    # Deliberately narrower than `kiro/**`: the image only depends on the
-    # Dockerfile and what it copies. spec.yaml is included because the
-    # spec-vs-CI drift check below reads it, but README/testdata changes must not
-    # trigger a rebuild.
+    # Whole kit directory minus the parts the image cannot depend on. Written as
+    # exclusions rather than an allowlist of sources deliberately: an allowlist
+    # silently stops triggering when the Dockerfile starts COPYing a new file,
+    # leaving the published image stale until the next nightly run. Excluding
+    # instead fails safe — a new file rebuilds, and only docs/tests are skipped.
+    #
+    # spec.yaml is NOT excluded: the drift check below reads it.
     paths:
-      - kiro/Dockerfile
-      - kiro/start.sh
-      - kiro/spec.yaml
+      - kiro/**
+      - '!kiro/README.md'
+      - '!kiro/testdata/**'
       - .github/workflows/build-image.yml
       - scripts/check-image-ref.sh
   pull_request:
     paths:
-      - kiro/Dockerfile
-      - kiro/start.sh
-      - kiro/spec.yaml
+      - kiro/**
+      - '!kiro/README.md'
+      - '!kiro/testdata/**'
       - .github/workflows/build-image.yml
       - scripts/check-image-ref.sh
   # Nightly, for two reasons that both stem from this image tracking moving
