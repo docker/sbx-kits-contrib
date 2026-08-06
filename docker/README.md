@@ -44,3 +44,4 @@ modified.
 The kit allows the Docker Hub registry domains. If your inner containers
 pull from other registries (ghcr.io, quay.io, ...), add those domains to
 your own kit or sandbox policy.
+
