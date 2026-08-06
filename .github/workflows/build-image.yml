@@ -1,0 +1,248 @@
+name: Build kit base image
+
+# Builds and publishes the base image for the `kiro` sandbox kit.
+#
+# One image, no flavour suffix. The sandbox templates distinguish `kiro` from
+# `kiro-docker` because a user picks a template directly; here the kit picks its
+# own image, so the Docker-in-Docker detail never reaches the user — exactly as
+# `sbx run kiro` already resolves to the Docker flavour today. The image carries
+# a Docker engine and requests Docker-in-Docker via the start-docker label.
+#
+# Every image coordinate is read from a repository/organisation variable with a
+# documented fallback, so retargeting is a repo-settings change rather than a
+# workflow edit. The fallbacks keep forks and `act` runs working with no
+# configuration at all.
+#
+# The one coordinate that CANNOT be parameterised is a kit's own `sandbox.image`:
+# kit specs are consumed literally, with no env interpolation (see
+# spec/types.go). The `verify-spec-refs` job gates the build on those two never
+# drifting apart.
+
+on:
+  push:
+    branches: [main]
+    # Deliberately narrower than `kiro/**`: the image only depends on the
+    # Dockerfile and what it copies. spec.yaml is included because the
+    # spec-vs-CI drift check below reads it, but README/testdata changes must not
+    # trigger a rebuild.
+    paths:
+      - kiro/Dockerfile
+      - kiro/start.sh
+      - kiro/spec.yaml
+      - .github/workflows/build-image.yml
+      - scripts/check-image-ref.sh
+  pull_request:
+    paths:
+      - kiro/Dockerfile
+      - kiro/start.sh
+      - kiro/spec.yaml
+      - .github/workflows/build-image.yml
+      - scripts/check-image-ref.sh
+  # Nightly, for two reasons that both stem from this image tracking moving
+  # upstreams rather than pinned versions:
+  #
+  #   * The Dockerfile installs Kiro from its `latest` channel, so a rebuild is
+  #     the only way a new Kiro release reaches users of this kit. Nightly means
+  #     every published version gets picked up rather than a weekly sample.
+  #   * The default base is a floating tag, so an upstream change can break this
+  #     build with no commit here — a scheduled rebuild surfaces that in CI
+  #     instead of in a user's sandbox.
+  schedule:
+    - cron: "0 5 * * *"
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+env:
+  # --- Coordinates. Repo/org variables win; the fallbacks are the defaults, so
+  # --- retargeting is a settings change rather than a workflow edit.
+  REGISTRY: ${{ vars.REGISTRY || 'docker.io' }}
+  IMAGE_NAMESPACE: ${{ vars.IMAGE_NAMESPACE || 'sbx-kits' }}
+  IMAGE_NAME: ${{ vars.IMAGE_NAME || 'kiro' }}
+  IMAGE_TAG_LATEST: ${{ vars.IMAGE_TAG_LATEST || 'latest' }}
+  BASE_IMAGE: ${{ vars.BASE_IMAGE || 'docker/sandbox-templates:shell-docker' }}
+  PLATFORMS: ${{ vars.PLATFORMS || 'linux/amd64,linux/arm64' }}
+
+jobs:
+  # Gates the build. Discovers kits by scanning every */spec.yaml rather than
+  # being told which kit maps to this image, so a second kit adopting it is
+  # covered with no workflow change and there is no per-kit field to leave stale
+  # — a stale one would silently disable the check rather than fail.
+  verify-spec-refs:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Verify kit specs reference published images
+        run: ./scripts/check-image-ref.sh "${REGISTRY}/${IMAGE_NAMESPACE}" "${IMAGE_NAME}"
+
+  build:
+    needs: verify-spec-refs
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Resolve image coordinates
+        id: coords
+        # Composed exactly once and published via $GITHUB_OUTPUT so the build,
+        # the tag re-point, and the spec-drift check all consume the same
+        # string instead of each re-deriving it.
+        #
+        # PUSH is false for pull_request (fork PRs must never receive push
+        # credentials) and false until REGISTRY_CONFIGURED is set, which gives a
+        # useful dry-run mode: CI still builds every platform and proves the
+        # Dockerfile works, it just publishes nothing.
+        run: |
+          set -euo pipefail
+          image="${REGISTRY}/${IMAGE_NAMESPACE}/${IMAGE_NAME}"
+          echo "image=${image}" >> "$GITHUB_OUTPUT"
+
+          # The immutable tag carries BOTH the build date and the commit,
+          # because the image content is not a function of the commit alone:
+          # Kiro is installed from its `latest` channel and the base image is a
+          # floating tag, so a nightly rebuild of an unchanged commit can produce
+          # different bits. A bare :<sha> would therefore be overwritten with new
+          # content while claiming to identify a source revision — which is
+          # exactly what someone pinning a SHA is trying to avoid. So no bare
+          # :<sha> tag is published; this is the tag to pin.
+          build_date=$(date -u +%Y%m%d)
+          echo "dated=${GITHUB_SHA}-${build_date}" >> "$GITHUB_OUTPUT"
+
+          if [ "${{ github.event_name }}" != "pull_request" ] \
+             && [ "${{ vars.REGISTRY_CONFIGURED }}" = "true" ]; then
+            echo "push=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "push=false" >> "$GITHUB_OUTPUT"
+          fi
+
+          echo "Resolved image: ${image}"
+          echo "  immutable tag: ${image}:${GITHUB_SHA}-${build_date}"
+          echo "  rolling tag:   ${image}:${IMAGE_TAG_LATEST}"
+
+      - uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3.7.0
+
+      - uses: docker/setup-buildx-action@e468171a9de216ec08956ac3ada2f0791b6bd435 # v3.11.1
+
+      - name: Build for verification (single platform, loaded locally)
+        # The multi-arch build below produces a manifest list, which cannot be
+        # `docker run`. This extra single-platform build shares the same gha
+        # cache, so it costs little, and gives a concrete image to assert
+        # against. It runs on pull requests too — the point is to catch a broken
+        # image before it is published, not after.
+        uses: docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83 # v6.18.0
+        with:
+          context: kiro
+          file: kiro/Dockerfile
+          platforms: linux/amd64
+          load: true
+          tags: ${{ steps.coords.outputs.image }}:ci-verify
+          build-args: |
+            BASE_IMAGE=${{ env.BASE_IMAGE }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Verify the built image
+        # `com.docker.sandboxes.start-docker` is a *request* to the runtime, not a
+        # description of the image, and the Dockerfile hardcodes it to "true".
+        # Since BASE_IMAGE is an overridable variable, pointing it at a template
+        # without a Docker engine would still produce an image asking for
+        # Docker-in-Docker — the sandbox then starts in Docker mode with nothing
+        # to run. Assert the engine is really there rather than trusting the
+        # label.
+        run: |
+          set -euo pipefail
+          img="${{ steps.coords.outputs.image }}:ci-verify"
+
+          docker run --rm --entrypoint sh "$img" -c '
+            set -e
+            # kiro-cli and the launcher the entrypoint resolves as `kiro`, plus
+            # the Docker engine this flavour promises.
+            for bin in kiro-cli kiro dockerd docker containerd; do
+              command -v "$bin" >/dev/null || { echo "MISSING: $bin"; exit 1; }
+            done
+            echo "kiro-cli version: $(kiro-cli --version)"
+          '
+
+          label=$(docker inspect --format \
+            '{{ index .Config.Labels "com.docker.sandboxes.start-docker" }}' "$img")
+          if [ "$label" != "true" ]; then
+            echo "::error::start-docker label is '${label}', expected 'true'"
+            exit 1
+          fi
+
+          user=$(docker inspect --format '{{ .Config.User }}' "$img")
+          cmd=$(docker inspect --format '{{ json .Config.Cmd }}' "$img")
+          echo "Cmd=${cmd} User=${user} start-docker=${label}"
+          [ "$user" = "agent" ] || { echo "::error::expected User=agent, got '${user}'"; exit 1; }
+
+          echo "Image verified."
+
+      - name: Log in to the registry
+        if: steps.coords.outputs.push == 'true'
+        uses: docker/login-action@74a5d142397b4f367a81961eba4e8cd7edddf772 # v3.6.0
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ secrets.REGISTRY_USERNAME }}
+          password: ${{ secrets.REGISTRY_TOKEN }}
+
+      - name: Build (and push the immutable tag)
+        id: build
+        # Only the immutable <sha>-<date> tag is built and pushed here. The
+        # :<sha> and rolling tags are re-pointed at this manifest in the next
+        # step rather than built again.
+        uses: docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83 # v6.18.0
+        with:
+          context: kiro
+          file: kiro/Dockerfile
+          platforms: ${{ env.PLATFORMS }}
+          push: ${{ steps.coords.outputs.push == 'true' }}
+          tags: ${{ steps.coords.outputs.image }}:${{ steps.coords.outputs.dated }}
+          build-args: |
+            BASE_IMAGE=${{ env.BASE_IMAGE }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Re-point the rolling tag at that manifest
+        if: steps.coords.outputs.push == 'true'
+        # `imagetools create` copies an existing manifest list to a new tag
+        # without rebuilding, so both tags are guaranteed to resolve to the SAME
+        # digest. Rebuilding for the rolling tag could produce different bits —
+        # the base image floats and the installer fetches `latest` — which is
+        # exactly the divergence this avoids.
+        run: |
+          set -euo pipefail
+          docker buildx imagetools create \
+            --tag "${IMAGE}:${IMAGE_TAG_LATEST}" \
+            "${IMAGE}:${DATED}"
+        env:
+          IMAGE: ${{ steps.coords.outputs.image }}
+          DATED: ${{ steps.coords.outputs.dated }}
+
+      - name: Summarise
+        run: |
+          {
+            echo "## Kit base image"
+            echo ""
+            if [ "${{ steps.coords.outputs.push }}" = "true" ]; then
+              echo "Published — both tags resolve to the same digest:"
+              echo ""
+              echo '- `${{ steps.coords.outputs.image }}:${{ steps.coords.outputs.dated }}` — immutable, one per build'
+              echo '- `${{ steps.coords.outputs.image }}:${{ env.IMAGE_TAG_LATEST }}` — rolling'
+            else
+              echo "**Dry run — nothing published.**"
+              echo ""
+              if [ "${{ github.event_name }}" = "pull_request" ]; then
+                echo "Reason: pull request (push credentials are never exposed to PRs)."
+              else
+                echo "Reason: \`vars.REGISTRY_CONFIGURED\` is not \`true\`."
+                echo "Set it once the registry and \`REGISTRY_USERNAME\` /"
+                echo "\`REGISTRY_TOKEN\` secrets are provisioned."
+              fi
+              echo ""
+              echo 'Would have published `${{ steps.coords.outputs.image }}`.'
+            fi
+            echo ""
+            echo "Platforms: \`${{ env.PLATFORMS }}\` · Base: \`${{ env.BASE_IMAGE }}\`"
+          } >> "$GITHUB_STEP_SUMMARY"

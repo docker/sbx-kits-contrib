@@ -2,7 +2,9 @@
 
 Community-contributed kits for [Docker Sandboxes](https://docs.docker.com/ai/sandboxes/).
 
-Each top-level directory is a **kit** — a declarative artifact containing a `spec.yaml` and optional `files/` directory that extends sandbox agents with additional capabilities.
+Each top-level directory containing a `spec.yaml` is a **kit** — a declarative artifact with that `spec.yaml` and an optional `files/` directory, extending sandbox agents with additional capabilities. A `kind: sandbox` kit may also carry a `Dockerfile` for the image its sandbox boots from (see [`kiro/`](./kiro)).
+
+The remaining top-level directories are shared infrastructure: [`spec/`](./spec) (the kit spec implementation), [`tck/`](./tck) (the compatibility test kit), [`scripts/`](./scripts) (maintainer utilities), and [`skills/`](./skills).
 
 ## Documentation
 
