@@ -566,6 +566,11 @@ credentials:
 | `bearer` | `header: Authorization`, `format: "Bearer %s"` | `username` MUST NOT be set. |
 | `basic` | HTTP Basic Auth (username-driven at the proxy) | `username` is REQUIRED. |
 
+`bearer` fills in `header` only when the author left it empty, so an explicit
+`header:` still wins (Bearer-formatted value, non-standard header). `basic` is
+username-driven at the proxy rather than a header encoding, so it sets no
+`header` — write one explicitly if the service needs a specific one.
+
 #### 5.4.2 `oauth`
 
 ```yaml

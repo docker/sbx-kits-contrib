@@ -226,6 +226,8 @@ credentials:
 
 `scheme` and a raw `format` are **mutually exclusive** — set one or the other, not both. On the normalized artifact `scheme` is expanded away, so consumers only ever read `header` / `format` / `username`. You can still write `header` + `format` directly when you need a header the sugar doesn't cover.
 
+`bearer` supplies `header: Authorization` only when you left `header` empty, so writing an explicit `header:` alongside it still wins. `basic` is username-driven at the proxy rather than a header encoding, so it sets no `header` at all — write one yourself if the service needs a specific one.
+
 **Validation:** every `apiKey.inject[].domain` MUST appear in `permissions.network.allow`. The spec library rejects a kit whose injection domain isn't allow-listed — there is no auto-derived egress from credentials.
 
 ### OAuth shape

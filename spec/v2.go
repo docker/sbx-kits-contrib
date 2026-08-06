@@ -276,9 +276,16 @@ func (s *specFileV2) toArtifact(w *warnings) (*Artifact, error) {
 }
 
 // expandCredentialSchemes rewrites the v2 `scheme:` sugar on apiKey inject
-// entries into the canonical Format/Username fields, then clears Scheme so the
-// normalized Artifact carries only the fields consumers already read. scheme
-// and a raw format are mutually exclusive.
+// entries into the canonical Header/Format/Username fields, then clears Scheme
+// so the normalized Artifact carries only the fields consumers already read.
+// scheme and a raw format are mutually exclusive.
+//
+// `scheme: bearer` is sugar for the whole `Authorization: Bearer <token>`
+// header, so it fills in Header as well as Format — Header is the only carrier
+// of the header name on the normalized artifact, and leaving it empty produced
+// an inject entry that validated clean but injected nothing. An explicit
+// `header:` always wins, so an author can point Bearer-formatted values at a
+// non-standard header.
 func expandCredentialSchemes(creds []Credential) ([]Credential, error) {
 	for i := range creds {
 		if creds[i].ApiKey == nil {
@@ -298,6 +305,9 @@ func expandCredentialSchemes(creds []Credential) ([]Credential, error) {
 					return nil, fmt.Errorf("credentials[%d].apiKey.inject[%d]: 'username' is not valid with scheme: bearer", i, j)
 				}
 				inj.Format = "Bearer %s"
+				if inj.Header == "" {
+					inj.Header = "Authorization"
+				}
 			case "basic":
 				if inj.Username == "" {
 					return nil, fmt.Errorf("credentials[%d].apiKey.inject[%d]: scheme: basic requires 'username'", i, j)
