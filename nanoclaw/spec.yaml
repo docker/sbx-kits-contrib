@@ -71,8 +71,6 @@ commands:
     # together. Runtime mixin composition is not applied yet; when
     # `mixins:` goes live, replace this block with `mixins: [docker]`.
     # On local sbx the runtime starts dockerd anyway and this is a no-op.
-    # On `sbx --cloud` this block is what starts the daemon the seed
-    # script and nested agent containers need.
     - command:
         - sh
         - -c
