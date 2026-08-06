@@ -65,6 +65,57 @@ environment:
     NO_PROXY: "127.0.0.1,localhost"
     no_proxy: "127.0.0.1,localhost"
 
+commands:
+  startup:
+    # SYNCed with the docker mixin (../docker/spec.yaml): update both
+    # together. Runtime mixin composition is not applied yet; when
+    # `mixins:` goes live, replace this block with `mixins: [docker]`.
+    # On local sbx the runtime starts dockerd anyway and this is a no-op.
+    # On `sbx --cloud` this block is what starts the daemon the seed
+    # script and nested agent containers need.
+    - command:
+        - sh
+        - -c
+        - |
+          set -eu
+          # Success is keyed on "the Docker socket answers", never on "this
+          # script's dockerd survived". Local sbx's EnsureDockerd may already
+          # have started the daemon, and re-runs must be no-ops.
+          ping_docker() {
+            curl -sf --unix-socket /var/run/docker.sock http://localhost/_ping >/dev/null 2>&1
+          }
+          if ping_docker; then
+            echo "docker mixin: dockerd already running"
+            exit 0
+          fi
+          if ! command -v dockerd >/dev/null 2>&1; then
+            echo "docker mixin: dockerd not found in this image. Use a -docker template or an image that ships Docker Engine." >&2
+            exit 1
+          fi
+          # Route inner registry pulls through the sandbox egress proxy.
+          # Never touch an existing daemon.json.
+          if [ -n "${HTTP_PROXY:-}" ] && [ ! -f /etc/docker/daemon.json ]; then
+            mkdir -p /etc/docker
+            printf '{\n  "proxies": {\n    "http-proxy": "%s",\n    "https-proxy": "%s",\n    "no-proxy": "%s"\n  }\n}\n' \
+              "$HTTP_PROXY" "${HTTPS_PROXY:-$HTTP_PROXY}" "${NO_PROXY:-}" >/etc/docker/daemon.json
+          fi
+          : >/var/log/dockerd.log
+          nohup dockerd >>/var/log/dockerd.log 2>&1 &
+          i=0
+          while [ "$i" -lt 60 ]; do
+            if ping_docker; then
+              echo "docker mixin: dockerd started"
+              exit 0
+            fi
+            i=$((i + 1))
+            sleep 0.5
+          done
+          echo "docker mixin: dockerd did not become ready within 30s. Log tail:" >&2
+          tail -n 50 /var/log/dockerd.log >&2
+          exit 1
+      user: "0"
+      description: Start dockerd when the image ships it and nothing answers on the Docker socket
+
 agentContext: |
   ## Sandbox environment
 

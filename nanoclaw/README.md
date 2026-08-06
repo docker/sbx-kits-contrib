@@ -21,6 +21,15 @@ Or with a local clone of this repository:
 $ sbx run --name nanoclaw --kit ./nanoclaw nanoclaw
 ```
 
+NanoClaw also runs on Docker Sandboxes Cloud:
+
+```console
+$ sbx --cloud run --name nanoclaw --kit "git+https://github.com/docker/sbx-kits-contrib.git#dir=nanoclaw" nanoclaw
+```
+
+The kit starts the sandbox's inner Docker daemon itself (see the `docker`
+mixin in this repo), so no local-runtime Docker support is assumed.
+
 The `--name nanoclaw` flag gives the sandbox a stable name for follow-up
 commands such as `sbx exec`, `sbx policy ls`, and `sbx rm`.
 
