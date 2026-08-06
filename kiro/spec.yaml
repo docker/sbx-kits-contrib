@@ -9,11 +9,16 @@ sandbox:
   # .github/workflows/build-image.yml. Carries a Docker engine and requests
   # Docker-in-Docker, matching the built-in agent this kit replaces.
   #
-  # This value cannot be templated — spec.yaml is consumed literally, with no
-  # env interpolation — so it must be updated in lockstep with the workflow's
-  # REGISTRY / IMAGE_NAMESPACE / IMAGE_NAME variables.
-  # scripts/check-image-ref.sh asserts the two agree.
-  image: "docker.io/sbx-kits/kiro:latest"
+  # This value is the source of truth for what CI builds and publishes: the
+  # workflow reads it from here rather than deriving a name, because spec.yaml
+  # is consumed literally (no env interpolation) and so cannot follow a
+  # variable. scripts/check-image-ref.sh asserts it stays inside the namespace
+  # CI can actually push to.
+  #
+  # The `-image` suffix distinguishes the base image from the kit artifact:
+  # when the kit itself is published as an OCI artifact it will be
+  # `docker.io/sbx/kiro-kit`.
+  image: "docker.io/sbx/kiro-image:latest"
   entrypoint: [kiro, chat, "--trust-all-tools"]
 
 environment:

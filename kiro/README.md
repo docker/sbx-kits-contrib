@@ -96,8 +96,13 @@ an existing `docker/sandbox-templates` image — a `kind: sandbox` kit *is* the
 whole environment, so it names the image the sandbox boots from. This kit builds
 and publishes its own, from the `Dockerfile` and `start.sh` in this directory.
 
-The image is `sbx-kits/kiro`, built on `docker/sandbox-templates:shell-docker`, so
-it carries a Docker engine and requests Docker-in-Docker.
+The image is **`docker.io/sbx/kiro-image`**, built on
+`docker/sandbox-templates:shell-docker`, so it carries a Docker engine and
+requests Docker-in-Docker.
+
+The `-image` suffix distinguishes the base image from the kit itself: when the kit
+is published as an OCI artifact it will be `docker.io/sbx/kiro-kit`. The image
+name is therefore deliberately *not* tied to the kit directory name.
 
 There is no flavour suffix and no dockerless variant. The sandbox templates
 distinguish `kiro` from `kiro-docker` because a user picks a template directly,
@@ -106,10 +111,9 @@ user, just as `sbx run kiro` already resolves to the Docker flavour today. And a
 `kind: sandbox` kit names exactly one `sandbox.image`, so a second image would be
 unreachable without a second kit to consume it.
 
-`spec.yaml`'s `sandbox.image` must name one of the images the build workflow
-publishes. `scripts/check-image-ref.sh` enforces that in CI, and gates the build:
-it scans every kit spec in the repo, so no per-kit configuration exists to fall
-out of date.
+`scripts/check-image-ref.sh` gates the build on `sandbox.image` being publishable
+by this repository. It scans for kits shipping a `Dockerfile` rather than reading a
+list, so no per-kit configuration exists to fall out of date.
 
 ### Building and publishing
 
@@ -119,9 +123,14 @@ requests build without publishing.
 
 The workflow **discovers** kits rather than listing them: any directory with both
 a `spec.yaml` and a `Dockerfile` is picked up, so a new kit that publishes its own
-image needs no workflow change. It relies on two conventions — the image is named
-after the kit directory, and the build context is the kit directory with
+image needs no workflow change. The build context is the kit directory, with
 `Dockerfile` at its root.
+
+`spec.yaml`'s `sandbox.image` is the **source of truth** for what gets published —
+CI reads it rather than deriving a name, since a spec cannot interpolate variables
+and a second copy of the name would only drift. `scripts/check-image-ref.sh` gates
+the build on that image sitting inside the namespace CI can push to, and on its
+tag matching the rolling tag.
 
 The nightly run matters because this image tracks moving upstreams: Kiro is
 installed from its `latest` channel, so a rebuild is the only way a new Kiro
@@ -134,12 +143,12 @@ workflow edit:
 | Variable | Default |
 |---|---|
 | `REGISTRY` | `docker.io` |
-| `IMAGE_NAMESPACE` | `sbx-kits` |
+| `IMAGE_NAMESPACE` | `sbx` |
 | `IMAGE_TAG_LATEST` | `latest` |
 | `PLATFORMS` | `linux/amd64,linux/arm64` |
 | `REGISTRY_CONFIGURED` | unset — publishing stays off until this is `true` |
 
-The image name comes from the kit directory, and the base image from this kit's
+The image name comes from `spec.yaml`, and the base image from this kit's
 `Dockerfile` (`ARG BASE_IMAGE`) — both are per-kit, so neither is a shared
 variable. Override the base locally with `--build-arg BASE_IMAGE=…`.
 
@@ -176,7 +185,7 @@ image from asking for an engine it does not have.
 ### Building locally
 
 ```console
-$ docker build -t docker.io/sbx-kits/kiro:latest kiro
+$ docker build -t docker.io/sbx/kiro-image:latest kiro
 ```
 
 The build needs egress to `cli.kiro.dev` (install script) **and**

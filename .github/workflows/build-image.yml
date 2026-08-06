@@ -10,9 +10,12 @@ name: Build kit base images
 #
 # Conventions a discovered kit must follow:
 #
-#   * The image is `<registry>/<namespace>/<kit-dir>` — the image name is the kit
-#     directory name. `verify-spec-refs` fails the build if a spec disagrees.
 #   * The build context is the kit directory, with `Dockerfile` at its root.
+#   * `sandbox.image` in the kit's spec is the source of truth for what gets
+#     published — the image name is NOT derived from the directory name, because
+#     the two legitimately differ (the `kiro` kit publishes `kiro-image`, leaving
+#     `kiro-kit` for the kit artifact). `verify-spec-refs` gates the build on that
+#     image living in the namespace CI can push to.
 #   * `com.docker.sandboxes.start-docker=true` may only be set on an image that
 #     actually ships a Docker engine; the build asserts this.
 #
@@ -21,9 +24,11 @@ name: Build kit base images
 # a settings change rather than a workflow edit. Anything per-kit — the base
 # image in particular — belongs in that kit's Dockerfile, not here.
 #
-# The one coordinate that CANNOT be parameterised is a kit's own `sandbox.image`:
-# kit specs are consumed literally, with no env interpolation (see
-# spec/types.go). `verify-spec-refs` gates the build on those never drifting.
+# A kit's `sandbox.image` cannot be parameterised — specs are consumed literally,
+# with no env interpolation (see spec/types.go). Rather than duplicate the name
+# here and risk drift, this workflow READS it from the spec and publishes exactly
+# that. `verify-spec-refs` is the guard on that trust: it refuses to build a kit
+# whose declared image sits outside the namespace CI authenticates to.
 
 on:
   push:
@@ -43,7 +48,7 @@ permissions:
 
 env:
   REGISTRY: ${{ vars.REGISTRY || 'docker.io' }}
-  IMAGE_NAMESPACE: ${{ vars.IMAGE_NAMESPACE || 'sbx-kits' }}
+  IMAGE_NAMESPACE: ${{ vars.IMAGE_NAMESPACE || 'sbx' }}
   IMAGE_TAG_LATEST: ${{ vars.IMAGE_TAG_LATEST || 'latest' }}
   PLATFORMS: ${{ vars.PLATFORMS || 'linux/amd64,linux/arm64' }}
 
@@ -139,10 +144,11 @@ jobs:
           echo "kits=${kits:-[]}" >> "$GITHUB_OUTPUT"
           echo "Building: ${kits}"
 
-  # Gates the build. Validates every image-publishing kit's spec, not just the
-  # ones being rebuilt, and discovers kits by scanning specs rather than being
-  # told which kit maps to which image — so there is no per-kit field to leave
-  # stale, which would silently disable the check rather than fail.
+  # Gates the build. Checks every kit that ships a Dockerfile — not just the ones
+  # being rebuilt — and asserts its declared image is one this pipeline may
+  # publish. Kits are found by scanning for Dockerfiles rather than from a list,
+  # so there is no per-kit entry to leave stale (a stale one would silently skip
+  # the check rather than fail).
   verify-spec-refs:
     needs: detect-changes
     if: needs.detect-changes.outputs.all != '[]'
@@ -153,8 +159,7 @@ jobs:
       - name: Verify kit specs reference published images
         run: |
           set -euo pipefail
-          names=$(echo '${{ needs.detect-changes.outputs.all }}' | jq -r 'join(",")')
-          ./scripts/check-image-ref.sh "${REGISTRY}/${IMAGE_NAMESPACE}" "${names}"
+          ./scripts/check-image-ref.sh "${REGISTRY}/${IMAGE_NAMESPACE}" "${IMAGE_TAG_LATEST}"
 
   build:
     needs: [detect-changes, verify-spec-refs]
@@ -183,8 +188,30 @@ jobs:
         # nothing.
         run: |
           set -euo pipefail
-          image="${REGISTRY}/${IMAGE_NAMESPACE}/${{ matrix.kit }}"
+
+          # The kit's spec owns the image name; a spec cannot interpolate env, so
+          # deriving a name here would just be a second source of truth to drift.
+          # verify-spec-refs has already confirmed this lands in our namespace.
+          spec="${{ matrix.kit }}/spec.yaml"
+          [ -f "$spec" ] || spec="${{ matrix.kit }}/spec.yml"
+          declared=$(awk '
+            /^sandbox:/      { in_sandbox = 1; next }
+            /^[^[:space:]#]/ { in_sandbox = 0 }
+            in_sandbox && $1 == "image:" {
+              gsub(/^[[:space:]]*image:[[:space:]]*/, "")
+              gsub(/^["'"'"']|["'"'"']$/, "")
+              print; exit
+            }
+          ' "$spec")
+          if [ -z "$declared" ]; then
+            echo "::error::${{ matrix.kit }}: spec declares no sandbox.image"
+            exit 1
+          fi
+          # Strip tag/digest — this pipeline owns the tags it publishes.
+          image=${declared%%@*}
+          image=${image%:*}
           echo "image=${image}" >> "$GITHUB_OUTPUT"
+          echo "Declared in spec: ${declared}"
 
           # The immutable tag carries BOTH the build date and the commit, because
           # the image content is not a function of the commit alone: agents are
