@@ -1,63 +1,39 @@
-name: Build kit base image
+name: Build kit base images
 
-# Builds and publishes the base image for the `kiro` sandbox kit.
+# Builds and publishes base images for kits that ship their own `Dockerfile`.
 #
-# One image, no flavour suffix. The sandbox templates distinguish `kiro` from
-# `kiro-docker` because a user picks a template directly; here the kit picks its
-# own image, so the Docker-in-Docker detail never reaches the user — exactly as
-# `sbx run kiro` already resolves to the Docker flavour today. The image carries
-# a Docker engine and requests Docker-in-Docker via the start-docker label.
+# Kits are DISCOVERED, not listed: any directory with both a `spec.yaml` and a
+# `Dockerfile` is picked up automatically, so adding a kit that publishes its own
+# image needs no change to this workflow. That mirrors tck.yml, and it is the
+# reason there is no top-level `paths:` filter — all filtering happens in
+# detect-changes, which also decides which kits a given event should rebuild.
 #
-# Every image coordinate is read from a repository/organisation variable with a
-# documented fallback, so retargeting is a repo-settings change rather than a
-# workflow edit. The fallbacks keep forks and `act` runs working with no
-# configuration at all.
+# Conventions a discovered kit must follow:
+#
+#   * The image is `<registry>/<namespace>/<kit-dir>` — the image name is the kit
+#     directory name. `verify-spec-refs` fails the build if a spec disagrees.
+#   * The build context is the kit directory, with `Dockerfile` at its root.
+#   * `com.docker.sandboxes.start-docker=true` may only be set on an image that
+#     actually ships a Docker engine; the build asserts this.
+#
+# Shared coordinates (registry, namespace, rolling tag, platforms) come from
+# repository/organisation variables with documented fallbacks, so retargeting is
+# a settings change rather than a workflow edit. Anything per-kit — the base
+# image in particular — belongs in that kit's Dockerfile, not here.
 #
 # The one coordinate that CANNOT be parameterised is a kit's own `sandbox.image`:
 # kit specs are consumed literally, with no env interpolation (see
-# spec/types.go). The `verify-spec-refs` job gates the build on those two never
-# drifting apart.
-#
-# Scope: this builds ONE image and names the kit directly. Unlike tck.yml it does
-# not discover kits, because it does not need a matrix — there is a single image
-# to build, so native `paths:` filtering answers "did anything relevant change".
-# When a second kit starts publishing its own image, this should adopt tck.yml's
-# shape instead: glob for kits shipping a Dockerfile, and fan out over them so
-# the kit name, base image and image name all come from the matrix rather than
-# from `env`.
+# spec/types.go). `verify-spec-refs` gates the build on those never drifting.
 
 on:
   push:
     branches: [main]
-    # Whole kit directory minus the parts the image cannot depend on. Written as
-    # exclusions rather than an allowlist of sources deliberately: an allowlist
-    # silently stops triggering when the Dockerfile starts COPYing a new file,
-    # leaving the published image stale until the next nightly run. Excluding
-    # instead fails safe — a new file rebuilds, and only docs/tests are skipped.
-    #
-    # spec.yaml is NOT excluded: the drift check below reads it.
-    paths:
-      - kiro/**
-      - '!kiro/README.md'
-      - '!kiro/testdata/**'
-      - .github/workflows/build-image.yml
-      - scripts/check-image-ref.sh
   pull_request:
-    paths:
-      - kiro/**
-      - '!kiro/README.md'
-      - '!kiro/testdata/**'
-      - .github/workflows/build-image.yml
-      - scripts/check-image-ref.sh
-  # Nightly, for two reasons that both stem from this image tracking moving
-  # upstreams rather than pinned versions:
-  #
-  #   * The Dockerfile installs Kiro from its `latest` channel, so a rebuild is
-  #     the only way a new Kiro release reaches users of this kit. Nightly means
-  #     every published version gets picked up rather than a weekly sample.
-  #   * The default base is a floating tag, so an upstream change can break this
-  #     build with no commit here — a scheduled rebuild surfaces that in CI
-  #     instead of in a user's sandbox.
+  # Nightly, because these images track moving upstreams rather than pinned
+  # versions: agents are typically installed from a `latest` channel and bases
+  # are floating tags, so a rebuild is the only way a new agent release reaches
+  # users of the kit — and it surfaces upstream breakage in CI rather than in
+  # someone's sandbox.
   schedule:
     - cron: "0 5 * * *"
   workflow_dispatch: {}
@@ -66,30 +42,131 @@ permissions:
   contents: read
 
 env:
-  # --- Coordinates. Repo/org variables win; the fallbacks are the defaults, so
-  # --- retargeting is a settings change rather than a workflow edit.
   REGISTRY: ${{ vars.REGISTRY || 'docker.io' }}
   IMAGE_NAMESPACE: ${{ vars.IMAGE_NAMESPACE || 'sbx-kits' }}
-  IMAGE_NAME: ${{ vars.IMAGE_NAME || 'kiro' }}
   IMAGE_TAG_LATEST: ${{ vars.IMAGE_TAG_LATEST || 'latest' }}
-  BASE_IMAGE: ${{ vars.BASE_IMAGE || 'docker/sandbox-templates:shell-docker' }}
   PLATFORMS: ${{ vars.PLATFORMS || 'linux/amd64,linux/arm64' }}
 
 jobs:
-  # Gates the build. Discovers kits by scanning every */spec.yaml rather than
-  # being told which kit maps to this image, so a second kit adopting it is
-  # covered with no workflow change and there is no per-kit field to leave stale
-  # — a stale one would silently disable the check rather than fail.
+  detect-changes:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      # Kits to rebuild for this event.
+      kits: ${{ steps.collect.outputs.kits }}
+      # Every image-publishing kit, regardless of what changed — the drift check
+      # validates all specs, not just the ones touched.
+      all: ${{ steps.collect.outputs.all }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - name: Discover image-publishing kits
+        id: discover
+        run: |
+          set -euo pipefail
+          kits=""
+          for f in */Dockerfile; do
+            [ -f "$f" ] || continue
+            kit=$(dirname "$f")
+            # A Dockerfile alone is not a kit; require a spec too.
+            if [ ! -f "$kit/spec.yaml" ] && [ ! -f "$kit/spec.yml" ]; then
+              continue
+            fi
+            kits="${kits} ${kit}"
+          done
+          echo "Discovered image-publishing kits:${kits:-" (none)"}"
+          echo "kits=${kits# }" >> "$GITHUB_OUTPUT"
+
+      - name: Generate filters
+        id: filter-setup
+        # One filter per discovered kit, matching the whole kit directory minus
+        # what the image cannot depend on. Written as exclusions rather than an
+        # allowlist of sources on purpose: an allowlist silently stops matching
+        # once a Dockerfile starts COPYing a new file, leaving the published
+        # image stale until the next nightly. spec.yaml is deliberately NOT
+        # excluded — the drift check reads it.
+        run: |
+          set -euo pipefail
+          filters=""
+          for kit in ${{ steps.discover.outputs.kits }}; do
+            filters=$(printf '%s\n%s:\n  - "%s/**"\n  - "!%s/README.md"\n  - "!%s/testdata/**"' \
+              "$filters" "$kit" "$kit" "$kit" "$kit")
+          done
+          # Shared inputs rebuild everything.
+          filters=$(printf '%s\nshared:\n  - ".github/workflows/build-image.yml"\n  - "scripts/check-image-ref.sh"' "$filters")
+
+          echo "filters<<EOF" >> "$GITHUB_OUTPUT"
+          echo "$filters" >> "$GITHUB_OUTPUT"
+          echo "EOF" >> "$GITHUB_OUTPUT"
+          echo "$filters"
+
+      - name: Filter changes
+        id: filter
+        if: github.event_name == 'push' || github.event_name == 'pull_request'
+        uses: dorny/paths-filter@7b450fff21473bca461d4b92ce414b9d0420d706 # v4.0.2
+        with:
+          filters: ${{ steps.filter-setup.outputs.filters }}
+          # Local git diff rather than the API, so fork PRs work with a
+          # restricted GITHUB_TOKEN.
+          token: ""
+
+      - name: Collect kits to build
+        id: collect
+        run: |
+          set -euo pipefail
+          all=$(printf '%s\n' ${{ steps.discover.outputs.kits }} | jq -R . | jq -sc .)
+          echo "all=${all}" >> "$GITHUB_OUTPUT"
+
+          case "${{ github.event_name }}" in
+            schedule|workflow_dispatch)
+              # Nothing "changed"; the point is to rebuild against moving
+              # upstreams, so rebuild everything.
+              kits="${all}"
+              ;;
+            *)
+              changes='${{ steps.filter.outputs.changes }}'
+              if echo "${changes}" | jq -e 'index("shared")' >/dev/null 2>&1; then
+                # This workflow or the drift check changed — rebuild everything.
+                kits="${all}"
+              else
+                kits=$(echo "${changes}" | jq -c '[.[] | select(. != "shared")]')
+              fi
+              ;;
+          esac
+
+          echo "kits=${kits:-[]}" >> "$GITHUB_OUTPUT"
+          echo "Building: ${kits}"
+
+  # Gates the build. Validates every image-publishing kit's spec, not just the
+  # ones being rebuilt, and discovers kits by scanning specs rather than being
+  # told which kit maps to which image — so there is no per-kit field to leave
+  # stale, which would silently disable the check rather than fail.
   verify-spec-refs:
+    needs: detect-changes
+    if: needs.detect-changes.outputs.all != '[]'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Verify kit specs reference published images
-        run: ./scripts/check-image-ref.sh "${REGISTRY}/${IMAGE_NAMESPACE}" "${IMAGE_NAME}"
+        run: |
+          set -euo pipefail
+          names=$(echo '${{ needs.detect-changes.outputs.all }}' | jq -r 'join(",")')
+          ./scripts/check-image-ref.sh "${REGISTRY}/${IMAGE_NAMESPACE}" "${names}"
 
   build:
-    needs: verify-spec-refs
+    needs: [detect-changes, verify-spec-refs]
+    if: >-
+      needs.detect-changes.outputs.kits != '[]' &&
+      needs.detect-changes.outputs.kits != 'null' &&
+      needs.detect-changes.outputs.kits != ''
+    strategy:
+      # One kit's breakage must not hide another's result.
+      fail-fast: false
+      matrix:
+        kit: ${{ fromJson(needs.detect-changes.outputs.kits) }}
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
@@ -97,27 +174,25 @@ jobs:
 
       - name: Resolve image coordinates
         id: coords
-        # Composed exactly once and published via $GITHUB_OUTPUT so the build,
-        # the tag re-point, and the spec-drift check all consume the same
-        # string instead of each re-deriving it.
+        # Composed once and published via $GITHUB_OUTPUT so the build, the tag
+        # re-point and the summary all consume the same string.
         #
         # PUSH is false for pull_request (fork PRs must never receive push
         # credentials) and false until REGISTRY_CONFIGURED is set, which gives a
-        # useful dry-run mode: CI still builds every platform and proves the
-        # Dockerfile works, it just publishes nothing.
+        # useful dry-run mode: CI still builds every platform and publishes
+        # nothing.
         run: |
           set -euo pipefail
-          image="${REGISTRY}/${IMAGE_NAMESPACE}/${IMAGE_NAME}"
+          image="${REGISTRY}/${IMAGE_NAMESPACE}/${{ matrix.kit }}"
           echo "image=${image}" >> "$GITHUB_OUTPUT"
 
-          # The immutable tag carries BOTH the build date and the commit,
-          # because the image content is not a function of the commit alone:
-          # Kiro is installed from its `latest` channel and the base image is a
-          # floating tag, so a nightly rebuild of an unchanged commit can produce
-          # different bits. A bare :<sha> would therefore be overwritten with new
-          # content while claiming to identify a source revision — which is
-          # exactly what someone pinning a SHA is trying to avoid. So no bare
-          # :<sha> tag is published; this is the tag to pin.
+          # The immutable tag carries BOTH the build date and the commit, because
+          # the image content is not a function of the commit alone: agents are
+          # installed from `latest` channels and bases are floating tags, so a
+          # nightly rebuild of an unchanged commit can produce different bits. A
+          # bare :<sha> would therefore be overwritten with new content while
+          # claiming to identify a source revision — exactly what someone pinning
+          # a SHA is trying to avoid. So no bare :<sha> is published.
           build_date=$(date -u +%Y%m%d)
           echo "dated=${GITHUB_SHA}-${build_date}" >> "$GITHUB_OUTPUT"
 
@@ -144,51 +219,68 @@ jobs:
         # image before it is published, not after.
         uses: docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83 # v6.18.0
         with:
-          context: kiro
-          file: kiro/Dockerfile
+          context: ${{ matrix.kit }}
+          file: ${{ matrix.kit }}/Dockerfile
           platforms: linux/amd64
           load: true
           tags: ${{ steps.coords.outputs.image }}:ci-verify
-          build-args: |
-            BASE_IMAGE=${{ env.BASE_IMAGE }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          cache-from: type=gha,scope=${{ matrix.kit }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.kit }}
 
       - name: Verify the built image
-        # `com.docker.sandboxes.start-docker` is a *request* to the runtime, not a
-        # description of the image, and the Dockerfile hardcodes it to "true".
-        # Since BASE_IMAGE is an overridable variable, pointing it at a template
-        # without a Docker engine would still produce an image asking for
-        # Docker-in-Docker — the sandbox then starts in Docker mode with nothing
-        # to run. Assert the engine is really there rather than trusting the
-        # label.
+        # Kit-agnostic assertions, derived from the image itself rather than from
+        # per-kit configuration:
+        #
+        #   1. The command the sandbox will run must exist on PATH. Taken from
+        #      the image's own CMD, which the kit's Dockerfile sets to match its
+        #      spec entrypoint.
+        #   2. `start-docker=true` is a *request* to the runtime, not a
+        #      description of the image. An image that asks for
+        #      Docker-in-Docker without shipping an engine yields a sandbox
+        #      started in Docker mode with nothing to run, so the claim is
+        #      checked against reality.
+        #   3. Sandboxes do not run as root.
         run: |
           set -euo pipefail
           img="${{ steps.coords.outputs.image }}:ci-verify"
 
-          docker run --rm --entrypoint sh "$img" -c '
-            set -e
-            # kiro-cli and the launcher the entrypoint resolves as `kiro`, plus
-            # the Docker engine this flavour promises.
-            for bin in kiro-cli kiro dockerd docker containerd; do
-              command -v "$bin" >/dev/null || { echo "MISSING: $bin"; exit 1; }
-            done
-            echo "kiro-cli version: $(kiro-cli --version)"
-          '
-
+          # `index` is guarded: on an image with no CMD (or no labels at all) an
+          # unguarded template aborts with "map has no entry for key" — under
+          # `set -e` that fails the step with a parser error instead of the
+          # actionable message below. Guarded, the value is simply empty.
+          cmd=$(docker inspect --format '{{ if .Config.Cmd }}{{ index .Config.Cmd 0 }}{{ end }}' "$img")
+          user=$(docker inspect --format '{{ .Config.User }}' "$img")
           label=$(docker inspect --format \
-            '{{ index .Config.Labels "com.docker.sandboxes.start-docker" }}' "$img")
-          if [ "$label" != "true" ]; then
-            echo "::error::start-docker label is '${label}', expected 'true'"
+            '{{ if .Config.Labels }}{{ index .Config.Labels "com.docker.sandboxes.start-docker" }}{{ end }}' "$img")
+          echo "kit=${{ matrix.kit }} cmd=${cmd} user=${user} start-docker=${label}"
+
+          if [ -z "$cmd" ]; then
+            echo "::error::${{ matrix.kit }}: image sets no CMD, so the sandbox entrypoint cannot be verified"
             exit 1
           fi
+          docker run --rm --entrypoint sh "$img" -c \
+            'command -v "$1" >/dev/null || { echo "MISSING on PATH: $1"; exit 1; }' _ "$cmd"
 
-          user=$(docker inspect --format '{{ .Config.User }}' "$img")
-          cmd=$(docker inspect --format '{{ json .Config.Cmd }}' "$img")
-          echo "Cmd=${cmd} User=${user} start-docker=${label}"
-          [ "$user" = "agent" ] || { echo "::error::expected User=agent, got '${user}'"; exit 1; }
+          if [ "$label" = "true" ]; then
+            docker run --rm --entrypoint sh "$img" -c '
+              set -e
+              for bin in dockerd docker containerd; do
+                command -v "$bin" >/dev/null || { echo "MISSING: $bin"; exit 1; }
+              done
+            ' || {
+              echo "::error::${{ matrix.kit }}: start-docker=true but the image ships no Docker engine — check the base image"
+              exit 1
+            }
+          fi
 
-          echo "Image verified."
+          case "$user" in
+            ""|root|0)
+              echo "::error::${{ matrix.kit }}: image runs as '${user:-root}'; sandbox images must run as a non-root user"
+              exit 1
+              ;;
+          esac
+
+          echo "${{ matrix.kit }} verified."
 
       - name: Log in to the registry
         if: steps.coords.outputs.push == 'true'
@@ -200,28 +292,26 @@ jobs:
 
       - name: Build (and push the immutable tag)
         id: build
-        # Only the immutable <sha>-<date> tag is built and pushed here. The
-        # :<sha> and rolling tags are re-pointed at this manifest in the next
-        # step rather than built again.
+        # Only the immutable <sha>-<date> tag is built and pushed here; the
+        # rolling tag is re-pointed at this manifest in the next step rather than
+        # built again.
         uses: docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83 # v6.18.0
         with:
-          context: kiro
-          file: kiro/Dockerfile
+          context: ${{ matrix.kit }}
+          file: ${{ matrix.kit }}/Dockerfile
           platforms: ${{ env.PLATFORMS }}
           push: ${{ steps.coords.outputs.push == 'true' }}
           tags: ${{ steps.coords.outputs.image }}:${{ steps.coords.outputs.dated }}
-          build-args: |
-            BASE_IMAGE=${{ env.BASE_IMAGE }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          cache-from: type=gha,scope=${{ matrix.kit }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.kit }}
 
       - name: Re-point the rolling tag at that manifest
         if: steps.coords.outputs.push == 'true'
         # `imagetools create` copies an existing manifest list to a new tag
         # without rebuilding, so both tags are guaranteed to resolve to the SAME
         # digest. Rebuilding for the rolling tag could produce different bits —
-        # the base image floats and the installer fetches `latest` — which is
-        # exactly the divergence this avoids.
+        # bases float and installers fetch `latest` — which is exactly the
+        # divergence this avoids.
         run: |
           set -euo pipefail
           docker buildx imagetools create \
@@ -234,7 +324,7 @@ jobs:
       - name: Summarise
         run: |
           {
-            echo "## Kit base image"
+            echo "## ${{ matrix.kit }}"
             echo ""
             if [ "${{ steps.coords.outputs.push }}" = "true" ]; then
               echo "Published — both tags resolve to the same digest:"
@@ -255,5 +345,5 @@ jobs:
               echo 'Would have published `${{ steps.coords.outputs.image }}`.'
             fi
             echo ""
-            echo "Platforms: \`${{ env.PLATFORMS }}\` · Base: \`${{ env.BASE_IMAGE }}\`"
+            echo "Platforms: \`${{ env.PLATFORMS }}\`"
           } >> "$GITHUB_STEP_SUMMARY"

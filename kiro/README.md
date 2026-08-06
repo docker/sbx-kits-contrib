@@ -113,9 +113,15 @@ out of date.
 
 ### Building and publishing
 
-`.github/workflows/build-image.yml` builds on pushes to `main` that touch the
-Dockerfile, `start.sh`, or `spec.yaml`, and **nightly** on a schedule. Pull
+`.github/workflows/build-image.yml` builds on pushes to `main` that touch this
+kit (excluding `README.md` and `testdata/`), and **nightly** on a schedule. Pull
 requests build without publishing.
+
+The workflow **discovers** kits rather than listing them: any directory with both
+a `spec.yaml` and a `Dockerfile` is picked up, so a new kit that publishes its own
+image needs no workflow change. It relies on two conventions — the image is named
+after the kit directory, and the build context is the kit directory with
+`Dockerfile` at its root.
 
 The nightly run matters because this image tracks moving upstreams: Kiro is
 installed from its `latest` channel, so a rebuild is the only way a new Kiro
@@ -129,11 +135,13 @@ workflow edit:
 |---|---|
 | `REGISTRY` | `docker.io` |
 | `IMAGE_NAMESPACE` | `sbx-kits` |
-| `IMAGE_NAME` | `kiro` |
 | `IMAGE_TAG_LATEST` | `latest` |
-| `BASE_IMAGE` | `docker/sandbox-templates:shell-docker` |
 | `PLATFORMS` | `linux/amd64,linux/arm64` |
 | `REGISTRY_CONFIGURED` | unset — publishing stays off until this is `true` |
+
+The image name comes from the kit directory, and the base image from this kit's
+`Dockerfile` (`ARG BASE_IMAGE`) — both are per-kit, so neither is a shared
+variable. Override the base locally with `--build-arg BASE_IMAGE=…`.
 
 Publishing also needs `REGISTRY_USERNAME` / `REGISTRY_TOKEN` secrets with push
 rights. Until those and `REGISTRY_CONFIGURED=true` are in place the workflow is a
@@ -158,12 +166,12 @@ Only the dated tag is built; `latest` is re-pointed at its manifest with
 `docker buildx imagetools create` rather than rebuilt, so the two cannot drift
 apart — a second build could pick up a different Kiro release or base image.
 
-CI verifies the image before publishing: that `kiro-cli`, the `kiro` launcher, and
-the Docker engine (`dockerd`, `docker`, `containerd`) are all present, that
-`com.docker.sandboxes.start-docker` is `true`, and that it runs as `agent`. That
-label only *requests* Docker-in-Docker — since `BASE_IMAGE` is overridable, this
-check is what stops a non-Docker base from publishing an image that asks for an
-engine it does not have.
+CI verifies each image before publishing, using kit-agnostic checks derived from
+the image itself: the command in its `CMD` resolves on `PATH`, it does not run as
+root, and if it sets `com.docker.sandboxes.start-docker=true` it really ships
+`dockerd`, `docker` and `containerd`. That label only *requests*
+Docker-in-Docker — since the base is a build arg, this check is what stops an
+image from asking for an engine it does not have.
 
 ### Building locally
 
