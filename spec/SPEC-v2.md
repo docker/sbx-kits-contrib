@@ -104,10 +104,66 @@ security:                   # optional. Container security settings.
 | `licenses` | list<string> | optional. Each non-empty; no duplicates. SHOULD be valid SPDX identifiers. |
 | `locked` | list<string> | optional. Each a well-formed dotted path (`^[a-z][a-zA-Z0-9]*(\.[a-z][a-zA-Z0-9]*)*$`); no duplicates. Enforcement of the lock lives in the merge consumer. |
 | `security.privileged` | bool | optional. Runs the container privileged. Immutable at runtime (see [§6](#6-validation-summary)). |
+| `args` | map | optional. The arguments an installer may supply. See [§2.1](#21-args). |
 
 Both kinds also MAY set the shared behavior blocks — `agentInstructions`,
 `permissions`, `ports`, `credentials`, `environment`, `setup`,
 `volumes`, and a `files/` tree — defined in [§5](#5-shared-block-reference).
+
+### 2.1 `args`
+
+A kit MAY declare **arguments** — named values whoever installs the kit
+supplies — and reference them anywhere in `spec.yaml` or under `files/` as
+`${{ kit.args.<name> }}`. Substitution happens *before* the spec is decoded, so
+an argument can parameterize any value in the grammar.
+
+```yaml
+args:
+  version:
+    default: "latest"                       # optional: used when the installer supplies nothing
+    description: "Tool version to install"
+    pattern: '^(latest|[0-9]+\.[0-9]+\.[0-9]+)$'
+  channel:
+    default: "stable"
+    enum: ["stable", "beta", "nightly"]
+  token:
+    required: true                          # the installer MUST supply a value
+    description: "API token"
+
+environment:
+  variables:
+    VERSION: "${{ kit.args.version }}"
+    TOKEN: "${{ kit.args.token }}"
+```
+
+| Field | Type | Rules |
+|---|---|---|
+| *the key* | string | The argument name. MUST match `^[A-Za-z_][A-Za-z0-9_-]*$`. A dot is excluded so a name can never be confused with the dotted reference that selects it. |
+| `default` | string | The value used when the installer supplies none. Exactly one of `default` or `required` MUST be declared. `default: ""` is a real default, not an absent one. |
+| `required` | bool | `true` means the installer MUST supply a value. Mutually exclusive with `default` — an argument with a default is never required. |
+| `description` | string | optional. Human-readable help, shown wherever a kit's inputs are listed. |
+| `enum` | list<string> | optional. The exact set of accepted values; no duplicates. Mutually exclusive with `pattern`. |
+| `pattern` | string | optional. A Go (RE2) regexp matched against the **whole** value, not merely part of it. Mutually exclusive with `enum`. |
+
+- **Values are strings.** There is no `type` keyword: a substituted value's YAML
+  type is decided the ordinary way, by whether the author quoted the
+  placeholder. Quote it in a string-valued field —
+  `VERSION: "${{ kit.args.version }}"` — or a value like `1.20` is read as a
+  float and fails to decode into a string.
+- **Every reference MUST be declared.** A `${{ kit.args.x }}` with no `args.x`
+  declaration is an error. That is what makes the block a complete, trustworthy
+  list of a kit's inputs.
+- **Declarations are signed; values are not.** The block lives in `spec.yaml`,
+  so a signature covers the argument names, defaults, and constraints. The
+  values an installer supplies sit outside it.
+- **v2 only.** The frozen v1 grammar has no `args` block.
+- Not to be confused with [`sandbox.build.args`](#32-the-sandbox-block), which
+  are Docker build arguments passed to a Dockerfile build.
+
+Validating a declaration is the spec library's job. Resolving a value, and
+rejecting one that fails `enum` or `pattern`, belongs to the consumer that
+performs the substitution — which necessarily runs before the spec can be
+decoded.
 
 ---
 
@@ -121,6 +177,7 @@ A sandbox kit is a complete agent. It **MUST** declare a `sandbox:` block and
 | Field | Required | Notes |
 |---|---|---|
 | all [common fields](#2-common-top-level-fields) | `schemaVersion`, `kind`, `name` required | `kind` MUST be `sandbox`. |
+| [`args`](#21-args) | optional | Arguments the installer may supply. |
 | [`sandbox`](#32-the-sandbox-block) | **REQUIRED** | Container image + launch configuration. |
 | [`extends`](#34-extends-single-parent-inheritance) | optional | Single parent to inherit from. Sandbox-only. |
 | [`mixins`](#35-mixins-author-time-composition) | optional | Author-declared mixins. Sandbox-only. Forward-compat. |
@@ -328,6 +385,7 @@ sandbox can carry, a mixin can carry.
 | Field | Allowed | Notes |
 |---|---|---|
 | all [common fields](#2-common-top-level-fields) | yes | `kind` MUST be `mixin`. |
+| [`args`](#21-args) | yes | Arguments the installer may supply. |
 | `sandbox` | **FORBIDDEN** | Declaring it is a hard error. |
 | `extends` | **FORBIDDEN** | Mixins cannot inherit. |
 | `mixins` | **FORBIDDEN** | Mixins cannot compose other mixins. |
@@ -757,6 +815,12 @@ the per-field rules above:
   in `files[].content`.
 - **locked**: each a well-formed dotted path; no duplicates.
 - **licenses**: each non-empty; no duplicates.
+- **args**: each name matches the argument-name pattern; exactly one of
+  `default` / `required` per argument; `enum` and `pattern` mutually exclusive;
+  `enum` free of duplicates; `pattern` a valid RE2 regexp; and a declared
+  `default` satisfies its own `enum` / `pattern`. Whether an *installer's*
+  value satisfies the constraint is checked by the consumer that substitutes
+  it ([§2.1](#21-args)).
 - **files/**: target `home` or `workspace`; relative, non-escaping paths.
 
 Rules stated as **MUST** in this document that are enforced by the engine rather

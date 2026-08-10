@@ -41,6 +41,8 @@ type V2View struct {
 	Locked   []string  `json:"locked,omitempty" yaml:"locked,omitempty"`
 	Licenses []string  `json:"licenses,omitempty" yaml:"licenses,omitempty"`
 
+	Args map[string]KitArg `json:"args,omitempty" yaml:"args,omitempty"`
+
 	Sandbox           *V2Sandbox           `json:"sandbox,omitempty" yaml:"sandbox,omitempty"`
 	AgentInstructions *V2AgentInstructions `json:"agentInstructions,omitempty" yaml:"agentInstructions,omitempty"`
 	Permissions       *V2Permissions       `json:"permissions,omitempty" yaml:"permissions,omitempty"`
@@ -144,6 +146,7 @@ func NewV2View(a *Artifact) *V2View {
 		Requires:      a.Requires,
 		Locked:        a.Locked,
 		Licenses:      a.Licenses,
+		Args:          a.Args,
 		Volumes:       m.Volumes,
 		Security:      m.Security,
 		Ports:         a.PublishedPorts,

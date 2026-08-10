@@ -123,6 +123,7 @@ func TestNewV2View_RoundTripsThroughV2Loader(t *testing.T) {
 		},
 		AgentContext:   "ctx",
 		Licenses:       []string{"MIT"},
+		Args:           map[string]KitArg{"version": {Default: strPtr("latest"), Description: "which version"}},
 		Caps:           &Caps{Network: &CapsNetwork{Allow: []string{"h.example.com"}, Deny: []string{"bad.example.com"}}},
 		PublishedPorts: []PublishedPort{{Container: 8080, Name: "web"}},
 		Environment:    &EnvironmentPolicy{Variables: map[string]string{"A": "b"}},
@@ -140,6 +141,7 @@ func TestNewV2View_RoundTripsThroughV2Loader(t *testing.T) {
 	require.Equal(t, "A.md", got.Manifest.AIFilename)
 	require.Equal(t, "ctx", got.AgentContext)
 	require.Equal(t, []string{"MIT"}, got.Licenses)
+	require.Equal(t, map[string]KitArg{"version": {Default: strPtr("latest"), Description: "which version"}}, got.Args)
 	require.Equal(t, []string{"h.example.com"}, got.Caps.Network.Allow)
 	require.Equal(t, []string{"bad.example.com"}, got.Caps.Network.Deny)
 	require.Len(t, got.PublishedPorts, 1)
