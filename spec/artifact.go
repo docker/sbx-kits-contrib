@@ -225,11 +225,17 @@ func LoadArtifactFromBytes(yamlBytes []byte) (*Artifact, error) {
 	return parseArtifactBytes(yamlBytes)
 }
 
-// LoadFromBytes parses spec.yaml bytes into a normalized SpecFile using the
-// **v1 grammar only**. Normalization (v1 sugar folding, legacy field removal)
-// happens inside this call. Unlike LoadArtifactFromBytes it does not fork on
-// schemaVersion: a `schemaVersion: "2"` document is rejected, because the v2
-// grammar's field names do not exist on SpecFile.
+// LoadFromBytes parses spec.yaml bytes into a normalized SpecFile using the v1
+// grammar only. Normalization (v1 sugar folding, legacy field removal) happens
+// inside this call.
+//
+// Unlike LoadArtifactFromBytes it does not fork on schemaVersion, so what happens
+// to a schemaVersion: "2" document depends on which keys it uses. Names the v1
+// grammar does not have (permissions, setup, agentInstructions) fail the strict
+// decode and return an error naming this limitation. Names v1 also has
+// (environment, credentials, sandbox) decode under the v1 shape instead, as does
+// a document carrying none of them — so a v2 spec can appear to load here. Treat
+// neither outcome as a contract: this entry point is not version-aware.
 //
 // For v2 (or version-agnostic) input, load the artifact and project it back to
 // the v2 grammar instead:
