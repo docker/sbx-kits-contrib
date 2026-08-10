@@ -410,10 +410,25 @@ func createSbx(t *testing.T, ctx context.Context, absKit, agent string, td *kitT
 
 	require.NoErrorf(t, err, "sbx create failed (agent=%s):\n%s", agent, createOut)
 
+	// The kit declared a built-in collision but none happened. Report the
+	// observation without drawing the conclusion: "no collision" has two very
+	// different causes, and only one of them means the flag is obsolete.
+	//
+	//   1. A released sbx dropped the built-in — the flag has done its job and
+	//      should be deleted.
+	//   2. The kit is being run under a different name (an author renaming it
+	//      locally to get past the collision and exercise the real create path).
+	//      The flag is still needed and deleting it would be wrong.
+	//
+	// Nothing here can tell those apart, so an unconditional "remove the flag"
+	// would hand out bad advice in exactly the case authors hit while extracting
+	// a built-in agent.
 	if td != nil && td.ExtractedFromBuiltin {
-		t.Logf("NOTICE: kit %q declares `extractedFromBuiltin: true`, but sbx no longer "+
-			"registers %q as a built-in — the flag is obsolete and should be removed from "+
-			"testdata/tck.yaml.", filepath.Base(absKit), agent)
+		t.Logf("NOTICE: kit %q declares `extractedFromBuiltin: true`, but creating it as "+
+			"agent %q hit no built-in collision. If a released sbx has dropped the built-in, "+
+			"the flag is obsolete and can be removed from testdata/tck.yaml. If this ran under "+
+			"a renamed agent, the flag is still required — leave it.",
+			filepath.Base(absKit), agent)
 	}
 
 	t.Logf("sbx create succeeded for kit %s as sandbox %q (agent=%s)\n%s", absKit, name, agent, createOut)
