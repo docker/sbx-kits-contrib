@@ -331,7 +331,11 @@ jobs:
         if: steps.coords.outputs.push == 'true'
         uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
         with:
-          username: docker
+          # An OIDC-exchanged token authenticates as the ORGANISATION that owns
+          # the connection, so the username is the Hub namespace we publish to —
+          # not a user account and not the literal "docker". Driving it from
+          # IMAGE_NAMESPACE keeps it from drifting away from the image ref.
+          username: ${{ env.IMAGE_NAMESPACE }}
           password: ${{ steps.docker_oidc.outputs.token }}
 
       - name: Build (and push the immutable tag)
