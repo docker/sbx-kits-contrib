@@ -129,8 +129,13 @@ image needs no workflow change. The build context is the kit directory, with
 `spec.yaml`'s `sandbox.image` is the **source of truth** for what gets published —
 CI reads it rather than deriving a name, since a spec cannot interpolate variables
 and a second copy of the name would only drift. `scripts/check-image-ref.sh` gates
-the build on that image sitting inside the namespace CI can push to, and on its
-tag matching the rolling tag.
+the build on that image sitting inside the namespace CI can push to, on its name
+being `<kit>-image`, and on its tag matching the rolling tag.
+
+The `-image` suffix keeps `docker.io/sbx/kiro-kit` free for the kit artifact
+itself, once kits are distributed as OCI artifacts too. The check derives the
+expected name from the kit directory rather than consulting a list, so it binds
+every future image-publishing kit without gaining anything to keep in sync.
 
 The nightly run matters because this image tracks moving upstreams: Kiro is
 installed from its `latest` channel, so a rebuild is the only way a new Kiro

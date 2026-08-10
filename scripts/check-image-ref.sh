@@ -9,9 +9,10 @@
 #   scripts/check-image-ref.sh docker.io/sbx latest
 #
 # The invariant: a kit directory containing a `Dockerfile` publishes its own
-# image, so its `sandbox.image` MUST be `<registry>/<namespace>/<name>[:<tag>]`.
-# Kits without a Dockerfile consume someone else's image (a sandbox template, a
-# vendor's published agent) and are ignored.
+# image, so its `sandbox.image` MUST be
+# `<registry>/<namespace>/<kit>-image[:<tag>]`. Kits without a Dockerfile consume
+# someone else's image (a sandbox template, a vendor's published agent) and are
+# ignored.
 #
 # Why this exists: build-image.yml reads `sandbox.image` from the spec and
 # publishes exactly that, because a spec is consumed literally — no environment
@@ -20,9 +21,13 @@
 # it has no business pushing to, and catches a spec left behind on an old
 # namespace when REGISTRY/IMAGE_NAMESPACE move.
 #
-# Deliberately NOT a list of expected image names. The name is the spec's to
-# choose (`kiro` builds `kiro-image`, leaving `kiro-kit` for the kit artifact),
-# and any list here would be one more thing to leave stale.
+# The `-image` suffix is not decoration: it leaves `<namespace>/<kit>-kit` free
+# for the kit artifact itself, once kits are distributed as OCI artifacts too.
+#
+# The name is DERIVED from the kit directory rather than looked up in a table.
+# An enumerated list of expected names would be one more thing to leave stale —
+# deriving it cannot go stale, because the directory being checked is the same
+# one the name is computed from.
 
 set -euo pipefail
 
@@ -105,6 +110,24 @@ EOF
       continue
       ;;
   esac
+
+  want_name="${kit}-image"
+  if [ "${repo##*/}" != "$want_name" ]; then
+    failed=$((failed + 1))
+    cat >&2 <<EOF
+
+error: ${kit}/spec.yaml declares image name '${repo##*/}', expected '${want_name}'
+
+  sandbox.image : ${image}
+  expected      : ${prefix}/${want_name}$([ -n "$want_tag" ] && echo ":${want_tag}")
+
+A kit that publishes its own image names it after the kit directory, with an
+'-image' suffix. The suffix keeps '${prefix}/${kit}-kit' free for the kit
+artifact itself. Rename the image in the spec, or rename the kit directory if
+that is the one that is wrong.
+EOF
+    continue
+  fi
 
   if [ -n "$want_tag" ] && [ -n "$tag" ] && [ "$tag" != "$want_tag" ]; then
     failed=$((failed + 1))
