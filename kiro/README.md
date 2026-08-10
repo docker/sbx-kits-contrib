@@ -146,16 +146,19 @@ workflow edit:
 | `IMAGE_NAMESPACE` | `sbx` |
 | `IMAGE_TAG_LATEST` | `latest` |
 | `PLATFORMS` | `linux/amd64,linux/arm64` |
-| `REGISTRY_CONFIGURED` | unset — publishing stays off until this is `true` |
+| `DOCKERHUB_OIDC_CONNECTION_ID` | unset — publishing stays off until this is set |
 
 The image name comes from `spec.yaml`, and the base image from this kit's
 `Dockerfile` (`ARG BASE_IMAGE`) — both are per-kit, so neither is a shared
 variable. Override the base locally with `--build-arg BASE_IMAGE=…`.
 
-Publishing also needs `REGISTRY_USERNAME` / `REGISTRY_TOKEN` secrets with push
-rights. Until those and `REGISTRY_CONFIGURED=true` are in place the workflow is a
-dry run: it still builds every platform and proves the Dockerfile works, but
-publishes nothing.
+Publishing needs **no repository secret**. Docker Hub auth follows the same
+convention as the sandbox-templates pipeline: the workflow exchanges its GitHub
+OIDC token for a short-lived Hub token, so the only setting required is the
+`DOCKERHUB_OIDC_CONNECTION_ID` variable, pointing at a Hub-side OIDC connection
+authorised for this repository. Until that is set the workflow is a dry run — it
+still builds every platform and proves the Dockerfile works, but publishes
+nothing.
 
 Each build publishes two tags, both resolving to the **same digest**:
 

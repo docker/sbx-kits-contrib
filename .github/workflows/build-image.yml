@@ -45,6 +45,10 @@ on:
 
 permissions:
   contents: read
+  # Required to mint the GitHub OIDC token that is exchanged for a short-lived
+  # Docker Hub token. An explicit permissions block narrows the repo default, so
+  # omitting this fails the exchange rather than falling back to it.
+  id-token: write
 
 env:
   REGISTRY: ${{ vars.REGISTRY || 'docker.io' }}
@@ -182,10 +186,10 @@ jobs:
         # Composed once and published via $GITHUB_OUTPUT so the build, the tag
         # re-point and the summary all consume the same string.
         #
-        # PUSH is false for pull_request (fork PRs must never receive push
-        # credentials) and false until REGISTRY_CONFIGURED is set, which gives a
-        # useful dry-run mode: CI still builds every platform and publishes
-        # nothing.
+        # PUSH is false for pull_request (a fork PR must never be able to
+        # publish) and false until the Docker Hub OIDC connection is configured,
+        # which gives a useful dry-run mode: CI still builds every platform and
+        # publishes nothing.
         run: |
           set -euo pipefail
 
@@ -224,7 +228,8 @@ jobs:
           echo "dated=${GITHUB_SHA}-${build_date}" >> "$GITHUB_OUTPUT"
 
           if [ "${{ github.event_name }}" != "pull_request" ] \
-             && [ "${{ vars.REGISTRY_CONFIGURED }}" = "true" ]; then
+             && [ "${{ github.repository }}" = "docker/sbx-kits-contrib" ] \
+             && [ -n "${{ vars.DOCKERHUB_OIDC_CONNECTION_ID }}" ]; then
             echo "push=true" >> "$GITHUB_OUTPUT"
           else
             echo "push=false" >> "$GITHUB_OUTPUT"
@@ -309,13 +314,25 @@ jobs:
 
           echo "${{ matrix.kit }} verified."
 
-      - name: Log in to the registry
+      # Docker Hub auth follows the same convention as the sandbox-templates
+      # pipeline: exchange the GitHub OIDC token for a short-lived Hub token
+      # rather than holding a long-lived PAT as a repository secret. The
+      # connection is authorised Hub-side against this repository, so there is
+      # no credential here to leak or rotate.
+      - name: Exchange GitHub OIDC token for Docker Hub access
         if: steps.coords.outputs.push == 'true'
-        uses: docker/login-action@74a5d142397b4f367a81961eba4e8cd7edddf772 # v3.6.0
+        id: docker_oidc
+        uses: docker/oidc-action@b048fb089ace3e15a5fbdd784f4784d284ce5e8d # v1.1.0
         with:
-          registry: ${{ env.REGISTRY }}
-          username: ${{ secrets.REGISTRY_USERNAME }}
-          password: ${{ secrets.REGISTRY_TOKEN }}
+          connection-id: ${{ vars.DOCKERHUB_OIDC_CONNECTION_ID }}
+          expires-in: 3600
+
+      - name: Log in to Docker Hub
+        if: steps.coords.outputs.push == 'true'
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          username: docker
+          password: ${{ steps.docker_oidc.outputs.token }}
 
       - name: Build (and push the immutable tag)
         id: build
@@ -364,9 +381,9 @@ jobs:
               if [ "${{ github.event_name }}" = "pull_request" ]; then
                 echo "Reason: pull request (push credentials are never exposed to PRs)."
               else
-                echo "Reason: \`vars.REGISTRY_CONFIGURED\` is not \`true\`."
-                echo "Set it once the registry and \`REGISTRY_USERNAME\` /"
-                echo "\`REGISTRY_TOKEN\` secrets are provisioned."
+                echo "Reason: \`vars.DOCKERHUB_OIDC_CONNECTION_ID\` is not set."
+                echo "Configure the Docker Hub OIDC connection for this"
+                echo "repository and set that variable to its connection ID."
               fi
               echo ""
               echo 'Would have published `${{ steps.coords.outputs.image }}`.'
