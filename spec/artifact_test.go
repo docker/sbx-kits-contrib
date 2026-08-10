@@ -91,6 +91,18 @@ func TestLoadFromDirectory(t *testing.T) {
 		}
 		require.ElementsMatch(t, []string{"anthropic", "github", "workos"}, services)
 
+		// The github credential exercises the `scheme:` sugar with no explicit
+		// header:, so bearer must supply the Authorization header itself.
+		for _, c := range a.Credentials {
+			if c.Service != "github" {
+				continue
+			}
+			require.Len(t, c.ApiKey.Inject, 2)
+			require.Equal(t, "Authorization", c.ApiKey.Inject[0].Header)
+			require.Equal(t, "Bearer %s", c.ApiKey.Inject[0].Format)
+			require.Empty(t, c.ApiKey.Inject[0].Scheme)
+		}
+
 		require.Len(t, a.Manifest.Volumes, 2)
 		require.NotNil(t, a.Commands)
 		require.NotEmpty(t, a.Commands.Startup)
