@@ -31,6 +31,8 @@ type specFileV2 struct {
 	Locked   []string  `yaml:"locked,omitempty"`
 	Licenses []string  `yaml:"licenses,omitempty"`
 
+	Args map[string]KitArg `yaml:"args,omitempty"`
+
 	Sandbox           *sandboxBlockV2           `yaml:"sandbox,omitempty"`
 	AgentInstructions *agentInstructionsBlockV2 `yaml:"agentInstructions,omitempty"`
 
@@ -242,6 +244,7 @@ func (s *specFileV2) toArtifact(w *warnings) (*Artifact, error) {
 		Requires:       s.Requires,
 		Locked:         s.Locked,
 		Licenses:       s.Licenses,
+		Args:           s.Args,
 		PublishedPorts: s.PublishedPorts,
 		Environment:    s.Environment,
 	}

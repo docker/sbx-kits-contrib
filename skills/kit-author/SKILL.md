@@ -31,7 +31,7 @@ Use this skill when:
 
 Primary topics describe the **v2** spec form (`schemaVersion: "2"`):
 
-- [Spec anatomy](topics/spec-anatomy.md) — `spec.yaml` top-level fields (`mixins`, `licenses`, `extends`, `locked`) and every section (`sandbox` with `image:`/`build:` + `entrypoint`/`command`, `agentInstructions` with `filename`/`content`, `credentials[]` with `apiKey`/`oauth`/`sshAgent` and the `scheme` sugar, `permissions.network`, `ports`, `environment`, `setup` with `install`/`startup`/`files`, `volumes`, `files/`).
+- [Spec anatomy](topics/spec-anatomy.md) — `spec.yaml` top-level fields (`mixins`, `licenses`, `extends`, `locked`, `args`) and every section (`sandbox` with `image:`/`build:` + `entrypoint`/`command`, `agentInstructions` with `filename`/`content`, `credentials[]` with `apiKey`/`oauth`/`sshAgent` and the `scheme` sugar, `permissions.network`, `ports`, `environment`, `setup` with `install`/`startup`/`files`, `volumes`, `files/`).
 - [Lifecycle](topics/lifecycle.md) — Sourcing → load (schemaVersion-forked decode) → normalize → validate → extends → compose → configure → hooks → container → runtime. What happens at each stage as observed by the kit author.
 - [Composition](topics/composition.md) — `extends:` inheritance vs `--kit` composition. Merge strategies per section, conflict rules, what "last wins" means.
 - [Authoring guide](topics/authoring.md) — Step-by-step recipes for a minimal mixin and a full sandbox kit. Where to put files. When to use `files/` vs `setup.files`.

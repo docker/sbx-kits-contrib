@@ -2,6 +2,7 @@ package spec
 
 import (
 	"fmt"
+	"maps"
 	"path"
 	"regexp"
 	"slices"
@@ -30,6 +31,12 @@ var lockedPathPattern = regexp.MustCompile(`^[a-z][a-zA-Z0-9]*(\.[a-z][a-zA-Z0-9
 // octalModePattern matches file mode strings: 3 or 4 octal digits, with an
 // optional leading "0". Accepts "755", "0755", "1777", "01777".
 var octalModePattern = regexp.MustCompile(`^0?[0-7]{3,4}$`)
+
+// argNamePattern matches a kit-argument name. Hyphens are admitted because
+// authors reach for them in multi-word names; a dot is not, so a name can
+// never be confused with the dotted ${{ kit.args.<name> }} reference that
+// selects it.
+var argNamePattern = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_-]*$`)
 
 // supportedPlaceholders lists the placeholders allowed in initFiles content.
 var supportedPlaceholders = map[string]bool{
@@ -309,6 +316,9 @@ func ValidateArtifact(a *Artifact) error {
 	if err := ValidateLicenses(a.Licenses); err != nil {
 		return err
 	}
+	if err := ValidateArgs(a.Args); err != nil {
+		return err
+	}
 	if err := ValidatePublishedPorts(a.PublishedPorts); err != nil {
 		return err
 	}
@@ -412,6 +422,99 @@ func ValidateLicenses(licenses []string) error {
 		seen[l] = struct{}{}
 	}
 	return nil
+}
+
+// ValidateArgs validates the well-formedness of a kit's argument
+// declarations (see KitArg). Each argument declares exactly one of default or
+// required: an argument with neither would silently substitute an empty
+// string for a value nobody chose, and one with both contradicts itself. A
+// declared default must satisfy the argument's own enum or pattern, so an
+// author's mistake surfaces at kit validate time rather than at someone
+// else's install.
+//
+// Whether a caller-supplied value satisfies the constraint is checked by the
+// consumer that performs the substitution, which necessarily runs before this
+// does — placeholders are replaced before the spec can be decoded.
+//
+// Names are visited in sorted order so a spec with several bad declarations
+// always reports the same one.
+func ValidateArgs(args map[string]KitArg) error {
+	for _, name := range slices.Sorted(maps.Keys(args)) {
+		a := args[name]
+		if !argNamePattern.MatchString(name) {
+			return fmt.Errorf("args[%q] is not a valid argument name (must start with a letter or underscore, followed by letters, digits, underscores, or hyphens)", name)
+		}
+		switch {
+		case a.Default != nil && a.Required:
+			return fmt.Errorf("args[%q] declares both a default and required: true; an argument with a default is never required", name)
+		case a.Default == nil && !a.Required:
+			return fmt.Errorf("args[%q] must declare either a default or required: true", name)
+		}
+		if len(a.Enum) > 0 && a.Pattern != "" {
+			return fmt.Errorf("args[%q] declares both enum and pattern; an exact set of values makes a pattern redundant", name)
+		}
+
+		seen := make(map[string]struct{}, len(a.Enum))
+		for i, v := range a.Enum {
+			if _, dup := seen[v]; dup {
+				return fmt.Errorf("args[%q].enum[%d] %q is duplicated", name, i, v)
+			}
+			seen[v] = struct{}{}
+		}
+		if a.Pattern != "" {
+			if _, err := compileArgPattern(a.Pattern); err != nil {
+				return fmt.Errorf("args[%q].pattern is not a valid regexp: %w", name, err)
+			}
+		}
+
+		if a.Default != nil {
+			if err := a.ValidateValue(*a.Default); err != nil {
+				return fmt.Errorf("args[%q].default: %w", name, err)
+			}
+		}
+	}
+	return nil
+}
+
+// ValidateValue reports whether v is an acceptable value for the argument,
+// enforcing enum membership or a whole-value pattern match. Consumers call it
+// on a caller-supplied value; ValidateArgs applies it to a declared default.
+//
+// A pattern constrains the whole value: an author writing `[0-9]+` means the
+// value is digits, not that it contains digits somewhere.
+func (a KitArg) ValidateValue(v string) error {
+	if len(a.Enum) > 0 && !slices.Contains(a.Enum, v) {
+		quoted := make([]string, len(a.Enum))
+		for i, e := range a.Enum {
+			quoted[i] = fmt.Sprintf("%q", e)
+		}
+		return fmt.Errorf("%q is not one of %s", v, strings.Join(quoted, ", "))
+	}
+	if a.Pattern == "" {
+		return nil
+	}
+	re, err := compileArgPattern(a.Pattern)
+	if err != nil {
+		return fmt.Errorf("pattern %q is not a valid regexp: %w", a.Pattern, err)
+	}
+	if !re.MatchString(v) {
+		return fmt.Errorf("%q does not match pattern %q", v, a.Pattern)
+	}
+	return nil
+}
+
+// compileArgPattern compiles pat into a whole-value matcher. It compiles pat
+// on its own first so a syntax error is reported against what the author
+// actually wrote, then wraps it in \A(?:...)\z. Anchoring through the engine
+// rather than by inspecting match offsets is what lets an alternation like
+// "a|ab" match the whole value instead of settling for its first branch.
+// Wrapping is safe precisely because pat already compiled: its groups balance,
+// so it cannot escape the wrapper.
+func compileArgPattern(pat string) (*regexp.Regexp, error) {
+	if _, err := regexp.Compile(pat); err != nil {
+		return nil, err
+	}
+	return regexp.Compile(`\A(?:` + pat + `)\z`)
 }
 
 // ValidateOAuthPolicy validates the oauth policy if present.

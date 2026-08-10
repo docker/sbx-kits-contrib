@@ -487,6 +487,49 @@ type Requires struct {
 	Agent string `json:"agent,omitempty" yaml:"agent,omitempty"`
 }
 
+// KitArg declares one caller-supplied argument the kit accepts. A
+// `${{ kit.args.<name> }}` placeholder anywhere in spec.yaml or under files/
+// is replaced with the argument's value before the spec is decoded, which is
+// how an argument can parameterize any value in the grammar without the
+// schema knowing which one.
+//
+// Declaring arguments is what makes them discoverable: the block names the
+// kit's inputs, their meaning, and the values they accept, so a reader, a
+// `kit inspect`, and a registry UI all see the same contract. Because the
+// block lives in spec.yaml it is covered by the kit's signature — the
+// declaration and its defaults are signed, while a caller's substituted
+// values are not.
+//
+// Exactly one of Default or Required is declared: an argument either has a
+// fallback and is optional, or has none and must be supplied. The spec
+// library validates the declaration's well-formedness only; resolving a
+// value and rejecting one that fails Enum or Pattern lives in the consumer
+// that performs the substitution.
+type KitArg struct {
+	// Default is the value substituted when the caller supplies none. A nil
+	// default means the argument is required; an empty-string default is a
+	// real default and is honored as one.
+	Default *string `json:"default,omitempty" yaml:"default,omitempty"`
+
+	// Required marks an argument the caller must supply. It is the explicit
+	// spelling of "no default", and declaring it alongside Default is an
+	// error.
+	Required bool `json:"required,omitempty" yaml:"required,omitempty"`
+
+	// Description is the human-readable explanation shown wherever a kit's
+	// inputs are listed.
+	Description string `json:"description,omitempty" yaml:"description,omitempty"`
+
+	// Enum restricts the value to an exact set. Mutually exclusive with
+	// Pattern, which an exact set makes redundant.
+	Enum []string `json:"enum,omitempty" yaml:"enum,omitempty"`
+
+	// Pattern restricts the value to a Go (RE2) regexp matched against the
+	// whole value, not merely a substring of it. Mutually exclusive with
+	// Enum.
+	Pattern string `json:"pattern,omitempty" yaml:"pattern,omitempty"`
+}
+
 // EnvironmentPolicy defines environment variables to set in the container.
 type EnvironmentPolicy struct {
 	// Variables are static environment variables to set in the container.
@@ -648,6 +691,13 @@ type Artifact struct {
 	// (union of parent/mixin licenses) lives in the consumer that performs
 	// the merge. Declarative metadata with no runtime effect.
 	Licenses []string `json:"licenses,omitempty"`
+
+	// Args declares the caller-supplied arguments the kit accepts, keyed by
+	// argument name (see KitArg). A map rather than a list because the name
+	// is the key a `${{ kit.args.<name> }}` placeholder selects. The spec
+	// library validates the declarations; substitution happens in the
+	// consumer, before the spec is decoded.
+	Args map[string]KitArg `json:"args,omitempty"`
 
 	// PublishedPorts lists in-container ports the kit wants the runtime to
 	// publish on the host when the sandbox starts. It is a top-level

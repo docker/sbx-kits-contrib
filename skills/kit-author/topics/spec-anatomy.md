@@ -37,6 +37,9 @@ requires:                   # optional, base-agent affinity (mixins)
 locked:                     # optional (P2), dotted paths child kits may not override
   - sandbox.image
   - credentials[service=anthropic]
+args:                       # optional, arguments the installer supplies
+  version:
+    default: "latest"
 ```
 
 `kind: sandbox` requires the `sandbox:` block. `kind: mixin` must not have a `sandbox:` block. Exactly one `sandbox` is allowed in a composition; mixins stack freely.
@@ -48,6 +51,27 @@ The `name` constraint is exactly: starts and ends with `[a-z0-9]`, may contain `
 ### `licenses`
 
 Optional SPDX license list. Non-empty list of strings if present. Implementations should warn on unrecognized SPDX identifiers. In composition, licenses union across the parent chain and declared mixins.
+
+### `args`
+
+Declares the arguments an installer supplies, referenced anywhere in `spec.yaml` or under `files/` as `${{ kit.args.<name> }}`. Substitution happens before the spec is decoded, so an argument can parameterize any value in the grammar. Every reference must be declared — that is what makes the block a complete list of the kit's inputs.
+
+```yaml
+args:
+  version:
+    default: "latest"                  # optional argument; used when nothing is supplied
+    description: "Tool version"
+    pattern: '^(latest|[0-9]+\.[0-9]+)$'
+  channel:
+    default: "stable"
+    enum: ["stable", "beta"]
+  token:
+    required: true                     # installer must supply a value
+```
+
+Each argument declares exactly one of `default` or `required: true`, and constrains its value with at most one of `enum` or `pattern` (a Go RE2 regexp matched against the whole value). Values are always strings: quote the placeholder in a string-valued field (`VERSION: "${{ kit.args.version }}"`), or a value like `1.20` is read as a float.
+
+`args` is v2-only, and unrelated to `sandbox.build.args` (Docker build arguments). Because the block lives in `spec.yaml`, a signature covers the declarations and defaults; the values an installer supplies do not.
 
 ### `mixins`
 
