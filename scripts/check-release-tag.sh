@@ -78,8 +78,11 @@ declared=$(awk '
   /^[[:space:]]*#/ { next }
   /^version:/ {
     sub(/^version:[[:space:]]*/, "")
-    gsub(/^["'"'"']|["'"'"']$/, "")
+    # Comment first, THEN quotes: stripping quotes first leaves the closing
+    # one stranded on `version: "1.0.0"  # note`, and the release is refused
+    # over a value that only differs by a trailing comment.
     sub(/[[:space:]]+#.*$/, "")
+    gsub(/^["'"'"']|["'"'"']$/, "")
     print
     exit
   }

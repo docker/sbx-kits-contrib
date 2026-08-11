@@ -87,6 +87,11 @@ jobs:
             "https://github.com/docker/sbx-releases/releases/download/${version}/DockerSandboxes-linux.tar.gz" \
             -o /tmp/DockerSandboxes-linux.tar.gz
           tar xzf /tmp/DockerSandboxes-linux.tar.gz -C /tmp
+          # Create ~/.docker unprivileged first: the installer runs under sudo,
+          # so if the directory is absent it gets created root-owned — and the
+          # later docker/login-action step could then not write config.json,
+          # which is the only credential `sbx kit push` and `oras` read.
+          mkdir -p "${HOME}/.docker"
           sudo PREFIX="${HOME}/.docker/sbx" /tmp/docker-sbx/install.sh
           echo "${HOME}/.docker/sbx/bin" >> "$GITHUB_PATH"
         env:
@@ -116,30 +121,68 @@ jobs:
           username: sbx
           password: ${{ steps.docker_oidc.outputs.token }}
 
+      # Needed whenever anything is published, not only when the rolling tag
+      # moves: the existence probe and the digest capture both use oras, and
+      # neither is conditional on move-latest.
       - uses: oras-project/setup-oras@1d808f7d7f6995cc68b7bf507bfe5c5446e1dc9d # v2.0.1
-        if: steps.coords.outputs.push == 'true' && inputs.move-latest
+        if: steps.coords.outputs.push == 'true'
         with:
           version: "1.3.3"
 
-      - name: Refuse to overwrite an existing tag
+      - name: Check whether the tag already exists
+        id: existing
         if: steps.coords.outputs.push == 'true'
         # Tags published here are immutable by convention; the registry does not
-        # enforce that unless Hub tag-immutability is on. Checking first turns a
-        # silent overwrite — a consumer's pin quietly changing underneath them —
-        # into a failed job. The rolling tag is exempt: moving it is its job.
+        # enforce that unless Hub tag-immutability is on. What happens on a
+        # collision differs by caller, because the two mean different things:
+        #
+        #   release (move-latest false) — a version is being re-cut over an
+        #     already-published one. Always an error; the fix is a new version.
+        #   continuous (move-latest true) — the dated tag is <sha>-<date>, so a
+        #     collision just means this commit was already published today, i.e.
+        #     a re-run. Reuse the existing manifest instead of failing: a re-run
+        #     is the ONLY way to recover when the push succeeded and a later
+        #     step did not, and hard-failing here would strand the rolling tag
+        #     pointing at the previous artifact with no path back through CI.
+        #
+        # Probed with oras rather than `docker manifest inspect`: the kit is an
+        # OCI manifest with a custom artifactType and a non-image config, which
+        # the image-oriented tooling may reject outright. A rejection would be
+        # indistinguishable from "absent" and would wave an overwrite through —
+        # the exact case this guard exists to catch.
         run: |
           set -euo pipefail
-          if docker manifest inspect "${REF}:${TAG}" >/dev/null 2>&1; then
-            echo "::error::${REF}:${TAG} already exists. Published tags are immutable — bump the version or let CI mint a fresh dated tag."
-            exit 1
+          if oras manifest fetch --descriptor "${REF}:${TAG}" >/tmp/existing.json 2>/tmp/existing.err; then
+            digest=$(jq -r .digest </tmp/existing.json)
+            if [ "${MOVE_LATEST}" = "true" ]; then
+              echo "${REF}:${TAG} already exists (${digest}) — re-run, reusing it."
+              echo "found=true" >> "$GITHUB_OUTPUT"
+              echo "digest=${digest}" >> "$GITHUB_OUTPUT"
+            else
+              echo "::error::${REF}:${TAG} already exists (${digest}). Published versions are immutable — cut a new version rather than re-tagging this one."
+              exit 1
+            fi
+          else
+            # Distinguish "not there" from "could not tell". Treating an auth or
+            # transport failure as absent is how an immutable tag gets
+            # overwritten by accident.
+            if grep -qiE 'not found|manifest unknown|name unknown|404' /tmp/existing.err; then
+              echo "${REF}:${TAG} does not exist yet."
+              echo "found=false" >> "$GITHUB_OUTPUT"
+            else
+              echo "::error::could not determine whether ${REF}:${TAG} exists:"
+              cat /tmp/existing.err >&2
+              exit 1
+            fi
           fi
         env:
           REF: ${{ steps.coords.outputs.ref }}
           TAG: ${{ inputs.tag }}
+          MOVE_LATEST: ${{ inputs.move-latest }}
 
       - name: Push the kit
         id: push
-        if: steps.coords.outputs.push == 'true'
+        if: steps.coords.outputs.push == 'true' && steps.existing.outputs.found != 'true'
         # --sign is keyless: the Sigstore identity is this job's ambient GitHub
         # OIDC token, which is why `id-token: write` is required above. Every
         # push also attaches a SLSA provenance referrer recording the kit's
@@ -151,7 +194,14 @@ jobs:
           # The push does not echo the digest, and re-reading the tag later
           # would let a racing push swap the manifest we then advertise.
           digest=$(oras manifest fetch --descriptor "${REF}:${TAG}" | jq -r .digest)
-          [ -n "${digest}" ] && [ "${digest}" != "null" ]
+          # Written as an `if`, not `[ -n "$d" ] && [ "$d" != null ]`: set -e
+          # does not fire when the FIRST test of an && list fails, so that form
+          # would fall through with an empty digest and blow up two steps later
+          # on `oras tag "<ref>@"` with an unrelated-looking error.
+          if [ -z "${digest}" ] || [ "${digest}" = "null" ]; then
+            echo "::error::pushed ${REF}:${TAG} but could not read back its digest"
+            exit 1
+          fi
           echo "digest=${digest}" >> "$GITHUB_OUTPUT"
           echo "Pushed ${REF}:${TAG} (${digest})"
         env:
@@ -188,7 +238,10 @@ jobs:
         run: oras tag "${REF}@${DIGEST}" "${IMAGE_TAG_LATEST}"
         env:
           REF: ${{ steps.coords.outputs.ref }}
-          DIGEST: ${{ steps.push.outputs.digest }}
+          # Falls back to the digest the probe read: on a re-run the push is
+          # skipped, so steps.push has no output and the rolling tag would
+          # otherwise be pointed at an empty reference.
+          DIGEST: ${{ steps.push.outputs.digest || steps.existing.outputs.digest }}
 
       - name: Summarise
         run: |
@@ -196,14 +249,20 @@ jobs:
             echo "## ${{ inputs.kit }} (kit artifact)"
             echo ""
             if [ "${{ steps.coords.outputs.push }}" = "true" ]; then
-              echo "Published \`${{ steps.push.outputs.digest }}\`:"
+              echo "Published \`${{ steps.push.outputs.digest || steps.existing.outputs.digest }}\`:"
               echo ""
               echo '- `${{ steps.coords.outputs.ref }}:${{ inputs.tag }}`'
               if [ "${{ inputs.move-latest }}" = "true" ]; then
                 echo '- `${{ steps.coords.outputs.ref }}:${{ env.IMAGE_TAG_LATEST }}` — rolling, re-pointed at the same digest'
               fi
               echo ""
-              echo "Signed keyless (Sigstore), with a SLSA provenance referrer."
+              if [ "${{ steps.existing.outputs.found }}" = "true" ]; then
+                echo ""
+                echo "_Tag already existed — reused rather than re-pushed._"
+              else
+                echo ""
+                echo "Signed keyless (Sigstore), with a SLSA provenance referrer."
+              fi
             else
               echo "**Dry run — validated, nothing published.**"
               echo ""
