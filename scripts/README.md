@@ -50,6 +50,38 @@ go test ./scripts/...
 
 Golden-file tests live under `scripts/testdata/` — one v1 input fixture and one v2 expected fixture per scenario. To add a new transform: drop the v1 form into the input fixture, the expected output into the expected fixture, and the test compares byte-for-byte. The fixture format preserves comments, blank lines, and block-scalar formatting so the migration's whitespace fidelity is part of the contract.
 
+## `publish-kit.sh` — push a kit artifact
+
+Publishes one kit as an OCI artifact to `<registry>/<namespace>/<kit>-kit`,
+including the existence probe, the signed push, the digest read-back and the
+optional rolling-tag move. `publish-kit.yml` is wiring around this; the logic is
+here so it can be exercised without pushing a branch and waiting for CI:
+
+```bash
+DRY_RUN=1 scripts/publish-kit.sh kiro v1.0.0                    # print the plan
+DRY_RUN=1 MOVE_LATEST=true scripts/publish-kit.sh kiro abc-20260811
+```
+
+`REGISTRY`, `IMAGE_NAMESPACE` and `IMAGE_TAG_LATEST` default to `docker.io`,
+`sbx` and `latest`. A real run needs `sbx`, `oras` and `jq` on `PATH`, and a
+`docker login` to the namespace — `sbx kit push` and `oras` both read the Docker
+credential store.
+
+An existing tag means different things per caller and the script treats them
+differently: an error when `MOVE_LATEST=false` (a release re-cutting a published
+version) and reuse-without-re-push when true (a re-run of a dated tag), which is
+what makes recovering from a partial publish possible.
+
+## `install-sbx.sh` — install the sbx CLI
+
+```bash
+GITHUB_TOKEN=… scripts/install-sbx.sh            # latest
+GITHUB_TOKEN=… scripts/install-sbx.sh v0.12.3    # pinned
+```
+
+Prints the directory to add to `PATH` on stdout, so CI can do
+`./scripts/install-sbx.sh >> "$GITHUB_PATH"`. Linux only.
+
 ## `check-release-tag.sh` — release tag ↔ spec version
 
 Validates a `<kit>/vX.Y.Z` release tag and resolves what it names. Run it
