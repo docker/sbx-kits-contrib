@@ -111,6 +111,27 @@ EOF
       ;;
   esac
 
+  # The kit ARTIFACT publishes to <prefix>/<kit>-kit (see build-image.yml's
+  # publish-kit job). `sbx kit push` takes its reference verbatim — it derives
+  # nothing from the kit name and validates nothing against it — so nothing on
+  # the tool side stops a spec pointing the image at the artifact's repository.
+  # Two different media types sharing one repository would have each publish
+  # step overwrite the other's tags.
+  if [ "${repo##*/}" = "${kit}-kit" ]; then
+    failed=$((failed + 1))
+    cat >&2 <<EOF
+
+error: ${kit}/spec.yaml points its image at the kit artifact's repository
+
+  sandbox.image : ${image}
+
+  ${prefix}/${kit}-kit is where the kit artifact itself is published. The image
+  the sandbox boots from must be ${prefix}/${kit}-image — otherwise the two
+  publish steps overwrite each other's tags in the same repository.
+EOF
+    continue
+  fi
+
   want_name="${kit}-image"
   if [ "${repo##*/}" != "$want_name" ]; then
     failed=$((failed + 1))

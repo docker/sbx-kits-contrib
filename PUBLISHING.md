@@ -128,6 +128,44 @@ The `id-token: write` permission in the workflow is what lets it mint the GitHub
 OIDC token in the first place. An explicit `permissions:` block narrows the repo
 default rather than adding to it, so it must stay listed.
 
+## The kit artifact
+
+Separately from the image, a kit can be published as an **OCI artifact** — the
+spec plus `files/`, packaged so `--kit oci://…` can consume it without git:
+
+```
+docker.io/sbx/<kit>-kit
+```
+
+Same tag scheme as the image (`<sha>-<YYYYMMDD>` immutable, `latest` rolling,
+both resolving to one digest), pushed by the `publish-kit` job in
+`build-image.yml`. It runs after the image job, because the push records the
+declared `sandbox.image` in its provenance and a kit pointing at an unpublished
+image is a broken artifact.
+
+Two differences from the image, both deliberate:
+
+- **No nightly.** A kit's content is a pure function of the commit, so a
+  scheduled re-push would only mint a new digest for identical bytes.
+- **The two tags cannot come from two pushes.** `oras.PackManifest` stamps
+  `org.opencontainers.image.created`, so re-pushing the same tree yields a
+  different manifest digest even though the layer is byte-stable (tar mtimes are
+  pinned and the gzip header zeroed). The job therefore pushes once and
+  re-points `latest` with `oras tag`, which also keeps one signature and one
+  provenance referrer covering both tags.
+
+Each push is signed keyless via the job's ambient GitHub OIDC token, and carries
+a SLSA provenance attestation as an OCI referrer.
+
+**Publication is opt-in**, via the `PUBLISH_KITS` allow-list, because every kit
+in the repo is pushable and discovery would publish all of them.
+
+> `sbx kit push` takes its reference **verbatim** — it derives nothing from the
+> kit name and validates nothing against it. The workflow therefore composes the
+> reference from the kit directory rather than accepting one, and
+> `check-image-ref.sh` rejects a `sandbox.image` pointing at `<kit>-kit`. Without
+> that, a single mistyped argument would land a kit manifest on the image's tag.
+
 ## Pre-publish verification
 
 CI verifies each image before publishing, using kit-agnostic checks derived from
