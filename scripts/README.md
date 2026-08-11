@@ -49,3 +49,35 @@ go test ./scripts/...
 ```
 
 Golden-file tests live under `scripts/testdata/` — one v1 input fixture and one v2 expected fixture per scenario. To add a new transform: drop the v1 form into the input fixture, the expected output into the expected fixture, and the test compares byte-for-byte. The fixture format preserves comments, blank lines, and block-scalar formatting so the migration's whitespace fidelity is part of the contract.
+
+## `check-release-tag.sh` — release tag ↔ spec version
+
+Validates a `<kit>/vX.Y.Z` release tag and resolves what it names. Run it
+against a tag **before** pushing it:
+
+```bash
+./scripts/check-release-tag.sh kiro/v1.0.0
+```
+
+It refuses a tag that is malformed, names a kit with no `spec.yaml`, or
+disagrees with that spec's top-level `version:`. The last one is the point: the
+version becomes the `vnd.docker.sandbox.kit.version` OCI annotation at pack
+time, and the field is optional — so without the check a `v1.0.0` tag can
+publish an artifact annotated `0.9.0`, or annotated nothing, with the git tag as
+the only record.
+
+On success it prints `kit=` and `version=` on stdout (diagnostics go to stderr),
+which is why `release-kit.yml` can redirect it straight into `$GITHUB_OUTPUT`.
+
+## `check-image-ref.sh` — spec ↔ publishable image
+
+Asserts that every kit shipping a `Dockerfile` declares a `sandbox.image` this
+repository can actually publish: right namespace, `<kit>-image` name, rolling
+tag.
+
+```bash
+./scripts/check-image-ref.sh docker.io/sbx latest
+```
+
+Kits are found by scanning for Dockerfiles, so there is no per-kit entry to
+leave stale.

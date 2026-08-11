@@ -27,75 +27,26 @@ permissions:
   contents: read
 
 jobs:
-  # Derives the kit and version from the tag, and refuses a release whose spec
-  # does not agree. Kept out of the reusable workflow: it is the one part that
-  # is specific to releasing, and it must fail before anything is published.
+  # Resolves the kit and version from the tag, and refuses a release the spec
+  # does not agree with. Kept out of the reusable workflow: it is the one part
+  # specific to releasing, and it must fail before anything is published.
   verify:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     outputs:
-      kit: ${{ steps.parse.outputs.kit }}
-      version: ${{ steps.parse.outputs.version }}
+      kit: ${{ steps.tag.outputs.kit }}
+      version: ${{ steps.tag.outputs.version }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - name: Parse the tag
-        id: parse
-        run: |
-          set -euo pipefail
-          kit="${GITHUB_REF_NAME%%/*}"
-          version="${GITHUB_REF_NAME##*/}"
-
-          case "${version}" in
-            v[0-9]*.[0-9]*.[0-9]*) ;;
-            *)
-              echo "::error::tag '${GITHUB_REF_NAME}' must be <kit>/vX.Y.Z"
-              exit 1
-              ;;
-          esac
-
-          if [ ! -f "${kit}/spec.yaml" ] && [ ! -f "${kit}/spec.yml" ]; then
-            echo "::error::tag '${GITHUB_REF_NAME}' names kit '${kit}', which has no spec"
-            exit 1
-          fi
-
-          echo "kit=${kit}" >> "$GITHUB_OUTPUT"
-          echo "version=${version}" >> "$GITHUB_OUTPUT"
-          echo "Releasing ${kit} as ${version}"
-
-      - name: Check the spec declares this version
-        # `manifest.version` becomes the vnd.docker.sandbox.kit.version
-        # annotation at pack time, so it is what distribution tooling reads
-        # without pulling layers. Left unchecked, `kiro/v1.0.0` could publish an
-        # artifact annotated 0.9.0 — or annotated nothing, since the field is
-        # optional — and the tag would be the only place the version existed.
-        run: |
-          set -euo pipefail
-          spec="${KIT}/spec.yaml"
-          [ -f "$spec" ] || spec="${KIT}/spec.yml"
-
-          declared=$(awk '
-            /^[[:space:]]*#/ { next }
-            $1 == "version:" {
-              gsub(/^[[:space:]]*version:[[:space:]]*/, "")
-              gsub(/^["'"'"']|["'"'"']$/, "")
-              print; exit
-            }
-          ' "$spec")
-
-          want="${VERSION#v}"
-          if [ -z "$declared" ]; then
-            echo "::error::${spec} declares no top-level 'version:'. Add 'version: ${want}' before tagging."
-            exit 1
-          fi
-          if [ "$declared" != "$want" ]; then
-            echo "::error::${spec} declares version '${declared}', but the tag says '${want}'."
-            exit 1
-          fi
-          echo "${spec} declares version ${declared} — matches ${GITHUB_REF_NAME}"
-        env:
-          KIT: ${{ steps.parse.outputs.kit }}
-          VERSION: ${{ steps.parse.outputs.version }}
+      - name: Validate the release tag
+        id: tag
+        # The rules live in the script so they can be run against a tag before
+        # pushing it — `./scripts/check-release-tag.sh kiro/v1.0.0` — rather
+        # than only being discoverable by tagging and watching CI. It prints
+        # `kit=`/`version=` on stdout and diagnostics on stderr, which is what
+        # makes redirecting into $GITHUB_OUTPUT safe.
+        run: ./scripts/check-release-tag.sh "${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
 
   publish:
     needs: verify
