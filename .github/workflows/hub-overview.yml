@@ -50,6 +50,14 @@ on:
 permissions:
   contents: read
 
+env:
+  # A pull request validates and reports, but never writes: the Hub page is
+  # production metadata for the default branch, and an unmerged branch has no
+  # business overwriting it. Checked here rather than in each caller so every
+  # entry point inherits it — build-kit.yml calls this workflow on PRs too, where
+  # the publish itself is already a dry run.
+  DRY_RUN: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   resolve:
     if: github.repository == 'docker/sbx-kits-contrib'
@@ -121,7 +129,7 @@ jobs:
         run: ./scripts/hub-repo-ready.sh "${{ steps.meta.outputs.kit-repository }}" >> "$GITHUB_OUTPUT"
 
       - name: Sync the kit artifact's overview
-        if: steps.kit-repo.outputs.ready == 'true'
+        if: steps.kit-repo.outputs.ready == 'true' && env.DRY_RUN != 'true'
         uses: peter-evans/dockerhub-description@1b9a80c056b620d92cedb9d9b5a223409c68ddfa # v5.0.0
         with:
           username: ${{ vars.DOCKERPUBLICBOT_USERNAME }}
@@ -141,7 +149,7 @@ jobs:
         run: ./scripts/hub-repo-ready.sh "${{ steps.meta.outputs.image-repository }}" >> "$GITHUB_OUTPUT"
 
       - name: Sync the base image's overview
-        if: steps.image-repo.outputs.ready == 'true'
+        if: steps.image-repo.outputs.ready == 'true' && env.DRY_RUN != 'true'
         uses: peter-evans/dockerhub-description@1b9a80c056b620d92cedb9d9b5a223409c68ddfa # v5.0.0
         with:
           username: ${{ vars.DOCKERPUBLICBOT_USERNAME }}
@@ -151,11 +159,14 @@ jobs:
           short-description: ${{ steps.meta.outputs.image-short-description }}
           enable-url-completion: true
 
-      - name: Report what was skipped
+      - name: Report what happened
         # Silence would read as "synced". A skipped page is a page still showing
         # whatever it showed before, which is worth saying out loud.
         run: |
           set -euo pipefail
+          if [ "${DRY_RUN}" = "true" ]; then
+            echo "::notice::Pull request — overviews validated, nothing written."
+          fi
           [ "${{ steps.kit-repo.outputs.ready }}" = "true" ] ||
             echo "::notice::${{ steps.meta.outputs.kit-repository }} has nothing published — overview not synced."
           if [ -n "${{ steps.meta.outputs.image-repository }}" ]; then
