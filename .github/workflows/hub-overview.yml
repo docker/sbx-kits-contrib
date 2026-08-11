@@ -3,17 +3,21 @@ name: Sync Docker Hub overviews
 # Pushes each published kit's Hub repository page: the overview (from a README)
 # and the short description (from spec.yaml).
 #
-# Separate from publishing, for two reasons that both bite:
+# Triggered by DOCUMENTATION changes, not by publishing — and also called by
+# build-kit.yml after a publish, so a repository that has just received its
+# first push gets a page without waiting for the next docs edit.
 #
-#   * The overview changes when a README changes, which is exactly the change
-#     build-kit.yml filters OUT of a rebuild — README.md is excluded from the
-#     per-kit filter because it is not an input to the image. A sync living
-#     inside the publish job could therefore never run for the edit that needs
-#     it.
-#   * The overview is Hub-side metadata, not part of the image or the artifact,
-#     and it needs a credential the rest of the pipeline does not: this is the
-#     Hub REST API, not the registry, so the OIDC-exchanged token cannot
-#     authenticate it. Keeping it here confines that PAT to one workflow.
+# Why the docs trigger is the primary one: the Hub page is the only user-facing
+# documentation for these repositories, and a README edit is exactly the change
+# build-kit.yml filters OUT of a rebuild (README.md is not an input to the
+# image). Syncing only on publish would leave the page stale by default and
+# correct by accident, and would make fixing a typo require either an unrelated
+# code change or an artifact re-push that mints a new digest for identical bytes.
+#
+# The page therefore tracks the default branch while `latest` tracks the last
+# publish. Those are different statements — Hub has one overview per repository,
+# not one per tag — and the relationship is the same as a GitHub README's to the
+# last release.
 #
 # Each publishing kit owns two Hub repositories and they get DIFFERENT text:
 #
@@ -31,8 +35,17 @@ on:
       - "*/README.image.md"
       - "*/spec.yaml"
       - ".github/workflows/hub-overview.yml"
+      - "scripts/hub-repo-ready.sh"
       - "scripts/kit-meta.sh"
   workflow_dispatch: {}
+  workflow_call:
+    inputs:
+      kit:
+        description: |
+          Sync only this kit. Used by build-kit.yml after publishing it; the
+          docs trigger leaves it empty and syncs the whole allow-list.
+        type: string
+        default: ""
 
 permissions:
   contents: read
@@ -49,18 +62,23 @@ jobs:
       - name: Resolve the kits to sync
         id: kits
         # Same allow-list as publishing: a kit with no Hub repositories has no
-        # pages to sync, and the API would 404 on them.
+        # pages to sync.
         run: |
           set -euo pipefail
-          list=$(printf '%s\n' ${PUBLISH_KITS} | jq -R . | jq -sc .)
+          if [ -n "${ONE_KIT}" ]; then
+            list=$(printf '%s' "${ONE_KIT}" | jq -R . | jq -sc .)
+          else
+            list=$(printf '%s\n' ${PUBLISH_KITS} | jq -R . | jq -sc .)
+          fi
           echo "list=${list}" >> "$GITHUB_OUTPUT"
           echo "Syncing overviews for: ${list}"
         env:
+          ONE_KIT: ${{ inputs.kit }}
           PUBLISH_KITS: ${{ vars.PUBLISH_KITS || 'kiro' }}
 
       - name: Check the token is configured
         id: gate
-        # A notice rather than a failure: this PAT is optional infrastructure, and
+        # A notice rather than a failure: this PAT is optional infrastructure and
         # its absence should not turn main red — it just means the pages have to
         # be edited by hand until it exists.
         run: |
@@ -92,7 +110,16 @@ jobs:
         env:
           IMAGE_NAMESPACE: ${{ vars.IMAGE_NAMESPACE || 'sbx' }}
 
+      # Hub renders an overview only for a repository that has something in it,
+      # and PATCHing one that does not exist fails. Both are skips, not errors:
+      # a kit can legitimately be waiting on its first publish. A transport
+      # failure is NOT a skip — the script exits non-zero for that.
+      - name: Is the kit artifact's repository published?
+        id: kit-repo
+        run: ./scripts/hub-repo-ready.sh "${{ steps.meta.outputs.kit-repository }}" >> "$GITHUB_OUTPUT"
+
       - name: Sync the kit artifact's overview
+        if: steps.kit-repo.outputs.ready == 'true'
         uses: peter-evans/dockerhub-description@1b9a80c056b620d92cedb9d9b5a223409c68ddfa # v5.0.0
         with:
           username: ${{ secrets.DOCKERHUB_DESCRIPTION_USERNAME }}
@@ -104,10 +131,15 @@ jobs:
           # which resolve to nothing on Hub.
           enable-url-completion: true
 
-      - name: Sync the base image's overview
-        # Skipped for a kit that builds no image — kit-meta.sh omits that output
+      - name: Is the base image's repository published?
+        id: image-repo
+        # Absent output means the kit builds no image — kit-meta.sh omits it
         # rather than emitting it empty, precisely so this can branch on it.
         if: steps.meta.outputs.image-repository != ''
+        run: ./scripts/hub-repo-ready.sh "${{ steps.meta.outputs.image-repository }}" >> "$GITHUB_OUTPUT"
+
+      - name: Sync the base image's overview
+        if: steps.image-repo.outputs.ready == 'true'
         uses: peter-evans/dockerhub-description@1b9a80c056b620d92cedb9d9b5a223409c68ddfa # v5.0.0
         with:
           username: ${{ secrets.DOCKERHUB_DESCRIPTION_USERNAME }}
@@ -116,3 +148,15 @@ jobs:
           readme-filepath: ./${{ matrix.kit }}/README.image.md
           short-description: ${{ steps.meta.outputs.image-short-description }}
           enable-url-completion: true
+
+      - name: Report what was skipped
+        # Silence would read as "synced". A skipped page is a page still showing
+        # whatever it showed before, which is worth saying out loud.
+        run: |
+          set -euo pipefail
+          [ "${{ steps.kit-repo.outputs.ready }}" = "true" ] ||
+            echo "::notice::${{ steps.meta.outputs.kit-repository }} has nothing published — overview not synced."
+          if [ -n "${{ steps.meta.outputs.image-repository }}" ]; then
+            [ "${{ steps.image-repo.outputs.ready }}" = "true" ] ||
+              echo "::notice::${{ steps.meta.outputs.image-repository }} has nothing published — overview not synced."
+          fi

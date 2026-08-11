@@ -222,9 +222,22 @@ absolute (`enable-url-completion`), since a kit README links to siblings like
 **It is a separate workflow, not a step in the publish job**, for a reason worth
 keeping: the overview changes when a README changes, and a README edit is
 explicitly excluded from the per-kit rebuild filter (it is not an input to the
-image). A sync inside the publish job could therefore never run for the edit
-that needs it. It triggers on `*/README.md`, `*/README.image.md` and
-`*/spec.yaml`, and never builds or pushes anything.
+image). A sync inside the publish job could therefore never run for the edit that
+needs it, leaving the page stale by default and correct by accident. It triggers
+on `*/README.md`, `*/README.image.md` and `*/spec.yaml`, and builds nothing.
+
+So the page tracks the default branch while `latest` tracks the last publish.
+Those are different statements — Hub has one overview per repository, not one per
+tag — and the relationship is the same as a GitHub README's to the last release.
+`build-kit.yml` also calls the workflow after publishing, so a repository that
+has just had its first push gets a page without waiting for the next docs edit.
+
+Each sync is gated on the repository actually holding something
+(`scripts/hub-repo-ready.sh`), because Hub renders an overview only "when the
+repository has at least one image" and PATCHing a repository that does not exist
+fails. A kit awaiting its first publish is therefore **skipped with a notice**
+rather than failing — but a transport failure is not a skip, so a flaky probe
+surfaces as a failure instead of a silently untouched page.
 
 > **It needs a credential the rest of the pipeline does not.** This is the Hub
 > REST API rather than the registry, so the OIDC-exchanged token cannot

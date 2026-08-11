@@ -82,6 +82,22 @@ GITHUB_TOKEN=… scripts/install-sbx.sh v0.12.3    # pinned
 Prints the directory to add to `PATH` on stdout, so CI can do
 `./scripts/install-sbx.sh >> "$GITHUB_PATH"`. Linux only.
 
+## `hub-repo-ready.sh` — does a Hub repository hold anything?
+
+```bash
+scripts/hub-repo-ready.sh sbx/kiro-kit
+```
+
+Prints `ready=true` or `ready=false`. The overview sync asks this first: Hub only
+renders an overview for a repository with at least one image, and PATCHing an
+absent one fails, so a kit awaiting its first publish is skipped rather than
+failing the job.
+
+Unauthenticated, so a **private** repository reads as not-ready — it 404s exactly
+like an absent one. That is the safe direction to be wrong in. A transport
+failure exits non-zero rather than reporting `false`, so a flaky network shows up
+as something to investigate instead of a silently skipped sync.
+
 ## `kit-meta.sh` — Hub-facing metadata from a spec
 
 Reads a kit's Hub-facing metadata out of its `spec.yaml`: both repository names

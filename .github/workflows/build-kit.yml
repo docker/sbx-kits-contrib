@@ -506,3 +506,21 @@ jobs:
       # published artifact addressable and never overwritten.
       tag: ${{ needs.detect-changes.outputs.dated }}
       move-latest: true
+
+  # Gives a repository that has just received its first push a Hub page without
+  # waiting for the next docs edit. The docs trigger in hub-overview.yml remains
+  # the primary one — the page tracks the default branch, not this run.
+  overview:
+    # detect-changes is listed as well as artifact: the matrix reads its output,
+    # and a job can only reference the outputs of jobs it needs.
+    needs: [detect-changes, artifact]
+    permissions:
+      contents: read
+    uses: ./.github/workflows/hub-overview.yml
+    secrets: inherit
+    with:
+      kit: ${{ matrix.kit }}
+    strategy:
+      fail-fast: false
+      matrix:
+        kit: ${{ fromJson(needs.detect-changes.outputs.artifacts) }}
