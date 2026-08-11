@@ -63,7 +63,7 @@ Fragments after `#` use URL-encoded `key=value` pairs:
 
 The loader clones at the pinned SHA and reads from `dir`.
 
-For this repository specifically, see the [README](../../README.md#using-a-kit) for the common `git+https://github.com/docker/sbx-kits-contrib.git#dir=<kit>` form. Until the strict-pin rule is enforced everywhere by the consumer CLI, the README's examples show tag-based refs for ergonomics — but new kits should pin to SHAs.
+For this repository specifically, see the [README](../../../README.md#using-a-kit) for the common `git+https://github.com/docker/sbx-kits-contrib.git#dir=<kit>` form. Until the strict-pin rule is enforced everywhere by the consumer CLI, the README's examples show tag-based refs for ergonomics — but new kits should pin to SHAs.
 
 ## Schema version compatibility
 

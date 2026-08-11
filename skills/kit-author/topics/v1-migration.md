@@ -35,7 +35,7 @@ The script loads your spec through the **same** spec-package normalize pass the 
 | `commands:` / `commands.initFiles` | `setup:` / `setup.files` |
 | `settings:` | dropped (move agent setup to `setup.files`) |
 
-Check [`scripts/README.md`](../../scripts/README.md) for current scope.
+Check [`scripts/README.md`](../../../scripts/README.md) for current scope.
 
 ## Manual migration — by surface
 

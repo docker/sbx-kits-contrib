@@ -1,6 +1,6 @@
 # `spec.yaml` Anatomy
 
-Single source of truth: the Go types in [`github.com/docker/sbx-kits-contrib/spec`](../../spec/types.go). The `sbx` engine consumes these types via the spec library and delegates loading, normalization, and validation to it.
+Single source of truth: the Go types in [`github.com/docker/sbx-kits-contrib/spec`](../../../spec/types.go). The `sbx` engine consumes these types via the spec library and delegates loading, normalization, and validation to it.
 
 This page documents the **v2** form (`schemaVersion: "2"`). For the legacy v1 spelling and how it folds into v2, see [`v1-migration.md`](v1-migration.md).
 
@@ -125,7 +125,7 @@ means the kit declares no affinity and layers onto any base agent.
 
 ## `sandbox:` (only for `kind: sandbox`)
 
-A sandbox kit MUST specify **exactly one** of `image` or `build` — they are mutually exclusive. Specifying both is a hard validation error. (The constraint is relaxed when the missing field is inherited via `extends:`.)
+A sandbox kit MUST specify `image` (unless it inherits one via `extends:`). `build` is an *additional*, forward-compatible block — not an alternative: because builds are not yet implemented, a kit that sets `build` must set `image` too, and a build-only kit is rejected at load. See [Use `build:` to build from a Dockerfile](#use-build-to-build-from-a-dockerfile) and [Image publishing](image-publishing.md).
 
 ### Use `image:` to layer onto a pre-built image
 
@@ -187,9 +187,14 @@ sandbox:
 
 Use `build:` when you need custom binaries, complex setup, or full control over the container contents. `sbx kit push` transforms a `build:` source spec into a distribution form: it runs the build, pins the resulting image by digest, and rewrites `sandbox.build` away. The source `spec.yaml` is never modified; the published kit consumers see only `sandbox.image: <ref>@sha256:<digest>`.
 
+> [!IMPORTANT]
+> **`build:` is not wired up in this release.** It decodes, and it emits a not-implemented warning; the runtime does not build from it. A kit that sets `build:` must **also** set `sandbox.image`, or it is rejected at load with `sandbox.build is accepted in the schema but not yet implemented — specify sandbox.image` (`spec/v2.go`, `spec/normalize.go`). The paragraph above therefore describes intent, not current behaviour.
+>
+> To ship a kit with its own image today, see [Image publishing](image-publishing.md): a `Dockerfile` at the kit root plus a literal `sandbox.image`, built and pushed by this repository's CI.
+
 ### Validation
 
-- `sandbox.image` and `sandbox.build` are mutually exclusive — exactly one MUST be present for `kind: sandbox` (unless inherited via `extends:`).
+- `sandbox.image` MUST be present for `kind: sandbox` (unless inherited via `extends:`) — including when `sandbox.build` is set, since builds are not yet implemented. A build-only kit is rejected at load.
 - `sandbox.resources.cpu` MUST be non-negative if specified.
 - `sandbox.resources.memory` MUST parse as a byte-size string (`units.RAMInBytes`, e.g. `4096m`, `8g`) if specified.
 - `sandbox.entrypoint` MUST be a flat string array; `entrypoint[0]` is the binary.

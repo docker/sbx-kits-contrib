@@ -2,13 +2,17 @@
 
 Community-contributed kits for [Docker Sandboxes](https://docs.docker.com/ai/sandboxes/).
 
-Each top-level directory is a **kit** — a declarative artifact containing a `spec.yaml` and optional `files/` directory that extends sandbox agents with additional capabilities.
+Each top-level directory containing a `spec.yaml` is a **kit** — a declarative artifact with that `spec.yaml` and an optional `files/` directory, extending sandbox agents with additional capabilities. A `kind: sandbox` kit may also carry a `Dockerfile` for the image its sandbox boots from (see [`kiro/`](./kiro)); CI builds and publishes that image as `docker.io/sbx/<kit>-image` — see [`PUBLISHING.md`](./PUBLISHING.md).
+
+The remaining top-level directories are shared infrastructure: [`spec/`](./spec) (the kit spec implementation), [`tck/`](./tck) (the compatibility test kit), [`scripts/`](./scripts) (maintainer utilities), and [`skills/`](./skills).
 
 ## Documentation
 
 - [Kits overview](https://docs.docker.com/ai/sandboxes/customize/kits/) — what kits are and how to use them
 - [Kit examples](https://docs.docker.com/ai/sandboxes/customize/kit-examples/) — reference examples for common kit patterns
 - [Build your own agent kit](https://docs.docker.com/ai/sandboxes/customize/build-an-agent/) — step-by-step tutorial using the `amp` kit in this repo
+
+Repository docs: [`CONTRIBUTING.md`](./CONTRIBUTING.md) (how to submit a kit) and [`PUBLISHING.md`](./PUBLISHING.md) (for kits that build their own image).
 
 Contributing a kit or a fix? Read [`CONTRIBUTING.md`](./CONTRIBUTING.md) first — this repo enforces verified commit signatures, so you'll need GPG or SSH signing set up before your PR can be merged.
 
