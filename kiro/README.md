@@ -124,11 +124,6 @@ The nightly rebuild earns its keep here in particular: Kiro is installed from it
 of this kit, and nightly picks up every published version rather than a weekly
 sample. It also catches drift in the floating base image.
 
-Because this image sets `com.docker.sandboxes.start-docker=true`, CI's
-pre-publish check requires it to really ship `dockerd`, `docker` and
-`containerd`. That is what stops a base-image change from quietly producing an
-image that requests an engine it does not have.
-
 ### Building locally
 
 ```console
