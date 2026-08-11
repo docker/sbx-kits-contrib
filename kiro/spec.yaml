@@ -1,6 +1,14 @@
 schemaVersion: "2"
 kind: sandbox
 name: kiro
+# The KIT's version, not Kiro's. It covers this spec, the files/ tree, the
+# network policy and the hooks — the agent inside the image floats, so a newer
+# kiro-cli does not bump this and this does not track releases of kiro-cli.
+#
+# Published as the vnd.docker.sandbox.kit.version OCI annotation at pack time,
+# and `scripts/check-release-tag.sh` refuses a `kiro/vX.Y.Z` tag that disagrees
+# with it. Bump here first, then tag.
+version: "1.0.0"
 displayName: Kiro
 description: Kiro CLI by AWS, with interactive device-flow authentication.
 
