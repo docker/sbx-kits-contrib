@@ -36,7 +36,11 @@ spec pointing the pipeline at a namespace it has no business pushing to.
 
 ## When it builds
 
-`.github/workflows/build-kit.yml`:
+`.github/workflows/build-kit.yml` discovers the kits and calls
+`publish-one-kit.yml` **once per kit**, so each runs image → artifact → overview
+as its own job graph: kits publish in parallel and fail independently. A matrix
+of three separate jobs would instead make every kit's artifact wait for every
+kit's image.
 
 | Trigger | Builds | Publishes |
 |---|---|---|
@@ -139,7 +143,7 @@ docker.io/sbx/<kit>-kit
 
 Same tag scheme as the image (`<sha>-<YYYYMMDD>` immutable, `latest` rolling,
 both resolving to one digest), pushed by the `artifact` job in
-`build-kit.yml`. It runs after the `image` job, because the push records the
+`publish-one-kit.yml`. It runs after that workflow's `image` job, because the push records the
 declared `sandbox.image` in its provenance and a kit pointing at an unpublished
 image is a broken artifact.
 
