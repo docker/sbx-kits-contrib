@@ -76,21 +76,23 @@ jobs:
           ONE_KIT: ${{ inputs.kit }}
           PUBLISH_KITS: ${{ vars.PUBLISH_KITS || 'kiro' }}
 
-      - name: Check the token is configured
+      - name: Check the credentials are available
         id: gate
-        # A notice rather than a failure: this PAT is optional infrastructure and
-        # its absence should not turn main red — it just means the pages have to
-        # be edited by hand until it exists.
+        # The write PAT is an ORGANISATION secret, so it needs no per-repo setup
+        # — but a fork gets neither it nor the username variable. A notice and a
+        # skip rather than a failure, so a fork PR is not red over a credential
+        # it was never going to have.
         run: |
           set -euo pipefail
-          if [ -n "${TOKEN}" ]; then
+          if [ -n "${TOKEN}" ] && [ -n "${USERNAME}" ]; then
             echo "ready=true" >> "$GITHUB_OUTPUT"
           else
             echo "ready=false" >> "$GITHUB_OUTPUT"
-            echo "::notice::DOCKERHUB_DESCRIPTION_TOKEN is not set — Hub overviews are not being synced."
+            echo "::notice::DOCKERPUBLICBOT_WRITE_PAT / DOCKERPUBLICBOT_USERNAME unavailable here — Hub overviews are not being synced."
           fi
         env:
-          TOKEN: ${{ secrets.DOCKERHUB_DESCRIPTION_TOKEN }}
+          TOKEN: ${{ secrets.DOCKERPUBLICBOT_WRITE_PAT }}
+          USERNAME: ${{ vars.DOCKERPUBLICBOT_USERNAME }}
 
   overview:
     needs: resolve
@@ -122,8 +124,8 @@ jobs:
         if: steps.kit-repo.outputs.ready == 'true'
         uses: peter-evans/dockerhub-description@1b9a80c056b620d92cedb9d9b5a223409c68ddfa # v5.0.0
         with:
-          username: ${{ secrets.DOCKERHUB_DESCRIPTION_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_DESCRIPTION_TOKEN }}
+          username: ${{ vars.DOCKERPUBLICBOT_USERNAME }}
+          password: ${{ secrets.DOCKERPUBLICBOT_WRITE_PAT }}
           repository: ${{ steps.meta.outputs.kit-repository }}
           readme-filepath: ./${{ matrix.kit }}/README.md
           short-description: ${{ steps.meta.outputs.short-description }}
@@ -142,8 +144,8 @@ jobs:
         if: steps.image-repo.outputs.ready == 'true'
         uses: peter-evans/dockerhub-description@1b9a80c056b620d92cedb9d9b5a223409c68ddfa # v5.0.0
         with:
-          username: ${{ secrets.DOCKERHUB_DESCRIPTION_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_DESCRIPTION_TOKEN }}
+          username: ${{ vars.DOCKERPUBLICBOT_USERNAME }}
+          password: ${{ secrets.DOCKERPUBLICBOT_WRITE_PAT }}
           repository: ${{ steps.meta.outputs.image-repository }}
           readme-filepath: ./${{ matrix.kit }}/README.image.md
           short-description: ${{ steps.meta.outputs.image-short-description }}

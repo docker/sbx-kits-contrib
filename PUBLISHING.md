@@ -241,11 +241,10 @@ surfaces as a failure instead of a silently untouched page.
 
 > **It needs a credential the rest of the pipeline does not.** This is the Hub
 > REST API rather than the registry, so the OIDC-exchanged token cannot
-> authenticate it: it needs `DOCKERHUB_DESCRIPTION_USERNAME` plus a
-> `DOCKERHUB_DESCRIPTION_TOKEN` PAT with read/write scope — a long-lived secret
-> of exactly the kind the OIDC move removed, which is why it is confined to this
-> one workflow. With no token the job emits a notice and skips, so main never
-> goes red over optional infrastructure; the pages then have to be edited by hand.
+> authenticate it. It uses the organisation's bot credentials —
+> `vars.DOCKERPUBLICBOT_USERNAME` and the `DOCKERPUBLICBOT_WRITE_PAT` org secret
+> — so there is nothing to configure per repository. A fork has neither, so the
+> job emits a notice and skips rather than failing.
 
 ## Pre-publish verification
 
