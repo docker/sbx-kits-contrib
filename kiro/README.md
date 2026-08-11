@@ -101,8 +101,9 @@ The image is **`docker.io/sbx/kiro-image`**, built on
 requests Docker-in-Docker.
 
 The `-image` suffix distinguishes the base image from the kit itself: when the kit
-is published as an OCI artifact it will be `docker.io/sbx/kiro-kit`. The image
-name is therefore deliberately *not* tied to the kit directory name.
+is published as an OCI artifact it will be `docker.io/sbx/kiro-kit`. The name is
+derived from the kit directory and enforced repo-wide — see
+[PUBLISHING.md](../PUBLISHING.md#naming).
 
 There is no flavour suffix and no dockerless variant. The sandbox templates
 distinguish `kiro` from `kiro-docker` because a user picks a template directly,
@@ -111,97 +112,22 @@ user, just as `sbx run kiro` already resolves to the Docker flavour today. And a
 `kind: sandbox` kit names exactly one `sandbox.image`, so a second image would be
 unreachable without a second kit to consume it.
 
-`scripts/check-image-ref.sh` gates the build on `sandbox.image` being publishable
-by this repository. It scans for kits shipping a `Dockerfile` rather than reading a
-list, so no per-kit configuration exists to fall out of date.
-
 ### Building and publishing
 
-`.github/workflows/build-image.yml` builds on pushes to `main` that touch this
-kit (excluding `README.md` and `testdata/`), and **nightly** on a schedule. Pull
-requests build without publishing.
+How the image is named, tagged, verified and pushed is the same for every kit in
+this repo that builds its own image — see **[PUBLISHING.md](../PUBLISHING.md)**
+for the pipeline, the tagging scheme, the coordinates, and the Docker Hub OIDC
+setup. Only the kiro-specific parts are below.
 
-The workflow **discovers** kits rather than listing them: any directory with both
-a `spec.yaml` and a `Dockerfile` is picked up, so a new kit that publishes its own
-image needs no workflow change. The build context is the kit directory, with
-`Dockerfile` at its root.
+The nightly rebuild earns its keep here in particular: Kiro is installed from its
+`latest` channel, so a rebuild is the only way a new Kiro release reaches users
+of this kit, and nightly picks up every published version rather than a weekly
+sample. It also catches drift in the floating base image.
 
-`spec.yaml`'s `sandbox.image` is the **source of truth** for what gets published —
-CI reads it rather than deriving a name, since a spec cannot interpolate variables
-and a second copy of the name would only drift. `scripts/check-image-ref.sh` gates
-the build on that image sitting inside the namespace CI can push to, on its name
-being `<kit>-image`, and on its tag matching the rolling tag.
-
-The `-image` suffix keeps `docker.io/sbx/kiro-kit` free for the kit artifact
-itself, once kits are distributed as OCI artifacts too. The check derives the
-expected name from the kit directory rather than consulting a list, so it binds
-every future image-publishing kit without gaining anything to keep in sync.
-
-The nightly run matters because this image tracks moving upstreams: Kiro is
-installed from its `latest` channel, so a rebuild is the only way a new Kiro
-release reaches users of this kit — nightly picks up every published version
-instead of a weekly sample. It also catches drift in the floating base image.
-
-Every coordinate comes from a repository variable, so retargeting needs no
-workflow edit:
-
-| Variable | Default |
-|---|---|
-| `REGISTRY` | `docker.io` |
-| `IMAGE_NAMESPACE` | `sbx` |
-| `IMAGE_TAG_LATEST` | `latest` |
-| `PLATFORMS` | `linux/amd64,linux/arm64` |
-
-`IMAGE_NAMESPACE` is the one that cannot actually move: the Hub OIDC connection
-is owned by the `sbx` org and mints tokens that authenticate as it, so pointing
-the namespace elsewhere could never be pushed to with these credentials. The
-build asserts the two agree and fails early rather than logging in successfully
-and 403-ing on push. Publishing under a different org needs a new connection,
-not a variable change.
-
-The image name comes from `spec.yaml`, and the base image from this kit's
-`Dockerfile` (`ARG BASE_IMAGE`) — both are per-kit, so neither is a shared
-variable. Override the base locally with `--build-arg BASE_IMAGE=…`.
-
-Publishing needs **no long-lived credential**. Docker Hub auth follows the same
-convention as the sandbox-templates pipeline: the workflow exchanges its GitHub
-OIDC token for a short-lived Hub token, so the only setting required is the
-`DOCKERHUB_OIDC_CONNECTIONID` secret, holding the ID of a Hub-side OIDC
-connection authorised for this repository.
-Until that is set the workflow is a dry run — it still builds every platform and
-proves the Dockerfile works, but publishes nothing.
-
-The ID is not itself a credential (Docker's own instructions put it in workflow
-YAML in the clear) and the trust lives in the connection's ruleset, which only
-honours it for this repository's subject claim. It is kept as a secret rather
-than a variable anyway, so it is masked in logs and withheld from fork PRs —
-which also means a fork PR reads it as empty and stays a dry run regardless of
-the event guard.
-
-Each build publishes two tags, both resolving to the **same digest**:
-
-| Tag | Meaning |
-|---|---|
-| `<sha>-<YYYYMMDD>` | immutable — one per build, never overwritten. **Pin this.** |
-| `latest` | rolling |
-
-There is deliberately **no bare `<sha>` tag**. The image content is not a function
-of the commit: Kiro is installed from its `latest` channel and the base image is a
-floating tag, so a nightly rebuild of an unchanged commit can produce different
-bits. A `<sha>` tag would be silently overwritten with new content while appearing
-to identify a source revision — the opposite of what pinning a SHA is for. The
-commit is still recorded, in the immutable tag alongside the build date.
-
-Only the dated tag is built; `latest` is re-pointed at its manifest with
-`docker buildx imagetools create` rather than rebuilt, so the two cannot drift
-apart — a second build could pick up a different Kiro release or base image.
-
-CI verifies each image before publishing, using kit-agnostic checks derived from
-the image itself: the command in its `CMD` resolves on `PATH`, it does not run as
-root, and if it sets `com.docker.sandboxes.start-docker=true` it really ships
-`dockerd`, `docker` and `containerd`. That label only *requests*
-Docker-in-Docker — since the base is a build arg, this check is what stops an
-image from asking for an engine it does not have.
+Because this image sets `com.docker.sandboxes.start-docker=true`, CI's
+pre-publish check requires it to really ship `dockerd`, `docker` and
+`containerd`. That is what stops a base-image change from quietly producing an
+image that requests an engine it does not have.
 
 ### Building locally
 
@@ -210,5 +136,8 @@ $ docker build -t docker.io/sbx/kiro-image:latest kiro
 ```
 
 The build needs egress to `cli.kiro.dev` (install script) **and**
-`prod.download.cli.kiro.dev` (the versioned binary it fetches). `BASE_IMAGE` also
-accepts a digest, for pinning.
+`prod.download.cli.kiro.dev` (the versioned binary it fetches).
+
+`BASE_IMAGE` is a build arg, so the base can be re-pointed or digest-pinned
+without editing the `Dockerfile`: `--build-arg BASE_IMAGE=…` accepts a tag or a
+digest.
