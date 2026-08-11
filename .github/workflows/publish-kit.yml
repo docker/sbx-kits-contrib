@@ -51,6 +51,13 @@ env:
   REGISTRY: ${{ vars.REGISTRY || 'docker.io' }}
   IMAGE_NAMESPACE: ${{ vars.IMAGE_NAMESPACE || 'sbx' }}
   IMAGE_TAG_LATEST: ${{ vars.IMAGE_TAG_LATEST || 'latest' }}
+  # Publication is opt-in: every kit here is pushable, so an allow-list rather
+  # than discovery. Passed to the script, which enforces it — build-image.yml
+  # also intersects its matrix with the same variable so it does not spawn jobs
+  # that would only refuse, but the release path picks its kit from a git tag and
+  # has nothing to intersect. Both read the same variable; keep the defaults in
+  # step.
+  PUBLISH_KITS: ${{ vars.PUBLISH_KITS || 'kiro' }}
   # Publish for real only from this repository, off a pull request, with the Hub
   # connection configured. Otherwise the script resolves and reports without
   # touching the registry, which is what makes the pull-request run meaningful.

@@ -36,6 +36,7 @@ IMAGE_NAMESPACE=${IMAGE_NAMESPACE:-sbx}
 IMAGE_TAG_LATEST=${IMAGE_TAG_LATEST:-latest}
 MOVE_LATEST=${MOVE_LATEST:-false}
 DRY_RUN=${DRY_RUN:-}
+PUBLISH_KITS=${PUBLISH_KITS:-kiro}
 
 SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 REPO_ROOT=$(cd "$SCRIPT_DIR/.." && pwd)
@@ -54,6 +55,18 @@ die() { echo "error: $*" >&2; exit 1; }
 # the kit's own base image included.
 ref="${REGISTRY}/${IMAGE_NAMESPACE}/${kit}-kit"
 
+# Enforced HERE rather than only where jobs are selected, so it applies to every
+# caller. build-image.yml intersects its matrix with the same list to avoid
+# spawning jobs that would only refuse — but the release path selects its kit
+# from a git tag, so without this check any kit that declared a `version:` could
+# be published by tagging it, allow-list or not.
+case " ${PUBLISH_KITS} " in
+  *" ${kit} "*) ;;
+  *)
+    die "'${kit}' is not in PUBLISH_KITS (${PUBLISH_KITS}). Every kit here is pushable, so publication is opt-in — add it to the PUBLISH_KITS repository variable first."
+    ;;
+esac
+
 log "kit         : ${kit}"
 log "reference   : ${ref}:${tag}"
 log "rolling tag : $([ "$MOVE_LATEST" = "true" ] && echo "${ref}:${IMAGE_TAG_LATEST}" || echo "(not moved)")"
@@ -69,28 +82,40 @@ summarise() {
   } >> "$GITHUB_STEP_SUMMARY"
 }
 
+# Validation runs BEFORE the dry-run exit, deliberately. On a pull request the
+# whole publish is a dry run, and validating only on the way to a real push
+# would mean a PR that breaks the kit's loadability still reports a green
+# publish job — the failure would surface on merge instead, which is exactly
+# what this job exists to prevent.
+log ""
+if command -v sbx >/dev/null; then
+  log "==> validating"
+  sbx kit validate "$REPO_ROOT/$kit"
+else
+  # A developer inspecting the plan should not need sbx installed; CI always
+  # has it, so this branch never runs there. Loud rather than silent, because
+  # the whole point of the step above is that it is not skippable by accident.
+  [ -n "$DRY_RUN" ] || die "sbx is not on PATH — run scripts/install-sbx.sh"
+  log "!!! sbx not on PATH — SKIPPING validation (dry run only)"
+fi
+
 if [ -n "$DRY_RUN" ]; then
   log ""
   log "DRY RUN — nothing is published. Would:"
-  log "  1. sbx kit validate ${kit}"
-  log "  2. check ${ref}:${tag} does not already exist"
-  log "  3. sbx kit push ${kit} ${ref}:${tag} --sign"
+  log "  1. check ${ref}:${tag} does not already exist"
+  log "  2. sbx kit push ${kit} ${ref}:${tag} --sign"
   [ "$MOVE_LATEST" = "true" ] &&
-    log "  4. oras tag ${ref}@<digest> ${IMAGE_TAG_LATEST}"
+    log "  3. oras tag ${ref}@<digest> ${IMAGE_TAG_LATEST}"
   emit ref "$ref"
   emit pushed false
   emit reused false
-  summarise "**Dry run — nothing published.** Would have published \`${ref}:${tag}\`."
+  summarise "**Dry run — nothing published.** Kit validated. Would have published \`${ref}:${tag}\`."
   exit 0
 fi
 
-for bin in sbx oras jq; do
-  command -v "$bin" >/dev/null || die "$bin is not on PATH (scripts/install-sbx.sh installs sbx)"
+for bin in oras jq; do
+  command -v "$bin" >/dev/null || die "$bin is not on PATH"
 done
-
-log ""
-log "==> validating"
-sbx kit validate "$REPO_ROOT/$kit"
 
 # Tags are immutable by convention; the registry does not enforce that unless
 # Hub tag-immutability is on. What a collision means depends on the caller:

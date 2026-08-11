@@ -120,8 +120,19 @@ jobs:
             filters=$(printf '%s\n%s:\n  - "%s/**"\n  - "!%s/README.md"\n  - "!%s/testdata/**"' \
               "$filters" "$kit" "$kit" "$kit" "$kit")
           done
-          # Shared inputs rebuild everything.
-          filters=$(printf '%s\nshared:\n  - ".github/workflows/build-image.yml"\n  - "scripts/check-image-ref.sh"' "$filters")
+          # Shared inputs rebuild everything. The publish path is listed too:
+          # without it, a change to publish-kit.yml or any of the scripts it
+          # calls produces no artifacts, so the publish job does not run at all
+          # — not even as a dry run — and the PR that changes the publishing
+          # logic is the one PR that never exercises it.
+          filters=$(printf '%s\nshared:\n%s\n%s\n%s\n%s\n%s\n%s\n%s' "$filters" \
+            '  - ".github/workflows/build-image.yml"' \
+            '  - ".github/workflows/publish-kit.yml"' \
+            '  - ".github/workflows/release-kit.yml"' \
+            '  - "scripts/check-image-ref.sh"' \
+            '  - "scripts/check-release-tag.sh"' \
+            '  - "scripts/install-sbx.sh"' \
+            '  - "scripts/publish-kit.sh"')
 
           echo "filters<<EOF" >> "$GITHUB_OUTPUT"
           echo "$filters" >> "$GITHUB_OUTPUT"
