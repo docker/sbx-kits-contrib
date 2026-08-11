@@ -115,8 +115,15 @@ if [ -n "$DRY_RUN" ]; then
   log "DRY RUN — nothing is published. Would:"
   log "  1. check ${ref}:${tag} does not already exist"
   log "  2. sbx kit push ${kit} ${ref}:${tag} --sign"
-  [ "$MOVE_LATEST" = "true" ] &&
-    log "  3. oras tag ${ref}@<digest> ${IMAGE_TAG_LATEST}"
+  if [ "$MOVE_LATEST" = "true" ]; then
+    # Described rather than shown as a command: the digest does not exist until
+    # step 2 has run, and the retag deliberately addresses the manifest by
+    # digest rather than by tag so a racing push cannot swap what `latest` ends
+    # up pointing at. Printing `…@<digest>` beside two fully-resolved commands
+    # reads like an interpolation that failed.
+    log "  3. re-point ${ref}:${IMAGE_TAG_LATEST} at the digest step 2 produces"
+    log "     (oras tag, by digest — not knowable before the push)"
+  fi
   emit ref "$ref"
   emit pushed false
   emit reused false
