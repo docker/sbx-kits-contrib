@@ -4,12 +4,12 @@ name: Sync Docker Hub overviews
 # and the short description (from spec.yaml).
 #
 # Triggered by DOCUMENTATION changes, not by publishing — and also called by
-# build-kit.yml after a publish, so a repository that has just received its
+# build-and-publish-kits.yml after a publish, so a repository that has just received its
 # first push gets a page without waiting for the next docs edit.
 #
 # Why the docs trigger is the primary one: the Hub page is the only user-facing
 # documentation for these repositories, and a README edit is exactly the change
-# build-kit.yml filters OUT of a rebuild (README.md is not an input to the
+# build-and-publish-kits.yml filters OUT of a rebuild (README.md is not an input to the
 # image). Syncing only on publish would leave the page stale by default and
 # correct by accident, and would make fixing a typo require either an unrelated
 # code change or an artifact re-push that mints a new digest for identical bytes.
@@ -42,7 +42,7 @@ on:
     inputs:
       kit:
         description: |
-          Sync only this kit. Used by build-kit.yml after publishing it; the
+          Sync only this kit. Used by build-and-publish-kits.yml after publishing it; the
           docs trigger leaves it empty and syncs the whole allow-list.
         type: string
         default: ""
@@ -54,7 +54,7 @@ env:
   # A pull request validates and reports, but never writes: the Hub page is
   # production metadata for the default branch, and an unmerged branch has no
   # business overwriting it. Checked here rather than in each caller so every
-  # entry point inherits it — build-kit.yml calls this workflow on PRs too, where
+  # entry point inherits it — build-and-publish-kits.yml calls this workflow on PRs too, where
   # the publish itself is already a dry run.
   DRY_RUN: ${{ github.event_name == 'pull_request' }}
 

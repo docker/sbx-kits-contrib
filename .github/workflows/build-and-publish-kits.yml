@@ -136,7 +136,7 @@ jobs:
           # — not even as a dry run — and the PR that changes the publishing
           # logic is the one PR that never exercises it.
           filters=$(printf '%s\nshared:\n%s\n%s\n%s\n%s\n%s\n%s\n%s\n%s' "$filters" \
-            '  - ".github/workflows/build-kit.yml"' \
+            '  - ".github/workflows/build-and-publish-kits.yml"' \
             '  - ".github/workflows/publish-artifact.yml"' \
             '  - ".github/workflows/publish-one-kit.yml"' \
             '  - ".github/workflows/release-kit.yml"' \

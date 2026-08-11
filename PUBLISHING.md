@@ -36,7 +36,7 @@ spec pointing the pipeline at a namespace it has no business pushing to.
 
 ## When it builds
 
-`.github/workflows/build-kit.yml` discovers the kits and calls
+`.github/workflows/build-and-publish-kits.yml` discovers the kits and calls
 `publish-one-kit.yml` **once per kit**, so each runs image → artifact → overview
 as its own job graph: kits publish in parallel and fail independently. A matrix
 of three separate jobs would instead make every kit's artifact wait for every
@@ -233,7 +233,7 @@ on `*/README.md`, `*/README.image.md` and `*/spec.yaml`, and builds nothing.
 So the page tracks the default branch while `latest` tracks the last publish.
 Those are different statements — Hub has one overview per repository, not one per
 tag — and the relationship is the same as a GitHub README's to the last release.
-`build-kit.yml` also calls the workflow after publishing, so a repository that
+`build-and-publish-kits.yml` also calls the workflow after publishing, so a repository that
 has just had its first push gets a page without waiting for the next docs edit.
 
 Each sync is gated on the repository actually holding something

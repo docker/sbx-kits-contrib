@@ -69,7 +69,7 @@ emit() { echo "$1=$2" >&3; }
 ref="${REGISTRY}/${IMAGE_NAMESPACE}/${kit}-kit"
 
 # Enforced HERE rather than only where jobs are selected, so it applies to every
-# caller. build-kit.yml intersects its matrix with the same list to avoid
+# caller. build-and-publish-kits.yml intersects its matrix with the same list to avoid
 # spawning jobs that would only refuse — but the release path selects its kit
 # from a git tag, so without this check any kit that declared a `version:` could
 # be published by tagging it, allow-list or not.

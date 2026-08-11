@@ -6,7 +6,7 @@ name: Publish one kit
 # Exists so kits are ISOLATED. Matrix legs of a job do not chain, so a
 # three-job matrix (image → artifact → overview) makes every kit's artifact wait
 # for every kit's image, and one kit's build failure blocks another kit's
-# publish. Called once per kit from build-kit.yml, each invocation is its own job
+# publish. Called once per kit from build-and-publish-kits.yml, each invocation is its own job
 # graph: kits run end to end in parallel and fail independently.
 
 on:

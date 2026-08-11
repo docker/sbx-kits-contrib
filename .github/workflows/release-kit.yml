@@ -3,11 +3,11 @@ name: Release a kit
 # Publishes a named version of one kit, triggered by a `<kit>/vX.Y.Z` tag —
 # e.g. `kiro/v1.0.0` publishes docker.io/sbx/kiro-kit:v1.0.0.
 #
-# Separate from build-kit.yml on purpose. The two answer different questions,
+# Separate from build-and-publish-kits.yml on purpose. The two answer different questions,
 # and folding them together would mean one workflow deciding, per event, what to
 # build and which tags may move:
 #
-#   build-kit.yml  which kits changed? → <sha>-<date>, rolling tag moves
+#   build-and-publish-kits.yml  which kits changed? → <sha>-<date>, rolling tag moves
 #   release-kit.yml  which kit is named in the ref? → vX.Y.Z, nothing moves
 #
 # The version describes THE KIT — its spec, files, network policy and hooks —
