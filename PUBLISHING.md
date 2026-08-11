@@ -138,8 +138,8 @@ docker.io/sbx/<kit>-kit
 ```
 
 Same tag scheme as the image (`<sha>-<YYYYMMDD>` immutable, `latest` rolling,
-both resolving to one digest), pushed by the `publish-kit` job in
-`build-image.yml`. It runs after the image job, because the push records the
+both resolving to one digest), pushed by the `artifact` job in
+`build-image.yml`. It runs after the `image` job, because the push records the
 declared `sandbox.image` in its provenance and a kit pointing at an unpublished
 image is a broken artifact.
 

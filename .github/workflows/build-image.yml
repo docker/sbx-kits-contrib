@@ -1,6 +1,16 @@
-name: Build kit base images
+name: Build and publish kits
 
-# Builds and publishes base images for kits that ship their own `Dockerfile`.
+# Publishes what a kit needs to be consumable: the base image its sandbox boots
+# from, and the kit artifact itself.
+#
+# Both halves are per-kit and share one discovery pass, which is why they live in
+# one workflow — the artifact references the image, so it must not be published
+# when the image was not.
+#
+#   image     builds <kit>/Dockerfile and pushes <kit>-image
+#   artifact  packages the spec plus files/ and pushes <kit>-kit
+#
+# The Hub repository pages are NOT set here; see hub-overview.yml.
 #
 # Kits are DISCOVERED, not listed: any directory with both a `spec.yaml` and a
 # `Dockerfile` is picked up automatically, so adding a kit that publishes its own
@@ -205,7 +215,7 @@ jobs:
           set -euo pipefail
           ./scripts/check-image-ref.sh "${REGISTRY}/${IMAGE_NAMESPACE}" "${IMAGE_TAG_LATEST}"
 
-  build:
+  image:
     needs: [detect-changes, verify-spec-refs]
     if: >-
       needs.detect-changes.outputs.kits != '[]' &&
@@ -467,8 +477,8 @@ jobs:
   #
   # Ordered after `build` so a kit is never published pointing at an image that
   # was not — the push records the declared sandbox image in its provenance.
-  publish-kit:
-    needs: [detect-changes, build]
+  artifact:
+    needs: [detect-changes, image]
     # No `schedule`: a kit's content is a pure function of the commit, unlike
     # the image it references, so a nightly re-push would mint a new manifest
     # digest for identical bytes.
