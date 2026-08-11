@@ -66,7 +66,7 @@ Each build publishes two tags, both resolving to the **same digest**:
 
 | Tag | Meaning |
 |---|---|
-| `<sha>-<YYYYMMDD>` | immutable — one per build, never overwritten. **Pin this.** |
+| `<YYYYMMDD>-<sha>` | immutable — one per build, never overwritten. **Pin this.** |
 | `latest` | rolling |
 
 There is deliberately **no bare `<sha>` tag**. Image content is not a function
@@ -75,6 +75,16 @@ tags, so a nightly rebuild of an unchanged commit can produce different bits. A
 `<sha>` tag would be silently overwritten with new content while appearing to
 identify a source revision — the opposite of what pinning a SHA is for. The
 commit is still recorded, in the immutable tag alongside the build date.
+
+The date comes **first** so lexicographic order is chronological — tag listings
+sort as strings, and a hash-first tag sorts randomly. It also makes `20260811*`
+a prefix query for one day's builds, which is why there is no bare `<YYYYMMDD>`
+tag either: it would be overwritten by the second build of the day, the same
+flaw that rules out a bare `<sha>`.
+
+Both tags for a run share one date, computed once in `detect-changes`. The image
+job does not call `date` again: it runs later, so a run straddling UTC midnight
+would otherwise tag the image one day and its artifact the other.
 
 Only the dated tag is built. `latest` is re-pointed at its manifest with
 `docker buildx imagetools create` rather than rebuilt, so the two cannot drift
@@ -141,7 +151,7 @@ spec plus `files/`, packaged so `--kit oci://…` can consume it without git:
 docker.io/sbx/<kit>-kit
 ```
 
-Same tag scheme as the image (`<sha>-<YYYYMMDD>` immutable, `latest` rolling,
+Same tag scheme as the image (`<YYYYMMDD>-<sha>` immutable, `latest` rolling,
 both resolving to one digest), pushed by the `artifact` job in
 `publish-one-kit.yml`. It runs after that workflow's `image` job, because the push records the
 declared `sandbox.image` in its provenance and a kit pointing at an unpublished

@@ -140,7 +140,7 @@ done
 #
 #   MOVE_LATEST=false (a release) — a version is being re-cut over a published
 #     one. Always an error; the fix is a new version.
-#   MOVE_LATEST=true (continuous) — the tag is <sha>-<date>, so a collision just
+#   MOVE_LATEST=true (continuous) — the tag is <date>-<sha>, so a collision just
 #     means this commit was already published today, i.e. a re-run. Reuse it: a
 #     re-run is the only way back when the push landed and a later step did not,
 #     and failing here would strand the rolling tag on the previous artifact.

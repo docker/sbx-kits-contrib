@@ -7,7 +7,7 @@ name: Release a kit
 # and folding them together would mean one workflow deciding, per event, what to
 # build and which tags may move:
 #
-#   build-and-publish-kits.yml  which kits changed? → <sha>-<date>, rolling tag moves
+#   build-and-publish-kits.yml  which kits changed? → <date>-<sha>, rolling tag moves
 #   release-kit.yml  which kit is named in the ref? → vX.Y.Z, nothing moves
 #
 # The version describes THE KIT — its spec, files, network policy and hooks —

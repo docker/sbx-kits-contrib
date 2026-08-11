@@ -4,7 +4,7 @@ name: Publish kit artifact
 #
 # Callers:
 #   * publish-one-kit.yml — the continuous path, one call per kit, tagged
-#                          <sha>-<YYYYMMDD> and moving the rolling tag.
+#                          <YYYYMMDD>-<sha> and moving the rolling tag.
 #   * release-kit.yml     — on a `<kit>/vX.Y.Z` tag, tagged with that version.
 #
 # The kit artifact is the spec plus files/, which is what `--kit oci://…`

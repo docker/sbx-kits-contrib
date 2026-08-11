@@ -18,7 +18,7 @@ on:
         type: string
       dated:
         description: |
-          The immutable tag for this run, <sha>-<YYYYMMDD>. Passed in rather than
+          The immutable tag for this run, <YYYYMMDD>-<sha>. Passed in rather than
           computed here so every kit in a run shares one date, and because a job
           that `uses:` a reusable workflow cannot run steps to call `date`.
         required: true
@@ -112,11 +112,11 @@ jobs:
           # bare :<sha> would therefore be overwritten with new content while
           # claiming to identify a source revision — exactly what someone pinning
           # a SHA is trying to avoid. So no bare :<sha> is published.
-          build_date=$(date -u +%Y%m%d)
-          echo "dated=${GITHUB_SHA}-${build_date}" >> "$GITHUB_OUTPUT"
-
+          # The tag comes from the caller, not a second `date` call here: this
+          # job runs later than detect-changes, so a run straddling UTC midnight
+          # would otherwise tag the image one day and its artifact the other.
           echo "Resolved image: ${image}"
-          echo "  immutable tag: ${image}:${GITHUB_SHA}-${build_date}"
+          echo "  immutable tag: ${image}:${{ inputs.dated }}"
           echo "  rolling tag:   ${image}:${IMAGE_TAG_LATEST}"
 
       - uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3.7.0
@@ -222,7 +222,7 @@ jobs:
 
       - name: Build (and push the immutable tag)
         id: build
-        # Only the immutable <sha>-<date> tag is built and pushed here; the
+        # Only the immutable <date>-<sha> tag is built and pushed here; the
         # rolling tag is re-pointed at this manifest in the next step rather than
         # built again.
         uses: docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83 # v6.18.0
@@ -231,7 +231,7 @@ jobs:
           file: ${{ inputs.kit }}/Dockerfile
           platforms: ${{ env.PLATFORMS }}
           push: ${{ env.DRY_RUN == '' }}
-          tags: ${{ steps.coords.outputs.image }}:${{ steps.coords.outputs.dated }}
+          tags: ${{ steps.coords.outputs.image }}:${{ inputs.dated }}
           cache-from: type=gha,scope=${{ inputs.kit }}
           cache-to: type=gha,mode=max,scope=${{ inputs.kit }}
 
@@ -249,7 +249,7 @@ jobs:
             "${IMAGE}:${DATED}"
         env:
           IMAGE: ${{ steps.coords.outputs.image }}
-          DATED: ${{ steps.coords.outputs.dated }}
+          DATED: ${{ inputs.dated }}
 
       - name: Summarise
         run: |
@@ -259,7 +259,7 @@ jobs:
             if [ -z "${DRY_RUN}" ]; then
               echo "Published — both tags resolve to the same digest:"
               echo ""
-              echo '- `${{ steps.coords.outputs.image }}:${{ steps.coords.outputs.dated }}` — immutable, one per build'
+              echo '- `${{ steps.coords.outputs.image }}:${{ inputs.dated }}` — immutable, one per build'
               echo '- `${{ steps.coords.outputs.image }}:${{ env.IMAGE_TAG_LATEST }}` — rolling'
             else
               echo "**Dry run — nothing published.**"

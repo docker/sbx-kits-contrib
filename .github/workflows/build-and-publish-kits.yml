@@ -91,7 +91,7 @@ jobs:
       artifacts: ${{ steps.collect.outputs.artifacts }}
       # The immutable tag for kit artifacts. Computed here because a job that
       # `uses:` a reusable workflow cannot run steps, so it has nowhere to call
-      # `date` — and the tag scheme is documented as <sha>-<YYYYMMDD>.
+      # `date` — and the tag scheme is documented as <YYYYMMDD>-<sha>.
       dated: ${{ steps.collect.outputs.dated }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -197,7 +197,13 @@ jobs:
           echo "artifacts=${artifacts}" >> "$GITHUB_OUTPUT"
           echo "Publishing kit artifacts for: ${artifacts}"
 
-          echo "dated=${GITHUB_SHA}-$(date -u +%Y%m%d)" >> "$GITHUB_OUTPUT"
+          # Date first so lexicographic order is chronological: tag listings
+          # (`oras repo tags`, Hub's tag page, `docker image ls`) sort as
+          # strings, and a hash-first tag sorts randomly. Date-first also makes
+          # `20260811*` a prefix query for one day's builds — which is why no
+          # bare <date> tag is published: it would be mutable within the day,
+          # the same flaw that rules out a bare <sha>.
+          echo "dated=$(date -u +%Y%m%d)-${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
 
   # Gates the build. Checks every kit that ships a Dockerfile — not just the ones
   # being rebuilt — and asserts its declared image is one this pipeline may
