@@ -41,8 +41,21 @@ PUBLISH_KITS=${PUBLISH_KITS:-kiro}
 SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 REPO_ROOT=$(cd "$SCRIPT_DIR/.." && pwd)
 
-log() { echo "$@" >&2; }
-die() { echo "error: $*" >&2; exit 1; }
+# The KEY=VALUE stream CI redirects into $GITHUB_OUTPUT moves to fd 3, and this
+# script's stdout is rerouted to stderr. Doing it structurally rather than by
+# appending `>&2` to each command is the point: `sbx kit validate` prints
+# "VALID: …" on stdout, `sbx kit push` prints "Pushed …", and `oras tag` prints
+# too — any one of them lands in $GITHUB_OUTPUT as a malformed line and fails
+# the step with "Invalid format". With stdout rerouted, no command added later
+# can break that contract by accident.
+#
+# Command substitution is unaffected: $(oras manifest fetch …) still captures
+# that process's own stdout.
+exec 3>&1 1>&2
+
+log() { echo "$@"; }
+die() { echo "error: $*"; exit 1; }
+emit() { echo "$1=$2" >&3; }
 
 [ -d "$REPO_ROOT/$kit" ] || die "no kit directory '$kit' at the repo root"
 [ -f "$REPO_ROOT/$kit/spec.yaml" ] || [ -f "$REPO_ROOT/$kit/spec.yml" ] ||
@@ -70,8 +83,6 @@ esac
 log "kit         : ${kit}"
 log "reference   : ${ref}:${tag}"
 log "rolling tag : $([ "$MOVE_LATEST" = "true" ] && echo "${ref}:${IMAGE_TAG_LATEST}" || echo "(not moved)")"
-
-emit() { echo "$1=$2"; }
 
 summarise() {
   [ -n "${GITHUB_STEP_SUMMARY:-}" ] || return 0
@@ -152,7 +163,7 @@ else
     log "    not published yet"
   else
     log "    could not determine whether it exists:"
-    cat "$existing_err" >&2
+    cat "$existing_err"
     exit 1
   fi
 fi

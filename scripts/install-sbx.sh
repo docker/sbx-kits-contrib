@@ -28,8 +28,14 @@ fi
 version=${1:-}
 PREFIX=${PREFIX:-$HOME/.docker/sbx}
 
-log() { echo "$@" >&2; }
-die() { echo "error: $*" >&2; exit 1; }
+# The PATH directory CI redirects into $GITHUB_PATH moves to fd 3, and stdout is
+# rerouted to stderr. install.sh prints its own progress on stdout, which would
+# otherwise be appended to $GITHUB_PATH as bogus entries — silently, since that
+# file takes one path per line and does not validate them.
+exec 3>&1 1>&2
+
+log() { echo "$@"; }
+die() { echo "error: $*"; exit 1; }
 
 [ -n "${GITHUB_TOKEN:-}" ] || die "GITHUB_TOKEN is required (docker/sbx-releases is private)"
 
@@ -71,4 +77,4 @@ fi
 
 log "==> installed: $("${PREFIX}/bin/sbx" version 2>/dev/null | head -1 || echo "sbx (version unavailable)")"
 
-echo "${PREFIX}/bin"
+echo "${PREFIX}/bin" >&3

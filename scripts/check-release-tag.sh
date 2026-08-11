@@ -31,6 +31,14 @@ fi
 
 tag=$1
 
+# The KEY=VALUE stream CI redirects into $GITHUB_OUTPUT moves to fd 3, and stdout
+# is rerouted to stderr, so nothing added later — an awk that prints, a helper
+# that echoes — can put a malformed line in $GITHUB_OUTPUT and fail the step
+# with "Invalid format". This script calls no chatty subprocesses today; the
+# guard is here because it cost one line and the failure mode is remote from its
+# cause.
+exec 3>&1 1>&2
+
 SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 REPO_ROOT=$(cd "$SCRIPT_DIR/.." && pwd)
 
@@ -38,12 +46,12 @@ REPO_ROOT=$(cd "$SCRIPT_DIR/.." && pwd)
 # allows for `name`, so a tag cannot name a directory a kit could never be.
 case "$tag" in
   */*/*)
-    echo >&2 "error: '${tag}' has more than one '/' — expected <kit>/vX.Y.Z"
+    echo "error: '${tag}' has more than one '/' — expected <kit>/vX.Y.Z"
     exit 1
     ;;
   */*) ;;
   *)
-    echo >&2 "error: '${tag}' is not a release tag — expected <kit>/vX.Y.Z"
+    echo "error: '${tag}' is not a release tag — expected <kit>/vX.Y.Z"
     exit 1
     ;;
 esac
@@ -52,7 +60,7 @@ kit=${tag%%/*}
 version=${tag##*/}
 
 if ! printf '%s' "$kit" | grep -Eq '^[a-z0-9]([a-z0-9-]{0,62}[a-z0-9])?$'; then
-  echo >&2 "error: '${kit}' is not a valid kit name"
+  echo "error: '${kit}' is not a valid kit name"
   exit 1
 fi
 
@@ -61,14 +69,14 @@ fi
 # nothing downstream — the tag, the annotation, the check below — has anywhere
 # to put them.
 if ! printf '%s' "$version" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+$'; then
-  echo >&2 "error: '${version}' must be vX.Y.Z (no pre-release or build suffix)"
+  echo "error: '${version}' must be vX.Y.Z (no pre-release or build suffix)"
   exit 1
 fi
 
 spec="$REPO_ROOT/$kit/spec.yaml"
 [ -f "$spec" ] || spec="$REPO_ROOT/$kit/spec.yml"
 if [ ! -f "$spec" ]; then
-  echo >&2 "error: tag names kit '${kit}', which has no spec.yaml at the repo root"
+  echo "error: tag names kit '${kit}', which has no spec.yaml at the repo root"
   exit 1
 fi
 
@@ -91,7 +99,7 @@ declared=$(awk '
 want=${version#v}
 
 if [ -z "$declared" ]; then
-  cat >&2 <<EOF
+  cat <<EOF
 
 error: ${kit}/spec.yaml declares no top-level 'version:'
 
@@ -105,7 +113,7 @@ EOF
 fi
 
 if [ "$declared" != "$want" ]; then
-  cat >&2 <<EOF
+  cat <<EOF
 
 error: ${kit}/spec.yaml version does not match the tag
 
@@ -118,7 +126,7 @@ EOF
   exit 1
 fi
 
-echo >&2 "ok: ${tag} -> ${kit} ${version} (spec declares ${declared})"
+echo "ok: ${tag} -> ${kit} ${version} (spec declares ${declared})"
 
-echo "kit=${kit}"
-echo "version=${version}"
+echo "kit=${kit}" >&3
+echo "version=${version}" >&3
