@@ -83,6 +83,14 @@ setup:
     # Kiro owns ~/.kiro/settings/mcp.json (no baseline keys to
     # preserve), so the script writes it fresh via heredoc. mkdir -p
     # because the settings/ subdir may not exist on first boot.
+    #
+    # Shape: kiro-cli keys an HTTP MCP server by `url` plus a `headers`
+    # object — there is no `type` field and no `httpUrl` (that spelling
+    # is Gemini's, and is the wrong answer most easily reached for).
+    # See the Authorization Example in
+    # https://kiro.dev/docs/cli/mcp/configuration/
+    # The TCK's mcp_registration subtest pins all of this; the expected
+    # shape lives in testdata/tck.yaml.
     - command:
         - sh
         - -c
