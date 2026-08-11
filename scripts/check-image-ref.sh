@@ -14,7 +14,7 @@
 # someone else's image (a sandbox template, a vendor's published agent) and are
 # ignored.
 #
-# Why this exists: build-image.yml reads `sandbox.image` from the spec and
+# Why this exists: build-kit.yml reads `sandbox.image` from the spec and
 # publishes exactly that, because a spec is consumed literally — no environment
 # interpolation — so it cannot follow the workflow's variables. This check is the
 # guard on that trust: it stops a spec from pointing the pipeline at a namespace
@@ -111,7 +111,7 @@ EOF
       ;;
   esac
 
-  # The kit ARTIFACT publishes to <prefix>/<kit>-kit (see build-image.yml's
+  # The kit ARTIFACT publishes to <prefix>/<kit>-kit (see build-kit.yml's
   # publish-kit job). `sbx kit push` takes its reference verbatim — it derives
   # nothing from the kit name and validates nothing against it — so nothing on
   # the tool side stops a spec pointing the image at the artifact's repository.

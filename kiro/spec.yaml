@@ -14,7 +14,7 @@ description: Kiro CLI by AWS, with interactive device-flow authentication.
 
 sandbox:
   # Built from the Dockerfile beside this spec and published by
-  # .github/workflows/build-image.yml. Carries a Docker engine and requests
+  # .github/workflows/build-kit.yml. Carries a Docker engine and requests
   # Docker-in-Docker, matching the built-in agent this kit replaces.
   #
   # This value is the source of truth for what CI builds and publishes: the

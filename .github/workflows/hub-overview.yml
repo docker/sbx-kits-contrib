@@ -6,7 +6,7 @@ name: Sync Docker Hub overviews
 # Separate from publishing, for two reasons that both bite:
 #
 #   * The overview changes when a README changes, which is exactly the change
-#     build-image.yml filters OUT of a rebuild — README.md is excluded from the
+#     build-kit.yml filters OUT of a rebuild — README.md is excluded from the
 #     per-kit filter because it is not an input to the image. A sync living
 #     inside the publish job could therefore never run for the edit that needs
 #     it.
