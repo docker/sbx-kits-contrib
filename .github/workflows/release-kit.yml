@@ -1,0 +1,116 @@
+name: Release a kit
+
+# Publishes a named version of one kit, triggered by a `<kit>/vX.Y.Z` tag —
+# e.g. `kiro/v1.0.0` publishes docker.io/sbx/kiro-kit:v1.0.0.
+#
+# Separate from build-image.yml on purpose. The two answer different questions,
+# and folding them together would mean one workflow deciding, per event, what to
+# build and which tags may move:
+#
+#   build-image.yml  which kits changed? → <sha>-<date>, rolling tag moves
+#   release-kit.yml  which kit is named in the ref? → vX.Y.Z, nothing moves
+#
+# The version describes THE KIT — its spec, files, network policy and hooks —
+# not the agent inside the image it references. That image stays on a floating
+# tag by design: the agent CLI changes on its own schedule, and pinning it into
+# the kit's version would either ship stale agents or churn the kit's version
+# for reasons the kit did not cause. So `kiro-kit:v1.0.0` is a stable kit
+# CONTRACT, not a reproducible end-to-end environment; a sandbox created from it
+# next month gets the same kit and a newer agent.
+
+on:
+  push:
+    tags:
+      - "*/v*"
+
+permissions:
+  contents: read
+
+jobs:
+  # Derives the kit and version from the tag, and refuses a release whose spec
+  # does not agree. Kept out of the reusable workflow: it is the one part that
+  # is specific to releasing, and it must fail before anything is published.
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      kit: ${{ steps.parse.outputs.kit }}
+      version: ${{ steps.parse.outputs.version }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Parse the tag
+        id: parse
+        run: |
+          set -euo pipefail
+          kit="${GITHUB_REF_NAME%%/*}"
+          version="${GITHUB_REF_NAME##*/}"
+
+          case "${version}" in
+            v[0-9]*.[0-9]*.[0-9]*) ;;
+            *)
+              echo "::error::tag '${GITHUB_REF_NAME}' must be <kit>/vX.Y.Z"
+              exit 1
+              ;;
+          esac
+
+          if [ ! -f "${kit}/spec.yaml" ] && [ ! -f "${kit}/spec.yml" ]; then
+            echo "::error::tag '${GITHUB_REF_NAME}' names kit '${kit}', which has no spec"
+            exit 1
+          fi
+
+          echo "kit=${kit}" >> "$GITHUB_OUTPUT"
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+          echo "Releasing ${kit} as ${version}"
+
+      - name: Check the spec declares this version
+        # `manifest.version` becomes the vnd.docker.sandbox.kit.version
+        # annotation at pack time, so it is what distribution tooling reads
+        # without pulling layers. Left unchecked, `kiro/v1.0.0` could publish an
+        # artifact annotated 0.9.0 — or annotated nothing, since the field is
+        # optional — and the tag would be the only place the version existed.
+        run: |
+          set -euo pipefail
+          spec="${KIT}/spec.yaml"
+          [ -f "$spec" ] || spec="${KIT}/spec.yml"
+
+          declared=$(awk '
+            /^[[:space:]]*#/ { next }
+            $1 == "version:" {
+              gsub(/^[[:space:]]*version:[[:space:]]*/, "")
+              gsub(/^["'"'"']|["'"'"']$/, "")
+              print; exit
+            }
+          ' "$spec")
+
+          want="${VERSION#v}"
+          if [ -z "$declared" ]; then
+            echo "::error::${spec} declares no top-level 'version:'. Add 'version: ${want}' before tagging."
+            exit 1
+          fi
+          if [ "$declared" != "$want" ]; then
+            echo "::error::${spec} declares version '${declared}', but the tag says '${want}'."
+            exit 1
+          fi
+          echo "${spec} declares version ${declared} — matches ${GITHUB_REF_NAME}"
+        env:
+          KIT: ${{ steps.parse.outputs.kit }}
+          VERSION: ${{ steps.parse.outputs.version }}
+
+  publish:
+    needs: verify
+    # This workflow's top-level block is contents-read only, and a called
+    # workflow can never hold more than its caller grants — without this the
+    # OIDC exchange and the keyless signature both fail.
+    permissions:
+      contents: read
+      id-token: write
+    uses: ./.github/workflows/publish-kit.yml
+    secrets: inherit
+    with:
+      kit: ${{ needs.verify.outputs.kit }}
+      tag: ${{ needs.verify.outputs.version }}
+      # The rolling tag follows `main`, not releases: it is the tip of the
+      # branch every kit here is tested against on every PR. A release is a
+      # named point someone chose to pin, which is the opposite of rolling.
+      move-latest: false

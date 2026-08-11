@@ -1,0 +1,218 @@
+name: Publish kit artifact
+
+# Reusable: pushes ONE kit as an OCI artifact to <registry>/<namespace>/<kit>-kit.
+#
+# Callers:
+#   * build-image.yml  — continuous, one call per changed allow-listed kit,
+#                        tagged <sha>-<YYYYMMDD> and moving the rolling tag.
+#   * release-kit.yml  — on a `<kit>/vX.Y.Z` tag, tagged with that version.
+#
+# The kit artifact is the spec plus files/, which is what `--kit oci://…`
+# consumes without going through git. It is NOT the image the sandbox boots
+# from; that is built by build-image.yml and published as `<kit>-image`.
+#
+# A released version describes THE KIT — its spec, files, network policy and
+# hooks — not the agent inside the image it references. The image floats
+# deliberately: the agent CLI moves on its own schedule, and encoding that in
+# the kit's version would mean either stale agents or a version that churns for
+# reasons the kit did not cause.
+
+on:
+  workflow_call:
+    inputs:
+      kit:
+        description: Kit directory at the repo root, e.g. "kiro".
+        required: true
+        type: string
+      tag:
+        description: |
+          The tag to publish. Immutable by convention — never reused for
+          different content, so consumers can pin it.
+        required: true
+        type: string
+      move-latest:
+        description: |
+          Also re-point the rolling tag at the manifest just pushed. Callers
+          publishing a point-in-time build set this; a release does not, unless
+          releases are what the rolling tag should track.
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+  # Mints the GitHub OIDC token exchanged for a short-lived Hub token, and is
+  # also the Sigstore identity `sbx kit push --sign` signs with.
+  id-token: write
+
+env:
+  REGISTRY: ${{ vars.REGISTRY || 'docker.io' }}
+  IMAGE_NAMESPACE: ${{ vars.IMAGE_NAMESPACE || 'sbx' }}
+  IMAGE_TAG_LATEST: ${{ vars.IMAGE_TAG_LATEST || 'latest' }}
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Resolve kit coordinates
+        id: coords
+        # The reference is COMPOSED here, never taken from a spec or an input.
+        # `sbx kit push` uses whatever reference it is handed verbatim — it
+        # derives nothing from the kit name and validates nothing against it —
+        # so a wrong value would push a kit manifest over an unrelated tag in
+        # this namespace, the image's included.
+        run: |
+          set -euo pipefail
+          echo "ref=${REGISTRY}/${IMAGE_NAMESPACE}/${KIT}-kit" >> "$GITHUB_OUTPUT"
+
+          if [ "${{ github.event_name }}" != "pull_request" ] \
+             && [ "${{ github.repository }}" = "docker/sbx-kits-contrib" ] \
+             && [ -n "${OIDC_CONNECTION_ID}" ]; then
+            echo "push=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "push=false" >> "$GITHUB_OUTPUT"
+          fi
+        env:
+          KIT: ${{ inputs.kit }}
+          OIDC_CONNECTION_ID: ${{ secrets.DOCKERHUB_OIDC_CONNECTIONID }}
+
+      - name: Install sbx
+        run: |
+          set -euo pipefail
+          version=$(curl -fsSL -H "Authorization: Bearer ${GITHUB_TOKEN}" \
+            https://api.github.com/repos/docker/sbx-releases/releases/latest | jq -r .tag_name)
+          curl -fsSL -H "Authorization: Bearer ${GITHUB_TOKEN}" \
+            "https://github.com/docker/sbx-releases/releases/download/${version}/DockerSandboxes-linux.tar.gz" \
+            -o /tmp/DockerSandboxes-linux.tar.gz
+          tar xzf /tmp/DockerSandboxes-linux.tar.gz -C /tmp
+          sudo PREFIX="${HOME}/.docker/sbx" /tmp/docker-sbx/install.sh
+          echo "${HOME}/.docker/sbx/bin" >> "$GITHUB_PATH"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Validate the kit
+        # Runs on pull requests too — catch an unpushable kit on the PR rather
+        # than at publish time. `sbx kit` is daemon-free (only `kit add` needs
+        # sandboxd), so this needs no VM and no KVM.
+        run: sbx kit validate "${{ inputs.kit }}"
+
+      - name: Exchange GitHub OIDC token for Docker Hub access
+        if: steps.coords.outputs.push == 'true'
+        id: docker_oidc
+        uses: docker/oidc-action@b048fb089ace3e15a5fbdd784f4784d284ce5e8d # v1.1.0
+        with:
+          connection-id: ${{ secrets.DOCKERHUB_OIDC_CONNECTIONID }}
+          expires-in: 3600
+
+      - name: Log in to Docker Hub
+        if: steps.coords.outputs.push == 'true'
+        # `sbx kit push` authenticates via the Docker credential store, so this
+        # login is the whole auth story — no sbx-side credential, and none of
+        # the Secret Service scaffolding `sbx login` needs.
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          username: sbx
+          password: ${{ steps.docker_oidc.outputs.token }}
+
+      - uses: oras-project/setup-oras@1d808f7d7f6995cc68b7bf507bfe5c5446e1dc9d # v2.0.1
+        if: steps.coords.outputs.push == 'true' && inputs.move-latest
+        with:
+          version: "1.3.3"
+
+      - name: Refuse to overwrite an existing tag
+        if: steps.coords.outputs.push == 'true'
+        # Tags published here are immutable by convention; the registry does not
+        # enforce that unless Hub tag-immutability is on. Checking first turns a
+        # silent overwrite — a consumer's pin quietly changing underneath them —
+        # into a failed job. The rolling tag is exempt: moving it is its job.
+        run: |
+          set -euo pipefail
+          if docker manifest inspect "${REF}:${TAG}" >/dev/null 2>&1; then
+            echo "::error::${REF}:${TAG} already exists. Published tags are immutable — bump the version or let CI mint a fresh dated tag."
+            exit 1
+          fi
+        env:
+          REF: ${{ steps.coords.outputs.ref }}
+          TAG: ${{ inputs.tag }}
+
+      - name: Push the kit
+        id: push
+        if: steps.coords.outputs.push == 'true'
+        # --sign is keyless: the Sigstore identity is this job's ambient GitHub
+        # OIDC token, which is why `id-token: write` is required above. Every
+        # push also attaches a SLSA provenance referrer recording the kit's
+        # content digests, its declared sandbox image, and this commit.
+        run: |
+          set -euo pipefail
+          sbx kit push "${{ inputs.kit }}" "${REF}:${TAG}" --sign
+
+          # The push does not echo the digest, and re-reading the tag later
+          # would let a racing push swap the manifest we then advertise.
+          digest=$(oras manifest fetch --descriptor "${REF}:${TAG}" | jq -r .digest)
+          [ -n "${digest}" ] && [ "${digest}" != "null" ]
+          echo "digest=${digest}" >> "$GITHUB_OUTPUT"
+          echo "Pushed ${REF}:${TAG} (${digest})"
+        env:
+          REF: ${{ steps.coords.outputs.ref }}
+          TAG: ${{ inputs.tag }}
+
+      - name: Re-point the rolling tag at that manifest
+        if: steps.coords.outputs.push == 'true' && inputs.move-latest
+        # Retag by digest rather than pushing a second time.
+        #
+        # A second push re-packs the kit, and `oras.PackManifest` stamps
+        # org.opencontainers.image.created, so the second manifest almost always
+        # digests differently — and each digest carries its OWN provenance and
+        # signature, so the two tags would advertise different attestations for
+        # the same source. "Almost always" is the problem: that annotation has
+        # one-second resolution, so two pushes inside the same second produce
+        # identical manifests and the divergence silently does not happen. A bug
+        # that reproduces on a slow runner and not a fast one is worse than one
+        # that always reproduces.
+        #
+        # `oras tag` re-points a tag at a manifest already in the registry, so
+        # one digest, one signature, one provenance referrer, both tags.
+        #
+        # It needs PULL as well as push: the manifest is fetched before being
+        # re-PUT under the new tag. If the registry credential is push-only this
+        # step fails AFTER a successful push, leaving the pushed tag published
+        # and the rolling tag stale — recoverable, but only by hand.
+        #
+        # `buildx imagetools create` would also work, but only with
+        # `--prefer-index=false`, whose documented behaviour is that it
+        # "attempts to preserve the source manifest format" — best-effort, and
+        # unspecified for a custom artifactType. Its default wraps a single
+        # manifest in an index, which would change the artifact's media type.
+        run: oras tag "${REF}@${DIGEST}" "${IMAGE_TAG_LATEST}"
+        env:
+          REF: ${{ steps.coords.outputs.ref }}
+          DIGEST: ${{ steps.push.outputs.digest }}
+
+      - name: Summarise
+        run: |
+          {
+            echo "## ${{ inputs.kit }} (kit artifact)"
+            echo ""
+            if [ "${{ steps.coords.outputs.push }}" = "true" ]; then
+              echo "Published \`${{ steps.push.outputs.digest }}\`:"
+              echo ""
+              echo '- `${{ steps.coords.outputs.ref }}:${{ inputs.tag }}`'
+              if [ "${{ inputs.move-latest }}" = "true" ]; then
+                echo '- `${{ steps.coords.outputs.ref }}:${{ env.IMAGE_TAG_LATEST }}` — rolling, re-pointed at the same digest'
+              fi
+              echo ""
+              echo "Signed keyless (Sigstore), with a SLSA provenance referrer."
+            else
+              echo "**Dry run — validated, nothing published.**"
+              echo ""
+              if [ "${{ github.event_name }}" = "pull_request" ]; then
+                echo "Reason: pull request (push credentials are never exposed to PRs)."
+              else
+                echo "Reason: the \`DOCKERHUB_OIDC_CONNECTIONID\` secret is not set."
+              fi
+              echo ""
+              echo 'Would have published `${{ steps.coords.outputs.ref }}:${{ inputs.tag }}`.'
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"

@@ -167,6 +167,26 @@ a SLSA provenance attestation as an OCI referrer.
 **Publication is opt-in**, via the `PUBLISH_KITS` allow-list, because every kit
 in the repo is pushable and discovery would publish all of them.
 
+### Releasing a version
+
+Tag the commit `<kit>/vX.Y.Z` — `kiro/v1.0.0` publishes
+`docker.io/sbx/kiro-kit:v1.0.0` via `release-kit.yml`. The tag's prefix selects
+the kit, so no allow-list or discovery is involved, and the release is gated on
+the kit's `spec.yaml` declaring the matching `version:` (which becomes the
+`vnd.docker.sandbox.kit.version` annotation, readable without pulling layers).
+
+Releases do **not** move the rolling tag. `latest` follows `main` — the tip
+every kit is tested against on every PR — while a version is a fixed point
+someone chose to pin.
+
+> A version describes **the kit**: its spec, files, network policy and hooks.
+> It says nothing about the agent inside the image it references, which stays
+> on a floating tag deliberately — the agent CLI moves on its own schedule, and
+> folding that into the kit's version would mean either shipping stale agents or
+> churning the version for reasons the kit did not cause. So `kiro-kit:v1.0.0`
+> is a stable kit *contract*, not a reproducible end-to-end environment: a
+> sandbox created from it next month gets the same kit and a newer agent.
+
 > `sbx kit push` takes its reference **verbatim** — it derives nothing from the
 > kit name and validates nothing against it. The workflow therefore composes the
 > reference from the kit directory rather than accepting one, and

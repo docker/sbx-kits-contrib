@@ -79,6 +79,10 @@ jobs:
       # Kits whose ARTIFACT is published this run: the intersection of what
       # changed with the PUBLISH_KITS allow-list.
       artifacts: ${{ steps.collect.outputs.artifacts }}
+      # The immutable tag for kit artifacts. Computed here because a job that
+      # `uses:` a reusable workflow cannot run steps, so it has nowhere to call
+      # `date` — and the tag scheme is documented as <sha>-<YYYYMMDD>.
+      dated: ${{ steps.collect.outputs.dated }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -170,6 +174,8 @@ jobs:
           artifacts=$(jq -cn --argjson a "${kits:-[]}" --argjson b "${allow}" '$a - ($a - $b)')
           echo "artifacts=${artifacts}" >> "$GITHUB_OUTPUT"
           echo "Publishing kit artifacts for: ${artifacts}"
+
+          echo "dated=${GITHUB_SHA}-$(date -u +%Y%m%d)" >> "$GITHUB_OUTPUT"
 
   # Gates the build. Checks every kit that ships a Dockerfile — not just the ones
   # being rebuilt — and asserts its declared image is one this pipeline may
@@ -436,20 +442,22 @@ jobs:
             echo "Platforms: \`${{ env.PLATFORMS }}\`"
           } >> "$GITHUB_STEP_SUMMARY"
 
-  # Publishes the KIT ARTIFACT — the spec + files packaged as an OCI artifact —
-  # at <registry>/<namespace>/<kit>-kit. Distinct from the job above, which
-  # publishes the IMAGE the kit's sandbox boots from. The `-kit` / `-image`
-  # split is why both can live in one namespace.
+  # Publishes the KIT ARTIFACT — the spec + files packaged as OCI — at
+  # <registry>/<namespace>/<kit>-kit. Distinct from the job above, which
+  # publishes the IMAGE the kit's sandbox boots from; the `-kit` / `-image`
+  # split is why both live in one namespace.
+  #
+  # The steps are shared with release-kit.yml, which publishes the same artifact
+  # under a version tag. This caller supplies the point-in-time coordinates:
+  # a dated tag, and the rolling tag moves.
   #
   # Ordered after `build` so a kit is never published pointing at an image that
-  # was not: the push records the declared sandbox image in its provenance.
+  # was not — the push records the declared sandbox image in its provenance.
   publish-kit:
     needs: [detect-changes, build]
     # No `schedule`: a kit's content is a pure function of the commit, unlike
     # the image it references, so a nightly re-push would mint a new manifest
-    # digest for identical bytes. (`oras.PackManifest` stamps
-    # org.opencontainers.image.created, so a kit push is never byte-identical
-    # to the last one.)
+    # digest for identical bytes.
     if: >-
       github.event_name != 'schedule' &&
       needs.detect-changes.outputs.artifacts != '[]' &&
@@ -459,161 +467,18 @@ jobs:
       fail-fast: false
       matrix:
         kit: ${{ fromJson(needs.detect-changes.outputs.artifacts) }}
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-
-      - name: Resolve kit coordinates
-        id: coords
-        # The reference is COMPOSED here, never taken from a spec or an input.
-        # `sbx kit push` uses whatever reference it is handed verbatim — it
-        # derives nothing from the kit name and validates nothing against it —
-        # so a typo would push a kit manifest over an unrelated tag in this
-        # namespace, the image's included. Deriving it from the matrix kit name
-        # leaves nothing to mistype.
-        run: |
-          set -euo pipefail
-          kit_ref="${REGISTRY}/${IMAGE_NAMESPACE}/${{ matrix.kit }}-kit"
-          echo "ref=${kit_ref}" >> "$GITHUB_OUTPUT"
-
-          # Same scheme as the image: the commit alone does not identify the
-          # bytes, because a re-push of an unchanged tree still produces a new
-          # manifest digest. Date + SHA keeps every published artifact
-          # addressable and never overwritten.
-          echo "dated=${GITHUB_SHA}-$(date -u +%Y%m%d)" >> "$GITHUB_OUTPUT"
-
-          if [ "${{ github.event_name }}" != "pull_request" ] \
-             && [ "${{ github.repository }}" = "docker/sbx-kits-contrib" ] \
-             && [ -n "${OIDC_CONNECTION_ID}" ]; then
-            echo "push=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "push=false" >> "$GITHUB_OUTPUT"
-          fi
-        env:
-          OIDC_CONNECTION_ID: ${{ secrets.DOCKERHUB_OIDC_CONNECTIONID }}
-
-      - name: Install sbx
-        run: |
-          set -euo pipefail
-          version=$(curl -fsSL -H "Authorization: Bearer ${GITHUB_TOKEN}" \
-            https://api.github.com/repos/docker/sbx-releases/releases/latest | jq -r .tag_name)
-          curl -fsSL -H "Authorization: Bearer ${GITHUB_TOKEN}" \
-            "https://github.com/docker/sbx-releases/releases/download/${version}/DockerSandboxes-linux.tar.gz" \
-            -o /tmp/DockerSandboxes-linux.tar.gz
-          tar xzf /tmp/DockerSandboxes-linux.tar.gz -C /tmp
-          sudo PREFIX="${HOME}/.docker/sbx" /tmp/docker-sbx/install.sh
-          echo "${HOME}/.docker/sbx/bin" >> "$GITHUB_PATH"
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Validate the kit
-        # Runs on pull requests too — the point is to catch an unpushable kit on
-        # the PR rather than at publish time. `sbx kit` is daemon-free (only
-        # `kit add` needs sandboxd), so this needs no VM and no KVM.
-        run: sbx kit validate "${{ matrix.kit }}"
-
-      - name: Exchange GitHub OIDC token for Docker Hub access
-        if: steps.coords.outputs.push == 'true'
-        id: docker_oidc
-        uses: docker/oidc-action@b048fb089ace3e15a5fbdd784f4784d284ce5e8d # v1.1.0
-        with:
-          connection-id: ${{ secrets.DOCKERHUB_OIDC_CONNECTIONID }}
-          expires-in: 3600
-
-      - name: Log in to Docker Hub
-        if: steps.coords.outputs.push == 'true'
-        # `sbx kit push` authenticates via the Docker credential store, so this
-        # login is the whole auth story — there is no sbx-side credential to
-        # set up, and none of the Secret Service scaffolding the e2e workflow
-        # needs for `sbx login`.
-        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
-        with:
-          username: sbx
-          password: ${{ steps.docker_oidc.outputs.token }}
-
-      - uses: oras-project/setup-oras@1d808f7d7f6995cc68b7bf507bfe5c5446e1dc9d # v2.0.1
-        if: steps.coords.outputs.push == 'true'
-        with:
-          version: "1.3.3"
-
-      - name: Push the kit (immutable tag)
-        id: push
-        if: steps.coords.outputs.push == 'true'
-        # --sign is keyless: the Sigstore identity comes from this job's ambient
-        # GitHub OIDC token, which is why `id-token: write` is required above.
-        # Every push also attaches a SLSA provenance referrer recording the
-        # kit's content digests, its declared sandbox image, and this commit.
-        run: |
-          set -euo pipefail
-          sbx kit push "${{ matrix.kit }}" "${REF}:${DATED}" --sign
-
-          # Resolve what was actually pushed. The digest is not echoed by the
-          # push, and re-reading the tag later would let a racing push swap the
-          # manifest we then advertise as `latest`.
-          digest=$(oras manifest fetch --descriptor "${REF}:${DATED}" | jq -r .digest)
-          [ -n "${digest}" ] && [ "${digest}" != "null" ]
-          echo "digest=${digest}" >> "$GITHUB_OUTPUT"
-          echo "Pushed ${REF}:${DATED} (${digest})"
-        env:
-          REF: ${{ steps.coords.outputs.ref }}
-          DATED: ${{ steps.coords.outputs.dated }}
-
-      - name: Re-point the rolling tag at that manifest
-        if: steps.coords.outputs.push == 'true'
-        # Retag by digest rather than pushing a second time.
-        #
-        # A second push re-packs the kit, and `oras.PackManifest` stamps
-        # org.opencontainers.image.created, so the second manifest almost always
-        # digests differently — and each digest carries its OWN provenance and
-        # signature, so the two tags would advertise different attestations for
-        # the same source. "Almost always" is the problem: that annotation has
-        # one-second resolution, so two pushes inside the same second produce
-        # identical manifests and the divergence silently does not happen. A
-        # bug that reproduces on a slow runner and not a fast one is worse than
-        # one that always reproduces.
-        #
-        # `oras tag` re-points a tag at a manifest already in the registry, so
-        # one digest, one signature, one provenance referrer, both tags.
-        #
-        # It needs PULL as well as push: the manifest is fetched before being
-        # re-PUT under the new tag. If the registry credential is push-only this
-        # step fails AFTER a successful push, leaving the dated tag published and
-        # the rolling tag stale — recoverable, but only by hand.
-        #
-        # `buildx imagetools create` would also work, but only with
-        # `--prefer-index=false`, whose documented behaviour is that it
-        # "attempts to preserve the source manifest format" — best-effort, and
-        # unspecified for a custom artifactType. Its default wraps a single
-        # manifest in an index, which would change the artifact's media type.
-        run: |
-          set -euo pipefail
-          oras tag "${REF}@${DIGEST}" "${IMAGE_TAG_LATEST}"
-        env:
-          REF: ${{ steps.coords.outputs.ref }}
-          DIGEST: ${{ steps.push.outputs.digest }}
-
-      - name: Summarise
-        run: |
-          {
-            echo "## ${{ matrix.kit }} (kit artifact)"
-            echo ""
-            if [ "${{ steps.coords.outputs.push }}" = "true" ]; then
-              echo "Published — both tags resolve to \`${{ steps.push.outputs.digest }}\`:"
-              echo ""
-              echo '- `${{ steps.coords.outputs.ref }}:${{ steps.coords.outputs.dated }}` — immutable, one per push'
-              echo '- `${{ steps.coords.outputs.ref }}:${{ env.IMAGE_TAG_LATEST }}` — rolling'
-              echo ""
-              echo "Signed keyless (Sigstore), with a SLSA provenance referrer."
-            else
-              echo "**Dry run — validated, nothing published.**"
-              echo ""
-              if [ "${{ github.event_name }}" = "pull_request" ]; then
-                echo "Reason: pull request (push credentials are never exposed to PRs)."
-              else
-                echo "Reason: the \`DOCKERHUB_OIDC_CONNECTIONID\` secret is not set."
-              fi
-              echo ""
-              echo 'Would have published `${{ steps.coords.outputs.ref }}`.'
-            fi
-          } >> "$GITHUB_STEP_SUMMARY"
+    # A `uses:` job does not inherit the workflow-level permissions block, so
+    # id-token must be granted here or the OIDC exchange in the called workflow
+    # has nothing to mint.
+    permissions:
+      contents: read
+      id-token: write
+    uses: ./.github/workflows/publish-kit.yml
+    secrets: inherit
+    with:
+      kit: ${{ matrix.kit }}
+      # The commit alone does not identify the bytes — a re-push of an unchanged
+      # tree still produces a new manifest digest — so date + SHA keeps every
+      # published artifact addressable and never overwritten.
+      tag: ${{ needs.detect-changes.outputs.dated }}
+      move-latest: true
