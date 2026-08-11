@@ -193,6 +193,47 @@ someone chose to pin.
 > `check-image-ref.sh` rejects a `sandbox.image` pointing at `<kit>-kit`. Without
 > that, a single mistyped argument would land a kit manifest on the image's tag.
 
+## Hub repository overview
+
+The **overview** on a Hub repository page is Hub-side metadata: nothing in the
+image or the artifact carries it, and the OCI annotations a kit push does set
+(`org.opencontainers.image.title` / `.description` / `.source`, readable with
+`oras manifest fetch`) are not rendered there. Publishing alone leaves both
+pages blank.
+
+`.github/workflows/hub-overview.yml` syncs them with
+`peter-evans/dockerhub-description`. Each publishing kit owns two repositories
+and they get **different** text:
+
+| Hub repository | Overview from | Short description |
+|---|---|---|
+| `sbx/<kit>-kit` | `<kit>/README.md` | the spec's `description:` |
+| `sbx/<kit>-image` | `<kit>/README.image.md` | "Base image for the *Kit* kit for Docker Sandboxes" |
+
+Pointing both at the kit's README would leave a reader of the image page being
+told to run `sbx run --kit …` — not what they pulled. `README.image.md` describes
+the image: what is in it, its tags, and that the kit is probably what they want.
+
+`scripts/kit-meta.sh` reads the repository names and short descriptions out of
+`spec.yaml`, so neither is written twice. Relative links are rewritten to
+absolute (`enable-url-completion`), since a kit README links to siblings like
+`../PUBLISHING.md` that resolve to nothing on Hub.
+
+**It is a separate workflow, not a step in the publish job**, for a reason worth
+keeping: the overview changes when a README changes, and a README edit is
+explicitly excluded from the per-kit rebuild filter (it is not an input to the
+image). A sync inside the publish job could therefore never run for the edit
+that needs it. It triggers on `*/README.md`, `*/README.image.md` and
+`*/spec.yaml`, and never builds or pushes anything.
+
+> **It needs a credential the rest of the pipeline does not.** This is the Hub
+> REST API rather than the registry, so the OIDC-exchanged token cannot
+> authenticate it: it needs `DOCKERHUB_DESCRIPTION_USERNAME` plus a
+> `DOCKERHUB_DESCRIPTION_TOKEN` PAT with read/write scope — a long-lived secret
+> of exactly the kind the OIDC move removed, which is why it is confined to this
+> one workflow. With no token the job emits a notice and skips, so main never
+> goes red over optional infrastructure; the pages then have to be edited by hand.
+
 ## Pre-publish verification
 
 CI verifies each image before publishing, using kit-agnostic checks derived from

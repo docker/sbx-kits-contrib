@@ -82,6 +82,21 @@ GITHUB_TOKEN=… scripts/install-sbx.sh v0.12.3    # pinned
 Prints the directory to add to `PATH` on stdout, so CI can do
 `./scripts/install-sbx.sh >> "$GITHUB_PATH"`. Linux only.
 
+## `kit-meta.sh` — Hub-facing metadata from a spec
+
+Reads a kit's Hub-facing metadata out of its `spec.yaml`: both repository names
+and both short descriptions, for the kit artifact and for its base image.
+`hub-overview.yml` consumes it.
+
+```bash
+scripts/kit-meta.sh kiro
+```
+
+Only a **top-level** `description:` counts. kiro's spec has three more nested
+under setup commands, so anchoring to column zero is what makes this correct
+rather than accidentally right. Values are capped at Hub's 100-character limit
+here, rather than surfacing as an API error mid-publish.
+
 ## `check-release-tag.sh` — release tag ↔ spec version
 
 Validates a `<kit>/vX.Y.Z` release tag and resolves what it names. Run it

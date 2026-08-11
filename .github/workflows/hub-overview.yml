@@ -1,0 +1,118 @@
+name: Sync Docker Hub overviews
+
+# Pushes each published kit's Hub repository page: the overview (from a README)
+# and the short description (from spec.yaml).
+#
+# Separate from publishing, for two reasons that both bite:
+#
+#   * The overview changes when a README changes, which is exactly the change
+#     build-image.yml filters OUT of a rebuild — README.md is excluded from the
+#     per-kit filter because it is not an input to the image. A sync living
+#     inside the publish job could therefore never run for the edit that needs
+#     it.
+#   * The overview is Hub-side metadata, not part of the image or the artifact,
+#     and it needs a credential the rest of the pipeline does not: this is the
+#     Hub REST API, not the registry, so the OIDC-exchanged token cannot
+#     authenticate it. Keeping it here confines that PAT to one workflow.
+#
+# Each publishing kit owns two Hub repositories and they get DIFFERENT text:
+#
+#   <kit>-kit    ← <kit>/README.md         the kit: how to run it, what it does
+#   <kit>-image  ← <kit>/README.image.md   the image the kit boots from
+#
+# Pointing both at the kit's README would leave someone on the image page being
+# told to `sbx run --kit …`, which is not what they pulled.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "*/README.md"
+      - "*/README.image.md"
+      - "*/spec.yaml"
+      - ".github/workflows/hub-overview.yml"
+      - "scripts/kit-meta.sh"
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  resolve:
+    if: github.repository == 'docker/sbx-kits-contrib'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      kits: ${{ steps.kits.outputs.list }}
+      ready: ${{ steps.gate.outputs.ready }}
+    steps:
+      - name: Resolve the kits to sync
+        id: kits
+        # Same allow-list as publishing: a kit with no Hub repositories has no
+        # pages to sync, and the API would 404 on them.
+        run: |
+          set -euo pipefail
+          list=$(printf '%s\n' ${PUBLISH_KITS} | jq -R . | jq -sc .)
+          echo "list=${list}" >> "$GITHUB_OUTPUT"
+          echo "Syncing overviews for: ${list}"
+        env:
+          PUBLISH_KITS: ${{ vars.PUBLISH_KITS || 'kiro' }}
+
+      - name: Check the token is configured
+        id: gate
+        # A notice rather than a failure: this PAT is optional infrastructure, and
+        # its absence should not turn main red — it just means the pages have to
+        # be edited by hand until it exists.
+        run: |
+          set -euo pipefail
+          if [ -n "${TOKEN}" ]; then
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::DOCKERHUB_DESCRIPTION_TOKEN is not set — Hub overviews are not being synced."
+          fi
+        env:
+          TOKEN: ${{ secrets.DOCKERHUB_DESCRIPTION_TOKEN }}
+
+  overview:
+    needs: resolve
+    if: needs.resolve.outputs.ready == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        kit: ${{ fromJson(needs.resolve.outputs.kits) }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Read Hub metadata
+        id: meta
+        run: ./scripts/kit-meta.sh "${{ matrix.kit }}" >> "$GITHUB_OUTPUT"
+        env:
+          IMAGE_NAMESPACE: ${{ vars.IMAGE_NAMESPACE || 'sbx' }}
+
+      - name: Sync the kit artifact's overview
+        uses: peter-evans/dockerhub-description@1b9a80c056b620d92cedb9d9b5a223409c68ddfa # v5.0.0
+        with:
+          username: ${{ secrets.DOCKERHUB_DESCRIPTION_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_DESCRIPTION_TOKEN }}
+          repository: ${{ steps.meta.outputs.kit-repository }}
+          readme-filepath: ./${{ matrix.kit }}/README.md
+          short-description: ${{ steps.meta.outputs.short-description }}
+          # Kit READMEs link to siblings with relative paths (../PUBLISHING.md),
+          # which resolve to nothing on Hub.
+          enable-url-completion: true
+
+      - name: Sync the base image's overview
+        # Skipped for a kit that builds no image — kit-meta.sh omits that output
+        # rather than emitting it empty, precisely so this can branch on it.
+        if: steps.meta.outputs.image-repository != ''
+        uses: peter-evans/dockerhub-description@1b9a80c056b620d92cedb9d9b5a223409c68ddfa # v5.0.0
+        with:
+          username: ${{ secrets.DOCKERHUB_DESCRIPTION_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_DESCRIPTION_TOKEN }}
+          repository: ${{ steps.meta.outputs.image-repository }}
+          readme-filepath: ./${{ matrix.kit }}/README.image.md
+          short-description: ${{ steps.meta.outputs.image-short-description }}
+          enable-url-completion: true
