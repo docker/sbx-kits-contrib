@@ -118,7 +118,6 @@ if [ -n "$DRY_RUN" ]; then
   [ "$MOVE_LATEST" = "true" ] &&
     log "  3. oras tag ${ref}@<digest> ${IMAGE_TAG_LATEST}"
   emit ref "$ref"
-  emit repository "${IMAGE_NAMESPACE}/${kit}-kit"
   emit pushed false
   emit reused false
   summarise "**Dry run — nothing published.** Kit validated. Would have published \`${ref}:${tag}\`."
@@ -205,9 +204,6 @@ if [ "$MOVE_LATEST" = "true" ]; then
 fi
 
 emit ref "$ref"
-# The Hub description API addresses repositories as <namespace>/<name>, without
-# the registry host the OCI reference carries.
-emit repository "${IMAGE_NAMESPACE}/${kit}-kit"
 emit digest "$digest"
 emit pushed "$([ "$reused" = "true" ] && echo false || echo true)"
 emit reused "$reused"
