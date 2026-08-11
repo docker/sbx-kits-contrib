@@ -17,7 +17,7 @@ name: Publish kit artifact
 # the kit's version would mean either stale agents or a version that churns for
 # reasons the kit did not cause.
 #
-# The work lives in scripts/publish-kit.sh so it can be run — and dry-run —
+# The work lives in scripts/publish-artifact.sh so it can be run — and dry-run —
 # outside CI. This file is wiring: resolve inputs, install tools, call it.
 
 on:
@@ -108,6 +108,6 @@ jobs:
 
       - name: Publish
         id: publish
-        run: ./scripts/publish-kit.sh "${{ inputs.kit }}" "${{ inputs.tag }}" >> "$GITHUB_OUTPUT"
+        run: ./scripts/publish-artifact.sh "${{ inputs.kit }}" "${{ inputs.tag }}" >> "$GITHUB_OUTPUT"
         env:
           MOVE_LATEST: ${{ inputs.move-latest }}

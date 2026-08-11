@@ -2,10 +2,10 @@
 # Publish one kit as an OCI artifact to <registry>/<namespace>/<kit>-kit.
 #
 # Usage:
-#   scripts/publish-kit.sh <kit> <tag>
+#   scripts/publish-artifact.sh <kit> <tag>
 #
-#   DRY_RUN=1 scripts/publish-kit.sh kiro v1.0.0        # print the plan, touch nothing
-#   MOVE_LATEST=true scripts/publish-kit.sh kiro abc-20260811
+#   DRY_RUN=1 scripts/publish-artifact.sh kiro v1.0.0        # print the plan, touch nothing
+#   MOVE_LATEST=true scripts/publish-artifact.sh kiro abc-20260811
 #
 # Environment:
 #   REGISTRY          default docker.io

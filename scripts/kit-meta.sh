@@ -93,7 +93,7 @@ image_description=$(cap "Base image for the ${title} kit for Docker Sandboxes")
 description=$(cap "$description")
 
 # The Hub API addresses repositories as <namespace>/<name>. The kit artifact's
-# is composed (the same rule publish-kit.sh enforces); the image's is READ from
+# is composed (the same rule publish-artifact.sh enforces); the image's is READ from
 # the spec, because that name is the spec's to choose and is not derivable.
 image_repository=$(awk '
   /^sandbox:/      { in_sandbox = 1; next }

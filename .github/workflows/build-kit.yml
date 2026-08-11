@@ -143,7 +143,7 @@ jobs:
             '  - "scripts/check-image-ref.sh"' \
             '  - "scripts/check-release-tag.sh"' \
             '  - "scripts/install-sbx.sh"' \
-            '  - "scripts/publish-kit.sh"')
+            '  - "scripts/publish-artifact.sh"')
 
           echo "filters<<EOF" >> "$GITHUB_OUTPUT"
           echo "$filters" >> "$GITHUB_OUTPUT"
