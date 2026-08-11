@@ -561,15 +561,31 @@ jobs:
 
       - name: Re-point the rolling tag at that manifest
         if: steps.coords.outputs.push == 'true'
-        # Retag by digest rather than pushing a second time. A second push would
-        # re-pack the kit and land a DIFFERENT digest under `latest` — the tags
-        # would describe the same source but not the same artifact — and would
-        # attach a duplicate provenance referrer. `oras tag` adds a tag to the
-        # manifest already in the registry, so both tags resolve to one digest
-        # and share one signature.
+        # Retag by digest rather than pushing a second time.
         #
-        # Not `buildx imagetools`: it wraps a single source in an index, which
-        # would change the artifact's media type.
+        # A second push re-packs the kit, and `oras.PackManifest` stamps
+        # org.opencontainers.image.created, so the second manifest almost always
+        # digests differently — and each digest carries its OWN provenance and
+        # signature, so the two tags would advertise different attestations for
+        # the same source. "Almost always" is the problem: that annotation has
+        # one-second resolution, so two pushes inside the same second produce
+        # identical manifests and the divergence silently does not happen. A
+        # bug that reproduces on a slow runner and not a fast one is worse than
+        # one that always reproduces.
+        #
+        # `oras tag` re-points a tag at a manifest already in the registry, so
+        # one digest, one signature, one provenance referrer, both tags.
+        #
+        # It needs PULL as well as push: the manifest is fetched before being
+        # re-PUT under the new tag. If the registry credential is push-only this
+        # step fails AFTER a successful push, leaving the dated tag published and
+        # the rolling tag stale — recoverable, but only by hand.
+        #
+        # `buildx imagetools create` would also work, but only with
+        # `--prefer-index=false`, whose documented behaviour is that it
+        # "attempts to preserve the source manifest format" — best-effort, and
+        # unspecified for a custom artifactType. Its default wraps a single
+        # manifest in an index, which would change the artifact's media type.
         run: |
           set -euo pipefail
           oras tag "${REF}@${DIGEST}" "${IMAGE_TAG_LATEST}"

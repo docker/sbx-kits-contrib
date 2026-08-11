@@ -150,9 +150,16 @@ Two differences from the image, both deliberate:
 - **The two tags cannot come from two pushes.** `oras.PackManifest` stamps
   `org.opencontainers.image.created`, so re-pushing the same tree yields a
   different manifest digest even though the layer is byte-stable (tar mtimes are
-  pinned and the gzip header zeroed). The job therefore pushes once and
-  re-points `latest` with `oras tag`, which also keeps one signature and one
-  provenance referrer covering both tags.
+  pinned and the gzip header zeroed) — and each digest carries its own signature
+  and provenance, so the tags would advertise different attestations for one
+  source. That annotation has one-second resolution, so two pushes within the
+  same second *do* match: the divergence is intermittent, which is worse than
+  reliable. The job pushes once and re-points `latest` with `oras tag`, giving
+  one digest, one signature and one provenance referrer across both tags.
+
+  Note `oras tag` needs **pull as well as push** on the repository — it fetches
+  the manifest before re-PUTting it under the new tag. A push-only credential
+  fails there, after the immutable tag has already been published.
 
 Each push is signed keyless via the job's ambient GitHub OIDC token, and carries
 a SLSA provenance attestation as an OCI referrer.
