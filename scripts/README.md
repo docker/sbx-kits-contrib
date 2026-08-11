@@ -54,7 +54,7 @@ Golden-file tests live under `scripts/testdata/` — one v1 input fixture and on
 
 Publishes one kit as an OCI artifact to `<registry>/<namespace>/<kit>-kit`,
 including the existence probe, the signed push, the digest read-back and the
-optional rolling-tag move. `publish-kit.yml` is wiring around this; the logic is
+optional rolling-tag move. `publish-artifact.yml` is wiring around this; the logic is
 here so it can be exercised without pushing a branch and waiting for CI:
 
 ```bash

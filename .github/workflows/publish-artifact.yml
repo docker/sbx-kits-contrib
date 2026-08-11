@@ -3,9 +3,9 @@ name: Publish kit artifact
 # Reusable: pushes ONE kit as an OCI artifact to <registry>/<namespace>/<kit>-kit.
 #
 # Callers:
-#   * build-kit.yml  — continuous, one call per changed allow-listed kit,
-#                        tagged <sha>-<YYYYMMDD> and moving the rolling tag.
-#   * release-kit.yml  — on a `<kit>/vX.Y.Z` tag, tagged with that version.
+#   * publish-one-kit.yml — the continuous path, one call per kit, tagged
+#                          <sha>-<YYYYMMDD> and moving the rolling tag.
+#   * release-kit.yml     — on a `<kit>/vX.Y.Z` tag, tagged with that version.
 #
 # The kit artifact is the spec plus files/, which is what `--kit oci://…`
 # consumes without going through git. It is NOT the image the sandbox boots
