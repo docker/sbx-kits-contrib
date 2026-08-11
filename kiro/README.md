@@ -151,19 +151,32 @@ workflow edit:
 | `IMAGE_NAMESPACE` | `sbx` |
 | `IMAGE_TAG_LATEST` | `latest` |
 | `PLATFORMS` | `linux/amd64,linux/arm64` |
-| `DOCKERHUB_OIDC_CONNECTION_ID` | unset — publishing stays off until this is set |
+
+`IMAGE_NAMESPACE` is the one that cannot actually move: the Hub OIDC connection
+is owned by the `sbx` org and mints tokens that authenticate as it, so pointing
+the namespace elsewhere could never be pushed to with these credentials. The
+build asserts the two agree and fails early rather than logging in successfully
+and 403-ing on push. Publishing under a different org needs a new connection,
+not a variable change.
 
 The image name comes from `spec.yaml`, and the base image from this kit's
 `Dockerfile` (`ARG BASE_IMAGE`) — both are per-kit, so neither is a shared
 variable. Override the base locally with `--build-arg BASE_IMAGE=…`.
 
-Publishing needs **no repository secret**. Docker Hub auth follows the same
+Publishing needs **no long-lived credential**. Docker Hub auth follows the same
 convention as the sandbox-templates pipeline: the workflow exchanges its GitHub
 OIDC token for a short-lived Hub token, so the only setting required is the
-`DOCKERHUB_OIDC_CONNECTION_ID` variable, pointing at a Hub-side OIDC connection
-authorised for this repository. Until that is set the workflow is a dry run — it
-still builds every platform and proves the Dockerfile works, but publishes
-nothing.
+`DOCKERHUB_OIDC_CONNECTIONID` secret, holding the ID of a Hub-side OIDC
+connection authorised for this repository.
+Until that is set the workflow is a dry run — it still builds every platform and
+proves the Dockerfile works, but publishes nothing.
+
+The ID is not itself a credential (Docker's own instructions put it in workflow
+YAML in the clear) and the trust lives in the connection's ruleset, which only
+honours it for this repository's subject claim. It is kept as a secret rather
+than a variable anyway, so it is masked in logs and withheld from fork PRs —
+which also means a fork PR reads it as empty and stays a dry run regardless of
+the event guard.
 
 Each build publishes two tags, both resolving to the **same digest**:
 
