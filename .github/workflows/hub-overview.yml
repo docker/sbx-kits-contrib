@@ -152,14 +152,22 @@ jobs:
         if: steps.kit-repo.outputs.ready == 'true' && env.DRY_RUN != 'true'
         uses: peter-evans/dockerhub-description@1b9a80c056b620d92cedb9d9b5a223409c68ddfa # v5.0.0
         with:
-          username: ${{ secrets.DOCKERHUB_SBX_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_SBX_TOKEN }}
+          username: ${{ env.HUB_USERNAME }}
+          password: ${{ env.HUB_TOKEN }}
           repository: ${{ steps.meta.outputs.kit-repository }}
           readme-filepath: ./${{ matrix.kit }}/README.md
           short-description: ${{ steps.meta.outputs.short-description }}
           # Kit READMEs link to siblings with relative paths (../PUBLISHING.md),
           # which resolve to nothing on Hub.
           enable-url-completion: true
+        env:
+          # Secrets reach the step through env rather than inline in `with:`, so
+          # every place a credential enters a step is one greppable block. The
+          # `if:` above is what keeps it off the pull-request path; this is the
+          # habit that keeps it correct if the step ever becomes a `run:`, where
+          # inline interpolation would put the value into shell source.
+          HUB_USERNAME: ${{ secrets.DOCKERHUB_SBX_USERNAME }}
+          HUB_TOKEN: ${{ secrets.DOCKERHUB_SBX_TOKEN }}
 
       - name: Is the base image's repository published?
         id: image-repo
@@ -172,12 +180,15 @@ jobs:
         if: steps.image-repo.outputs.ready == 'true' && env.DRY_RUN != 'true'
         uses: peter-evans/dockerhub-description@1b9a80c056b620d92cedb9d9b5a223409c68ddfa # v5.0.0
         with:
-          username: ${{ secrets.DOCKERHUB_SBX_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_SBX_TOKEN }}
+          username: ${{ env.HUB_USERNAME }}
+          password: ${{ env.HUB_TOKEN }}
           repository: ${{ steps.meta.outputs.image-repository }}
           readme-filepath: ./${{ matrix.kit }}/README.image.md
           short-description: ${{ steps.meta.outputs.image-short-description }}
           enable-url-completion: true
+        env:
+          HUB_USERNAME: ${{ secrets.DOCKERHUB_SBX_USERNAME }}
+          HUB_TOKEN: ${{ secrets.DOCKERHUB_SBX_TOKEN }}
 
       - name: Report what happened
         # Silence would read as "synced". A skipped page is a page still showing

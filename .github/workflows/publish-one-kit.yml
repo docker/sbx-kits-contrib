@@ -204,8 +204,12 @@ jobs:
         id: docker_oidc
         uses: docker/oidc-action@b048fb089ace3e15a5fbdd784f4784d284ce5e8d # v1.1.0
         with:
-          connection-id: ${{ secrets.DOCKERHUB_OIDC_CONNECTIONID }}
+          connection-id: ${{ env.OIDC_CONNECTION_ID }}
           expires-in: 3600
+        env:
+          # Via env, like every other credential here: one greppable block per
+          # step that touches one.
+          OIDC_CONNECTION_ID: ${{ secrets.DOCKERHUB_OIDC_CONNECTIONID }}
 
       - name: Log in to Docker Hub
         if: env.DRY_RUN == ''
