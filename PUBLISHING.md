@@ -36,7 +36,11 @@ spec pointing the pipeline at a namespace it has no business pushing to.
 
 ## When it builds
 
-`.github/workflows/build-image.yml`:
+`.github/workflows/build-and-publish-kits.yml` discovers the kits and calls
+`publish-one-kit.yml` **once per kit**, so each runs image → artifact → overview
+as its own job graph: kits publish in parallel and fail independently. A matrix
+of three separate jobs would instead make every kit's artifact wait for every
+kit's image.
 
 | Trigger | Builds | Publishes |
 |---|---|---|
@@ -62,7 +66,7 @@ Each build publishes two tags, both resolving to the **same digest**:
 
 | Tag | Meaning |
 |---|---|
-| `<sha>-<YYYYMMDD>` | immutable — one per build, never overwritten. **Pin this.** |
+| `<YYYYMMDD>-<sha>` | immutable — one per build, never overwritten. **Pin this.** |
 | `latest` | rolling |
 
 There is deliberately **no bare `<sha>` tag**. Image content is not a function
@@ -71,6 +75,16 @@ tags, so a nightly rebuild of an unchanged commit can produce different bits. A
 `<sha>` tag would be silently overwritten with new content while appearing to
 identify a source revision — the opposite of what pinning a SHA is for. The
 commit is still recorded, in the immutable tag alongside the build date.
+
+The date comes **first** so lexicographic order is chronological — tag listings
+sort as strings, and a hash-first tag sorts randomly. It also makes `20260811*`
+a prefix query for one day's builds, which is why there is no bare `<YYYYMMDD>`
+tag either: it would be overwritten by the second build of the day, the same
+flaw that rules out a bare `<sha>`.
+
+Both tags for a run share one date, computed once in `detect-changes`. The image
+job does not call `date` again: it runs later, so a run straddling UTC midnight
+would otherwise tag the image one day and its artifact the other.
 
 Only the dated tag is built. `latest` is re-pointed at its manifest with
 `docker buildx imagetools create` rather than rebuilt, so the two cannot drift
@@ -127,6 +141,129 @@ Setting up the connection (organisation owners/editors, Docker Team or Business)
 The `id-token: write` permission in the workflow is what lets it mint the GitHub
 OIDC token in the first place. An explicit `permissions:` block narrows the repo
 default rather than adding to it, so it must stay listed.
+
+## The kit artifact
+
+Separately from the image, a kit can be published as an **OCI artifact** — the
+spec plus `files/`, packaged so `--kit oci://…` can consume it without git:
+
+```
+docker.io/sbx/<kit>-kit
+```
+
+Same tag scheme as the image (`<YYYYMMDD>-<sha>` immutable, `latest` rolling,
+both resolving to one digest), pushed by the `artifact` job in
+`publish-one-kit.yml`. It runs after that workflow's `image` job, because the push records the
+declared `sandbox.image` in its provenance and a kit pointing at an unpublished
+image is a broken artifact.
+
+Two differences from the image, both deliberate:
+
+- **No nightly.** A kit's content is a pure function of the commit, so a
+  scheduled re-push would only mint a new digest for identical bytes.
+- **The two tags cannot come from two pushes.** `oras.PackManifest` stamps
+  `org.opencontainers.image.created`, so re-pushing the same tree yields a
+  different manifest digest even though the layer is byte-stable (tar mtimes are
+  pinned and the gzip header zeroed) — and each digest carries its own signature
+  and provenance, so the tags would advertise different attestations for one
+  source. That annotation has one-second resolution, so two pushes within the
+  same second *do* match: the divergence is intermittent, which is worse than
+  reliable. The job pushes once and re-points `latest` with `oras tag`, giving
+  one digest, one signature and one provenance referrer across both tags.
+
+  Note `oras tag` needs **pull as well as push** on the repository — it fetches
+  the manifest before re-PUTting it under the new tag. A push-only credential
+  fails there, after the immutable tag has already been published.
+
+Each push is signed keyless via the job's ambient GitHub OIDC token, and carries
+a SLSA provenance attestation as an OCI referrer.
+
+**Publication is opt-in**, via the `PUBLISH_KITS` allow-list, because every kit
+in the repo is pushable and discovery would publish all of them.
+
+### Releasing a version
+
+Tag the commit `<kit>/vX.Y.Z` — `kiro/v1.0.0` publishes
+`docker.io/sbx/kiro-kit:v1.0.0` via `release-kit.yml`. The tag's prefix selects
+the kit, so no allow-list or discovery is involved, and the release is gated on
+the kit's `spec.yaml` declaring the matching `version:` (which becomes the
+`vnd.docker.sandbox.kit.version` annotation, readable without pulling layers).
+
+Releases do **not** move the rolling tag. `latest` follows `main` — the tip
+every kit is tested against on every PR — while a version is a fixed point
+someone chose to pin.
+
+> A version describes **the kit**: its spec, files, network policy and hooks.
+> It says nothing about the agent inside the image it references, which stays
+> on a floating tag deliberately — the agent CLI moves on its own schedule, and
+> folding that into the kit's version would mean either shipping stale agents or
+> churning the version for reasons the kit did not cause. So `kiro-kit:v1.0.0`
+> is a stable kit *contract*, not a reproducible end-to-end environment: a
+> sandbox created from it next month gets the same kit and a newer agent.
+
+> `sbx kit push` takes its reference **verbatim** — it derives nothing from the
+> kit name and validates nothing against it. The workflow therefore composes the
+> reference from the kit directory rather than accepting one, and
+> `check-image-ref.sh` rejects a `sandbox.image` pointing at `<kit>-kit`. Without
+> that, a single mistyped argument would land a kit manifest on the image's tag.
+
+## Hub repository overview
+
+The **overview** on a Hub repository page is Hub-side metadata: nothing in the
+image or the artifact carries it, and the OCI annotations a kit push does set
+(`org.opencontainers.image.title` / `.description` / `.source`, readable with
+`oras manifest fetch`) are not rendered there. Publishing alone leaves both
+pages blank.
+
+`.github/workflows/hub-overview.yml` syncs them with
+`peter-evans/dockerhub-description`. Each publishing kit owns two repositories
+and they get **different** text:
+
+| Hub repository | Overview from | Short description |
+|---|---|---|
+| `sbx/<kit>-kit` | `<kit>/README.md` | the spec's `description:` |
+| `sbx/<kit>-image` | `<kit>/README.image.md` | "Base image for the *Kit* kit for Docker Sandboxes" |
+
+Pointing both at the kit's README would leave a reader of the image page being
+told to run `sbx run --kit …` — not what they pulled. `README.image.md` describes
+the image: what is in it, its tags, and that the kit is probably what they want.
+
+`scripts/kit-meta.sh` reads the repository names and short descriptions out of
+`spec.yaml`, so neither is written twice. Relative links are rewritten to
+absolute (`enable-url-completion`), since a kit README links to siblings like
+`../PUBLISHING.md` that resolve to nothing on Hub.
+
+**It is a separate workflow, not a step in the publish job**, for a reason worth
+keeping: the overview changes when a README changes, and a README edit is
+explicitly excluded from the per-kit rebuild filter (it is not an input to the
+image). A sync inside the publish job could therefore never run for the edit that
+needs it, leaving the page stale by default and correct by accident. It triggers
+on `*/README.md`, `*/README.image.md` and `*/spec.yaml`, and builds nothing.
+
+So the page tracks the default branch while `latest` tracks the last publish.
+Those are different statements — Hub has one overview per repository, not one per
+tag — and the relationship is the same as a GitHub README's to the last release.
+`build-and-publish-kits.yml` also calls the workflow after publishing, so a repository that
+has just had its first push gets a page without waiting for the next docs edit.
+
+Each sync is gated on the repository actually holding something
+(`scripts/hub-repo-ready.sh`), because Hub renders an overview only "when the
+repository has at least one image" and PATCHing a repository that does not exist
+fails. A kit awaiting its first publish is therefore **skipped with a notice**
+rather than failing — but a transport failure is not a skip, so a flaky probe
+surfaces as a failure instead of a silently untouched page.
+
+> **It needs a credential the rest of the pipeline does not.** This is the Hub
+> REST API rather than the registry, so the OIDC-exchanged token cannot
+> authenticate it: it uses the `DOCKERHUB_SBX_USERNAME` / `DOCKERHUB_SBX_TOKEN`
+> secrets. Without them the job emits a notice and skips, so a repository that
+> has not configured them is never red over optional infrastructure.
+>
+> A pull request never reads that credential **at all** — not merely "does not
+> write with it". A same-repository PR receives secrets *and* supplies the
+> workflow code, so a secret referenced in a step that runs on a PR can be
+> printed by that PR. The gate is therefore split in two, and only the non-PR
+> half mentions the secret.
 
 ## Pre-publish verification
 

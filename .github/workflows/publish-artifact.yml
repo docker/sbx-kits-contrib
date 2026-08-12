@@ -1,0 +1,115 @@
+name: Publish kit artifact
+
+# Reusable: pushes ONE kit as an OCI artifact to <registry>/<namespace>/<kit>-kit.
+#
+# Callers:
+#   * publish-one-kit.yml — the continuous path, one call per kit, tagged
+#                          <YYYYMMDD>-<sha> and moving the rolling tag.
+#   * release-kit.yml     — on a `<kit>/vX.Y.Z` tag, tagged with that version.
+#
+# The kit artifact is the spec plus files/, which is what `--kit oci://…`
+# consumes without going through git. It is NOT the image the sandbox boots
+# from; that is built by build-and-publish-kits.yml and published as `<kit>-image`.
+#
+# A released version describes THE KIT — its spec, files, network policy and
+# hooks — not the agent inside the image it references. The image floats
+# deliberately: the agent CLI moves on its own schedule, and encoding that in
+# the kit's version would mean either stale agents or a version that churns for
+# reasons the kit did not cause.
+#
+# The work lives in scripts/publish-artifact.sh so it can be run — and dry-run —
+# outside CI. This file is wiring: resolve inputs, install tools, call it.
+
+on:
+  workflow_call:
+    inputs:
+      kit:
+        description: Kit directory at the repo root, e.g. "kiro".
+        required: true
+        type: string
+      tag:
+        description: |
+          The tag to publish. Immutable by convention — never reused for
+          different content, so consumers can pin it.
+        required: true
+        type: string
+      move-latest:
+        description: |
+          Also re-point the rolling tag at the manifest just pushed. Callers
+          publishing a point-in-time build set this; a release does not, unless
+          releases are what the rolling tag should track.
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+  # Mints the GitHub OIDC token exchanged for a short-lived Hub token, and is
+  # also the Sigstore identity `sbx kit push --sign` signs with.
+  id-token: write
+
+env:
+  REGISTRY: ${{ vars.REGISTRY || 'docker.io' }}
+  IMAGE_NAMESPACE: ${{ vars.IMAGE_NAMESPACE || 'sbx' }}
+  IMAGE_TAG_LATEST: ${{ vars.IMAGE_TAG_LATEST || 'latest' }}
+  # Publication is opt-in: every kit here is pushable, so an allow-list rather
+  # than discovery. Passed to the script, which enforces it — build-and-publish-kits.yml
+  # also intersects its matrix with the same variable so it does not spawn jobs
+  # that would only refuse, but the release path picks its kit from a git tag and
+  # has nothing to intersect. Both read the same variable; keep the defaults in
+  # step.
+  PUBLISH_KITS: ${{ vars.PUBLISH_KITS || 'kiro' }}
+  # Publish for real only from this repository, off a pull request, with the Hub
+  # connection configured. Otherwise the script resolves and reports without
+  # touching the registry, which is what makes the pull-request run meaningful.
+  # An expression rather than a shell `if`, so there is no script here to test.
+  DRY_RUN: >-
+    ${{ (github.event_name == 'pull_request'
+      || github.repository != 'docker/sbx-kits-contrib'
+      || secrets.DOCKERHUB_OIDC_CONNECTIONID == '') && '1' || '' }}
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install sbx
+        # `sbx kit` is daemon-free (only `kit add` needs sandboxd), so no VM and
+        # no KVM — a plain runner is enough.
+        run: ./scripts/install-sbx.sh >> "$GITHUB_PATH"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Exchange GitHub OIDC token for Docker Hub access
+        if: env.DRY_RUN == ''
+        id: docker_oidc
+        uses: docker/oidc-action@b048fb089ace3e15a5fbdd784f4784d284ce5e8d # v1.1.0
+        with:
+          connection-id: ${{ env.OIDC_CONNECTION_ID }}
+          expires-in: 3600
+        env:
+          OIDC_CONNECTION_ID: ${{ secrets.DOCKERHUB_OIDC_CONNECTIONID }}
+
+      - name: Log in to Docker Hub
+        if: env.DRY_RUN == ''
+        # `sbx kit push` and `oras` both authenticate via the Docker credential
+        # store, so this login is the whole auth story — no sbx-side credential,
+        # and none of the Secret Service scaffolding `sbx login` needs.
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          username: sbx
+          password: ${{ steps.docker_oidc.outputs.token }}
+
+      # Needed whenever anything is published, not only when the rolling tag
+      # moves: the existence probe and the digest read-back both use oras.
+      - uses: oras-project/setup-oras@1d808f7d7f6995cc68b7bf507bfe5c5446e1dc9d # v2.0.1
+        if: env.DRY_RUN == ''
+        with:
+          version: "1.3.3"
+
+      - name: Publish
+        id: publish
+        run: ./scripts/publish-artifact.sh "${{ inputs.kit }}" "${{ inputs.tag }}" >> "$GITHUB_OUTPUT"
+        env:
+          MOVE_LATEST: ${{ inputs.move-latest }}

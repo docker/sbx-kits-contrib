@@ -17,7 +17,7 @@ my-kit/
 └── spec.yaml      # sandbox.image: docker.io/sbx/my-kit-image:latest
 ```
 
-`.github/workflows/build-image.yml` **discovers** kits: any top-level directory
+`.github/workflows/build-and-publish-kits.yml` **discovers** kits: any top-level directory
 with both a `spec.yaml` and a `Dockerfile` is picked up. There is no matrix to
 register and no per-kit workflow.
 
