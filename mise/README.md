@@ -78,8 +78,11 @@ tools:
   `<tool>@latest`, `<tool>@<major>`, etc., and even validates exact
   tags through it. Without this, github-hosted tool installs fail at
   the resolve step with a 403 from the sandbox proxy
-- `release-assets.githubusercontent.com` — 302 target for binary
-  downloads from those release URLs
+- `objects.githubusercontent.com` — the actual 302 target for the
+  kit's own install download, confirmed by hand against a real request
+- `release-assets.githubusercontent.com` — kept alongside it since a
+  release asset's redirect target isn't guaranteed to be the same host
+  for every repo
 
 Note that wildcard subdomains (`*.github.com`) match subdomains only,
 not the apex — so listing the apex and the subdomains explicitly is
@@ -97,8 +100,8 @@ permissions:
     allow:
       - github.com
       - api.github.com
+      - objects.githubusercontent.com   # confirmed release-asset redirect target
       - release-assets.githubusercontent.com
-      - objects.githubusercontent.com   # older release asset host
       - codeload.github.com             # source tarballs (some asdf plugins)
       - nodejs.org                      # node
       - registry.npmjs.org              # npm-backed plugins
