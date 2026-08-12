@@ -69,11 +69,13 @@ image build time, but `kiro-cli` reaches them again for version checks and
 self-update.
 
 > [!IMPORTANT]
-> The allowlist is **incomplete**. Kiro's chat and device-flow endpoints are
-> AWS-backed hosts that are not documented upstream, so they are not yet listed.
-> Under a permissive host policy (the default) the kit works normally; under
-> `sbx policy init deny-all` login will fail. To complete the list, run the kit
-> and inspect what was blocked:
+> Kiro's chat and device-flow auth also reach AWS-backed hosts that are not
+> documented upstream. The ones reported so far
+> ([#185](https://github.com/docker/sbx-kits-contrib/issues/185)) are listed
+> in `permissions.network.allow`, but have not been verified end-to-end under
+> `sbx policy init deny-all` from this repo, and other kiro-cli features may
+> reach further hosts. If something fails under deny-all, inspect what was
+> blocked and widen the list:
 >
 > ```console
 > $ sbx policy log
