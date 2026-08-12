@@ -181,6 +181,15 @@ a SLSA provenance attestation as an OCI referrer. This requires `sbx kit push
 the latest tagged release — pin it back once a tagged release ships with the
 flag.
 
+`--sign` needs its own `sbx login`, separate from the `docker login` the job
+already does for the plain push. Attaching a signature is an OCI-referrer
+write that resolves credentials from sbx's own session rather than the Docker
+credential store, so without it `--sign` fails with "user is not
+authenticated to Docker" — after the unsigned manifest has already been
+pushed, since the push itself doesn't need this login. No Secret Service
+setup is needed for this on a bare runner: sbx falls back to an encrypted
+on-disk credential store when none is reachable.
+
 **Publication is opt-in**, via the `PUBLISH_KITS` allow-list, because every kit
 in the repo is pushable and discovery would publish all of them.
 
