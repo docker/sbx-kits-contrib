@@ -56,6 +56,7 @@
 package main
 
 import (
+	"bytes"
 	"fmt"
 	"io"
 	"os"
@@ -174,10 +175,19 @@ func migrateSpec(data []byte) ([]byte, []string, error) {
 
 	out := buildV2(a, srcSandbox)
 
-	emitted, err := yaml.Marshal(out)
-	if err != nil {
-		return nil, nil, fmt.Errorf("emit v2 spec: %w", err)
+	// 2-space indent to match every hand-written spec.yaml in this repo —
+	// yaml.Marshal's default is 4, which every migrated kit would otherwise
+	// need reformatting to fix by hand.
+	var buf bytes.Buffer
+	enc := yaml.NewEncoder(&buf)
+	enc.SetIndent(2)
+	if err := enc.Encode(out); err != nil {
+		return nil, nil, fmt.Errorf("emit v2 spec: encode: %w", err)
 	}
+	if err := enc.Close(); err != nil {
+		return nil, nil, fmt.Errorf("emit v2 spec: close: %w", err)
+	}
+	emitted := buf.Bytes()
 
 	// Safety net: the rewritten spec must parse cleanly through the same
 	// loader. A decode error here means we produced a malformed spec.yaml —
