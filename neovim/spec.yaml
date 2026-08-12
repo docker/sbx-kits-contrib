@@ -1,23 +1,21 @@
-schemaVersion: "1"
+schemaVersion: "2"
 kind: mixin
 name: neovim
 displayName: Neovim
-description: "Installs Neovim (latest stable) and injects the bundled ~/.config/nvim into the sandbox."
-
-network:
-  allowedDomains:
-    # GitHub release redirect for the stable tag
-    - github.com
-    # Asset CDN — GitHub has used both hosts across releases
-    - objects.githubusercontent.com
-    - release-assets.githubusercontent.com
-
+description: Installs Neovim (latest stable) and injects the bundled ~/.config/nvim into the sandbox.
+permissions:
+  network:
+    allow:
+      # GitHub release redirect for the stable tag
+      - github.com
+      # Asset CDN — GitHub has used both hosts across releases
+      - objects.githubusercontent.com
+      - release-assets.githubusercontent.com
 environment:
   variables:
     EDITOR: nvim
     VISUAL: nvim
-
-commands:
+setup:
   install:
     - command: |
         set -euo pipefail
