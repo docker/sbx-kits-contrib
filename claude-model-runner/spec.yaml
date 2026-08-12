@@ -1,4 +1,4 @@
-schemaVersion: "1"
+schemaVersion: "2"
 kind: mixin
 name: claude-model-runner
 # Reroutes Claude Code's Anthropic API; only meaningful on the claude base
