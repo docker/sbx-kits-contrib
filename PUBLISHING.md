@@ -112,9 +112,11 @@ variable.
 
 ## Docker Hub authentication
 
-Publishing needs **no long-lived credential**. The workflow exchanges its GitHub
-OIDC token for a short-lived Hub token via `docker/oidc-action`, then logs in
-with that token as the `sbx` organisation. There is no PAT to leak or rotate.
+Publishing the **image** needs **no long-lived credential**. The workflow
+exchanges its GitHub OIDC token for a short-lived Hub token via
+`docker/oidc-action`, then logs in with that token as the `sbx` organisation.
+There is no PAT to leak or rotate. (The kit **artifact**'s signing step is the
+one exception — see "The kit artifact" below.)
 
 The only setting required is the **`DOCKERHUB_OIDC_CONNECTIONID` secret**,
 holding the ID of a Hub-side OIDC connection authorised for this repository.
@@ -186,9 +188,15 @@ already does for the plain push. Attaching a signature is an OCI-referrer
 write that resolves credentials from sbx's own session rather than the Docker
 credential store, so without it `--sign` fails with "user is not
 authenticated to Docker" — after the unsigned manifest has already been
-pushed, since the push itself doesn't need this login. No Secret Service
-setup is needed for this on a bare runner: sbx falls back to an encrypted
-on-disk credential store when none is reachable.
+pushed, since the push itself doesn't need this login.
+
+That session needs a real Hub password or PAT: the OIDC-exchanged token that
+satisfies `docker login` is rejected by `sbx login` ("docker token is
+invalid"), since the two authenticate differently. So this is the one step in
+the pipeline holding a static credential — the org bot's
+`DOCKERPUBLICBOT_USERNAME` / `DOCKERPUBLICBOT_WRITE_PAT`, already granted to
+this repo and scoped for exactly this kind of write, rather than a new
+per-repo secret.
 
 **Publication is opt-in**, via the `PUBLISH_KITS` allow-list, because every kit
 in the repo is pushable and discovery would publish all of them.
