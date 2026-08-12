@@ -130,16 +130,7 @@ jobs:
         # token is invalid") — the two authenticate differently. Hence the
         # org bot's static credential here instead of the OIDC token, the
         # only static secret in this job.
-        #
-        # Defensive trim: GH preserves whitespace pasted into a secret's
-        # value, and sbx's password-stdin reader only strips a trailing
-        # newline. Hub usernames and PATs are alphanumeric plus hyphens, so
-        # stripping all whitespace cannot corrupt a legitimate value.
-        run: |
-          set -euo pipefail
-          USER_CLEAN=$(printf '%s' "$USERNAME" | tr -d '[:space:]')
-          TOKEN_CLEAN=$(printf '%s' "$TOKEN"    | tr -d '[:space:]')
-          printf '%s' "$TOKEN_CLEAN" | sbx login --username "$USER_CLEAN" --password-stdin
+        run: printf '%s' "$TOKEN" | sbx login --username "$USERNAME" --password-stdin
         env:
           USERNAME: ${{ vars.DOCKERPUBLICBOT_USERNAME }}
           TOKEN: ${{ secrets.DOCKERPUBLICBOT_WRITE_PAT }}
