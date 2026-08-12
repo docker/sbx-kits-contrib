@@ -255,10 +255,15 @@ surfaces as a failure instead of a silently untouched page.
 
 > **It needs a credential the rest of the pipeline does not.** This is the Hub
 > REST API rather than the registry, so the OIDC-exchanged token cannot
-> authenticate it. It uses the organisation's bot credentials —
-> `vars.DOCKERPUBLICBOT_USERNAME` and the `DOCKERPUBLICBOT_WRITE_PAT` org secret
-> — so there is nothing to configure per repository. A fork has neither, so the
-> job emits a notice and skips rather than failing.
+> authenticate it: it uses the `DOCKERHUB_SBX_USERNAME` / `DOCKERHUB_SBX_TOKEN`
+> secrets. Without them the job emits a notice and skips, so a repository that
+> has not configured them is never red over optional infrastructure.
+>
+> A pull request never reads that credential **at all** — not merely "does not
+> write with it". A same-repository PR receives secrets *and* supplies the
+> workflow code, so a secret referenced in a step that runs on a PR can be
+> printed by that PR. The gate is therefore split in two, and only the non-PR
+> half mentions the secret.
 
 ## Pre-publish verification
 

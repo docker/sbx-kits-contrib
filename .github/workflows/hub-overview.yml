@@ -65,7 +65,9 @@ jobs:
     timeout-minutes: 5
     outputs:
       kits: ${{ steps.kits.outputs.list }}
-      ready: ${{ steps.gate.outputs.ready }}
+      # Whichever gate ran. Exactly one does: they are mutually exclusive on
+      # DRY_RUN, and the pull-request one never touches a credential.
+      ready: ${{ steps.gate.outputs.ready || steps.gate-pr.outputs.ready }}
     steps:
       - name: Resolve the kits to sync
         id: kits
@@ -84,23 +86,41 @@ jobs:
           ONE_KIT: ${{ inputs.kit }}
           PUBLISH_KITS: ${{ vars.PUBLISH_KITS || 'kiro' }}
 
+      # Two gates, mutually exclusive, so the credential is NEVER referenced on
+      # the pull-request path.
+      #
+      # Guarding only the write was not enough. `secrets.*` in a step's `env:`
+      # is materialised into that step's environment when the step runs, and a
+      # same-repository pull request both receives secrets and supplies the
+      # workflow code — so a PR could edit this step to print the token, with
+      # DRY_RUN faithfully skipping a write that was never the point. The fix is
+      # not to reference the secret at all when DRY_RUN is set.
+      #
+      # Raised by @ilopezluna in review.
+      - name: Validation only (pull request)
+        id: gate-pr
+        if: env.DRY_RUN == 'true'
+        run: |
+          set -euo pipefail
+          echo "ready=true" >> "$GITHUB_OUTPUT"
+          echo "::notice::Pull request — overviews are validated, never written, and no Hub credential is read."
+
       - name: Check the credentials are available
         id: gate
-        # The write PAT is an ORGANISATION secret, so it needs no per-repo setup
-        # — but a fork gets neither it nor the username variable. A notice and a
-        # skip rather than a failure, so a fork PR is not red over a credential
-        # it was never going to have.
+        if: env.DRY_RUN != 'true'
+        # A notice and a skip rather than a failure, so a repository without
+        # these secrets is not red over optional infrastructure.
         run: |
           set -euo pipefail
           if [ -n "${TOKEN}" ] && [ -n "${USERNAME}" ]; then
             echo "ready=true" >> "$GITHUB_OUTPUT"
           else
             echo "ready=false" >> "$GITHUB_OUTPUT"
-            echo "::notice::DOCKERPUBLICBOT_WRITE_PAT / DOCKERPUBLICBOT_USERNAME unavailable here — Hub overviews are not being synced."
+            echo "::notice::DOCKERHUB_SBX_TOKEN / DOCKERHUB_SBX_USERNAME are not set — Hub overviews are not being synced."
           fi
         env:
-          TOKEN: ${{ secrets.DOCKERPUBLICBOT_WRITE_PAT }}
-          USERNAME: ${{ vars.DOCKERPUBLICBOT_USERNAME }}
+          TOKEN: ${{ secrets.DOCKERHUB_SBX_TOKEN }}
+          USERNAME: ${{ secrets.DOCKERHUB_SBX_USERNAME }}
 
   overview:
     needs: resolve
@@ -132,8 +152,8 @@ jobs:
         if: steps.kit-repo.outputs.ready == 'true' && env.DRY_RUN != 'true'
         uses: peter-evans/dockerhub-description@1b9a80c056b620d92cedb9d9b5a223409c68ddfa # v5.0.0
         with:
-          username: ${{ vars.DOCKERPUBLICBOT_USERNAME }}
-          password: ${{ secrets.DOCKERPUBLICBOT_WRITE_PAT }}
+          username: ${{ secrets.DOCKERHUB_SBX_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_SBX_TOKEN }}
           repository: ${{ steps.meta.outputs.kit-repository }}
           readme-filepath: ./${{ matrix.kit }}/README.md
           short-description: ${{ steps.meta.outputs.short-description }}
@@ -152,8 +172,8 @@ jobs:
         if: steps.image-repo.outputs.ready == 'true' && env.DRY_RUN != 'true'
         uses: peter-evans/dockerhub-description@1b9a80c056b620d92cedb9d9b5a223409c68ddfa # v5.0.0
         with:
-          username: ${{ vars.DOCKERPUBLICBOT_USERNAME }}
-          password: ${{ secrets.DOCKERPUBLICBOT_WRITE_PAT }}
+          username: ${{ secrets.DOCKERHUB_SBX_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_SBX_TOKEN }}
           repository: ${{ steps.meta.outputs.image-repository }}
           readme-filepath: ./${{ matrix.kit }}/README.image.md
           short-description: ${{ steps.meta.outputs.image-short-description }}
