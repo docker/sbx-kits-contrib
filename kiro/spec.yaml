@@ -61,17 +61,25 @@ permissions:
       - ports.ubuntu.com          # Ubuntu archive/security (arm64)
       - download.docker.com       # Docker's apt repo, pre-added by shell-docker
       #
-      # TODO(kiro-extraction): this list is INCOMPLETE. Kiro's chat and
-      # device-flow auth talk to AWS-backed service endpoints that are not
-      # publicly documented, so they could not be determined without observing
-      # a real session. Complete the list from a live run before claiming
-      # deny-all support:
+      # AWS-backed endpoints Kiro's device-flow auth and chat need, reported
+      # in #185. Not publicly documented beyond that. Exact hosts rather than
+      # a *.us-east-1.amazonaws.com wildcard — that would reach every AWS
+      # service in the region, not just Kiro's own backend.
+      - client-telemetry.us-east-1.amazonaws.com
+      - cognito-identity.us-east-1.amazonaws.com
+      - desktop-release.q.us-east-1.amazonaws.com
+      - management.us-east-1.kiro.dev
+      - prod.us-east-1.auth.desktop.kiro.dev
+      - prod.us-east-1.telemetry-v2.kiro.dev
+      - runtime.us-east-1.kiro.dev
+      #
+      # TODO(kiro-extraction): the domains above are the ones reported in
+      # #185; they have not been verified end-to-end under deny-all from this
+      # repo, and other kiro-cli features may reach further endpoints. Confirm
+      # or widen from a live run:
       #
       #   sbx run --kit ./kiro kiro       # then attempt a login + a prompt
       #   sbx policy log                  # lists every blocked host + reason
-      #
-      # Until then the kit works under a permissive host policy (the default)
-      # but will not complete login under deny-all.
 
 setup:
   install:
