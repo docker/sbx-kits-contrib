@@ -258,11 +258,13 @@ surfaces as a failure instead of a silently untouched page.
 
 > **It needs a credential the rest of the pipeline does not.** This is the Hub
 > REST API rather than the registry, so the OIDC-exchanged token cannot
-> authenticate it: it uses the `DOCKERHUB_USERNAME` / `DOCKERHUB_TOKEN`
-> secrets — a Hub account that is a member of the `sbx` org, not the OIDC
-> connection the artifact push uses. Without them the job emits a notice and
-> skips, so a repository that has not configured them is never red over
-> optional infrastructure.
+> authenticate it: it uses the `DOCKERPUBLICBOT_USERNAME` variable and
+> `DOCKERPUBLICBOT_DELETE_PAT` secret — both organisation-level, granted to
+> this repo rather than configured in it, and the same org-wide bot credential
+> other public Docker repos (e.g. `buildkit-syft-scanner`) already use for this
+> exact action, rather than a credential tied to one person's Hub membership.
+> Without them the job emits a notice and skips, so a repository that has not
+> been granted them is never red over optional infrastructure.
 >
 > A pull request never reads that credential **at all** — not merely "does not
 > write with it". A same-repository PR receives secrets *and* supplies the
