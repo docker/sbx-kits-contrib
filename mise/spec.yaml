@@ -1,25 +1,26 @@
-schemaVersion: "1"
+schemaVersion: "2"
 kind: mixin
 name: mise
 displayName: mise (mise-en-place)
 description: "The polyglot dev-tool version manager (https://mise.jdx.dev) — installs the mise CLI and wires up shell activation so the agent can run `mise install`, `mise use`, and per-project `.mise.toml` resolutions in the sandbox."
 
-network:
-  allowedDomains:
-    # github.com — release tag URLs for the install-time tarball AND for mise's `ubi`
-    # backend at runtime (https://github.com/<owner>/<repo>/releases/download/...).
-    # The download then 302-redirects to release-assets.githubusercontent.com.
-    - github.com
-    # api.github.com — mise queries the GitHub releases API to resolve `<tool>@latest`
-    # and similar version selectors for any github-hosted tool. Without this, even
-    # `mise install <github-tool>@<exact-version>` fails because the resolver still
-    # touches the API to validate the tag.
-    - api.github.com
-    - release-assets.githubusercontent.com
-    # Runtime tool installs (`mise install <tool>`) hit per-language hosts beyond GitHub
-    # (nodejs.org, pypi.org, go.dev, crates.io, etc.) that vary by what the user asks
-    # mise to install. Fork and extend `allowedDomains` with the hosts you actually
-    # need — see the README for a starter list.
+permissions:
+  network:
+    allow:
+      # github.com — release tag URLs for the install-time tarball AND for mise's `ubi`
+      # backend at runtime (https://github.com/<owner>/<repo>/releases/download/...).
+      # The download then 302-redirects to release-assets.githubusercontent.com.
+      - github.com
+      # api.github.com — mise queries the GitHub releases API to resolve `<tool>@latest`
+      # and similar version selectors for any github-hosted tool. Without this, even
+      # `mise install <github-tool>@<exact-version>` fails because the resolver still
+      # touches the API to validate the tag.
+      - api.github.com
+      - release-assets.githubusercontent.com
+      # Runtime tool installs (`mise install <tool>`) hit per-language hosts beyond GitHub
+      # (nodejs.org, pypi.org, go.dev, crates.io, etc.) that vary by what the user asks
+      # mise to install. Fork and extend `allow` with the hosts you actually need — see
+      # the README for a starter list.
 
 environment:
   variables:
@@ -28,7 +29,7 @@ environment:
     # opted into running this code by attaching the workspace.
     MISE_TRUSTED_CONFIG_PATHS: "/"
 
-commands:
+setup:
   install:
     # Install mise from a pinned, digest-verified GitHub release tarball. The official
     # `curl https://mise.run | sh` flow is fine for a workstation, but inside a sandbox

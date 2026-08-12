@@ -92,22 +92,23 @@ the trust footprint. Add what you need in a fork. A starter set
 covering the most common backends:
 
 ```yaml
-network:
-  allowedDomains:
-    - github.com
-    - api.github.com
-    - release-assets.githubusercontent.com
-    - objects.githubusercontent.com   # older release asset host
-    - codeload.github.com             # source tarballs (some asdf plugins)
-    - nodejs.org                      # node
-    - registry.npmjs.org              # npm-backed plugins
-    - dl.google.com                   # go (golang.org redirects here)
-    - go.dev
-    - www.python.org                  # python
-    - files.pythonhosted.org          # pip
-    - pypi.org
-    - static.crates.io                # rust
-    - crates.io
+permissions:
+  network:
+    allow:
+      - github.com
+      - api.github.com
+      - release-assets.githubusercontent.com
+      - objects.githubusercontent.com   # older release asset host
+      - codeload.github.com             # source tarballs (some asdf plugins)
+      - nodejs.org                      # node
+      - registry.npmjs.org              # npm-backed plugins
+      - dl.google.com                   # go (golang.org redirects here)
+      - go.dev
+      - www.python.org                  # python
+      - files.pythonhosted.org          # pip
+      - pypi.org
+      - static.crates.io                # rust
+      - crates.io
 ```
 
 If `mise install` fails with a DNS / connection refused error, the
