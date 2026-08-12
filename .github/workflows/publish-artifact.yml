@@ -65,7 +65,9 @@ env:
   DRY_RUN: >-
     ${{ (github.event_name == 'pull_request'
       || github.repository != 'docker/sbx-kits-contrib'
-      || secrets.DOCKERHUB_OIDC_CONNECTIONID == '') && '1' || '' }}
+      || secrets.DOCKERHUB_OIDC_CONNECTIONID == ''
+      || secrets.DOCKERPUBLICBOT_WRITE_PAT == ''
+      || vars.DOCKERPUBLICBOT_USERNAME == '') && '1' || '' }}
 
 jobs:
   publish:
@@ -121,13 +123,26 @@ jobs:
         # above populates. Skipping this makes `sbx kit push --sign` fail
         # with "user is not authenticated to Docker" — only after the
         # (unsigned) manifest push has already landed, since the push itself
-        # doesn't need this login. No Secret Service setup needed first: sbx
-        # falls back to an encrypted on-disk store when none is reachable
-        # ("No keychain detected - this secret will be stored in an
-        # encrypted file on disk").
-        run: printf '%s' "$TOKEN" | sbx login --username sbx --password-stdin
+        # doesn't need this login.
+        #
+        # This needs a real Hub password/PAT: the OIDC-exchanged token that
+        # satisfies `docker login` above is rejected by `sbx login` ("docker
+        # token is invalid") — the two authenticate differently. Hence the
+        # org bot's static credential here instead of the OIDC token, the
+        # only static secret in this job.
+        #
+        # Defensive trim: GH preserves whitespace pasted into a secret's
+        # value, and sbx's password-stdin reader only strips a trailing
+        # newline. Hub usernames and PATs are alphanumeric plus hyphens, so
+        # stripping all whitespace cannot corrupt a legitimate value.
+        run: |
+          set -euo pipefail
+          USER_CLEAN=$(printf '%s' "$USERNAME" | tr -d '[:space:]')
+          TOKEN_CLEAN=$(printf '%s' "$TOKEN"    | tr -d '[:space:]')
+          printf '%s' "$TOKEN_CLEAN" | sbx login --username "$USER_CLEAN" --password-stdin
         env:
-          TOKEN: ${{ steps.docker_oidc.outputs.token }}
+          USERNAME: ${{ vars.DOCKERPUBLICBOT_USERNAME }}
+          TOKEN: ${{ secrets.DOCKERPUBLICBOT_WRITE_PAT }}
 
       - name: Publish
         id: publish
