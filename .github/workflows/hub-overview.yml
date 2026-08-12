@@ -116,11 +116,11 @@ jobs:
             echo "ready=true" >> "$GITHUB_OUTPUT"
           else
             echo "ready=false" >> "$GITHUB_OUTPUT"
-            echo "::notice::DOCKERHUB_SBX_TOKEN / DOCKERHUB_SBX_USERNAME are not set — Hub overviews are not being synced."
+            echo "::notice::DOCKERHUB_TOKEN / DOCKERHUB_USERNAME are not set — Hub overviews are not being synced."
           fi
         env:
-          TOKEN: ${{ secrets.DOCKERHUB_SBX_TOKEN }}
-          USERNAME: ${{ secrets.DOCKERHUB_SBX_USERNAME }}
+          TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+          USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
 
   overview:
     needs: resolve
@@ -166,8 +166,8 @@ jobs:
           # `if:` above is what keeps it off the pull-request path; this is the
           # habit that keeps it correct if the step ever becomes a `run:`, where
           # inline interpolation would put the value into shell source.
-          HUB_USERNAME: ${{ secrets.DOCKERHUB_SBX_USERNAME }}
-          HUB_TOKEN: ${{ secrets.DOCKERHUB_SBX_TOKEN }}
+          HUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+          HUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
 
       - name: Is the base image's repository published?
         id: image-repo
@@ -187,8 +187,8 @@ jobs:
           short-description: ${{ steps.meta.outputs.image-short-description }}
           enable-url-completion: true
         env:
-          HUB_USERNAME: ${{ secrets.DOCKERHUB_SBX_USERNAME }}
-          HUB_TOKEN: ${{ secrets.DOCKERHUB_SBX_TOKEN }}
+          HUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+          HUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
 
       - name: Report what happened
         # Silence would read as "synced". A skipped page is a page still showing

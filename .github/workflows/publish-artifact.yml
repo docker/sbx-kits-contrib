@@ -77,7 +77,11 @@ jobs:
       - name: Install sbx
         # `sbx kit` is daemon-free (only `kit add` needs sandboxd), so no VM and
         # no KVM — a plain runner is enough.
-        run: ./scripts/install-sbx.sh >> "$GITHUB_PATH"
+        #
+        # Pinned to nightly, not the latest tagged release: as of v0.38.0,
+        # `sbx kit push` has no `--sign` flag yet. Move this back to the
+        # default (latest) once a tagged release ships with it.
+        run: ./scripts/install-sbx.sh nightly >> "$GITHUB_PATH"
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 

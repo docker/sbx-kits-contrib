@@ -176,7 +176,10 @@ Two differences from the image, both deliberate:
   fails there, after the immutable tag has already been published.
 
 Each push is signed keyless via the job's ambient GitHub OIDC token, and carries
-a SLSA provenance attestation as an OCI referrer.
+a SLSA provenance attestation as an OCI referrer. This requires `sbx kit push
+--sign`, which is why the workflow installs the `nightly` sbx build rather than
+the latest tagged release — pin it back once a tagged release ships with the
+flag.
 
 **Publication is opt-in**, via the `PUBLISH_KITS` allow-list, because every kit
 in the repo is pushable and discovery would publish all of them.
@@ -255,9 +258,11 @@ surfaces as a failure instead of a silently untouched page.
 
 > **It needs a credential the rest of the pipeline does not.** This is the Hub
 > REST API rather than the registry, so the OIDC-exchanged token cannot
-> authenticate it: it uses the `DOCKERHUB_SBX_USERNAME` / `DOCKERHUB_SBX_TOKEN`
-> secrets. Without them the job emits a notice and skips, so a repository that
-> has not configured them is never red over optional infrastructure.
+> authenticate it: it uses the `DOCKERHUB_USERNAME` / `DOCKERHUB_TOKEN`
+> secrets — a Hub account that is a member of the `sbx` org, not the OIDC
+> connection the artifact push uses. Without them the job emits a notice and
+> skips, so a repository that has not configured them is never red over
+> optional infrastructure.
 >
 > A pull request never reads that credential **at all** — not merely "does not
 > write with it". A same-repository PR receives secrets *and* supplies the
