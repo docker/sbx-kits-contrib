@@ -18,9 +18,6 @@ var namePattern = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]{0,62}[a-z0-9])?$`)
 // shellIdentifierPattern matches valid shell variable names.
 var shellIdentifierPattern = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 
-// placeholderPattern matches ${...} placeholders in init file content.
-var placeholderPattern = regexp.MustCompile(`\$\{[^}]+\}`)
-
 // lockedPathPattern matches a dotted YAML path: lowercase letter or digit
 // start, then segments of letters/digits separated by single dots, e.g.
 // "sandbox.image" or "permissions.network.allow". Used only for
@@ -37,11 +34,6 @@ var octalModePattern = regexp.MustCompile(`^0?[0-7]{3,4}$`)
 // never be confused with the dotted ${{ kit.args.<name> }} reference that
 // selects it.
 var argNamePattern = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_-]*$`)
-
-// supportedPlaceholders lists the placeholders allowed in initFiles content.
-var supportedPlaceholders = map[string]bool{
-	"${WORKDIR}": true,
-}
 
 // ValidateManifest validates a Manifest for correctness. A sandbox kit must
 // declare a template (image source); use validateManifest with inheritsImage
@@ -226,23 +218,11 @@ func ValidateCommandsPolicy(c *CommandsPolicy) error {
 		if !strings.HasPrefix(f.Path, "/") {
 			return fmt.Errorf("commands: initFiles[%d].path must be absolute (got %q)", i, f.Path)
 		}
-		if err := validateInitFileContent(i, f.Content); err != nil {
-			return err
-		}
 		if f.Mode != "" && !octalModePattern.MatchString(f.Mode) {
 			return fmt.Errorf("commands: initFiles[%d].mode must be octal (e.g. \"0755\"), got %q", i, f.Mode)
 		}
 	}
 
-	return nil
-}
-
-func validateInitFileContent(index int, content string) error {
-	for _, match := range placeholderPattern.FindAllString(content, -1) {
-		if !supportedPlaceholders[match] {
-			return fmt.Errorf("commands: initFiles[%d].content contains unsupported placeholder %q (supported: ${WORKDIR})", index, match)
-		}
-	}
 	return nil
 }
 

@@ -250,16 +250,41 @@ func TestValidateCommandsPolicy(t *testing.T) {
 		require.ErrorContains(t, ValidateCommandsPolicy(c), "must be absolute")
 	})
 
-	t.Run("unsupported_placeholder", func(t *testing.T) {
+	t.Run("non_workdir_dollar_brace_is_not_a_validation_error", func(t *testing.T) {
+		// initFiles[].content is opaque file content, most commonly a
+		// script. Only "${WORKDIR}" is a kit-spec placeholder (substituted
+		// by a literal string replace at kit-load time); any other
+		// "${...}" is the consuming shell/interpreter's own syntax and
+		// must pass through unexamined.
 		c := &CommandsPolicy{
 			InitFiles: []InitFile{{Path: "/tmp/f", Content: "${HOME}/data"}},
 		}
-		require.ErrorContains(t, ValidateCommandsPolicy(c), "unsupported placeholder")
+		require.NoError(t, ValidateCommandsPolicy(c))
 	})
 
 	t.Run("supported_placeholder", func(t *testing.T) {
 		c := &CommandsPolicy{
 			InitFiles: []InitFile{{Path: "/tmp/f", Content: "${WORKDIR}/data"}},
+		}
+		require.NoError(t, ValidateCommandsPolicy(c))
+	})
+
+	t.Run("bash_parameter_expansions_in_content_are_not_validation_errors", func(t *testing.T) {
+		c := &CommandsPolicy{
+			InitFiles: []InitFile{{
+				Path: "/home/agent/test.sh",
+				Mode: "0755",
+				Content: `#!/bin/bash
+NAME="World"
+COUNT=4
+TOTAL=10
+REMAINING=$((TOTAL - COUNT))
+printf -v FILL "%${COUNT}s" ""
+printf -v PAD  "%${REMAINING}s" ""
+BAR="${FILL// /#}${PAD// /-}"
+echo "Hello, ${NAME} [${BAR}]"
+`,
+			}},
 		}
 		require.NoError(t, ValidateCommandsPolicy(c))
 	})
