@@ -133,19 +133,40 @@ jobs:
         # allowlist silently stops matching once a Dockerfile starts COPYing a
         # new file, leaving a published image stale until the next nightly.
         # spec.yaml is deliberately NOT excluded — the drift check reads it.
+        #
+        # Two separate filter documents, not one, because the two "Filter ...
+        # changes" steps below need two DIFFERENT predicate-quantifier settings
+        # (dorny/paths-filter applies one quantifier to every filter in a
+        # single invocation, so kit-filters and shared-filters can't share a
+        # step): kit-filters mixes a positive pattern with negations per kit
+        # and needs "every" (see that step's comment for why); shared-filters
+        # lists several alternative exact paths with no negations, meant as
+        # "OR", and must stay at the default "some" — "every" would require a
+        # single file to match all of them at once, which is impossible.
         run: |
           set -euo pipefail
-          filters=""
+          # Writes a $GITHUB_OUTPUT multiline value and echoes it to the log,
+          # shared by both filter documents below so they can't drift apart.
+          emit_output() {
+            echo "$1<<EOF" >> "$GITHUB_OUTPUT"
+            echo "$2" >> "$GITHUB_OUTPUT"
+            echo "EOF" >> "$GITHUB_OUTPUT"
+            echo "$2"
+          }
+
+          kit_filters=""
           for kit in ${{ steps.discover.outputs.kits }}; do
-            filters=$(printf '%s\n%s:\n  - "%s/**"\n  - "!%s/README.md"\n  - "!%s/README.image.md"\n  - "!%s/testdata/**"' \
-              "$filters" "$kit" "$kit" "$kit" "$kit" "$kit")
+            kit_filters=$(printf '%s\n%s:\n  - "%s/**"\n  - "!%s/README.md"\n  - "!%s/README.image.md"\n  - "!%s/testdata/**"' \
+              "$kit_filters" "$kit" "$kit" "$kit" "$kit" "$kit")
           done
+          emit_output "kit-filters" "$kit_filters"
+
           # Shared inputs rebuild everything. The publish path is listed too:
           # without it, a change to publish-artifact.yml or any of the scripts it
           # calls produces no artifacts, so the publish job does not run at all
           # — not even as a dry run — and the PR that changes the publishing
           # logic is the one PR that never exercises it.
-          filters=$(printf '%s\nshared:\n%s\n%s\n%s\n%s\n%s\n%s\n%s\n%s' "$filters" \
+          shared_filters=$(printf 'shared:\n%s\n%s\n%s\n%s\n%s\n%s\n%s\n%s' \
             '  - ".github/workflows/build-and-publish-kits.yml"' \
             '  - ".github/workflows/publish-artifact.yml"' \
             '  - ".github/workflows/publish-one-kit.yml"' \
@@ -154,18 +175,48 @@ jobs:
             '  - "scripts/check-release-tag.sh"' \
             '  - "scripts/install-sbx.sh"' \
             '  - "scripts/publish-artifact.sh"')
+          emit_output "shared-filters" "$shared_filters"
 
-          echo "filters<<EOF" >> "$GITHUB_OUTPUT"
-          echo "$filters" >> "$GITHUB_OUTPUT"
-          echo "EOF" >> "$GITHUB_OUTPUT"
-          echo "$filters"
-
-      - name: Filter changes
-        id: filter
+      - name: Filter kit changes
+        id: filter-kits
         if: github.event_name == 'push' || github.event_name == 'pull_request'
         uses: dorny/paths-filter@7b450fff21473bca461d4b92ce414b9d0420d706 # v4.0.2
         with:
-          filters: ${{ steps.filter-setup.outputs.filters }}
+          filters: ${{ steps.filter-setup.outputs.kit-filters }}
+          # Local git diff rather than the API, so fork PRs work with a
+          # restricted GITHUB_TOKEN.
+          token: ""
+          # Every per-kit filter mixes a positive pattern with negations
+          # (kit/**, !kit/README.md, ...). Under the default predicate-quantifier
+          # ("some" — a file matches the filter if ANY listed pattern's own
+          # per-pattern predicate returns true), a negated pattern's predicate
+          # returns true for almost every file that ISN'T that exact excluded
+          # path — so `.some()` over [positive, !a, !b, !c] is true for nearly
+          # anything, not just the intended "under kit/, except a/b/c". That
+          # silently made EVERY kit's filter true on EVERY run regardless of
+          # what actually changed (a PR touching only one new kit's files
+          # reported all ~28 kits as changed) — confirmed by inspecting a real
+          # run's per-filter "Matching files" log, where e.g. the "pi" filter
+          # matched files under an unrelated new copilot/ directory.
+          # "every" instead requires ALL listed patterns' predicates to be true
+          # for a given file — including the negated ones, whose own predicate
+          # is already "does NOT match this path" — which is exactly "matches
+          # kit/** AND is not README.md AND is not README.image.md AND is not
+          # under testdata/", the behavior every filter here was written
+          # assuming. (v4.0.2's newer "some-with-excludes" quantifier would be
+          # the more legible name for this, but it isn't implemented at this
+          # pinned commit — confirmed by reading src/filter.ts there directly.)
+          #
+          # Scoped to this step only — see "Generate filters" above for why
+          # "shared" can't use the same quantifier.
+          predicate-quantifier: every
+
+      - name: Filter shared changes
+        id: filter-shared
+        if: github.event_name == 'push' || github.event_name == 'pull_request'
+        uses: dorny/paths-filter@7b450fff21473bca461d4b92ce414b9d0420d706 # v4.0.2
+        with:
+          filters: ${{ steps.filter-setup.outputs.shared-filters }}
           # Local git diff rather than the API, so fork PRs work with a
           # restricted GITHUB_TOKEN.
           token: ""
@@ -184,12 +235,11 @@ jobs:
               kits="${all}"
               ;;
             *)
-              changes='${{ steps.filter.outputs.changes }}'
-              if echo "${changes}" | jq -e 'index("shared")' >/dev/null 2>&1; then
+              if [ "${{ steps.filter-shared.outputs.shared }}" = "true" ]; then
                 # This workflow or the drift check changed — rebuild everything.
                 kits="${all}"
               else
-                kits=$(echo "${changes}" | jq -c '[.[] | select(. != "shared")]')
+                kits='${{ steps.filter-kits.outputs.changes }}'
               fi
               ;;
           esac
