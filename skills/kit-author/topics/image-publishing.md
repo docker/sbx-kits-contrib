@@ -9,17 +9,33 @@ root. This topic is the author-facing subset — what you write, and the traps.
 
 ## What you write
 
-Two things, no CI edit:
+Three things, no CI edit:
 
 ```
 my-kit/
-├── Dockerfile     # build context is the kit directory
-└── spec.yaml      # sandbox.image: docker.io/sbx/my-kit-image:latest
+├── Dockerfile         # build context is the kit directory
+├── spec.yaml          # sandbox.image: docker.io/sbx/my-kit-image:latest
+└── README.image.md    # the Hub "About" page for my-kit-image
 ```
 
-`.github/workflows/build-and-publish-kits.yml` **discovers** kits: any top-level directory
-with both a `spec.yaml` and a `Dockerfile` is picked up. There is no matrix to
-register and no per-kit workflow.
+`.github/workflows/build-and-publish-kits.yml` **discovers** every kit by
+`spec.yaml` alone — Dockerfile presence is a separate, per-kit decision about
+whether that kit *also* builds and publishes its own image, not about whether
+the kit is discovered at all. There is no matrix to register and no per-kit
+workflow.
+
+`README.image.md` is optional in the sense that nothing fails without it, but
+skipping it leaves `my-kit-image`'s Hub page blank forever: `.github/workflows/
+hub-overview.yml` only syncs a base image's overview for a kit that has both a
+`Dockerfile` (proof the kit actually owns that image, not just a shared
+template or someone else's pre-built one) *and* a `README.image.md` to publish
+— the sync step is guarded on both, precisely so a kit reusing
+`docker/sandbox-templates` (or, like `nanoclaw`, someone else's own image)
+never overwrites a Hub repository it doesn't own the narrative for. This is
+separate from `my-kit/README.md`, which documents the *kit* (how to run it);
+`README.image.md` documents the *image* (what's installed, how it's built) —
+someone who pulled `sbx/my-kit-image` directly, without going through the kit
+at all, is the reader.
 
 The image name is enforced as `<kit-dir>-image`, in the `docker.io/sbx`
 namespace, at the rolling tag. `scripts/check-image-ref.sh` derives all three

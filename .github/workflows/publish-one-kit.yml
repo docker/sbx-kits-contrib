@@ -332,7 +332,18 @@ jobs:
   # the primary one — the page tracks the default branch, not this run.
   overview:
     needs: artifact
-    if: inputs.publish-artifact
+    # `!cancelled()` overrides GitHub's implicit `&& success()` on this if, for
+    # the same reason as `artifact`'s own if: above — but one level removed.
+    # `success()` (with no args) walks this job's ENTIRE transitive dependency
+    # chain, not just the immediate `needs: artifact` — so it also inspects
+    # `image`, which is legitimately skipped for a kit with no Dockerfile. A
+    # bare `if: inputs.publish-artifact` therefore never ran `overview` for any
+    # kit whose `image` job was skipped, EVEN WHEN `artifact` itself succeeded:
+    # every kit but `kiro`. This is why most kits' Hub overview page was never
+    # synced by this path despite their artifact publish going green — caught
+    # only once a real post-merge run made ALL 27 kits' artifact jobs succeed
+    # at once and their overview pages still didn't update.
+    if: "!cancelled() && needs.artifact.result == 'success'"
     permissions:
       contents: read
     uses: ./.github/workflows/hub-overview.yml
