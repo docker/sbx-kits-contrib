@@ -1,0 +1,126 @@
+schemaVersion: "2"
+kind: mixin
+name: vscode
+displayName: Visual Studio Code (native, via --display)
+description: Installs VS Code from Microsoft's apt repository and starts it as a Wayland client on the host desktop, opening the sandbox workspace. Requires `--display` at sandbox creation time and the `feature.sandbox-display` feature flag — see the README.
+permissions:
+  network:
+    allow:
+      # setup.install runs apt-get update, which refreshes every configured
+      # apt source. The claude-code-docker base template pre-configures
+      # Docker's apt repo, so download.docker.com must be allowed even though
+      # this kit doesn't install anything from it — apt-get exits 100 on the
+      # first source metadata fetch that returns non-2xx. Ubuntu hosts amd64
+      # packages on archive/security and arm64 packages on ports.ubuntu.com,
+      # so all three Ubuntu hosts are listed for cross-arch coverage.
+      - archive.ubuntu.com
+      - security.ubuntu.com
+      - ports.ubuntu.com
+      - download.docker.com
+      # Install-time: Microsoft's apt repo (signing key + .deb).
+      - packages.microsoft.com
+      # Runtime: VS Code's own update / telemetry / download endpoints.
+      - update.code.visualstudio.com
+      - vscode.download.prss.microsoft.com
+      # Extensions: marketplace + CDN.
+      - marketplace.visualstudio.com
+      - "*.vscode-cdn.net"
+      - "*.gallerycdn.vsassets.io"
+agentInstructions:
+  content: |
+    ## VS Code
+
+    VS Code is running inside this sandbox. Its window is visible on the
+    host desktop — it opened the sandbox workspace on startup, so any
+    file you create or edit in the terminal is immediately visible in the
+    editor, and vice versa.
+
+    If the user closes the VS Code window and wants to reopen it, run
+    `code &` from any terminal inside the sandbox.
+
+    If the VS Code window is not visible at all, check that `--display`
+    was passed at sandbox creation time and that the host compositor is
+    running. The process runs backgrounded; it does not produce a log
+    file by default.
+setup:
+  install:
+    - command: |
+        set -euo pipefail
+
+        # apt's InRelease verification uses O_TMPFILE, which is incompatible
+        # with the virtiofs overlay backing the container. Route the lists
+        # directory through /dev/shm (a plain tmpfs) instead. The .deb cache
+        # stays at its default location (/var/cache/apt/archives) because
+        # /dev/shm's 64 MiB ceiling is too small for the full package set.
+        mkdir -p /dev/shm/apt-lists
+        APT_OPTS="-o DPkg::Lock::Timeout=600 -o Dir::State::Lists=/dev/shm/apt-lists"
+        export TMPDIR=/dev/shm
+
+        apt-get $APT_OPTS update
+        apt-get $APT_OPTS install -yy --no-install-recommends ca-certificates curl gnupg
+
+        install -d -m 0755 /usr/share/keyrings
+        curl -fsSL https://packages.microsoft.com/keys/microsoft.asc \
+            | gpg --dearmor > /usr/share/keyrings/packages.microsoft.gpg
+        echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/packages.microsoft.gpg] https://packages.microsoft.com/repos/code stable main" \
+            > /etc/apt/sources.list.d/vscode.list
+
+        apt-get $APT_OPTS update
+        apt-get $APT_OPTS install -yy --no-install-recommends code dbus-x11
+
+        rm -rf /dev/shm/apt-lists
+        apt-get clean
+      user: "0"
+      description: |
+        Install Visual Studio Code from Microsoft's official APT repository,
+        plus dbus-x11 (which provides dbus-run-session, needed by Electron to
+        wire its IPC bus when no session bus is present in the container).
+
+  files:
+    - path: /home/agent/.local/bin/code
+      mode: "0755"
+      description: Launch wrapper written at each startup so WORKSPACE_DIR is resolved at runtime.
+      content: |
+        #!/bin/sh
+        if [ ! -S /run/display/wayland-0 ]; then
+          echo "code: display socket not found at /run/display/wayland-0" >&2
+          echo "This sandbox was not created with --display." >&2
+          echo "" >&2
+          echo "To fix, enable the experimental display feature and recreate:" >&2
+          echo "  sbx settings set platform.allowExperimentalFeatures true" >&2
+          echo "  sbx settings set feature.sandbox-display true" >&2
+          echo "  sbx run claude --display --kit <this-kit> <workspace>" >&2
+          exit 1
+        fi
+        export WAYLAND_DISPLAY=/run/display/wayland-0
+        HOME_DIR=$(getent passwd 1000 | cut -d: -f6)
+        if [ -z "$HOME_DIR" ]; then
+          echo "code: no user at uid 1000" >&2
+          exit 1
+        fi
+        export HOME="$HOME_DIR"
+        LAUNCH_DIR="$WORKSPACE_DIR"
+        if [ -z "$LAUNCH_DIR" ]; then LAUNCH_DIR="$HOME_DIR"; fi
+        exec dbus-run-session /usr/share/code/code \
+          --ozone-platform=wayland \
+          --disable-gpu \
+          --disable-gpu-compositing \
+          --no-sandbox \
+          --disable-dev-shm-usage \
+          --user-data-dir="$HOME_DIR/.vscode-user" \
+          "$LAUNCH_DIR"
+
+  startup:
+    - command:
+        - setpriv
+        - --reuid=1000
+        - --regid=1000
+        - --init-groups
+        - /home/agent/.local/bin/code
+      user: "0"
+      background: true
+      description: |
+        Launch VS Code as a Wayland client opening the sandbox's workspace.
+        Runs as root then drops to uid 1000 via setpriv. The window appears
+        on the host compositor via the display surface provisioned by
+        --display. Backgrounded so the agent's terminal keeps focus.
