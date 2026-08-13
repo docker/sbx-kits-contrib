@@ -177,11 +177,52 @@ jobs:
           HUB_USERNAME: ${{ vars.DOCKERPUBLICBOT_USERNAME }}
           HUB_TOKEN: ${{ secrets.DOCKERPUBLICBOT_DELETE_PAT }}
 
+      - name: Does this kit own the base image it references?
+        id: image-owned
+        # A kit owns (and therefore may describe) its base image repository
+        # only if it builds that image itself AND has written docs for it —
+        # computed once here, in outputs, rather than as inline hashFiles()
+        # calls repeated at both the gate below and in "Report what happened",
+        # so the two can never silently diverge if this ever changes.
+        #
+        # has-dockerfile guards a real, previously-latent bug: most kits boot
+        # from a shared template (docker/sandbox-templates) or a third-party
+        # image (nanoclaw's nanoco/nanoclaw) rather than one built and owned by
+        # the kit itself — kit-meta.sh resolves image-repository from
+        # sandbox.image regardless of who owns that repository. Without this
+        # guard, every one of those kits' matrix legs would try to PATCH the
+        # SAME shared (or someone else's) Hub repository with ITS OWN
+        # kit-specific "Base image for the <kit> kit" text — a last-write-wins
+        # race across unrelated kits, or an overwrite of a repository this
+        # project doesn't own the narrative for. The same Dockerfile-presence
+        # signal build-and-publish-kits.yml and publish-one-kit.yml gate the
+        # actual image build/push on (`has-image`); today that's only `kiro`,
+        # the one kit this workflow was built and tested against.
+        #
+        # has-readme guards a second failure mode: the sync step below hands
+        # its path straight to peter-evans/dockerhub-description with no
+        # existence check of its own, so a kit with a Dockerfile but no
+        # README.image.md would otherwise reach that step and fail on a
+        # missing file instead of skipping cleanly.
+        #
+        # hashFiles() sees these here because checkout already ran earlier in
+        # this same job — a step-level `if:`/expression, unlike a job-level
+        # one, evaluates after prior steps in the same job have run.
+        run: |
+          echo "has-dockerfile=${HAS_DOCKERFILE}" >> "$GITHUB_OUTPUT"
+          echo "has-readme=${HAS_README}" >> "$GITHUB_OUTPUT"
+        env:
+          HAS_DOCKERFILE: ${{ hashFiles(format('{0}/Dockerfile', matrix.kit)) != '' }}
+          HAS_README: ${{ hashFiles(format('{0}/README.image.md', matrix.kit)) != '' }}
+
       - name: Is the base image's repository published?
         id: image-repo
         # Absent output means the kit builds no image — kit-meta.sh omits it
         # rather than emitting it empty, precisely so this can branch on it.
-        if: steps.meta.outputs.image-repository != ''
+        if: >-
+          steps.meta.outputs.image-repository != '' &&
+          steps.image-owned.outputs.has-dockerfile == 'true' &&
+          steps.image-owned.outputs.has-readme == 'true'
         run: ./scripts/hub-repo-ready.sh "${{ steps.meta.outputs.image-repository }}" >> "$GITHUB_OUTPUT"
 
       - name: Sync the base image's overview
@@ -209,6 +250,11 @@ jobs:
           [ "${{ steps.kit-repo.outputs.ready }}" = "true" ] ||
             echo "::notice::${{ steps.meta.outputs.kit-repository }} has nothing published — overview not synced."
           if [ -n "${{ steps.meta.outputs.image-repository }}" ]; then
-            [ "${{ steps.image-repo.outputs.ready }}" = "true" ] ||
+            if [ "${{ steps.image-owned.outputs.has-dockerfile }}" != "true" ]; then
+              echo "::notice::${{ matrix.kit }} does not build its own image — nothing to sync to ${{ steps.meta.outputs.image-repository }}, which it does not own."
+            elif [ "${{ steps.image-owned.outputs.has-readme }}" != "true" ]; then
+              echo "::notice::${{ matrix.kit }} has no README.image.md — nothing to sync to ${{ steps.meta.outputs.image-repository }}."
+            elif [ "${{ steps.image-repo.outputs.ready }}" != "true" ]; then
               echo "::notice::${{ steps.meta.outputs.image-repository }} has nothing published — overview not synced."
+            fi
           fi

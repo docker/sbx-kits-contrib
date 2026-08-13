@@ -105,8 +105,34 @@ image_repository=$(awk '
   }
 ' "$spec")
 image_repository=${image_repository%%@*}
-image_repository=${image_repository%:*}
-image_repository=${image_repository#*/}
+
+# A tag's colon can only ever appear after the last "/" — a registry's port
+# colon comes before it — so only strip a trailing ":tag" when there's one in
+# that last path segment. Blindly taking the rightmost ":" in the whole string
+# (the previous form of this line) mis-parsed a port-bearing, untagged
+# registry like "myregistry.local:5000/team/image": bash's shortest suffix
+# match for ":*" removed everything from the port colon onward, leaving just
+# "myregistry.local" with no path left for the registry-detection below to
+# even see.
+last_segment=${image_repository##*/}
+if [[ "$last_segment" == *:* ]]; then
+  image_repository=${image_repository%:*}
+fi
+
+# Strip a leading registry-host segment, but only if the first path component
+# actually looks like a registry — matching the same rule the Docker CLI uses
+# to parse image references. A two-segment reference like
+# "docker/sandbox-templates" is already <namespace>/<name> on Docker Hub, not
+# <registry>/<name>: blindly stripping up to the first "/" turned it into the
+# bare name "sandbox-templates", which hub-repo-ready.sh then rejected outright
+# ("is not <namespace>/<name>") for every kit using the shared shell-docker
+# template — this went unnoticed while PUBLISH_KITS only ever listed kiro,
+# whose own image is built (and named) differently. A registry host is only
+# ever distinguished by containing a "." or a ":", or by being "localhost".
+first_segment=${image_repository%%/*}
+case "$first_segment" in
+  *.*|*:*|localhost) image_repository=${image_repository#*/} ;;
+esac
 
 # Only the KEY=VALUE stream is printed. Echoing a prose copy to stderr as well
 # would double every line on a terminal, where both streams land together — and
