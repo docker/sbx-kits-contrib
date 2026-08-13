@@ -634,13 +634,15 @@ environment:
 	require.True(t, c.Required)
 	require.NotNil(t, c.ApiKey)
 	require.Equal(t, "ANTHROPIC_API_KEY", c.ApiKey.Name)
+	require.True(t, c.ApiKey.ProxyManaged, "v1 environment.proxyManaged must fold onto apiKey.proxyManaged, not just apiKey.name")
 	require.Len(t, c.ApiKey.Inject, 1)
 	require.Equal(t, "api.anthropic.com", c.ApiKey.Inject[0].Domain)
 	require.Equal(t, "x-api-key", c.ApiKey.Inject[0].Header)
 	require.Equal(t, "%s", c.ApiKey.Inject[0].Format)
 
 	// One deprecation warning per legacy block.
-	var sourcesWarn, serviceAuthWarn, serviceDomainsWarn, proxyManagedWarn bool
+	var sourcesWarn, serviceAuthWarn, serviceDomainsWarn bool
+	var proxyManagedWarn string
 	for _, w := range art.Warnings {
 		switch {
 		case strings.Contains(w, "credentials.sources"):
@@ -650,13 +652,20 @@ environment:
 		case strings.Contains(w, "network.serviceDomains"):
 			serviceDomainsWarn = true
 		case strings.Contains(w, "environment.proxyManaged"):
-			proxyManagedWarn = true
+			proxyManagedWarn = w
 		}
 	}
 	require.True(t, sourcesWarn, "expected credentials.sources warning, got %v", art.Warnings)
 	require.True(t, serviceAuthWarn, "expected network.serviceAuth warning, got %v", art.Warnings)
 	require.True(t, serviceDomainsWarn, "expected network.serviceDomains warning, got %v", art.Warnings)
-	require.True(t, proxyManagedWarn, "expected environment.proxyManaged warning, got %v", art.Warnings)
+	// The full instruction must name both apiKey.name and apiKey.proxyManaged:
+	// true. A message naming apiKey.name alone (the pre-#170 wording) sent
+	// kit authors migrating off environment.proxyManaged straight into
+	// docker/sbx-releases#259 — apiKey.name alone never seeds the
+	// in-container sentinel, only apiKey.proxyManaged does.
+	require.Equal(t,
+		`deprecated field "environment.proxyManaged": use credentials[].apiKey.name with credentials[].apiKey.proxyManaged: true (kit-spec v2)`,
+		proxyManagedWarn)
 }
 
 // TestV1OAuth_StandaloneBlock_RoundTripsToCredentials exercises the
