@@ -13,7 +13,6 @@
 #   IMAGE_TAG_LATEST  default latest        — the rolling tag MOVE_LATEST moves
 #   MOVE_LATEST       default false         — also re-point the rolling tag
 #   DRY_RUN           set to any value      — resolve and report, publish nothing
-#   PUBLISH_KITS      default (all kits, see below) — space-separated allow-list
 #
 # Emits `ref=`, `digest=`, `pushed=` and `reused=` on stdout, one per line, so CI
 # can redirect into $GITHUB_OUTPUT. Everything human goes to stderr, which keeps
@@ -37,12 +36,6 @@ IMAGE_NAMESPACE=${IMAGE_NAMESPACE:-sbx}
 IMAGE_TAG_LATEST=${IMAGE_TAG_LATEST:-latest}
 MOVE_LATEST=${MOVE_LATEST:-false}
 DRY_RUN=${DRY_RUN:-}
-# This default is duplicated (not read from a single source) in
-# build-and-publish-kits.yml, publish-artifact.yml, and hub-overview.yml's
-# own PUBLISH_KITS fallback — keep all four in step when this list changes.
-# A caller invoking this script directly without setting PUBLISH_KITS (e.g.
-# a manual local run) gets the same allow-list CI uses by default.
-PUBLISH_KITS=${PUBLISH_KITS:-'amp claude-acp claude-model-runner claude-ollama claude-sbx-statusline code-server codex-acp codex-app-server crush git-ssh-sign github-ssh hermes-agent junie kiro mise nanobot nanoclaw neovim openclaw opencode-model-runner packages-through-sfw pi playwright smolagents task trivy vale'}
 
 SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 REPO_ROOT=$(cd "$SCRIPT_DIR/.." && pwd)
@@ -73,18 +66,6 @@ emit() { echo "$1=$2" >&3; }
 # wrong value would push a kit manifest over an unrelated tag in this namespace,
 # the kit's own base image included.
 ref="${REGISTRY}/${IMAGE_NAMESPACE}/${kit}-kit"
-
-# Enforced HERE rather than only where jobs are selected, so it applies to every
-# caller. build-and-publish-kits.yml intersects its matrix with the same list to avoid
-# spawning jobs that would only refuse — but the release path selects its kit
-# from a git tag, so without this check any kit that declared a `version:` could
-# be published by tagging it, allow-list or not.
-case " ${PUBLISH_KITS} " in
-  *" ${kit} "*) ;;
-  *)
-    die "'${kit}' is not in PUBLISH_KITS (${PUBLISH_KITS}). Every kit here is pushable, so publication is opt-in — add it to the PUBLISH_KITS repository variable first."
-    ;;
-esac
 
 log "kit         : ${kit}"
 log "reference   : ${ref}:${tag}"

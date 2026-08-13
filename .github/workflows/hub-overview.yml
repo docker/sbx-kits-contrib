@@ -43,7 +43,7 @@ on:
       kit:
         description: |
           Sync only this kit. Used by build-and-publish-kits.yml after publishing it; the
-          docs trigger leaves it empty and syncs the whole allow-list.
+          docs trigger leaves it empty and syncs every discovered kit.
         type: string
         default: ""
 
@@ -69,30 +69,25 @@ jobs:
       # DRY_RUN, and the pull-request one never touches a credential.
       ready: ${{ steps.gate.outputs.ready || steps.gate-pr.outputs.ready }}
     steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
       - name: Resolve the kits to sync
         id: kits
-        # Same allow-list as publishing: a kit with no Hub repositories has no
-        # pages to sync. This default is duplicated (not read from a single
-        # source) in build-and-publish-kits.yml, publish-artifact.yml, and
-        # scripts/publish-artifact.sh's own fallback — keep all four in step
-        # when this list changes.
+        # Same discovery as publishing: every directory with a spec.yaml is a
+        # candidate. A kit with no Hub repository yet is not an error — the
+        # "Is the kit artifact's repository published?" step below skips it
+        # gracefully, the same way it skips one waiting on its first publish.
         run: |
           set -euo pipefail
           if [ -n "${ONE_KIT}" ]; then
             list=$(printf '%s' "${ONE_KIT}" | jq -R . | jq -sc .)
           else
-            list=$(printf '%s\n' ${PUBLISH_KITS} | jq -R . | jq -sc .)
+            list=$(scripts/discover-kits.sh | jq -R . | jq -sc .)
           fi
           echo "list=${list}" >> "$GITHUB_OUTPUT"
           echo "Syncing overviews for: ${list}"
         env:
           ONE_KIT: ${{ inputs.kit }}
-          PUBLISH_KITS: >-
-            ${{ vars.PUBLISH_KITS || 'amp claude-acp claude-model-runner claude-ollama
-            claude-sbx-statusline code-server codex-acp codex-app-server crush
-            git-ssh-sign github-ssh hermes-agent junie kiro mise nanobot nanoclaw
-            neovim openclaw opencode-model-runner packages-through-sfw pi playwright
-            smolagents task trivy vale' }}
 
       # Two gates, mutually exclusive, so the credential is NEVER referenced on
       # the pull-request path.
