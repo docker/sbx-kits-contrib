@@ -33,8 +33,10 @@ on:
         default: false
       publish-artifact:
         description: |
-          Whether to publish the kit ARTIFACT and sync its Hub pages. False for a
-          kit that builds an image but is not on the publish allow-list.
+          Whether to publish the kit ARTIFACT and sync its Hub pages. False only
+          on a scheduled (nightly) run — a kit's content is a pure function of
+          the commit, so a nightly re-push would only mint a new digest for
+          identical bytes.
         type: boolean
         default: false
 

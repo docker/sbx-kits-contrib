@@ -6,8 +6,8 @@ name: Build and publish kits
 #   image     builds <kit>/Dockerfile and pushes <kit>-image — only for a kit
 #             that ships one; most kits are mixins layered onto someone else's
 #             image and have nothing to build here
-#   artifact  packages the spec plus files/ and pushes <kit>-kit — every
-#             PUBLISH_KITS entry, image or not
+#   artifact  packages the spec plus files/ and pushes <kit>-kit — every kit
+#             being built this run, image or not
 #
 # The Hub repository pages are NOT set here; see hub-overview.yml.
 #
@@ -67,17 +67,6 @@ env:
   IMAGE_NAMESPACE: ${{ vars.IMAGE_NAMESPACE || 'sbx' }}
   IMAGE_TAG_LATEST: ${{ vars.IMAGE_TAG_LATEST || 'latest' }}
   PLATFORMS: ${{ vars.PLATFORMS || 'linux/amd64,linux/arm64' }}
-  # Kits published as OCI artifacts (`<kit>-kit`), space-separated. Still an
-  # allow-list rather than discovery — so a kit lands here as a deliberate
-  # decision, not automatically the moment it gets a spec.yaml — but every kit
-  # in the repo is now eligible (discovery below is by spec.yaml, not
-  # Dockerfile, and publishing a kit artifact never required an image).
-  PUBLISH_KITS: >-
-    ${{ vars.PUBLISH_KITS || 'amp claude-acp claude-model-runner claude-ollama
-    claude-sbx-statusline code-server codex-acp codex-app-server crush
-    git-ssh-sign github-ssh hermes-agent junie kiro mise nanobot nanoclaw
-    neovim openclaw opencode-model-runner packages-through-sfw pi playwright
-    smolagents task trivy vale' }}
 
 jobs:
   detect-changes:
@@ -89,9 +78,6 @@ jobs:
       # Every discovered kit, regardless of what changed — the drift check
       # validates all specs, not just the ones touched.
       all: ${{ steps.collect.outputs.all }}
-      # Kits whose ARTIFACT is published this run: the intersection of what
-      # changed with the PUBLISH_KITS allow-list.
-      artifacts: ${{ steps.collect.outputs.artifacts }}
       # Which of this run's kits have their own Dockerfile — decides per-kit
       # whether publish-one-kit.yml's `image` job runs at all.
       dockerfile-kits: ${{ steps.collect.outputs.dockerfile-kits }}
@@ -112,15 +98,7 @@ jobs:
         # it's a candidate for artifact publishing.
         run: |
           set -euo pipefail
-          # sort -u: a kit could carry both spec.yaml and spec.yml (mid-migration,
-          # say), which would otherwise list it twice and spawn two matrix legs
-          # racing to push the same tags. Same de-dup tck.yml's own discovery uses.
-          kits=$(
-            for f in */spec.yaml */spec.yml; do
-              [ -f "$f" ] || continue
-              dirname "$f"
-            done | sort -u | tr '\n' ' '
-          )
+          kits=$(scripts/discover-kits.sh | tr '\n' ' ')
           kits="${kits% }"
           echo "Discovered kits:${kits:+ }${kits:-(none)}"
           echo "kits=${kits}" >> "$GITHUB_OUTPUT"
@@ -266,16 +244,6 @@ jobs:
           echo "dockerfile-kits=${dockerfile_kits:-[]}" >> "$GITHUB_OUTPUT"
           echo "Kits with their own image: ${dockerfile_kits}"
 
-          # Kit artifacts are published for the allow-listed kits only, and the
-          # list is intersected with what is being built rather than used
-          # directly — a kit named here but not rebuilt this run has nothing new
-          # to publish. jq does the intersection so an entry that names a
-          # non-existent kit simply drops out instead of minting an empty job.
-          allow=$(printf '%s\n' ${PUBLISH_KITS} | jq -R . | jq -sc .)
-          artifacts=$(jq -cn --argjson a "${kits:-[]}" --argjson b "${allow}" '$a - ($a - $b)')
-          echo "artifacts=${artifacts}" >> "$GITHUB_OUTPUT"
-          echo "Publishing kit artifacts for: ${artifacts}"
-
           # Date first so lexicographic order is chronological: tag listings
           # (`oras repo tags`, Hub's tag page, `docker image ls`) sort as
           # strings, and a hash-first tag sorts randomly. Date-first also makes
@@ -323,10 +291,8 @@ jobs:
       kit: ${{ matrix.kit }}
       dated: ${{ needs.detect-changes.outputs.dated }}
       has-image: ${{ contains(fromJson(needs.detect-changes.outputs.dockerfile-kits), matrix.kit) }}
-      # Not every kit that builds an image publishes its artifact: `artifacts` is
-      # `kits` intersected with the allow-list. No `schedule` either — a kit's
-      # content is a pure function of the commit, so a nightly re-push would only
-      # mint a new digest for identical bytes.
-      publish-artifact: >-
-        ${{ github.event_name != 'schedule'
-          && contains(fromJson(needs.detect-changes.outputs.artifacts), matrix.kit) }}
+      # Every kit being built publishes its artifact — no allow-list, discovery
+      # is by spec.yaml alone (see the header comment). No `schedule` either — a
+      # kit's content is a pure function of the commit, so a nightly re-push
+      # would only mint a new digest for identical bytes.
+      publish-artifact: ${{ github.event_name != 'schedule' }}

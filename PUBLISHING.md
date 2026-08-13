@@ -200,8 +200,14 @@ the pipeline holding a static credential — the org bot's
 this repo and scoped for exactly this kind of write, rather than a new
 per-repo secret.
 
-**Publication is opt-in**, via the `PUBLISH_KITS` allow-list, because every kit
-in the repo is pushable and discovery would publish all of them.
+**Publication is automatic**: every kit directory with a `spec.yaml` is a
+candidate, the same discovery every other kit-facing workflow in this repo
+uses. There is no allow-list — the real gates are upstream of publishing
+itself: a PR has to be reviewed and merged before a kit's content can change
+on `main`, and every actual push path (CI's OIDC-scoped credentials, or a
+direct local run of `scripts/publish-artifact.sh`) requires holding the org's
+real Hub credentials, which is a strictly higher bar than editing a file in
+this repo.
 
 ### Releasing a version
 
