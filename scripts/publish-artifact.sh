@@ -13,6 +13,7 @@
 #   IMAGE_TAG_LATEST  default latest        — the rolling tag MOVE_LATEST moves
 #   MOVE_LATEST       default false         — also re-point the rolling tag
 #   DRY_RUN           set to any value      — resolve and report, publish nothing
+#   PUBLISH_KITS      default (all kits, see below) — space-separated allow-list
 #
 # Emits `ref=`, `digest=`, `pushed=` and `reused=` on stdout, one per line, so CI
 # can redirect into $GITHUB_OUTPUT. Everything human goes to stderr, which keeps
@@ -36,7 +37,12 @@ IMAGE_NAMESPACE=${IMAGE_NAMESPACE:-sbx}
 IMAGE_TAG_LATEST=${IMAGE_TAG_LATEST:-latest}
 MOVE_LATEST=${MOVE_LATEST:-false}
 DRY_RUN=${DRY_RUN:-}
-PUBLISH_KITS=${PUBLISH_KITS:-kiro}
+# This default is duplicated (not read from a single source) in
+# build-and-publish-kits.yml, publish-artifact.yml, and hub-overview.yml's
+# own PUBLISH_KITS fallback — keep all four in step when this list changes.
+# A caller invoking this script directly without setting PUBLISH_KITS (e.g.
+# a manual local run) gets the same allow-list CI uses by default.
+PUBLISH_KITS=${PUBLISH_KITS:-'amp claude-acp claude-model-runner claude-ollama claude-sbx-statusline code-server codex-acp codex-app-server crush git-ssh-sign github-ssh hermes-agent junie kiro mise nanobot nanoclaw neovim openclaw opencode-model-runner packages-through-sfw pi playwright smolagents task trivy vale'}
 
 SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 REPO_ROOT=$(cd "$SCRIPT_DIR/.." && pwd)

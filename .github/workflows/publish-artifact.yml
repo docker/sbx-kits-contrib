@@ -55,9 +55,20 @@ env:
   # than discovery. Passed to the script, which enforces it — build-and-publish-kits.yml
   # also intersects its matrix with the same variable so it does not spawn jobs
   # that would only refuse, but the release path picks its kit from a git tag and
-  # has nothing to intersect. Both read the same variable; keep the defaults in
-  # step.
-  PUBLISH_KITS: ${{ vars.PUBLISH_KITS || 'kiro' }}
+  # has nothing to intersect. This default is duplicated (not read from a single
+  # source) in build-and-publish-kits.yml, hub-overview.yml, and this script's
+  # own PUBLISH_KITS fallback in scripts/publish-artifact.sh — reusable workflows
+  # don't inherit a caller's env, so each copy is load-bearing. A prior version
+  # of this file kept only 'kiro' here while the other three were widened,
+  # which made every kit's publish step hard-fail with "not in PUBLISH_KITS
+  # (kiro)" despite build-and-publish-kits.yml deciding to run it. Keep all
+  # four in step when this list changes.
+  PUBLISH_KITS: >-
+    ${{ vars.PUBLISH_KITS || 'amp claude-acp claude-model-runner claude-ollama
+    claude-sbx-statusline code-server codex-acp codex-app-server crush
+    git-ssh-sign github-ssh hermes-agent junie kiro mise nanobot nanoclaw
+    neovim openclaw opencode-model-runner packages-through-sfw pi playwright
+    smolagents task trivy vale' }}
   # Publish for real only from this repository, off a pull request, with the Hub
   # connection configured. Otherwise the script resolves and reports without
   # touching the registry, which is what makes the pull-request run meaningful.

@@ -282,6 +282,50 @@ credentials: {sources: {openai: {env: [OPENAI_API_KEY]}}}
 	}
 }
 
+// TestMigrateSpec_SchemaVersionOnlyBump is a regression test for a real kit
+// hitting a real gap: a schemaVersion "1" spec that uses only field names
+// spelled identically in both grammars (kind: mixin, requires:) plus fields
+// that are canonical v1 spellings distinct from v2 (commands:, agentContext:)
+// triggers zero deprecation warnings from spec.LoadArtifactFromBytes — those
+// two fields aren't deprecated in v1, just renamed in v2's grammar. Before the
+// fix, a.Warnings being empty was (wrongly) read as "nothing to migrate",
+// leaving the file at schemaVersion "1" forever, with the v2-invalid
+// `commands:`/`agentContext:` keys never renamed to `setup:`/
+// `agentInstructions.content`. This is exactly the shape claude-sbx-statusline
+// hit during the v2 kit migration.
+func TestMigrateSpec_SchemaVersionOnlyBump(t *testing.T) {
+	v1 := []byte(`schemaVersion: "1"
+kind: mixin
+name: t
+commands:
+  install:
+    - command: "echo hi"
+agentContext: |
+  some context
+`)
+	out, changes, err := migrateSpec(v1)
+	if err != nil {
+		t.Fatalf("migrateSpec: %v", err)
+	}
+	if len(changes) == 0 {
+		t.Fatal("expected the schemaVersion bump itself to count as a change")
+	}
+
+	got, err := spec.LoadArtifactFromBytes(out)
+	if err != nil {
+		t.Fatalf("migrated spec failed to load: %v\n%s", err, out)
+	}
+	if got.Manifest.SchemaVersion != "2" {
+		t.Errorf("schemaVersion: got %q, want \"2\"\nmigrated spec:\n%s", got.Manifest.SchemaVersion, out)
+	}
+	if !strings.Contains(string(out), "setup:") {
+		t.Errorf("migrated output did not rename commands: to setup::\n%s", out)
+	}
+	if !strings.Contains(string(out), "agentInstructions:") {
+		t.Errorf("migrated output did not rename agentContext: to agentInstructions.content:\n%s", out)
+	}
+}
+
 // TestMigrateSpec_PreservesLicensesAndMixins is a regression test for silent
 // data loss: the emitter used to be a hand-maintained struct local to this
 // tool, and it had no licenses/mixins fields — so a kit declaring either lost

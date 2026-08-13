@@ -1,22 +1,24 @@
 name: Build and publish kits
 
 # Publishes what a kit needs to be consumable: the base image its sandbox boots
-# from, and the kit artifact itself.
+# from (if it builds one), and the kit artifact itself.
 #
-# Both halves are per-kit and share one discovery pass, which is why they live in
-# one workflow — the artifact references the image, so it must not be published
-# when the image was not.
-#
-#   image     builds <kit>/Dockerfile and pushes <kit>-image
-#   artifact  packages the spec plus files/ and pushes <kit>-kit
+#   image     builds <kit>/Dockerfile and pushes <kit>-image — only for a kit
+#             that ships one; most kits are mixins layered onto someone else's
+#             image and have nothing to build here
+#   artifact  packages the spec plus files/ and pushes <kit>-kit — every
+#             PUBLISH_KITS entry, image or not
 #
 # The Hub repository pages are NOT set here; see hub-overview.yml.
 #
-# Kits are DISCOVERED, not listed: any directory with both a `spec.yaml` and a
-# `Dockerfile` is picked up automatically, so adding a kit that publishes its own
-# image needs no change to this workflow. That mirrors tck.yml, and it is the
-# reason there is no top-level `paths:` filter — all filtering happens in
-# detect-changes, which also decides which kits a given event should rebuild.
+# Kits are DISCOVERED, not listed: any directory with a `spec.yaml` is picked
+# up automatically, so adding a kit needs no change to this workflow. That
+# mirrors tck.yml, and it is the reason there is no top-level `paths:` filter —
+# all filtering happens in detect-changes, which also decides which kits a
+# given event should rebuild. Whether a discovered kit ALSO builds an image is
+# decided per-kit in publish-one-kit.yml, by whether it has a `Dockerfile` —
+# not by anything decided here, so a kit gaining or losing one needs no change
+# to this workflow either.
 #
 # Conventions a discovered kit must follow:
 #
@@ -65,16 +67,17 @@ env:
   IMAGE_NAMESPACE: ${{ vars.IMAGE_NAMESPACE || 'sbx' }}
   IMAGE_TAG_LATEST: ${{ vars.IMAGE_TAG_LATEST || 'latest' }}
   PLATFORMS: ${{ vars.PLATFORMS || 'linux/amd64,linux/arm64' }}
-  # Kits published as OCI artifacts (`<kit>-kit`), space-separated. This is an
-  # allow-list, not discovery: EVERY kit in the repo is pushable, so discovering
-  # them would publish all of them. Widen it with a repository variable once the
-  # distribution story is settled for the rest.
-  #
-  # Constraint worth knowing before widening it: entries are intersected with
-  # the kits this workflow discovers, and it discovers by Dockerfile. A kit that
-  # ships no Dockerfile therefore never appears here however it is spelled —
-  # publishing a mixin's artifact needs the discovery above widened first.
-  PUBLISH_KITS: ${{ vars.PUBLISH_KITS || 'kiro' }}
+  # Kits published as OCI artifacts (`<kit>-kit`), space-separated. Still an
+  # allow-list rather than discovery — so a kit lands here as a deliberate
+  # decision, not automatically the moment it gets a spec.yaml — but every kit
+  # in the repo is now eligible (discovery below is by spec.yaml, not
+  # Dockerfile, and publishing a kit artifact never required an image).
+  PUBLISH_KITS: >-
+    ${{ vars.PUBLISH_KITS || 'amp claude-acp claude-model-runner claude-ollama
+    claude-sbx-statusline code-server codex-acp codex-app-server crush
+    git-ssh-sign github-ssh hermes-agent junie kiro mise nanobot nanoclaw
+    neovim openclaw opencode-model-runner packages-through-sfw pi playwright
+    smolagents task trivy vale' }}
 
 jobs:
   detect-changes:
@@ -83,12 +86,15 @@ jobs:
     outputs:
       # Kits to rebuild for this event.
       kits: ${{ steps.collect.outputs.kits }}
-      # Every image-publishing kit, regardless of what changed — the drift check
+      # Every discovered kit, regardless of what changed — the drift check
       # validates all specs, not just the ones touched.
       all: ${{ steps.collect.outputs.all }}
       # Kits whose ARTIFACT is published this run: the intersection of what
       # changed with the PUBLISH_KITS allow-list.
       artifacts: ${{ steps.collect.outputs.artifacts }}
+      # Which of this run's kits have their own Dockerfile — decides per-kit
+      # whether publish-one-kit.yml's `image` job runs at all.
+      dockerfile-kits: ${{ steps.collect.outputs.dockerfile-kits }}
       # The immutable tag for kit artifacts. Computed here because a job that
       # `uses:` a reusable workflow cannot run steps, so it has nowhere to call
       # `date` — and the tag scheme is documented as <YYYYMMDD>-<sha>.
@@ -98,31 +104,35 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Discover image-publishing kits
+      - name: Discover kits
         id: discover
+        # By spec.yaml, not Dockerfile: whether a kit ALSO builds an image is
+        # decided per-kit in publish-one-kit.yml, not here — see the header
+        # comment. A kit's own Dockerfile presence has no bearing on whether
+        # it's a candidate for artifact publishing.
         run: |
           set -euo pipefail
-          kits=""
-          for f in */Dockerfile; do
-            [ -f "$f" ] || continue
-            kit=$(dirname "$f")
-            # A Dockerfile alone is not a kit; require a spec too.
-            if [ ! -f "$kit/spec.yaml" ] && [ ! -f "$kit/spec.yml" ]; then
-              continue
-            fi
-            kits="${kits} ${kit}"
-          done
-          echo "Discovered image-publishing kits:${kits:-" (none)"}"
-          echo "kits=${kits# }" >> "$GITHUB_OUTPUT"
+          # sort -u: a kit could carry both spec.yaml and spec.yml (mid-migration,
+          # say), which would otherwise list it twice and spawn two matrix legs
+          # racing to push the same tags. Same de-dup tck.yml's own discovery uses.
+          kits=$(
+            for f in */spec.yaml */spec.yml; do
+              [ -f "$f" ] || continue
+              dirname "$f"
+            done | sort -u | tr '\n' ' '
+          )
+          kits="${kits% }"
+          echo "Discovered kits:${kits:+ }${kits:-(none)}"
+          echo "kits=${kits}" >> "$GITHUB_OUTPUT"
 
       - name: Generate filters
         id: filter-setup
         # One filter per discovered kit, matching the whole kit directory minus
-        # what the image cannot depend on. Written as exclusions rather than an
-        # allowlist of sources on purpose: an allowlist silently stops matching
-        # once a Dockerfile starts COPYing a new file, leaving the published
-        # image stale until the next nightly. spec.yaml is deliberately NOT
-        # excluded — the drift check reads it.
+        # docs and test fixtures that never affect what gets published. Written
+        # as exclusions rather than an allowlist of sources on purpose: an
+        # allowlist silently stops matching once a Dockerfile starts COPYing a
+        # new file, leaving a published image stale until the next nightly.
+        # spec.yaml is deliberately NOT excluded — the drift check reads it.
         run: |
           set -euo pipefail
           filters=""
@@ -187,6 +197,25 @@ jobs:
           echo "kits=${kits:-[]}" >> "$GITHUB_OUTPUT"
           echo "Building: ${kits}"
 
+          # Which of this run's kits also build their own image — decides
+          # per-kit, in publish-one-kit.yml, whether its `image` job runs at
+          # all. Computed here (not per-matrix-leg) because it needs the
+          # checkout this job already has; a job's own `if:` can't see repo
+          # content checked out by one of its own later steps.
+          #
+          # `|| continue`, not `&&`: under `set -e`, a while loop's exit status
+          # is its last iteration's — if the LAST kit in the list has no
+          # Dockerfile, `[ -f ... ] && printf` would fail on that iteration,
+          # and pipefail would then fail the whole assignment, killing this
+          # step before it reaches the outputs below. `|| continue` always
+          # exits 0 on a false test, regardless of which iteration it's on.
+          dockerfile_kits=$(echo "${kits:-[]}" | jq -r '.[]' | while read -r k; do
+            [ -f "$k/Dockerfile" ] || continue
+            printf '%s\n' "$k"
+          done | jq -R . | jq -sc .)
+          echo "dockerfile-kits=${dockerfile_kits:-[]}" >> "$GITHUB_OUTPUT"
+          echo "Kits with their own image: ${dockerfile_kits}"
+
           # Kit artifacts are published for the allow-listed kits only, and the
           # list is intersected with what is being built rather than used
           # directly — a kit named here but not rebuilt this run has nothing new
@@ -243,6 +272,7 @@ jobs:
     with:
       kit: ${{ matrix.kit }}
       dated: ${{ needs.detect-changes.outputs.dated }}
+      has-image: ${{ contains(fromJson(needs.detect-changes.outputs.dockerfile-kits), matrix.kit) }}
       # Not every kit that builds an image publishes its artifact: `artifacts` is
       # `kits` intersected with the allow-list. No `schedule` either — a kit's
       # content is a pure function of the commit, so a nightly re-push would only

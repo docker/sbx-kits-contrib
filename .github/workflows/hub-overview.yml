@@ -72,7 +72,10 @@ jobs:
       - name: Resolve the kits to sync
         id: kits
         # Same allow-list as publishing: a kit with no Hub repositories has no
-        # pages to sync.
+        # pages to sync. This default is duplicated (not read from a single
+        # source) in build-and-publish-kits.yml, publish-artifact.yml, and
+        # scripts/publish-artifact.sh's own fallback — keep all four in step
+        # when this list changes.
         run: |
           set -euo pipefail
           if [ -n "${ONE_KIT}" ]; then
@@ -84,7 +87,12 @@ jobs:
           echo "Syncing overviews for: ${list}"
         env:
           ONE_KIT: ${{ inputs.kit }}
-          PUBLISH_KITS: ${{ vars.PUBLISH_KITS || 'kiro' }}
+          PUBLISH_KITS: >-
+            ${{ vars.PUBLISH_KITS || 'amp claude-acp claude-model-runner claude-ollama
+            claude-sbx-statusline code-server codex-acp codex-app-server crush
+            git-ssh-sign github-ssh hermes-agent junie kiro mise nanobot nanoclaw
+            neovim openclaw opencode-model-runner packages-through-sfw pi playwright
+            smolagents task trivy vale' }}
 
       # Two gates, mutually exclusive, so the credential is NEVER referenced on
       # the pull-request path.

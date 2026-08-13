@@ -23,6 +23,14 @@ on:
           that `uses:` a reusable workflow cannot run steps to call `date`.
         required: true
         type: string
+      has-image:
+        description: |
+          Whether this kit has its own Dockerfile. Computed by the caller
+          (build-and-publish-kits.yml's detect-changes), not here — a job's own `if:`
+          can't see repo content a step of that same job would check out, so
+          this can't be a `hashFiles()` check inside this workflow.
+        type: boolean
+        default: false
       publish-artifact:
         description: |
           Whether to publish the kit ARTIFACT and sync its Hub pages. False for a
@@ -52,7 +60,10 @@ env:
   PLATFORMS: ${{ vars.PLATFORMS || 'linux/amd64,linux/arm64' }}
 
 jobs:
+  # Most kits are mixins layered onto someone else's image and have nothing to
+  # build here — this job runs only for the ones that do.
   image:
+    if: inputs.has-image
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
@@ -296,7 +307,16 @@ jobs:
 
   artifact:
     needs: image
-    if: inputs.publish-artifact
+    # `!cancelled()` overrides GitHub's implicit `&& success()` on this if —
+    # needed because `image` is legitimately skipped for a kit with no
+    # Dockerfile (see `has-image` above), and a skipped need does not satisfy
+    # an implicit success check. `always()` would do the same override but
+    # also run this after the workflow run itself was cancelled; `!cancelled()`
+    # doesn't. The explicit result check below is what still refuses to run
+    # this if `image` genuinely failed.
+    if: >-
+      !cancelled() && inputs.publish-artifact &&
+      (needs.image.result == 'success' || needs.image.result == 'skipped')
     permissions:
       contents: read
       id-token: write

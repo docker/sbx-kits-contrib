@@ -1,55 +1,81 @@
-schemaVersion: "1"
+schemaVersion: "2"
 kind: mixin
 name: playwright
 displayName: Playwright
-description: "Playwright browser-automation toolchain for sandbox agents — the playwright CLI and @playwright/test v1.61.1 with Chromium, installed to a shared system browsers path so the agent user can run headless browser automation and end-to-end tests entirely inside the sandbox."
+description: Playwright browser-automation toolchain for sandbox agents — the playwright CLI and @playwright/test v1.61.1 with Chromium, installed to a shared system browsers path so the agent user can run headless browser automation and end-to-end tests entirely inside the sandbox.
+agentInstructions:
+  content: |
+    ## Playwright
 
-environment:
-  variables:
-    # Install hooks run as root but the agent runs as uid 1000, so the default
-    # per-user ~/.cache/ms-playwright would leave the browsers in root's home
-    # where the agent can't see them. A fixed system path shared by every user
-    # (the same trick the official Playwright Docker image uses) fixes that.
-    PLAYWRIGHT_BROWSERS_PATH: /opt/ms-playwright
-    # Lets `require('@playwright/test')` resolve from the global npm install
-    # in zero-config runs (a bare .spec.js with no package.json). Node only
-    # searches node_modules up the file's directory tree; NODE_PATH adds the
-    # global root as a fallback. Projects with their own node_modules are
-    # unaffected — the local copy always wins.
-    NODE_PATH: /usr/local/share/npm-global/lib/node_modules
+    playwright and @playwright/test v1.61.1 are installed globally (the
+    `playwright` CLI is on PATH). Chromium and its headless shell live in
+    /opt/ms-playwright; PLAYWRIGHT_BROWSERS_PATH points there system-wide —
+    don't unset or override it, or Playwright will look in ~/.cache and try to
+    re-download.
 
-caps:
+    - Run test suites with `npx playwright test`; drive a browser from a script
+      with `const { chromium } = require('playwright')`. Zero-config works: a
+      bare `smoke.spec.js` with no package.json resolves `@playwright/test`
+      from the global install via NODE_PATH. Projects with their own
+      node_modules use their local copy as usual.
+    - Headless only: the sandbox has no display server, so `--headed`, `--ui`,
+      and `codegen` will not work. Screenshots, PDFs, traces, and videos all
+      work headless.
+    - If a project pins a different Playwright version, its first run may need
+      the matching browser build: `npx playwright install chromium` fetches it
+      at runtime (the browser CDN domains are allowed, and /opt/ms-playwright
+      is writable).
+    - Only Chromium is installed. `npx playwright install firefox webkit` can
+      download the other engines, but their extra system libraries are not
+      installed — prefer Chromium, or extend the kit if you need cross-engine
+      runs.
+    - Sites under test must be reachable through the sandbox network policy:
+      localhost servers always work; external sites will fail with a proxy
+      error unless their domains are in the sandbox's allowed domains.
+permissions:
   network:
     allow:
       # npm packages (install time): playwright + @playwright/test tarballs.
-      - "registry.npmjs.org:443"
+      - registry.npmjs.org:443
       # Browser binaries (install time, and runtime if a project pins a
       # different Playwright version and fetches its matching build):
       # cdn.playwright.dev is the primary CDN, the prss.microsoft.com host
       # is the documented fallback Playwright rotates to on CDN failure.
-      - "cdn.playwright.dev:443"
-      - "playwright.download.prss.microsoft.com:443"
+      - cdn.playwright.dev:443
+      - playwright.download.prss.microsoft.com:443
       # On amd64, Playwright's Chromium is a "Chrome for Testing" build:
       # cdn.playwright.dev only issues a 302 redirect and the actual
       # chrome-linux64.zip is served from Google's Chrome-for-Testing bucket
       # on storage.googleapis.com. Without this, `playwright install chromium`
       # fails with a proxy 403 (Blocked by network policy) under deny-all.
       # (arm64 builds come from prss.microsoft.com instead, hence the split.)
-      - "storage.googleapis.com:443"
+      - storage.googleapis.com:443
       # `playwright install --with-deps` apt-installs Chromium's system
       # libraries. `apt-get update` refreshes every configured source, so all
       # template sources must be reachable: Ubuntu hosts amd64 packages on
       # archive/security and arm64 packages on ports.ubuntu.com, and the
       # *-docker templates pre-add Docker's apt repo.
-      - "archive.ubuntu.com:80"
-      - "security.ubuntu.com:80"
-      - "ports.ubuntu.com:80"
-      - "download.docker.com:443"
-
-commands:
+      - archive.ubuntu.com:80
+      - security.ubuntu.com:80
+      - ports.ubuntu.com:80
+      - download.docker.com:443
+environment:
+  variables:
+    # Lets `require('@playwright/test')` resolve from the global npm install
+    # in zero-config runs (a bare .spec.js with no package.json). Node only
+    # searches node_modules up the file's directory tree; NODE_PATH adds the
+    # global root as a fallback. Projects with their own node_modules are
+    # unaffected — the local copy always wins.
+    NODE_PATH: /usr/local/share/npm-global/lib/node_modules
+    # Install hooks run as root but the agent runs as uid 1000, so the default
+    # per-user ~/.cache/ms-playwright would leave the browsers in root's home
+    # where the agent can't see them. A fixed system path shared by every user
+    # (the same trick the official Playwright Docker image uses) fixes that.
+    PLAYWRIGHT_BROWSERS_PATH: /opt/ms-playwright
+setup:
   install:
-    # To bump Playwright: change PLAYWRIGHT_VERSION here and in agentContext /
-    # README. npm itself verifies the package tarballs against the sha512
+    # To bump Playwright: change PLAYWRIGHT_VERSION here and in agentInstructions
+    # / README. npm itself verifies the package tarballs against the sha512
     # integrity values in the registry metadata, so pinning the exact version
     # pins the content.
     - command: |
@@ -64,7 +90,7 @@ commands:
         ln -sf "$(command -v playwright)" /usr/local/bin/playwright
         playwright --version
       user: "0"
-      description: "Install playwright + @playwright/test v1.61.1 from registry.npmjs.org, version pinned"
+      description: Install playwright + @playwright/test v1.61.1 from registry.npmjs.org, version pinned
     - command: |
         set -euo pipefail
         export PLAYWRIGHT_BROWSERS_PATH=/opt/ms-playwright
@@ -75,33 +101,4 @@ commands:
         # project pins a different Playwright version.
         chmod -R 777 /opt/ms-playwright
       user: "0"
-      description: "Install Chromium (+ headless shell) into /opt/ms-playwright and its system libraries via apt"
-
-agentContext: |
-  ## Playwright
-
-  playwright and @playwright/test v1.61.1 are installed globally (the
-  `playwright` CLI is on PATH). Chromium and its headless shell live in
-  /opt/ms-playwright; PLAYWRIGHT_BROWSERS_PATH points there system-wide —
-  don't unset or override it, or Playwright will look in ~/.cache and try to
-  re-download.
-
-  - Run test suites with `npx playwright test`; drive a browser from a script
-    with `const { chromium } = require('playwright')`. Zero-config works: a
-    bare `smoke.spec.js` with no package.json resolves `@playwright/test`
-    from the global install via NODE_PATH. Projects with their own
-    node_modules use their local copy as usual.
-  - Headless only: the sandbox has no display server, so `--headed`, `--ui`,
-    and `codegen` will not work. Screenshots, PDFs, traces, and videos all
-    work headless.
-  - If a project pins a different Playwright version, its first run may need
-    the matching browser build: `npx playwright install chromium` fetches it
-    at runtime (the browser CDN domains are allowed, and /opt/ms-playwright
-    is writable).
-  - Only Chromium is installed. `npx playwright install firefox webkit` can
-    download the other engines, but their extra system libraries are not
-    installed — prefer Chromium, or extend the kit if you need cross-engine
-    runs.
-  - Sites under test must be reachable through the sandbox network policy:
-    localhost servers always work; external sites will fail with a proxy
-    error unless their domains are in the sandbox's allowed domains.
+      description: Install Chromium (+ headless shell) into /opt/ms-playwright and its system libraries via apt

@@ -27,20 +27,22 @@ If the spec is already v2 (no transforms apply), the script prints `no changes n
 
 ### What it migrates
 
-The script grows with the migration. Today's transforms cover **Phase 1**:
-
-| v1 spelling | v2 spelling | Notes |
-|---|---|---|
-| `kind: agent` | `kind: sandbox` | Top-level kind value |
-| `agent:` block | `sandbox:` block | Top-level YAML key |
-| `memory:` field | `agentContext:` field | Top-level YAML key |
-
-Later phases extend the script as their PRs land. See [`docs/specs/2026-05-27-unified-kit-spec-v2.md`](https://github.com/docker/sandboxes/blob/main/docs/specs/2026-05-27-unified-kit-spec-v2.md) on docker/sandboxes for the migration roadmap and which transforms each phase adds.
+The script loads a kit through the same normalization pass the engine itself
+uses, then re-emits it in v2 form — so it picks up every v1→v2 field rename
+that pass knows about, not a separately-maintained list. That includes (among
+others): `kind: agent`→`kind: sandbox`, the `agent:`→`sandbox:` block,
+`memory:`/`agentContext:`→`agentInstructions.content`, the
+`entrypoint`/`command` split, the network/credentials surfaces unifying into
+`permissions.network`/`credentials[]`, `commands:`→`setup:`, and
+`tmpfs:`/`volumes:` normalization. See
+[`spec/SPEC-v2.md`](../spec/SPEC-v2.md) for the full v1→v2 field reference,
+and [`skills/kit-author/topics/v1-migration.md`](../skills/kit-author/topics/v1-migration.md)
+for a worked-example migration walkthrough.
 
 ### What it doesn't migrate
 
-- **Engine-side workspace state** — sandboxes you've already created will have a `kits-memory/` directory in their workspace. The sandboxes engine handles that rename transparently on the next kit add/run; no need to migrate it manually.
-- **The `settings:` block** — in v2 the per-kit container-settings behavior is lifted into the kit's own `initFiles`/`commands.startup` entries, not a spec-level field. The script can't auto-translate it (the v2 replacement is kit-side setup, not spec data), so it prints the settings deprecation/lift notice when it encounters a `settings:` block and leaves the rest of the spec transformed. Lift it yourself using the built-in kits (e.g. `sandboxlib/kit/agents/{claude,codex}/spec.yaml`) as templates; see the v2 spec doc's Phase 4 plan for the recipe.
+- **Engine-side workspace state** — sandboxes you've already created will have a `kits-memory/` directory in their workspace. The engine handles that rename transparently on the next kit add/run; no need to migrate it manually.
+- **The `settings:` block** — in v2 the per-kit container-settings behavior is lifted into the kit's own `setup.install`/`setup.startup` entries, not a spec-level field. The script can't auto-translate it (the v2 replacement is kit-side setup, not spec data), so it prints the settings deprecation/lift notice when it encounters a `settings:` block and leaves the rest of the spec transformed. See `skills/kit-author/topics/v1-migration.md`'s manual-migration section for the recipe and a before/after example.
 
 ### Tests
 
@@ -131,6 +133,27 @@ the only record.
 
 On success it prints `kit=` and `version=` on stdout (diagnostics go to stderr),
 which is why `release-kit.yml` can redirect it straight into `$GITHUB_OUTPUT`.
+
+## `verify-kit-spec` — validate a kit spec, or confirm two are equivalent
+
+```bash
+go run ./scripts/verify-kit-spec ./my-kit
+go run ./scripts/verify-kit-spec ./my-kit ./my-kit-scratch-copy
+```
+
+Loads a kit through the same path `sbx kit validate`/`sbx kit inspect` use
+and fails on a validation error or a non-empty `Artifact.Warnings` — useful
+anywhere `sbx` itself isn't available to run those commands directly. With a
+second directory argument, also confirms both parse to the same spec,
+**ignoring `Artifact.Files`** — the compare directory only needs a
+`spec.yaml`, not the kit's whole `files/`/`Dockerfile`/`icons/` tree.
+
+That two-directory form is what a `migrate-v1-to-v2.go` migration should run
+after hand-restoring comments the mechanical rewrite dropped: regenerate a
+fresh, uncommented migration from the original v1 backup into a scratch
+directory containing just that `spec.yaml`, then confirm the hand-edited file
+still matches it field-for-field — proving the comment restoration didn't
+also change what the spec means.
 
 ## `check-image-ref.sh` — spec ↔ publishable image
 

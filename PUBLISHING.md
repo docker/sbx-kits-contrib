@@ -49,10 +49,12 @@ kit's image.
 | `workflow_dispatch` | yes | yes |
 | Pull request | yes | **no** |
 
-The workflow **discovers** kits rather than listing them: any directory with
-both a `spec.yaml` and a `Dockerfile` is picked up, so a new image-publishing
-kit needs no workflow change. The build context is the kit directory, with
-`Dockerfile` at its root.
+The workflow **discovers** kits rather than listing them: any directory with a
+`spec.yaml` is a candidate. Whether one also builds an image is a separate,
+per-kit question — decided by `Dockerfile` presence, not by anything the
+workflow is told — so a new image-publishing kit needs no workflow change
+either way. The build context is the kit directory, with `Dockerfile` at its
+root.
 
 The nightly run matters because these images track moving upstreams rather than
 pinned versions — agents are typically installed from a `latest` channel and

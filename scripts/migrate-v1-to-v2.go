@@ -56,6 +56,7 @@
 package main
 
 import (
+	"bytes"
 	"fmt"
 	"io"
 	"os"
@@ -79,9 +80,11 @@ func main() {
 // migrate runs the in-place migration on the spec.yaml under kitDir.
 // All progress messages are written to w; the only error condition is
 // a real I/O or contract failure (missing spec.yaml, undecodable spec,
-// refuse to clobber an existing .bak, etc.). A spec that already uses only
-// canonical v2 fields is a successful no-op: nothing is rewritten and no
-// .bak is created.
+// refuse to clobber an existing .bak, etc.). A spec that already declares
+// schemaVersion "2" and uses no deprecated fields is a successful no-op:
+// nothing is rewritten and no .bak is created. Every schemaVersion "1" spec
+// is rewritten, even one using only field names that are spelled identically
+// in both grammars (e.g. "requires:"), since the bump itself is a change.
 func migrate(kitDir string, w io.Writer) error {
 	specPath, err := findSpec(kitDir)
 	if err != nil {
@@ -148,14 +151,27 @@ func migrateSpec(data []byte) ([]byte, []string, error) {
 	// normalizeLegacySettings (in the spec package) now emits the settings:
 	// deprecation/lift notice into a.Warnings, so the dead Artifact.Settings
 	// detector that used to live here is gone — the notice flows through the
-	// warnings fold below. A spec that produced no warnings is already
-	// canonical v2: nothing to migrate. Returning before the entrypoint
-	// re-read below also means a clean v2 spec (whose entrypoint is the flat
-	// array shape, not the v1 run/args/ttyArgs mapping) is never fed to the
-	// mapping-shaped raw decoder.
+	// warnings fold below.
+	//
+	// Warnings alone aren't enough to decide there's nothing to do, though: a
+	// kit can use only canonical v1 field names (`commands:`, `agentContext:`)
+	// and trigger zero deprecation warnings while still declaring
+	// schemaVersion "1" — and those exact key names don't exist in the v2
+	// grammar at all (it wants `setup:` / `agentInstructions.content`), so
+	// leaving such a file untouched would silently leave it un-migrated. Only
+	// a spec that was ALREADY schemaVersion "2" with no warnings is a true
+	// no-op; anything else always needs at least the version bump and a
+	// canonical v2 re-emission. Returning before the entrypoint re-read below
+	// also means a clean v2 spec (whose entrypoint is the flat array shape,
+	// not the v1 run/args/ttyArgs mapping) is never fed to the mapping-shaped
+	// raw decoder.
 	changes := append([]string(nil), a.Warnings...)
-	if len(changes) == 0 {
+	alreadyV2 := a.Manifest.SchemaVersion == "2" && len(changes) == 0
+	if alreadyV2 {
 		return data, nil, nil
+	}
+	if len(changes) == 0 {
+		changes = append(changes, `schemaVersion: "1" -> "2" (no other deprecated fields in use; re-emitted in canonical v2 grammar)`)
 	}
 
 	// The spec loader flattens the sandbox entrypoint (run/args/ttyArgs) into
@@ -174,10 +190,19 @@ func migrateSpec(data []byte) ([]byte, []string, error) {
 
 	out := buildV2(a, srcSandbox)
 
-	emitted, err := yaml.Marshal(out)
-	if err != nil {
-		return nil, nil, fmt.Errorf("emit v2 spec: %w", err)
+	// 2-space indent to match every hand-written spec.yaml in this repo —
+	// yaml.Marshal's default is 4, which every migrated kit would otherwise
+	// need reformatting to fix by hand.
+	var buf bytes.Buffer
+	enc := yaml.NewEncoder(&buf)
+	enc.SetIndent(2)
+	if err := enc.Encode(out); err != nil {
+		return nil, nil, fmt.Errorf("emit v2 spec: encode: %w", err)
 	}
+	if err := enc.Close(); err != nil {
+		return nil, nil, fmt.Errorf("emit v2 spec: close: %w", err)
+	}
+	emitted := buf.Bytes()
 
 	// Safety net: the rewritten spec must parse cleanly through the same
 	// loader. A decode error here means we produced a malformed spec.yaml —
