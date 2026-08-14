@@ -20,14 +20,25 @@ credentials:
     apiKey:
       name: GH_TOKEN
       inject:
+        - domain: api.github.com
+          header: Authorization
+          format: Bearer %s
+        - domain: github.com
+          header: Authorization
+          format: Bearer %s
+  - service: copilot
+    apiKey:
+      # Copilot CLI prioritizes COPILOT_GITHUB_TOKEN over GH_TOKEN/GITHUB_TOKEN,
+      # so this can hold a separate, fine-grained PAT (copilot request scope)
+      # without affecting the broader github secret used for gh/git access.
+      # https://docs.github.com/en/copilot/how-tos/set-up/install-copilot-cli
+      name: COPILOT_GITHUB_TOKEN
+      inject:
         # https://github.blog/changelog/2026-02-13-network-configuration-changes-for-copilot-coding-agent/
         - domain: api.business.githubcopilot.com # Copilot Business
           header: Authorization
           format: Bearer %s
         - domain: api.enterprise.githubcopilot.com # Copilot Enterprise
-          header: Authorization
-          format: Bearer %s
-        - domain: api.github.com
           header: Authorization
           format: Bearer %s
         - domain: api.githubcopilot.com
@@ -39,15 +50,12 @@ credentials:
         - domain: copilot.github.com
           header: Authorization
           format: Bearer %s
-        - domain: github.com
-          header: Authorization
-          format: Bearer %s
 
 permissions:
   network:
     allow:
-      # Every domain the GH_TOKEN credential injects into — required here too,
-      # not just above: this repo's e2e runs every kit under
+      # Every domain either credential injects into — required here too, not
+      # just above: this repo's e2e runs every kit under
       # `sbx policy init deny-all`, so a domain absent from this list is
       # unreachable regardless of what the credential block declares.
       - api.business.githubcopilot.com # Copilot Business

@@ -3,7 +3,9 @@
 A standalone sandbox kit (`kind: sandbox`, `schemaVersion: "2"`) for
 [GitHub Copilot CLI](https://github.com/github/copilot-cli), GitHub's agentic
 coding CLI. The kit runs `copilot --yolo` as the entrypoint and authenticates
-through a `GH_TOKEN` the sandbox proxy injects per request.
+through two separate credentials the sandbox proxy injects per request: a
+`GH_TOKEN` for plain `gh`/git access, and a `COPILOT_GITHUB_TOKEN` for
+Copilot's own API.
 
 Copilot was previously a built-in `sbx` agent, run as `sbx run copilot`. This
 kit replaces that, and is backed by a base image built from the
@@ -12,11 +14,20 @@ kit replaces that, and is backed by a base image built from the
 
 ## Prerequisites
 
-A `GH_TOKEN` exported on your host with Copilot access. There is no
-interactive device-flow path — the proxy injects the token as a
-`Authorization: Bearer <token>` header on every request to a Copilot API host,
-so the token must already be present as a host environment variable before
-you run the kit.
+Two tokens, exported on your host, with no interactive device-flow path — the
+proxy injects each as an `Authorization: Bearer <token>` header on outbound
+requests to its matching hosts, so both must already be present as host
+environment variables before you run the kit:
+
+- `GH_TOKEN` — a classic GitHub PAT (or `gh auth token`) for plain `gh`/git
+  access, sent to `api.github.com` and `github.com`.
+- `COPILOT_GITHUB_TOKEN` — a token with Copilot access, sent to Copilot's own
+  API hosts (see [How auth works](#how-auth-works)).
+
+These have to be separate credentials: Copilot's API hosts reject a classic
+PAT, while a fine-grained PAT scoped for Copilot requests breaks plain
+`gh`/git access. One token cannot satisfy both, which is why the kit declares
+two credential services (`github` and `copilot`) instead of one.
 
 ## Usage
 
@@ -41,22 +52,34 @@ the defaults.
 
 ## How auth works
 
-The kit's `credentials` list declares one `apiKey` entry for the `github`
-service, with an `inject` rule per Copilot API host: `api.business.
-githubcopilot.com` (Business), `api.enterprise.githubcopilot.com`
-(Enterprise), `api.individual.githubcopilot.com` (Pro/Pro+),
-`api.githubcopilot.com`, `copilot.github.com`, and the plain
-`api.github.com`/`github.com` hosts. When Copilot calls one of those domains,
-the proxy adds
-`Authorization: Bearer <token>` using the `GH_TOKEN` value from your host —
-the real token never enters the sandbox.
+The kit's `credentials` list declares two `apiKey` entries:
+
+- `github`, holding `GH_TOKEN`, injected into the plain `api.github.com` and
+  `github.com` hosts — this is what `gh` and git use.
+- `copilot`, holding `COPILOT_GITHUB_TOKEN`, injected into Copilot's own API
+  hosts: `api.business.githubcopilot.com` (Business),
+  `api.enterprise.githubcopilot.com` (Enterprise),
+  `api.individual.githubcopilot.com` (Pro/Pro+), `api.githubcopilot.com`, and
+  `copilot.github.com`.
+
+Copilot CLI prioritizes `COPILOT_GITHUB_TOKEN` over `GH_TOKEN`/`GITHUB_TOKEN`
+when both are present, so the `copilot` credential can hold a separate,
+fine-grained PAT scoped for Copilot requests without affecting the broader
+`github` credential used for `gh`/git access. See [GitHub's Copilot CLI
+install docs](https://docs.github.com/en/copilot/how-tos/set-up/install-copilot-cli).
+
+When Copilot calls one of the domains above, the proxy adds
+`Authorization: Bearer <token>` using the matching credential's value from
+your host — the real token never enters the sandbox. If only `GH_TOKEN` is
+configured, plain `gh`/git access works, but calls to Copilot's own API will
+fail until `COPILOT_GITHUB_TOKEN` is set up too.
 
 ## Network policy
 
-`permissions.network.allow` mirrors every domain the credential block injects
-into, plus the apt sources the base image ships with (needed because the
-startup hook runs `apt-get update`, which fails wholesale if any configured
-source is unreachable).
+`permissions.network.allow` mirrors every domain either credential block
+injects into, plus the apt sources the base image ships with (needed because
+the startup hook runs `apt-get update`, which fails wholesale if any
+configured source is unreachable).
 
 > [!IMPORTANT]
 > This list has not been verified end-to-end under `sbx policy init deny-all`
