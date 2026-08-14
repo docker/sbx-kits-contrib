@@ -53,11 +53,11 @@ The sandbox has no display server, so `--headed`, `--ui` mode, and `codegen` won
 
 ### Why the version is pinned
 
-Kits are cached in user workflows and re-run on every sandbox creation, so a floating `latest` would make sandbox builds non-reproducible. The kit pins `playwright@1.61.1` and `@playwright/test@1.61.1`; npm verifies the downloaded tarballs against the sha512 integrity values in the registry metadata, so pinning the version pins the content. Browser builds are keyed to the Playwright version, so they're transitively pinned too. To bump: change `PLAYWRIGHT_VERSION` in `spec.yaml` and the version references in `agentContext` and this README.
+Kits are cached in user workflows and re-run on every sandbox creation, so a floating `latest` would make sandbox builds non-reproducible. The kit pins `playwright@1.61.1` and `@playwright/test@1.61.1`; npm verifies the downloaded tarballs against the sha512 integrity values in the registry metadata, so pinning the version pins the content. Browser builds are keyed to the Playwright version, so they're transitively pinned too. To bump: change `PLAYWRIGHT_VERSION` in `spec.yaml` and the version references in `agentInstructions` and this README.
 
 ### Why these domains
 
-`caps.network.allow` is the kit's complete outbound contract — CI runs e2e under a `deny-all` policy.
+`permissions.network.allow` is the kit's complete outbound contract — CI runs e2e under a `deny-all` policy.
 
 | Domain | Why |
 | --- | --- |

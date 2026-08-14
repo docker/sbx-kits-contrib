@@ -225,9 +225,29 @@ func LoadArtifactFromBytes(yamlBytes []byte) (*Artifact, error) {
 	return parseArtifactBytes(yamlBytes)
 }
 
-// LoadFromBytes parses spec.yaml bytes into a normalized SpecFile.
-// Normalization (v1 sugar folding, legacy field removal, and canonical
-// v2 shaping for marshal) happens inside this call, mirroring LoadArtifactFromBytes.
+// LoadFromBytes parses spec.yaml bytes into a normalized SpecFile using the v1
+// grammar only. Normalization (v1 sugar folding, legacy field removal) happens
+// inside this call.
+//
+// Unlike LoadArtifactFromBytes it does not fork on schemaVersion, so what happens
+// to a schemaVersion: "2" document depends on which keys it uses. Names the v1
+// grammar does not have (permissions, setup, agentInstructions) fail the strict
+// decode and return an error naming this limitation. Names v1 also has
+// (environment, credentials, sandbox) decode under the v1 shape instead, as does
+// a document carrying none of them — so a v2 spec can appear to load here. Treat
+// neither outcome as a contract: this entry point is not version-aware.
+//
+// For v2 (or version-agnostic) input, load the artifact and project it back to
+// the v2 grammar instead:
+//
+//	art, err := spec.LoadArtifactFromBytes(data)
+//	view := spec.NewV2View(art)
+//
+// V2View is the flat, YAML-shaped struct SpecFile consumers usually want — the
+// spec keys an author writes, with no nested Manifest.
+//
+// Deprecated: LoadFromBytes only understands the frozen v1 grammar. Use
+// LoadArtifactFromBytes with NewV2View.
 func LoadFromBytes(yamlBytes []byte) (*SpecFile, error) {
 	return parseSpecFileBytes(yamlBytes)
 }
@@ -312,9 +332,18 @@ func decodeSpecFile(data []byte) (SpecFile, error) {
 	return spec, nil
 }
 
+// parseSpecFileBytes decodes spec.yaml bytes with the frozen v1 grammar and
+// normalizes them. There is deliberately no schemaVersion fork here — SpecFile
+// is the v1 shape — but a v2 document failing strict decoding produces a raw
+// unknown-field error naming an internal Go type, which tells the author
+// nothing. Detect that case and say what actually happened, keeping the
+// underlying error wrapped.
 func parseSpecFileBytes(data []byte) (*SpecFile, error) {
 	spec, err := decodeSpecFile(data)
 	if err != nil {
+		if peekSchemaVersion(data) == "2" {
+			return nil, fmt.Errorf("spec: %s declares schemaVersion \"2\", which this loader does not decode — it understands the v1 grammar only; use LoadArtifactFromBytes (then NewV2View for the v2 grammar shape): %w", specFileName, err)
+		}
 		return nil, fmt.Errorf("spec: invalid %s: %w", specFileName, err)
 	}
 	w := &warnings{}

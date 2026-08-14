@@ -16,6 +16,10 @@
 #   - Sets the scoped daemon's default network policy to `deny-all` so
 #     the run is a real contract test of network.allowedDomains — the same
 #     baseline CI runs under.
+#   - For a kit that ships its own Dockerfile: builds that image and
+#     side-loads it into the scoped daemon's image store, so e2e runs against
+#     the image this working tree produces rather than a published one (or
+#     none at all). Skip with SBX_KIT_SKIP_IMAGE_LOAD=1.
 #   - Runs `go test -tags=e2e ./tck/...` with KIT_UNDER_TEST exported.
 #   - On failure, prints how to read `sbx policy log` to find the missing
 #     domains.
@@ -36,6 +40,9 @@
 # Overrides (env vars):
 #   APP_NAME — change the app-name (default: sbx-kits-contrib-tck). Must
 #              stay in sync with the Go harness's app-name if you change it.
+#   SBX_KIT_SKIP_IMAGE_LOAD — set to 1 to skip building and side-loading a
+#              Dockerfile-shipping kit's image, and use whatever the store
+#              already has (or the published image) instead.
 #   POLICY   — change the default network policy applied to the scoped
 #              daemon (default: deny-all). Set POLICY= (empty) to skip
 #              the policy step entirely.
@@ -117,6 +124,106 @@ if [ -n "$POLICY" ]; then
   echo "Initializing --app-name=$APP_NAME global policy to $POLICY"
   if ! sbx --app-name "$APP_NAME" policy init "$POLICY" >/dev/null 2>&1; then
     sbx --app-name "$APP_NAME" policy init "$POLICY"
+  fi
+fi
+
+# A kit that ships its own Dockerfile builds the image the sandbox boots from,
+# and sbx resolves that image from ITS OWN image store — not from the host's
+# Docker daemon. So for such a kit there are two independent reasons e2e can
+# fail before the kit is exercised at all:
+#
+#   1. The image was never published, so the pull 403s/404s.
+#   2. The image WAS published, but this branch changed the Dockerfile — the
+#      pull then returns the old published image and the change goes untested.
+#
+# Both are fixed the same way: build the kit's image here and side-load it into
+# the scoped daemon's store, so e2e always runs against the image this working
+# tree produces. This is the e2e counterpart of the build that scripts/test-kit.sh
+# does for the TCK; without it, a first-of-its-kind kit cannot be e2e-tested
+# until its registry repository exists.
+#
+# Only kits with a Dockerfile are affected. Set SBX_KIT_SKIP_IMAGE_LOAD=1 to
+# skip this and use whatever the store already has (or the published image).
+if [ -f "$kit_abs/Dockerfile" ] && [ -z "${SBX_KIT_SKIP_IMAGE_LOAD:-}" ]; then
+  spec_file="$kit_abs/spec.yaml"
+  [ -f "$spec_file" ] || spec_file="$kit_abs/spec.yml"
+
+  # Read sandbox.image with awk rather than a YAML parser to keep this script
+  # dependency-free (see scripts/README.md). Same extractor as test-kit.sh and
+  # check-image-ref.sh — keep the three in sync.
+  kit_image=$(awk '
+    /^sandbox:/      { in_sandbox = 1; next }
+    /^[^[:space:]#]/ { in_sandbox = 0 }
+    in_sandbox && $1 == "image:" {
+      gsub(/^[[:space:]]*image:[[:space:]]*/, "")
+      gsub(/^["'"'"']|["'"'"']$/, "")
+      print
+      exit
+    }
+  ' "$spec_file")
+
+  if [ -z "$kit_image" ]; then
+    echo "ERROR: $(basename "$kit_abs") ships a Dockerfile but declares no sandbox.image" >&2
+    exit 1
+  fi
+
+  if ! command -v docker >/dev/null 2>&1; then
+    echo "ERROR: docker is required to build $(basename "$kit_abs")'s image for e2e." >&2
+    echo "       Set SBX_KIT_SKIP_IMAGE_LOAD=1 to use the published image instead." >&2
+    exit 1
+  fi
+
+  echo "==> building $(basename "$kit_abs")/Dockerfile as ${kit_image}"
+  docker build -t "$kit_image" "$kit_abs"
+
+  # sbx imports from a tar, not from the host daemon's store, so the image has
+  # to be exported first. These tars are the whole image and can be gigabytes,
+  # so the file is removed on every path below.
+  #
+  # Deliberately NOT cleaned up via `trap ... EXIT`: this script installs an
+  # EXIT trap further down (on_exit, which prints the policy-log hint), and bash
+  # keeps only one EXIT trap — registering one here would be silently replaced
+  # and the tar would leak. Explicit removal on both the success and failure
+  # path is unambiguous.
+  # Full template path, not `mktemp -t PREFIX`: BSD/macOS mktemp treats the -t
+  # argument as a prefix and appends its own randomness, leaving any XXXXXX in
+  # the middle literal (producing e.g. `sbx-kit-image-XXXXXX.tar.ZgE4cn4lKW`),
+  # while GNU mktemp substitutes it. Passing a path template with the XXXXXX
+  # last behaves identically on both.
+  image_tar=$(mktemp "${TMPDIR:-/tmp}/sbx-kit-image-XXXXXX") || {
+    echo "ERROR: could not create a temp file for the image export" >&2
+    exit 1
+  }
+  echo "==> exporting ${kit_image} for import into the --app-name=$APP_NAME store"
+  echo "==> loading ${kit_image} into the --app-name=$APP_NAME image store"
+  load_rc=0
+  {
+    docker save "$kit_image" -o "$image_tar" &&
+      sbx --app-name "$APP_NAME" template load "$image_tar"
+  } || load_rc=$?
+  rm -f "$image_tar"
+  if [ "$load_rc" -ne 0 ]; then
+    echo "ERROR: could not load ${kit_image} into the --app-name=$APP_NAME store." >&2
+    echo "       Set SBX_KIT_SKIP_IMAGE_LOAD=1 to skip and use the published image." >&2
+    exit "$load_rc"
+  fi
+
+  # Verify the tag survived the round trip. `sbx create` resolves the spec's
+  # image reference verbatim, so if the import landed the image under a
+  # different name the test still fails at PREPARE IMAGE — with a confusing
+  # 403 rather than anything pointing here. Warn rather than fail: `template
+  # ls` output is not a contract, and a false negative here should not block a
+  # run that would otherwise work.
+  if ! sbx --app-name "$APP_NAME" template ls 2>/dev/null | grep -qF "${kit_image%%:*}"; then
+    cat >&2 <<EOF
+
+WARNING: after 'template load', '${kit_image}' was not visible in:
+  sbx --app-name $APP_NAME template ls
+
+If the run below fails at PREPARE IMAGE with a pull error, the import likely
+stored the image under a different reference. Check the list above and either
+retag before saving, or point the kit's sandbox.image at what landed.
+EOF
   fi
 fi
 

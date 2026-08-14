@@ -39,6 +39,7 @@ func NewSuiteFromDir(dir string, opts ...Option) (*Suite, error) {
 
 	suite := &Suite{
 		Artifact:               artifact,
+		Dir:                    dir,
 		ExpectedEnvVars:        deriveEnvVars(artifact.Environment),
 		ExpectedContainerFiles: deriveContainerFiles(artifact.Files, artifact.Commands),
 		ExpectedTmpfs:          deriveTmpfs(artifact.Manifest.TmpfsVolumes()),

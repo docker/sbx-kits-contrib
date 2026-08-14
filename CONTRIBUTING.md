@@ -25,6 +25,7 @@ Pick an existing kit closest in shape to what you want to build and read it end-
 
 - **[`code-server/`](./code-server)** — mixin: `extends: claude`, `initFiles` with `${WORKDIR}` substitution, shipped config in `files/`.
 - **[`amp/`](./amp)** — `kind: agent` kit: custom image, `serviceDomains`/`serviceAuth` for proxy-injected credentials, paired with a one-time `sbx secret set-custom` step.
+- **[`kiro/`](./kiro)** — `kind: sandbox` kit that builds and publishes its own image from a `Dockerfile` at the kit root. If yours does too, read [`PUBLISHING.md`](./PUBLISHING.md) before you start.
 
 ## Per-kit README
 

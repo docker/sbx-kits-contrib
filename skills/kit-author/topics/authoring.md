@@ -42,7 +42,7 @@ permissions:
       - "*.npmjs.org"
 ```
 
-See the repository [README](../../README.md#declare-every-domain-your-kit-needs) for a full walkthrough of probing under a `deny-all` policy to discover exactly which domains your install hooks touch.
+See the repository [README](../../../README.md#declare-every-domain-your-kit-needs) for a full walkthrough of probing under a `deny-all` policy to discover exactly which domains your install hooks touch.
 
 ## Recipe: mixin with a config file
 
