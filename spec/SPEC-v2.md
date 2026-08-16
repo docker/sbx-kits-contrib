@@ -698,7 +698,9 @@ now implicit on `credentials[].apiKey` (`proxyManaged: true`). Composition:
 > **Reserved prefixes (runtime constraint).** The `sbx` runtime reserves env
 > vars beginning with `DASH_`, `SBX_`, and `DOCKER_`, and may override `HOME`,
 > `USER`, `SHELL`, `PATH`, `LD_PRELOAD`, and `LD_LIBRARY_PATH`. Kits SHOULD NOT
-> set these. (Enforced by the engine, not by `ValidateArtifact`.)
+> set these. (Enforced by the engine, not by `ValidateArtifact`.) The
+> variables the runtime itself sets, which kit content MAY read, are listed in
+> [§9.5](#95-environment-injected-by-the-runtime).
 
 ### 5.6 `setup`
 
@@ -736,6 +738,8 @@ setup:
 - `startup` runs on **every** container start (create, stop/start, daemon
   restart, host reboot). Author idempotent.
 - Composition: all three lists concatenate in `--kit` order.
+- The environment these scripts run in (user model, write surface, tool
+  floor, injected variables) is specified in [§9](#9-runtime-environment).
 
 ### 5.7 `volumes`
 
@@ -866,3 +870,96 @@ legacy surface onto the canonical model this grammar targets and appends one
 path entirely. The complete per-surface mapping and the `migrate-v1-to-v2.go`
 script are documented in
 [v1 → v2 migration](../skills/kit-author/topics/v1-migration.md).
+
+---
+
+## 9. Runtime environment
+
+This section pins what kit content (install and startup scripts, `files/`
+payloads, entrypoints) MAY assume about the environment it runs in. Each
+statement is a constraint on runtimes that consume kits, in the same spirit as
+the reserved prefixes in [§5.5](#55-environment). `ValidateArtifact` checks
+none of it. A kit that assumes more than this section grants is not portable
+across conforming runtimes.
+
+### 9.1 User model
+
+Conforming runtimes provide:
+
+- a default user that is not root, named `agent`, uid `1000`, with home
+  directory `/home/agent` (the `files/home/` target of [§5.8](#58-files-directory));
+- passwordless `sudo` for that user;
+- the execution users of [§5.6](#56-setup): `setup.install` entries run as
+  root unless `user:` says otherwise, and `setup.startup` entries run as the
+  agent user unless `user:` says otherwise.
+
+### 9.2 Write surface
+
+- Install entries running as root MAY write to `/usr/local/bin`, `/opt`,
+  `/etc`, and `/tmp`.
+- `/home/agent` and the workspace belong to the agent user. A root install
+  step that writes there MUST restore ownership (for example
+  `chown -R agent:agent /home/agent/.claude`), or later writes by the agent
+  user fail.
+- Startup entries and the entrypoint run as the agent user by default and
+  MUST NOT assume root write access.
+
+### 9.3 Tool floor
+
+- Kit scripts MAY assume `sh` and `curl` exist in the image. `sh` is a hard
+  requirement: `setup.install` strings run via `sh -c` ([§5.6](#56-setup)).
+- `git`, `jq`, `node`, and `python3` are NOT part of the floor. A kit that
+  needs one MUST install it in `setup.install` or choose an image that ships
+  it.
+
+### 9.4 Architectures
+
+Kits are consumed on `amd64` and `arm64` hosts, and a kit SHOULD work on both.
+The recurring traps: download URLs that resolve per architecture, and apt
+mirrors that differ (`archive.ubuntu.com` and `security.ubuntu.com` carry
+amd64 packages, `ports.ubuntu.com` carries arm64), so egress allow lists name
+all three.
+
+### 9.5 Environment injected by the runtime
+
+The runtime injects environment variables into every container. The variable
+names below are contract; the values are owned by the runtime and opaque.
+Kit content reads the variables where it needs them and MUST NOT copy an
+observed value into a config file, script, or image: a value captured from one
+sandbox is wrong or meaningless in the next.
+
+- `SBX_CRED_<SERVICE>_MODE`: how the credential for `<SERVICE>` was resolved.
+  Values: `apikey`, `oauth`, or `none`. Injected before `setup.install` runs.
+  Read it defensively, treating unset as `none`:
+  `${SBX_CRED_MYSERVICE_MODE:-none}`.
+- The env var named by `credentials[].apiKey.name`: set to the sentinel value
+  when the credential is wired ([§5.4.1](#541-apikey)). A config file that
+  needs the value references the variable (for example
+  `"${ANTHROPIC_API_KEY}"` in a format that expands env references) instead
+  of embedding the sentinel literal.
+- `MCP_GATEWAY_URL` and `MCP_SENTINEL_TOKEN_NAME`: the MCP gateway endpoint
+  and the name of its auth sentinel. Both are absent when no gateway is
+  enabled, so a registration script MUST first test
+  `[ -n "$MCP_GATEWAY_URL" ]` and write nothing when it is empty. The TCK
+  asserts this guard and rejects registration scripts that hardcode a URL or
+  a token ([tck/mcp.go](../tck/mcp.go)).
+- Proxy and CA variables: `HTTP_PROXY`, `HTTPS_PROXY`, `NO_PROXY` (and their
+  lowercase forms), `PROXY_CA_CERT_B64`, `NODE_EXTRA_CA_CERTS`,
+  `NODE_USE_ENV_PROXY`, `SSL_CERT_FILE`, `REQUESTS_CA_BUNDLE`, `PIP_CERT`,
+  `JAVA_TOOL_OPTIONS`. Kit scripts MAY read them and re-export them into tool
+  config (for example `npm config set proxy $HTTP_PROXY`) and MUST NOT
+  overwrite them.
+
+The reserved prefixes of [§5.5](#55-environment) stay authoritative: kits do
+not set variables under `DASH_`, `SBX_`, or `DOCKER_`. This section is about
+reading what the runtime sets.
+
+### 9.6 Lifecycle
+
+- `setup.install` runs once, before the sandbox's entrypoint first runs.
+- `setup.startup` MAY run on every sandbox start (create, stop and start,
+  daemon restart, host reboot). Entries MUST be idempotent ([§5.6](#56-setup)).
+- A long-running background process started by kit content MUST be started as
+  a process group leader (for example with `setsid`), with stdio redirected
+  away from the launching script, so it outlives its setup command and can be
+  signaled as a unit.
