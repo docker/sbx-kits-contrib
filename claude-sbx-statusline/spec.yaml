@@ -1,6 +1,10 @@
 schemaVersion: "2"
 kind: mixin
 name: claude-sbx-statusline
+# Everything this kit writes lands in ~/.claude/settings.json, which only
+# Claude Code reads; on any other base agent the kit is silently inert.
+requires:
+  agent: claude
 displayName: Claude Code Status Line
 description: Adds a two-line Docker Sandboxes status line to Claude Code (host, cwd, git branch, model, context %, memory, load, cost). Ships ~/.claude/statusline.sh and sets the statusLine key in ~/.claude/settings.json, merging so every other setting is preserved (an existing statusLine is intentionally replaced, since installing this status line is the point of the kit).
 agentInstructions:

@@ -19,7 +19,9 @@ agentInstructions:
 permissions:
   network:
     allow:
-      - localhost:11434
+      # The wrapper points Claude Code at http://host.docker.internal:11434;
+      # that hostname, not localhost, is what egress filtering sees.
+      - host.docker.internal:11434
 environment:
   variables:
     CLAUDE_OLLAMA_MODEL: gemma4:e4b-it-q4_K_M

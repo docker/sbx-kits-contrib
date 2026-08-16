@@ -46,9 +46,13 @@ The kit drops `/home/agent/.nanobot/config.json` configured with:
 ```json
 {
   "agents": { "defaults": { "model": "claude-sonnet-4-20250514" } },
-  "providers": { "anthropic": { "api_key": "proxy-managed" } }
+  "providers": { "anthropic": { "api_key": "${ANTHROPIC_API_KEY}" } }
 }
 ```
+
+nanobot expands `${VAR}` references in config values at startup, so the
+config picks up whatever value the runtime put in `ANTHROPIC_API_KEY`
+for this sandbox instead of pinning one sandbox's value into the kit.
 
 The kit declares the Anthropic auth wiring (`serviceDomains`,
 `serviceAuth`, `credentials.sources.anthropic`, and

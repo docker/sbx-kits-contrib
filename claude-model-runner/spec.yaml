@@ -9,6 +9,13 @@ requires:
 displayName: Claude Code (Docker Model Runner)
 description: Route Claude Code's Anthropic API calls to a local Docker Model Runner endpoint at host.docker.internal:12434.
 
+permissions:
+  network:
+    allow:
+      # Every request this mixin reroutes goes here; without the entry the
+      # kit only works when some other kit happens to allow the host.
+      - host.docker.internal:12434
+
 environment:
   variables:
     ANTHROPIC_BASE_URL: "http://host.docker.internal:12434"

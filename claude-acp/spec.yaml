@@ -1,6 +1,10 @@
 schemaVersion: "2"
 kind: mixin
 name: claude-acp
+# The adapter execs the sandboxed Claude Code binary; composing onto any
+# other base agent yields a sandbox with an adapter and no agent behind it.
+requires:
+  agent: claude
 displayName: Claude ACP
 description: Runs the Claude ACP adapter inside a Claude sandbox over stdio.
 

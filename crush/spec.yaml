@@ -58,8 +58,17 @@ permissions:
       - api.synthetic.com
       - api.zai.com
       - v0.dev
-      - bedrock-runtime.*.amazonaws.com
-      - bedrock.*.amazonaws.com
+      # Middle-position wildcards (bedrock.*.amazonaws.com) are not part of
+      # the allow-entry grammar, so Bedrock regions are listed explicitly.
+      # Using another region? Extend both this list and the aws inject list.
+      - bedrock-runtime.us-east-1.amazonaws.com
+      - bedrock.us-east-1.amazonaws.com
+      - bedrock-runtime.us-east-2.amazonaws.com
+      - bedrock.us-east-2.amazonaws.com
+      - bedrock-runtime.us-west-2.amazonaws.com
+      - bedrock.us-west-2.amazonaws.com
+      - bedrock-runtime.eu-central-1.amazonaws.com
+      - bedrock.eu-central-1.amazonaws.com
 credentials:
   - service: anthropic
     apiKey:
@@ -74,10 +83,30 @@ credentials:
       name: AWS_ACCESS_KEY_ID
       proxyManaged: true
       inject:
-        - domain: bedrock-runtime.*.amazonaws.com
+        # Same explicit regions as the allow list above: an inject domain is
+        # matched against the request host, so a middle wildcard never fires.
+        - domain: bedrock-runtime.us-east-1.amazonaws.com
           header: Authorization
           format: AWS4-HMAC-SHA256 Credential=%s/
-        - domain: bedrock.*.amazonaws.com
+        - domain: bedrock.us-east-1.amazonaws.com
+          header: Authorization
+          format: AWS4-HMAC-SHA256 Credential=%s/
+        - domain: bedrock-runtime.us-east-2.amazonaws.com
+          header: Authorization
+          format: AWS4-HMAC-SHA256 Credential=%s/
+        - domain: bedrock.us-east-2.amazonaws.com
+          header: Authorization
+          format: AWS4-HMAC-SHA256 Credential=%s/
+        - domain: bedrock-runtime.us-west-2.amazonaws.com
+          header: Authorization
+          format: AWS4-HMAC-SHA256 Credential=%s/
+        - domain: bedrock.us-west-2.amazonaws.com
+          header: Authorization
+          format: AWS4-HMAC-SHA256 Credential=%s/
+        - domain: bedrock-runtime.eu-central-1.amazonaws.com
+          header: Authorization
+          format: AWS4-HMAC-SHA256 Credential=%s/
+        - domain: bedrock.eu-central-1.amazonaws.com
           header: Authorization
           format: AWS4-HMAC-SHA256 Credential=%s/
   - service: azure-openai

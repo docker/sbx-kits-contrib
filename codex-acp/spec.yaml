@@ -1,6 +1,10 @@
 schemaVersion: "2"
 kind: mixin
 name: codex-acp
+# The adapter execs the sandboxed Codex binary; composing onto any other
+# base agent yields a sandbox with an adapter and no agent behind it.
+requires:
+  agent: codex
 displayName: Codex ACP
 description: Runs the Codex ACP adapter inside a Codex sandbox over stdio.
 

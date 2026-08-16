@@ -53,6 +53,8 @@ setup:
       user: "0"
       description: Upgrade to Node.js 22 and install OpenClaw in detached background session (~3 minutes; .openclaw-installed flag written on completion)
   startup:
+    # The gateway binds 127.0.0.1:18789 in-container (files/home/.openclaw/openclaw.json),
+    # serving only the local chat entrypoint; a loopback bind is not host-publishable, so no ports: entry.
     - command:
         - sh
         - -c
