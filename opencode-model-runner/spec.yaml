@@ -9,6 +9,14 @@ sandbox:
     - opencode
 agentInstructions:
   filename: AGENTS.md
+permissions:
+  network:
+    allow:
+      # The provider baseURL every model request hits.
+      - host.docker.internal:12434
+      # OpenCode installs the opencode-models-discovery plugin from npm at
+      # startup; packument and tarball both come from this host.
+      - registry.npmjs.org
 setup:
   files:
     - path: /home/agent/.config/opencode/opencode.json
