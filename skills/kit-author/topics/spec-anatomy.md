@@ -214,9 +214,8 @@ Per-entry fields:
 | `provider` | conditional | Explicit provider registry entry. Only needed when `service` doesn't match a known provider — sets the auth defaults the registry would otherwise derive from the name. |
 | `apiKey` | conditional | api-key shape (see below). |
 | `oauth` | conditional | OAuth shape (see below). |
-| `sshAgent` | no | SSH-agent forwarding (P2 — see below). |
 
-For custom services not in the provider registry, **at least one** of `apiKey.inject`, `oauth`, or `sshAgent` MUST be specified.
+For custom services not in the provider registry, **at least one** of `apiKey.inject` or `oauth` MUST be specified.
 
 ### api-key shape
 
@@ -257,7 +256,7 @@ credentials:
 
 `bearer` supplies `header: Authorization` only when you left `header` empty, so writing an explicit `header:` alongside it still wins. `basic` is username-driven at the proxy rather than a header encoding, so it sets no `header` at all — write one yourself if the service needs a specific one.
 
-**Validation:** every `apiKey.inject[].domain` MUST appear in `permissions.network.allow`. The spec library rejects a kit whose injection domain isn't allow-listed — there is no auto-derived egress from credentials.
+**Enforcement:** every `apiKey.inject[].domain` MUST appear in `permissions.network.allow`. There is no auto-derived egress from credentials. The spec validator does not cross-check the two lists; the engine enforces the rule, and a missing domain surfaces at load or sandbox-create time (SPEC-v2 §6).
 
 ### OAuth shape
 
@@ -283,39 +282,15 @@ credentials:
         expiresIn: "expires_in"
         scope: "scope"
       # passthrough: true                          # opt-out of sentinel masking — see below
-      # passthroughReason: "..."                   # REQUIRED when passthrough is set
 ```
 
 **`credentialFile.structure`** is a declarative JSON map with `{{.AccessToken}}` / `{{.RefreshToken}}` / `{{.ExpiresAt}}` / `{{.Scopes}}` placeholders. `ExpiresAt` is a Unix-millisecond timestamp. The engine encodes the map as JSON, then substitutes placeholders — output is guaranteed well-formed.
 
 **`responseFields`** maps logical OAuth token field names to the actual JSON field names returned by the token endpoint. Defaults match the OAuth 2.0 RFC (`access_token`, `refresh_token`, `expires_in`, `scope`); set explicit overrides for providers that use camelCase or vendor-specific names.
 
-**`passthrough: true`** bypasses sentinel masking — the proxy returns the real OAuth response to the container instead of swapping in sentinels. This is a security downgrade (the container sees the real token). Required companion: `passthroughReason` — a non-empty string explaining why passthrough is needed (typically: provider returns a JWT the agent must inspect locally). The spec library validates that `passthroughReason` is set whenever `passthrough: true`.
+**`passthrough: true`** bypasses sentinel masking: the proxy returns the real OAuth response to the container instead of swapping in sentinels. This is a security downgrade (the container sees the real token), so say why the kit needs it in the PR description; the typical reason is a provider that returns a JWT the agent must inspect locally. When `passthrough: true`, the validator stops requiring `sentinels`. There is no `passthroughReason` field in the schema.
 
 A credential entry can declare **both** `apiKey` and `oauth`. The precedence rule is: **api key wins when found**. If no API key value is present on the host, the user can authenticate via OAuth (e.g. `/login`). Setting both lets the kit support either auth method without the kit author choosing one.
-
-### SSH-agent shape (P2)
-
-For services that authenticate via SSH (e.g. `git push` over SSH). Keys remain on the host — the container can request SSH operations through the agent socket but cannot extract key material.
-
-```yaml
-credentials:
-  - service: github-ssh
-    sshAgent:
-      hosts:                                       # required — SSH destinations, format host:port
-        - github.com:22
-        - github.com:443                           # GitHub's HTTPS-over-SSH port
-      identities:                                  # optional — restrict to specific key fingerprints
-        - "SHA256:abc123..."
-
-permissions:
-  network:
-    allow:                                         # MUST include every host listed in sshAgent.hosts
-      - github.com:22
-      - github.com:443
-```
-
-Every `sshAgent.hosts` entry MUST also appear in `permissions.network.allow` — the spec validator rejects mismatches.
 
 ## `permissions` — capability grants
 

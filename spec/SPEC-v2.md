@@ -548,8 +548,7 @@ Rules:
   Overlap between the lists is **legal** (a parent may allow `*.example.com`
   while a child denies `telemetry.example.com`).
 - **All-egress-declared.** Every domain a credential injects into
-  (`credentials[].apiKey.inject[].domain`) and every SSH host
-  (`credentials[].sshAgent.hosts[]`) **MUST** appear in
+  (`credentials[].apiKey.inject[].domain`) **MUST** appear in
   `permissions.network.allow`. The engine does not auto-derive egress.
 - Composition: `allow` and `deny` lists append across kits.
 
@@ -586,7 +585,6 @@ never declare discovery.
 | `provider` | optional | Forward-compat stub for the provider registry; warns and has no effect. |
 | `apiKey` | conditional | api-key shape ([§5.4.1](#541-apikey)). |
 | `oauth` | conditional | OAuth shape ([§5.4.2](#542-oauth)). |
-| `sshAgent` | conditional | SSH-agent forwarding ([§5.4.3](#543-sshagent)). |
 
 An entry MAY declare both `apiKey` and `oauth`; at runtime the API key wins when
 present, with OAuth as the fallback.
@@ -654,7 +652,7 @@ credentials:
         refreshToken: "refresh_token"
         expiresIn: "expires_in"
         scope: "scope"
-      skipIfEnv: []                      # optional — skip OAuth when these env vars are present
+      skipIfEnv: []                      # accepted at decode time; no effect for v2 kits (see below)
       passthrough: false                 # optional — opt out of sentinel masking (security downgrade)
 ```
 
@@ -663,25 +661,21 @@ credentials:
   placeholders. The engine encodes the map as JSON, then substitutes — output is
   guaranteed well-formed. The free-form `credentialFile.template` (Go
   `text/template`) is **deprecated**; when both are set, `structure` wins.
+- `skipIfEnv` is a v1-era field. The v2 decoder accepts it so migrated specs
+  load unchanged, but the binding-driven credential resolution that
+  `schemaVersion: "2"` selects (see §1.3) never consults it: a host env var
+  must not override the user's binding. For conditional behavior, declare both
+  `apiKey` and `oauth`; the API key wins when present.
 - `passthrough: true` returns the real token to the container instead of a
-  sentinel — a security downgrade, flagged with a warning at load.
+  sentinel. This is a security downgrade: the container sees the real token.
 
-#### 5.4.3 `sshAgent`
+#### 5.4.3 Reserved
 
-For services that authenticate over SSH. Keys stay on the host.
-
-```yaml
-credentials:
-  - service: github-ssh
-    sshAgent:
-      hosts:                             # REQUIRED — host:port SSH destinations
-        - github.com:22
-        - github.com:443
-      identities:                        # optional — restrict to key fingerprints
-        - "SHA256:abc123..."
-```
-
-Every `hosts` entry MUST also appear in `permissions.network.allow`.
+An earlier draft of this section described an `sshAgent` credential mechanism.
+No such field exists in the schema: `Credential` carries only the members
+listed in [§5.4](#54-credentials), and strict decoding ([§1.2](#12-strict-decoding))
+rejects a spec that declares `sshAgent:`. The section number is reserved for a
+future revision.
 
 ### 5.5 `environment`
 

@@ -759,7 +759,7 @@ type OAuthPolicy struct {
 // minus Service (the service identifier comes from the parent Credential),
 // and with Passthrough replacing PassthroughResponse (renamed; same
 // semantics — Passthrough = true opts out of sentinel masking, a security
-// downgrade flagged with a warning at load time).
+// downgrade).
 //
 // A `passthroughReason: ...` field is deliberately NOT included in this
 // release. Whether passthrough should require a documented justification is
