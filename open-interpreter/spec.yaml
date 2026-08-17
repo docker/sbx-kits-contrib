@@ -99,7 +99,11 @@ setup:
     # numpy dependency has no Python 3.13 wheel. uv downloads a Python 3.12
     # standalone (~28 MB) from releases.astral.sh (already in allowedDomains)
     # automatically.
-    - command: /home/agent/.local/bin/uv tool install --python 3.12 open-interpreter
+    # --with "setuptools<81": open-interpreter still imports pkg_resources at
+    # startup, which setuptools>=81 dropped entirely (ModuleNotFoundError at
+    # runtime, not install time -- confirmed by hand). setuptools<81 still
+    # bundles it, with just a deprecation warning.
+    - command: /home/agent/.local/bin/uv tool install --with "setuptools<81" --python 3.12 open-interpreter
       user: "1000"
       description: Install Open Interpreter with Python 3.12
   startup:
