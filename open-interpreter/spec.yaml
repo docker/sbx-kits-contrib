@@ -1,0 +1,115 @@
+schemaVersion: "2"
+kind: mixin
+name: open-interpreter
+displayName: Open Interpreter
+description: "Installs Open Interpreter (the classic `interpreter` CLI) into an isolated Python venv for running LLM-generated code locally, wired for OpenAI (default) and OpenRouter through the sandbox proxy."
+sourceURL: https://github.com/OpenInterpreter/open-interpreter
+
+# OpenAI is intentionally NOT declared here: the built-in sandbox agents
+# (shell, claude, codex, ...) already ship an `openai` credential, and a kit
+# that re-declares the same service collides at compose time. Store the key
+# with `sbx secret set -g openai` and the platform proxy injects it for you.
+# OpenRouter is not a built-in service, so this kit wires it up explicitly —
+# it doubles as a single-key gateway to Claude, Llama, Mistral, and more.
+credentials:
+  - service: openrouter
+    description: "OpenRouter API key (multi-provider model gateway)"
+    apiKey:
+      name: OPENROUTER_API_KEY
+      # proxyManaged sets OPENROUTER_API_KEY to the literal "proxy-managed"
+      # sentinel inside the container so LiteLLM's OpenRouter client picks up
+      # the key from the env; the proxy swaps the sentinel for the real value
+      # on requests to openrouter.ai. Without this the env var is never set
+      # in-container and the OpenRouter path won't activate.
+      proxyManaged: true
+      inject:
+        - domain: "openrouter.ai"
+          header: Authorization
+          format: "Bearer %s"
+
+caps:
+  network:
+    allow:
+      # pip install path for open-interpreter and its dependencies.
+      - "pypi.org:443"
+      - "files.pythonhosted.org:443"
+      # OpenAI runtime endpoint used by the default gpt-4o model.
+      - "api.openai.com:443"
+      # OpenRouter gateway used by `interpreter --model openrouter/...`.
+      - "openrouter.ai:443"
+      # tiktoken downloads its BPE encoding files (e.g. o200k_base for gpt-4o)
+      # from here the first time LiteLLM/Open Interpreter counts tokens.
+      - "openaipublic.blob.core.windows.net:443"
+      # `apt-get update` refreshes every configured apt source from the base
+      # template. Keep all template sources allowed for amd64 and arm64 sandboxes.
+      - "archive.ubuntu.com:80"
+      - "security.ubuntu.com:80"
+      - "ports.ubuntu.com:80"
+      - "download.docker.com:443"
+
+environment:
+  variables:
+    OPEN_INTERPRETER_VENV: "/opt/open-interpreter"
+    OPEN_INTERPRETER_PYTHON: "/opt/open-interpreter/bin/python"
+    # Force LiteLLM to use the model-cost map bundled in its package instead of
+    # fetching it from raw.githubusercontent.com at runtime, so the kit needs no
+    # GitHub egress for normal operation.
+    LITELLM_LOCAL_MODEL_COST_MAP: "True"
+
+commands:
+  install:
+    - command: "apt-get update && apt-get install -y --no-install-recommends ca-certificates python3 python3-venv python3-pip && rm -rf /var/lib/apt/lists/*"
+      user: "0"
+      description: Install Python and venv prerequisites for Open Interpreter
+    - command: |
+        set -euo pipefail
+        OI_VERSION=0.4.2
+        python3 -m venv /opt/open-interpreter
+        /opt/open-interpreter/bin/python -m pip install --upgrade pip setuptools wheel
+        /opt/open-interpreter/bin/python -m pip install "open-interpreter==${OI_VERSION}"
+        # Expose the CLI entrypoints (both map to the same terminal interface).
+        ln -sf /opt/open-interpreter/bin/interpreter /usr/local/bin/interpreter
+        ln -sf /opt/open-interpreter/bin/i /usr/local/bin/i
+        cat > /usr/local/bin/open-interpreter-python <<'SCRIPT'
+        #!/bin/sh
+        exec /opt/open-interpreter/bin/python "$@"
+        SCRIPT
+        chmod 0755 /usr/local/bin/open-interpreter-python
+        # Smoke test with no network / no API key: --help exits 0 and the
+        # package imports. LITELLM_LOCAL_MODEL_COST_MAP keeps the import offline.
+        export LITELLM_LOCAL_MODEL_COST_MAP=True
+        interpreter --help >/dev/null
+        open-interpreter-python -c 'import interpreter, importlib.metadata; print("open-interpreter", importlib.metadata.version("open-interpreter"))'
+        # Hand the venv to the runtime agent user so it can write bytecode
+        # caches and any user-installed packages at runtime.
+        chown -R 1000:1000 /opt/open-interpreter
+      user: "0"
+      description: "Install Open Interpreter v0.4.2 into /opt/open-interpreter"
+    - command: |
+        set -euo pipefail
+        grep -qF 'OPEN_INTERPRETER_VENV' ~/.bashrc 2>/dev/null || \
+          printf '\n# Open Interpreter (added by sbx-kits-contrib/open-interpreter)\nexport OPEN_INTERPRETER_VENV=/opt/open-interpreter\nexport OPEN_INTERPRETER_PYTHON=/opt/open-interpreter/bin/python\nalias open-interpreter-python=/opt/open-interpreter/bin/python\n' >> ~/.bashrc
+      user: "1000"
+      description: Add Open Interpreter helper environment variables to interactive shells
+
+agentContext: |
+  ## Open Interpreter
+
+  This sandbox has Open Interpreter (the classic `interpreter` CLI) installed in
+  an isolated Python virtual environment at `/opt/open-interpreter`.
+
+  - Start an interactive session with `interpreter` (or the short alias `i`).
+    Add `-y` / `--auto_run` to let it execute generated code without per-step
+    confirmation — the sandbox itself is the safety boundary.
+  - Run library code with `open-interpreter-python <script.py>` (an alias for
+    `/opt/open-interpreter/bin/python`) so imports resolve against the Open
+    Interpreter venv.
+  - API keys are proxy-managed and are NOT typed inside the sandbox. They are
+    set on the host with `sbx secret set`; when a provider is configured, its
+    env var appears in-container only as the literal `proxy-managed` placeholder
+    (`OPENAI_API_KEY` and/or `OPENROUTER_API_KEY`). The host proxy swaps in the
+    real value on outbound requests.
+  - Select the model with `--model`:
+    - **OpenAI** (default, built-in credential) — e.g. `interpreter --model gpt-4o`.
+    - **OpenRouter** (this kit's credential) — a single-key gateway to many
+      providers, e.g. `interpreter --model openrouter/anthropic/claude-3.5-sonnet`.
