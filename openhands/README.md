@@ -29,11 +29,16 @@ up ahead of time:
 $ sbx secret set anthropic   # or: openai, gemini
 ```
 
-To use OpenAI or Gemini instead of the default (Anthropic), also override the model:
+To use OpenAI or Gemini instead of the default (Anthropic): there's no supported
+way to override a kit's `environment.variables` at run time, and OpenHands' CLI
+has no `--model` flag either. Once attached, edit the seeded
+`~/.openhands/settings.json`'s `llm_config.model` and restart OpenHands inside
+the sandbox:
 
 ```console
-$ sbx run --kit "docker.io/sbx/openhands-kit:latest" openhands -e LLM_MODEL=openai/gpt-4o
-$ sbx run --kit "docker.io/sbx/openhands-kit:latest" openhands -e LLM_MODEL=gemini/gemini-2.5-pro
+$ sbx run --kit "docker.io/sbx/openhands-kit:latest" openhands
+# inside the sandbox:
+$ vi ~/.openhands/settings.json   # set llm_config.model to e.g. "openai/gpt-4o"
 ```
 
 ### Optional: Tavily web search
@@ -110,11 +115,13 @@ a second container layer.
 
 ## Switching the default model
 
-The `LLM_MODEL` environment variable (litellm format: `<provider>/<model-id>`) sets
-the model. Override it without recreating the sandbox:
+`LLM_MODEL` (litellm format: `<provider>/<model-id>`) sets the kit's default,
+but there's no supported way to override a kit's `environment.variables` at
+run time. Once attached, edit `~/.openhands/settings.json`'s `llm_config.model`
+and restart OpenHands:
 
 ```console
-$ sbx run openhands -e LLM_MODEL=anthropic/claude-sonnet-4-5
+$ vi ~/.openhands/settings.json   # set llm_config.model to e.g. "anthropic/claude-sonnet-4-5"
 ```
 
 ## Cleanup
