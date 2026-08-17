@@ -60,19 +60,18 @@ environment:
     AIDER_MODEL: sonnet
 setup:
   install:
-    - command: curl -LsSf https://astral.sh/uv/install.sh | sh
-      user: "1000"
-      description: Install uv
+    # uv ships pre-installed in the shell-docker base image (/usr/local/bin/uv,
+    # already on PATH) -- no need to install it ourselves.
     # --python 3.12: the base image ships Python 3.13, but aider's numpy
     # dependency (<=1.26.x) has no Python 3.13 wheel and the base image
     # has no C compiler. uv downloads a Python 3.12 standalone (~28 MB)
     # from releases.astral.sh, which is already in permissions.network.allow.
-    - command: /home/agent/.local/bin/uv tool install --with pip --python 3.12 aider-chat
+    - command: uv tool install --with pip --python 3.12 aider-chat
       user: "1000"
       description: Install Aider with Python 3.12
   startup:
     - command:
-        - /home/agent/.local/bin/uv
+        - uv
         - tool
         - upgrade
         - aider-chat
