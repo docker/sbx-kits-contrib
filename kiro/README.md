@@ -18,6 +18,12 @@ authenticates only via device flow, which needs a browser on your host.
 ## Usage
 
 ```console
+$ sbx run --kit "docker.io/sbx/kiro-kit:latest" kiro
+```
+
+Or from a git URL targeting this repo:
+
+```console
 $ sbx run --kit "git+https://github.com/docker/sbx-kits-contrib.git#dir=kiro" kiro
 ```
 
@@ -25,12 +31,6 @@ Or with a local clone of this repo:
 
 ```console
 $ sbx run --kit ./kiro/ kiro
-```
-
-Or from its published OCI artifact on Docker Hub:
-
-```console
-$ sbx run --kit "docker.io/sbx/kiro-kit:latest" kiro
 ```
 
 The trailing `kiro` is required, not redundant: for `kind: sandbox` kits, `sbx`

@@ -7,17 +7,17 @@ and exposes the upstream `smolagent` and `webagent` CLIs on `PATH`.
 
 ## Usage
 
-Pair it with whichever sandbox agent you want to work from:
+Pair it with whichever sandbox agent you want to work from, from its published OCI artifact on Docker Hub:
+
+```console
+$ sbx run claude --kit "docker.io/sbx/smolagents-kit:latest" ~/my-project
+```
+
+Or from a git URL targeting this repo:
 
 ```console
 $ sbx run shell --kit "git+https://github.com/docker/sbx-kits-contrib.git#dir=smolagents" ~/my-project
 $ sbx run claude --kit "git+https://github.com/docker/sbx-kits-contrib.git#dir=smolagents" ~/my-project
-```
-
-Or from its published OCI artifact on Docker Hub:
-
-```console
-$ sbx run claude --kit "docker.io/sbx/smolagents-kit:latest" ~/my-project
 ```
 
 Once attached, the command-line tools are available:

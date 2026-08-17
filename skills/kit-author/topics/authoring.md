@@ -249,14 +249,15 @@ For changes that affect immutable container settings (privileged, volumes, tmpfs
 ## Before opening a PR
 
 Your kit's `README.md` **Usage** section needs three ways to run it, not just
-the git-URL and local-path forms shown in the recipes above: also add the
+the git-URL and local-path forms shown in the recipes above: lead with the
 published-OCI-artifact form, `docker.io/sbx/<kit>-kit:latest` — publishing is
 automatic and needs no opt-in (see [`PUBLISHING.md`](../../../PUBLISHING.md)),
-so the artifact exists the moment this PR merges to `main`. Match the
-invocation your kit already uses (agent name as the argument for `kind:
-sandbox`, `sbx run <agent> --kit <ref> [path]` for `kind: mixin`) — only the
-`--kit` value changes. See any existing kit's README for the pattern, and
-[CONTRIBUTING.md](../../../CONTRIBUTING.md#per-kit-readme) for the full
+so the artifact exists the moment this PR merges to `main`, which makes it the
+primary way to consume the kit — then the git-URL form, then the local-path
+form. Match the invocation your kit already uses (agent name as the argument
+for `kind: sandbox`, `sbx run <agent> --kit <ref> [path]` for `kind: mixin`) —
+only the `--kit` value changes. See any existing kit's README for the
+pattern, and [CONTRIBUTING.md](../../../CONTRIBUTING.md#per-kit-readme) for the full
 per-kit README convention.
 
 CI on the repo skips the e2e legs (`e2e-release`, `e2e-nightly`) for fork PRs (Docker Hub secrets aren't exposed to fork-triggered workflows). Run e2e locally before you ask for review:

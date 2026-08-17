@@ -12,6 +12,12 @@ starting OneCLI/Postgres, and walking through NanoClaw setup.
 ## Usage
 
 ```console
+$ sbx run --name nanoclaw --kit "docker.io/sbx/nanoclaw-kit:latest" nanoclaw
+```
+
+Or from a git URL targeting this repository:
+
+```console
 $ sbx run --name nanoclaw --kit "git+https://github.com/docker/sbx-kits-contrib.git#dir=nanoclaw" nanoclaw
 ```
 
@@ -19,12 +25,6 @@ Or with a local clone of this repository:
 
 ```console
 $ sbx run --name nanoclaw --kit ./nanoclaw nanoclaw
-```
-
-Or from its published OCI artifact on Docker Hub:
-
-```console
-$ sbx run --name nanoclaw --kit "docker.io/sbx/nanoclaw-kit:latest" nanoclaw
 ```
 
 The `--name nanoclaw` flag gives the sandbox a stable name for follow-up

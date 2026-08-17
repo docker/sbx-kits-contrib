@@ -31,6 +31,12 @@ You only need keys for the providers you intend to use.
 ## Usage
 
 ```console
+$ sbx run --kit "docker.io/sbx/crush-kit:latest" crush
+```
+
+Or from a git URL targeting this repo:
+
+```console
 $ sbx run --kit "git+https://github.com/docker/sbx-kits-contrib.git#dir=crush" crush
 ```
 
@@ -38,12 +44,6 @@ Or with a local clone of this repo:
 
 ```console
 $ sbx run --kit ./crush/ crush
-```
-
-Or from its published OCI artifact on Docker Hub:
-
-```console
-$ sbx run --kit "docker.io/sbx/crush-kit:latest" crush
 ```
 
 The first launch installs Crush via the Charm apt repository and applies

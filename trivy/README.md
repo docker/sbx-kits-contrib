@@ -23,20 +23,20 @@ and the install is digest-pinned against tag-rewrite attacks.
 
 ```console
 $ cd ~/work/some-project
-$ sbx run --kit "git+https://github.com/docker/sbx-kits-contrib.git#dir=trivy" trivy .
+$ sbx run --kit "docker.io/sbx/trivy-kit:latest" trivy .
 agent@trivy-some-project:/Users/mark/work/some-project$ trivy fs .
+```
+
+Or from a git URL targeting this repo:
+
+```console
+$ sbx run --kit "git+https://github.com/docker/sbx-kits-contrib.git#dir=trivy" trivy .
 ```
 
 Or with a local clone of this repo:
 
 ```console
 $ sbx run --kit ./trivy/ trivy .
-```
-
-Or from its published OCI artifact on Docker Hub:
-
-```console
-$ sbx run --kit "docker.io/sbx/trivy-kit:latest" trivy .
 ```
 
 The first launch downloads, verifies, and installs Trivy. Subsequent

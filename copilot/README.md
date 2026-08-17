@@ -32,6 +32,12 @@ two credential services (`github` and `copilot`) instead of one.
 ## Usage
 
 ```console
+$ sbx run --kit "docker.io/sbx/copilot-kit:latest" copilot
+```
+
+Or from a git URL targeting this repo:
+
+```console
 $ sbx run --kit "git+https://github.com/docker/sbx-kits-contrib.git#dir=copilot" copilot
 ```
 
@@ -39,12 +45,6 @@ Or with a local clone of this repo:
 
 ```console
 $ sbx run --kit ./copilot/ copilot
-```
-
-Or from its published OCI artifact on Docker Hub:
-
-```console
-$ sbx run --kit "docker.io/sbx/copilot-kit:latest" copilot
 ```
 
 The trailing `copilot` is required, not redundant: for `kind: sandbox` kits,

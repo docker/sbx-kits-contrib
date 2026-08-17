@@ -21,14 +21,14 @@ cost-free experimentation, or testing custom local models with the OpenCode UI.
 ## Usage
 
 ```console
-$ sbx run --kit "git+https://github.com/docker/sbx-kits-contrib.git#dir=opencode-model-runner" opencode-model-runner ~/my-project
-$ sbx run --kit ./opencode-model-runner/ opencode-model-runner ~/my-project
+$ sbx run --kit "docker.io/sbx/opencode-model-runner-kit:latest" opencode-model-runner ~/my-project
 ```
 
-Or from its published OCI artifact on Docker Hub:
+Or from a git URL or a local clone of this repo:
 
 ```console
-$ sbx run --kit "docker.io/sbx/opencode-model-runner-kit:latest" opencode-model-runner ~/my-project
+$ sbx run --kit "git+https://github.com/docker/sbx-kits-contrib.git#dir=opencode-model-runner" opencode-model-runner ~/my-project
+$ sbx run --kit ./opencode-model-runner/ opencode-model-runner ~/my-project
 ```
 
 The agent name passed to `sbx run` (`opencode-model-runner`) matches the

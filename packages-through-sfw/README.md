@@ -12,7 +12,13 @@ Enterprise or a forked kit with the right network and credential wiring.
 
 ## Usage
 
-Run it with any agent kit or built-in agent:
+Run it with any agent kit or built-in agent, from its published OCI artifact on Docker Hub:
+
+```console
+$ sbx run --kit "docker.io/sbx/packages-through-sfw-kit:latest" <agent>
+```
+
+Or from a git URL targeting this repo:
 
 ```console
 $ sbx run --kit "git+https://github.com/docker/sbx-kits-contrib.git#dir=packages-through-sfw" <agent>
@@ -22,12 +28,6 @@ For local development, point `--kit` at this directory:
 
 ```console
 $ sbx run --kit ./packages-through-sfw/ <agent>
-```
-
-Or from its published OCI artifact on Docker Hub:
-
-```console
-$ sbx run --kit "docker.io/sbx/packages-through-sfw-kit:latest" <agent>
 ```
 
 After the sandbox starts, package-manager commands invoked by name are routed

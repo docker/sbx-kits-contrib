@@ -38,16 +38,16 @@ kit can refresh its Codex auth files.
 
 ## Usage
 
-Create a sandbox:
-
-```console
-$ sbx create --kit "git+https://github.com/docker/sbx-kits-contrib.git#dir=codex-acp" --name my-task codex /path/to/task
-```
-
-Or from its published OCI artifact on Docker Hub:
+Create a sandbox from its published OCI artifact on Docker Hub:
 
 ```console
 $ sbx create --kit "docker.io/sbx/codex-acp-kit:latest" --name my-task codex /path/to/task
+```
+
+Or from a git URL targeting this repo:
+
+```console
+$ sbx create --kit "git+https://github.com/docker/sbx-kits-contrib.git#dir=codex-acp" --name my-task codex /path/to/task
 ```
 
 Run the adapter over stdio:

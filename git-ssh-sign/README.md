@@ -17,16 +17,16 @@ On the host, load your SSH key into the agent:
 $ ssh-add ~/.ssh/id_ed25519
 ```
 
-Then start the sandbox with the kit attached:
-
-```console
-$ sbx run claude --kit "git+https://github.com/docker/sbx-kits-contrib.git#dir=git-ssh-sign" ~/my-project
-```
-
-Or from its published OCI artifact on Docker Hub:
+Then start the sandbox with the kit attached, from its published OCI artifact on Docker Hub:
 
 ```console
 $ sbx run claude --kit "docker.io/sbx/git-ssh-sign-kit:latest" ~/my-project
+```
+
+Or from a git URL targeting this repo:
+
+```console
+$ sbx run claude --kit "git+https://github.com/docker/sbx-kits-contrib.git#dir=git-ssh-sign" ~/my-project
 ```
 
 Inside the sandbox, verify that the forwarded agent exposes your key:

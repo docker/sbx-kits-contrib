@@ -54,6 +54,12 @@ $ sbx secret set-custom -g \
 ## Usage
 
 ```console
+$ sbx run --kit "docker.io/sbx/hermes-agent-kit:latest" hermes-agent
+```
+
+Or from a git URL targeting this repo:
+
+```console
 $ sbx run --kit "git+https://github.com/docker/sbx-kits-contrib.git#dir=hermes-agent" hermes-agent
 ```
 
@@ -61,12 +67,6 @@ Or with a local clone of this repo:
 
 ```console
 $ sbx run --kit ./hermes-agent/ hermes-agent
-```
-
-Or from its published OCI artifact on Docker Hub:
-
-```console
-$ sbx run --kit "docker.io/sbx/hermes-agent-kit:latest" hermes-agent
 ```
 
 Once inside the agent, use `hermes model` to choose a provider and model, then
