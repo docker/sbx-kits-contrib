@@ -42,10 +42,18 @@ permissions:
       # npm: OI can write and run JS
       - registry.npmjs.org
       - '*.npmjs.org'
-      # apt: OI can run shell commands that install system packages
+      # apt: OI can run shell commands that install system packages, and the
+      # kit's own gcc/python3-dev install needs `apt-get update` to succeed
+      # against every configured source -- it fails on the first one that
+      # doesn't resolve, even if the package itself comes from elsewhere.
+      # Ubuntu hosts amd64 packages on archive/security and arm64 packages on
+      # ports.ubuntu.com; download.docker.com is pre-added by the *-docker
+      # base templates.
       - deb.debian.org
       - archive.ubuntu.com
       - security.ubuntu.com
+      - ports.ubuntu.com
+      - download.docker.com
       # LiteLLM model info and routing
       - '*.litellm.ai'
 credentials:
