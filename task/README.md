@@ -17,6 +17,12 @@ For local development, point `--kit` at this directory:
 $ sbx run --kit ./task/ claude
 ```
 
+Or from its published OCI artifact on Docker Hub:
+
+```console
+$ sbx run --kit "docker.io/sbx/task-kit:latest" claude
+```
+
 After the sandbox starts, `task` is available on `PATH`:
 
 ```console

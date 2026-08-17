@@ -20,6 +20,12 @@ Or with a local clone of this repo:
 $ sbx run --kit ./openclaw/ openclaw
 ```
 
+Or from its published OCI artifact on Docker Hub:
+
+```console
+$ sbx run --kit "docker.io/sbx/openclaw-kit:latest" openclaw
+```
+
 The kit auto-launches the openclaw gateway in the background on
 loopback port `18789` (token-authenticated; the token is generated
 on first run and stored in `/home/agent/.openclaw/openclaw.json`).

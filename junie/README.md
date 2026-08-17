@@ -40,6 +40,12 @@ Or with a local clone of this repo:
 $ sbx run --kit ./junie/ junie
 ```
 
+Or from its published OCI artifact on Docker Hub:
+
+```console
+$ sbx run --kit "docker.io/sbx/junie-kit:latest" junie
+```
+
 The first launch installs Junie via its official install script. Subsequent launches reuse the sandbox.
 
 ## How auth works

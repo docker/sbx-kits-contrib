@@ -55,6 +55,12 @@ Or with a local clone of this repo:
 $ sbx run --kit ./amp/ amp
 ```
 
+Or from its published OCI artifact on Docker Hub:
+
+```console
+$ sbx run --kit "docker.io/sbx/amp-kit:latest" amp
+```
+
 The first launch installs Amp via its `curl | bash` script and applies
 the kit's network and proxy auth wiring. Subsequent launches reuse the
 sandbox.

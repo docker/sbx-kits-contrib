@@ -22,7 +22,7 @@
 # namespace when REGISTRY/IMAGE_NAMESPACE move.
 #
 # The `-image` suffix is not decoration: it leaves `<namespace>/<kit>-kit` free
-# for the kit artifact itself, once kits are distributed as OCI artifacts too.
+# for the kit artifact itself, which is also distributed as an OCI artifact.
 #
 # The name is DERIVED from the kit directory rather than looked up in a table.
 # An enumerated list of expected names would be one more thing to leave stale —

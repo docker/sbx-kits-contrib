@@ -15,6 +15,12 @@ Or with a local clone:
 $ sbx run --kit ./vale/ claude
 ```
 
+Or from its published OCI artifact on Docker Hub:
+
+```console
+$ sbx run --kit "docker.io/sbx/vale-kit:latest" claude
+```
+
 Vale is on `PATH` after install. To lint a directory:
 
 ```console

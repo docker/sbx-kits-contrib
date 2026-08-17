@@ -27,6 +27,12 @@ Or with a local clone of this repo:
 $ sbx run --kit ./kiro/ kiro
 ```
 
+Or from its published OCI artifact on Docker Hub:
+
+```console
+$ sbx run --kit "docker.io/sbx/kiro-kit:latest" kiro
+```
+
 The trailing `kiro` is required, not redundant: for `kind: sandbox` kits, `sbx`
 enforces that the agent name matches the kit's own `name`.
 
@@ -102,9 +108,9 @@ The image is **`docker.io/sbx/kiro-image`**, built on
 `docker/sandbox-templates:shell-docker`, so it carries a Docker engine and
 requests Docker-in-Docker.
 
-The `-image` suffix distinguishes the base image from the kit itself: when the kit
-is published as an OCI artifact it will be `docker.io/sbx/kiro-kit`. The name is
-derived from the kit directory and enforced repo-wide — see
+The `-image` suffix distinguishes the base image from the kit itself: the kit
+itself is published as an OCI artifact at `docker.io/sbx/kiro-kit` (see
+[Usage](#usage) above). The name is derived from the kit directory and enforced repo-wide — see
 [PUBLISHING.md](../PUBLISHING.md#naming).
 
 There is no flavour suffix and no dockerless variant. The sandbox templates

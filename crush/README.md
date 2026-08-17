@@ -40,6 +40,12 @@ Or with a local clone of this repo:
 $ sbx run --kit ./crush/ crush
 ```
 
+Or from its published OCI artifact on Docker Hub:
+
+```console
+$ sbx run --kit "docker.io/sbx/crush-kit:latest" crush
+```
+
 The first launch installs Crush via the Charm apt repository and applies
 the kit's network and proxy auth wiring. Subsequent launches reuse the
 sandbox.

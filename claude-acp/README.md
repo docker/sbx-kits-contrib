@@ -43,6 +43,12 @@ Create a sandbox:
 $ sbx create --kit "git+https://github.com/docker/sbx-kits-contrib.git#dir=claude-acp" --name my-task claude /path/to/task
 ```
 
+Or from its published OCI artifact on Docker Hub:
+
+```console
+$ sbx create --kit "docker.io/sbx/claude-acp-kit:latest" --name my-task claude /path/to/task
+```
+
 Run the adapter over stdio:
 
 ```console

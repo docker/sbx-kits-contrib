@@ -41,6 +41,12 @@ Or with a local clone of this repo:
 $ sbx run --kit ./copilot/ copilot
 ```
 
+Or from its published OCI artifact on Docker Hub:
+
+```console
+$ sbx run --kit "docker.io/sbx/copilot-kit:latest" copilot
+```
+
 The trailing `copilot` is required, not redundant: for `kind: sandbox` kits,
 `sbx` enforces that the agent name matches the kit's own `name`.
 
@@ -104,8 +110,9 @@ The image is **`docker.io/sbx/copilot-image`**, built on
 `docker/sandbox-templates:shell-docker`, so it carries a Docker engine and
 requests Docker-in-Docker.
 
-The `-image` suffix distinguishes the base image from the kit itself: when the
-kit is published as an OCI artifact it will be `docker.io/sbx/copilot-kit`.
+The `-image` suffix distinguishes the base image from the kit itself: the kit
+itself is published as an OCI artifact at `docker.io/sbx/copilot-kit` (see
+[Usage](#usage) above).
 The name is derived from the kit directory and enforced repo-wide — see
 [PUBLISHING.md](../PUBLISHING.md#naming).
 

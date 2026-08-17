@@ -40,6 +40,12 @@ Or pull it straight from this repo (pinned by ref):
 $ sbx run claude --kit "git+https://github.com/docker/sbx-kits-contrib.git#dir=claude-sbx-statusline" .
 ```
 
+Or from its published OCI artifact on Docker Hub:
+
+```console
+$ sbx run claude --kit "docker.io/sbx/claude-sbx-statusline-kit:latest" .
+```
+
 ## How it works
 
 - **`files/home/.claude/statusline.sh`** is copied to `~/.claude/statusline.sh` at sandbox

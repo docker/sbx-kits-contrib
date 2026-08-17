@@ -11,6 +11,12 @@ $ sbx run claude --kit "git+https://github.com/docker/sbx-kits-contrib.git#dir=n
 $ sbx run shell  --kit "git+https://github.com/docker/sbx-kits-contrib.git#dir=neovim" ~/my-project
 ```
 
+Or from its published OCI artifact on Docker Hub:
+
+```console
+$ sbx run claude --kit "docker.io/sbx/neovim-kit:latest" ~/my-project
+```
+
 ## Bringing your own config
 
 The kit ships a minimal starter `init.lua`. To use your personal config, run the bundled `sync-config.sh` once from the kit directory:

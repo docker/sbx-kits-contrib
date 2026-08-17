@@ -21,6 +21,12 @@ Or with a local clone of this repository:
 $ sbx run --name nanoclaw --kit ./nanoclaw nanoclaw
 ```
 
+Or from its published OCI artifact on Docker Hub:
+
+```console
+$ sbx run --name nanoclaw --kit "docker.io/sbx/nanoclaw-kit:latest" nanoclaw
+```
+
 The `--name nanoclaw` flag gives the sandbox a stable name for follow-up
 commands such as `sbx exec`, `sbx policy ls`, and `sbx rm`.
 

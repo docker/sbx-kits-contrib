@@ -44,6 +44,12 @@ Create a sandbox:
 $ sbx create --kit "git+https://github.com/docker/sbx-kits-contrib.git#dir=codex-acp" --name my-task codex /path/to/task
 ```
 
+Or from its published OCI artifact on Docker Hub:
+
+```console
+$ sbx create --kit "docker.io/sbx/codex-acp-kit:latest" --name my-task codex /path/to/task
+```
+
 Run the adapter over stdio:
 
 ```console

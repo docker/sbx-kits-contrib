@@ -25,6 +25,12 @@ $ sbx run --kit "git+https://github.com/docker/sbx-kits-contrib.git#dir=claude-m
 $ sbx run --kit ./claude-model-runner/ claude ~/my-project
 ```
 
+Or from its published OCI artifact on Docker Hub:
+
+```console
+$ sbx run --kit "docker.io/sbx/claude-model-runner-kit:latest" claude ~/my-project
+```
+
 The agent name passed to `sbx run` (`claude`) is the base agent the mixin
 extends.
 

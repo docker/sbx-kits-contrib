@@ -25,6 +25,12 @@ $ sbx run --kit "git+https://github.com/docker/sbx-kits-contrib.git#dir=opencode
 $ sbx run --kit ./opencode-model-runner/ opencode-model-runner ~/my-project
 ```
 
+Or from its published OCI artifact on Docker Hub:
+
+```console
+$ sbx run --kit "docker.io/sbx/opencode-model-runner-kit:latest" opencode-model-runner ~/my-project
+```
+
 The agent name passed to `sbx run` (`opencode-model-runner`) matches the
 `name:` field in the kit's `spec.yaml`.
 

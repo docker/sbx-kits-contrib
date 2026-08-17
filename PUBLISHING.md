@@ -16,7 +16,8 @@ docker.io/sbx/<kit>-image
 ```
 
 The `-image` suffix is not decoration: it keeps `docker.io/sbx/<kit>-kit` free
-for the kit artifact itself, once kits are distributed as OCI artifacts too.
+for the kit artifact itself, which is also distributed as an OCI artifact (see
+["The kit artifact"](#the-kit-artifact) below).
 
 `scripts/check-image-ref.sh` enforces all three parts against every kit that
 ships a `Dockerfile` — the namespace, the `<kit>-image` name, and the rolling

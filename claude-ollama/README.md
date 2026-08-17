@@ -20,6 +20,12 @@ $ sbx run --kit "git+https://github.com/docker/sbx-kits-contrib.git#dir=claude-o
 $ sbx run --kit ./claude-ollama/ claude-ollama ~/my-project
 ```
 
+Or from its published OCI artifact on Docker Hub:
+
+```console
+$ sbx run --kit "docker.io/sbx/claude-ollama-kit:latest" claude-ollama ~/my-project
+```
+
 The agent name passed to `sbx run` (`claude-ollama`) matches the `name:` field in
 the kit's `spec.yaml`.
 

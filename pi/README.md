@@ -18,6 +18,12 @@ Or with a local clone of this repo:
 $ sbx run --kit ./pi/ pi
 ```
 
+Or from its published OCI artifact on Docker Hub:
+
+```console
+$ sbx run --kit "docker.io/sbx/pi-kit:latest" pi
+```
+
 The first launch installs the agent via `npm install -g`. Subsequent
 launches reuse the sandbox.
 

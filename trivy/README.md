@@ -33,6 +33,12 @@ Or with a local clone of this repo:
 $ sbx run --kit ./trivy/ trivy .
 ```
 
+Or from its published OCI artifact on Docker Hub:
+
+```console
+$ sbx run --kit "docker.io/sbx/trivy-kit:latest" trivy .
+```
+
 The first launch downloads, verifies, and installs Trivy. Subsequent
 launches reuse the sandbox; the vuln DB is cached on a persistent volume.
 

@@ -14,6 +14,12 @@ Or straight from this repository:
 $ sbx run --kit "git+https://github.com/docker/sbx-kits-contrib.git#dir=playwright" claude
 ```
 
+Or from its published OCI artifact on Docker Hub:
+
+```console
+$ sbx run claude --kit "docker.io/sbx/playwright-kit:latest" .
+```
+
 Prerequisites:
 
 - A base image with Node.js ≥ 18 and npm — all standard agent templates ship it. The install fails loudly with a clear message if npm is missing.

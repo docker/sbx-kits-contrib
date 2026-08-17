@@ -21,6 +21,12 @@ Or with a local clone of this repo:
 $ sbx run --kit ./nanobot/ nanobot
 ```
 
+Or from its published OCI artifact on Docker Hub:
+
+```console
+$ sbx run --kit "docker.io/sbx/nanobot-kit:latest" nanobot
+```
+
 The first launch installs nanobot via `pip install nanobot-ai` and
 runs it against the kit-shipped config at
 `/home/agent/.nanobot/config.json`. Subsequent launches reuse the

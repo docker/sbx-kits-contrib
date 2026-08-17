@@ -15,6 +15,12 @@ GitHub account. Start the sandbox with this kit attached:
 $ sbx run --kit "git+https://github.com/docker/sbx-kits-contrib.git#dir=github-ssh" claude
 ```
 
+Or from its published OCI artifact on Docker Hub:
+
+```console
+$ sbx run --kit "docker.io/sbx/github-ssh-kit:latest" claude
+```
+
 ## Usage
 
 Once the kit is installed, SSH operations to GitHub work without any

@@ -14,6 +14,12 @@ $ sbx run shell --kit "git+https://github.com/docker/sbx-kits-contrib.git#dir=sm
 $ sbx run claude --kit "git+https://github.com/docker/sbx-kits-contrib.git#dir=smolagents" ~/my-project
 ```
 
+Or from its published OCI artifact on Docker Hub:
+
+```console
+$ sbx run claude --kit "docker.io/sbx/smolagents-kit:latest" ~/my-project
+```
+
 Once attached, the command-line tools are available:
 
 ```console

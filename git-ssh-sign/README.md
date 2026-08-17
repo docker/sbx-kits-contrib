@@ -23,6 +23,12 @@ Then start the sandbox with the kit attached:
 $ sbx run claude --kit "git+https://github.com/docker/sbx-kits-contrib.git#dir=git-ssh-sign" ~/my-project
 ```
 
+Or from its published OCI artifact on Docker Hub:
+
+```console
+$ sbx run claude --kit "docker.io/sbx/git-ssh-sign-kit:latest" ~/my-project
+```
+
 Inside the sandbox, verify that the forwarded agent exposes your key:
 
 ```console

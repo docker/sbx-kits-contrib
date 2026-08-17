@@ -18,6 +18,12 @@ Pair it with the built-in `claude` agent:
 $ sbx run claude --kit "git+https://github.com/docker/sbx-kits-contrib.git#dir=code-server" ~/my-project
 ```
 
+Or from its published OCI artifact on Docker Hub:
+
+```console
+$ sbx run claude --kit "docker.io/sbx/code-server-kit:latest" ~/my-project
+```
+
 Once the sandbox is up, find the assigned host port:
 
 ```console

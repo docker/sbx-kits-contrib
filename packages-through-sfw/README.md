@@ -24,6 +24,12 @@ For local development, point `--kit` at this directory:
 $ sbx run --kit ./packages-through-sfw/ <agent>
 ```
 
+Or from its published OCI artifact on Docker Hub:
+
+```console
+$ sbx run --kit "docker.io/sbx/packages-through-sfw-kit:latest" <agent>
+```
+
 After the sandbox starts, package-manager commands invoked by name are routed
 through `sfw`:
 

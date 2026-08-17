@@ -14,6 +14,12 @@ $ sbx run shell --kit "git+https://github.com/docker/sbx-kits-contrib.git#dir=mi
 $ sbx run claude --kit "git+https://github.com/docker/sbx-kits-contrib.git#dir=mise" ~/my-project
 ```
 
+Or from its published OCI artifact on Docker Hub:
+
+```console
+$ sbx run claude --kit "docker.io/sbx/mise-kit:latest" ~/my-project
+```
+
 Once attached, any interactive shell has `mise` on PATH and shell hooks
 active:
 
