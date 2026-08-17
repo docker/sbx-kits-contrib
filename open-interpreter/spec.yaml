@@ -77,13 +77,20 @@ credentials:
           format: Bearer %s
 setup:
   install:
+    # open-interpreter's psutil dependency has no prebuilt wheel for the
+    # Python 3.12 standalone uv downloads below on some architectures
+    # (confirmed on arm64) and falls back to compiling from source, which
+    # needs a C compiler the base image doesn't ship by default.
+    - command: apt-get update -qq && apt-get install -y -qq gcc python3-dev
+      user: "0"
+      description: Install a C compiler for building Python packages with native extensions
     - command: curl -LsSf https://astral.sh/uv/install.sh | sh
       user: "1000"
       description: Install uv
     # --python 3.12: the base image ships Python 3.13, but open-interpreter's
-    # numpy dependency has no Python 3.13 wheel and the base image has no C
-    # compiler. uv downloads a Python 3.12 standalone (~28 MB) from
-    # releases.astral.sh (already in allowedDomains) automatically.
+    # numpy dependency has no Python 3.13 wheel. uv downloads a Python 3.12
+    # standalone (~28 MB) from releases.astral.sh (already in allowedDomains)
+    # automatically.
     - command: /home/agent/.local/bin/uv tool install --python 3.12 open-interpreter
       user: "1000"
       description: Install Open Interpreter with Python 3.12
