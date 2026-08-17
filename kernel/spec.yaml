@@ -19,12 +19,15 @@ permissions:
       - files.pythonhosted.org
       # @onkernel/cli's postinstall (install.js, GoReleaser-generated) downloads
       # the actual kernel binary from a GitHub release asset
-      # (github.com/kernel/cli/releases/download/...), which 302-redirects to
-      # objects.githubusercontent.com (confirmed by hand). Without these two,
-      # `npm install -g @onkernel/cli` fails under a deny-all policy even
-      # though the npm registry fetch itself succeeds.
+      # (github.com/kernel/cli/releases/download/...). The 302 redirect target
+      # isn't a fixed constant -- confirmed by hand to land on
+      # objects.githubusercontent.com once and release-assets.githubusercontent.com
+      # on a real e2e run -- so both are allowed. Without these, `npm install -g
+      # @onkernel/cli` fails under a deny-all policy even though the npm
+      # registry fetch itself succeeds.
       - github.com
       - objects.githubusercontent.com
+      - release-assets.githubusercontent.com
 credentials:
   # Narrow inject domain: only the REST API host gets auth injection.
   # A wildcard here would put the proxy into TLS-intercept mode for all
