@@ -101,15 +101,14 @@ environment:
     SANDBOX_TYPE: local
 setup:
   install:
-    - command: curl -LsSf https://astral.sh/uv/install.sh | sh
-      user: "1000"
-      description: Install uv
-    - command: /home/agent/.local/bin/uv tool install openhands
+    # uv ships pre-installed in the shell-docker base image (/usr/local/bin/uv,
+    # already on PATH) -- no need to install it ourselves.
+    - command: uv tool install openhands
       user: "1000"
       description: Install OpenHands CLI
   startup:
     - command:
-        - /home/agent/.local/bin/uv
+        - uv
         - tool
         - upgrade
         - openhands
