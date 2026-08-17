@@ -3,6 +3,7 @@ package spec
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"testing/fstest"
 
@@ -16,11 +17,14 @@ func TestLoadFromDirectory(t *testing.T) {
 
 		require.Equal(t, "sample-mixin", a.Manifest.Name)
 		require.Equal(t, KindMixin, a.Manifest.Kind)
+		require.Equal(t, "1.0.0", a.Manifest.Version)
+		require.Equal(t, "https://example.com/sample-mixin", a.Manifest.SourceURL)
 		require.Empty(t, a.Manifest.Template, "mixins have no template")
-		require.NotNil(t, a.Network)
+		require.NotNil(t, a.Requires, "sample-mixin declares base-agent affinity")
+		require.Equal(t, "sample-agent", a.Requires.Agent)
+		require.NotEmpty(t, a.PublishedPorts)
 		require.NotNil(t, a.Credentials)
 		require.NotNil(t, a.Environment)
-		require.NotNil(t, a.Settings)
 		require.NotNil(t, a.Commands)
 		require.NotEmpty(t, a.Files, "should have static files")
 	})
@@ -30,13 +34,81 @@ func TestLoadFromDirectory(t *testing.T) {
 		require.NoError(t, err)
 
 		require.Equal(t, "sample-agent", a.Manifest.Name)
-		require.Equal(t, KindAgent, a.Manifest.Kind)
+		require.Equal(t, KindSandbox, a.Manifest.Kind)
+		require.Equal(t, "1.0.0", a.Manifest.Version)
+		require.Equal(t, "https://example.com/sample-agent", a.Manifest.SourceURL)
 		require.NotEmpty(t, a.Manifest.Template, "agents must have a template")
 		require.Equal(t, "sample-bin", a.Manifest.Binary)
 		require.Equal(t, []string{"--verbose", "--task-mode"}, a.Manifest.RunOptions)
 		require.Equal(t, "SAMPLE.md", a.Manifest.AIFilename)
-		require.Equal(t, PersistenceEphemeral, a.Manifest.Persistence)
-		require.NotEmpty(t, a.Memory)
+		require.NotEmpty(t, a.AgentContext)
+
+		// v1 network.publishedPorts is promoted to the canonical top-level
+		// PublishedPorts with a deprecation warning steering authors to the
+		// v2 spelling (sample-agent-v2 shows the canonical form).
+		require.Equal(t, []PublishedPort{{Container: 8080, Protocol: "tcp", Name: "web"}}, a.PublishedPorts)
+		var sawPortWarning bool
+		for _, w := range a.Warnings {
+			if strings.Contains(w, "network.publishedPorts") {
+				sawPortWarning = true
+			}
+		}
+		require.True(t, sawPortWarning, "v1 network.publishedPorts must warn; got %v", a.Warnings)
+	})
+
+	t.Run("sample-agent-v2", func(t *testing.T) {
+		// Canonical schemaVersion 2 reference kit: exercises the full v2
+		// surface and must load with ZERO deprecation warnings.
+		a, err := LoadFromDirectory("testdata/sample-agent-v2")
+		require.NoError(t, err)
+		require.Empty(t, a.Warnings, "canonical v2 kit must not emit deprecation warnings")
+
+		require.Equal(t, "sample-agent-v2", a.Manifest.Name)
+		require.Equal(t, KindSandbox, a.Manifest.Kind)
+		require.Equal(t, "2.0.0", a.Manifest.Version)
+		require.Equal(t, "https://example.com/sample-agent-v2", a.Manifest.SourceURL)
+		require.Equal(t, "docker/sandbox-templates:shell-docker", a.Manifest.Template)
+		require.Equal(t, []string{"sandbox.image"}, a.Locked)
+
+		// Top-level publishedPorts (the v2 home): minimal, full-tcp, and udp forms.
+		require.Equal(t, []PublishedPort{
+			{Container: 9418},
+			{Container: 8080, Protocol: "tcp", Name: "web"},
+			{Container: 53, Protocol: "udp", Name: "dns"},
+		}, a.PublishedPorts)
+
+		// Egress under caps.network (not the removed network block).
+		require.NotNil(t, a.Caps)
+		require.NotNil(t, a.Caps.Network)
+		require.ElementsMatch(t, []string{"api.anthropic.com", "api.openai.com:443", "*.example.com"}, a.Caps.Network.Allow)
+		require.ElementsMatch(t, []string{"telemetry.example.com"}, a.Caps.Network.Deny)
+
+		// Unified credentials[].
+		require.Len(t, a.Credentials, 3)
+		var services []string
+		for _, c := range a.Credentials {
+			services = append(services, c.Service)
+		}
+		require.ElementsMatch(t, []string{"anthropic", "github", "workos"}, services)
+
+		// The github credential exercises the `scheme:` sugar with no explicit
+		// header:, so bearer must supply the Authorization header itself.
+		for _, c := range a.Credentials {
+			if c.Service != "github" {
+				continue
+			}
+			require.Len(t, c.ApiKey.Inject, 2)
+			require.Equal(t, "Authorization", c.ApiKey.Inject[0].Header)
+			require.Equal(t, "Bearer %s", c.ApiKey.Inject[0].Format)
+			require.Empty(t, c.ApiKey.Inject[0].Scheme)
+		}
+
+		require.Len(t, a.Manifest.Volumes, 2)
+		require.NotNil(t, a.Commands)
+		require.NotEmpty(t, a.Commands.Startup)
+		require.NotEmpty(t, a.Commands.InitFiles)
+		require.NotEmpty(t, a.AgentContext)
+		require.NotEmpty(t, a.Files, "v2 reference kit ships static files")
 	})
 
 	t.Run("missing_directory", func(t *testing.T) {
@@ -59,6 +131,20 @@ func TestLoadFromDirectory(t *testing.T) {
 		_, err := LoadFromDirectory("testdata/sample-mixin/spec.yaml")
 		require.ErrorContains(t, err, "not a directory")
 	})
+}
+
+// TestV1Settings_AbsorbedWithDeprecationWarning asserts the Phase 4 behavior:
+// a v1 `settings:` block must still PARSE under strict decoding (the
+// LegacySettings shim absorbs it) and normalize must emit a deprecation
+// warning naming `settings` — not strict-reject. The canonical
+// Artifact.Settings surface is gone (removed in Phase 4); strict-reject is the
+// Phase 6 cutover's job. The sample-mixin fixture still carries a settings:
+// block, so it exercises the shim directly.
+func TestV1Settings_AbsorbedWithDeprecationWarning(t *testing.T) {
+	a, err := LoadFromDirectory("testdata/sample-mixin")
+	require.NoError(t, err, "v1 settings: must load (absorb-and-warn), not strict-reject in Phase 4")
+	require.Contains(t, strings.Join(a.Warnings, "\n"), "settings",
+		"v1 settings: must emit a deprecation warning; got %v", a.Warnings)
 }
 
 func TestLoadFromFS(t *testing.T) {
@@ -112,6 +198,38 @@ func TestParseArtifact_InvalidYAML(t *testing.T) {
 	require.ErrorContains(t, err, "invalid")
 }
 
+// TestParseArtifact_StrictUnknownField guards the strict-decode behaviour:
+// truly unknown top-level keys (and unknown nested keys under known blocks)
+// hard-fail rather than getting silently dropped. Fields that USED to be
+// valid pre-v2 but were retired — `persistence:`, `kitDir:` — are routed
+// through the LegacyXxx + normalize.go deprecation-warning path instead;
+// their behaviour is pinned by the tests in v1_compat_test.go.
+func TestParseArtifact_StrictUnknownField(t *testing.T) {
+	t.Run("unknown_top_level_key_rejected", func(t *testing.T) {
+		dir := t.TempDir()
+		require.NoError(t, os.WriteFile(filepath.Join(dir, "spec.yaml"), []byte(`schemaVersion: "1"
+kind: mixin
+name: bogus-toplevel
+totallyBogus: yes
+`), 0o644))
+		_, err := LoadFromDirectory(dir)
+		require.ErrorContains(t, err, "totallyBogus")
+	})
+
+	t.Run("unknown_nested_key_rejected", func(t *testing.T) {
+		dir := t.TempDir()
+		require.NoError(t, os.WriteFile(filepath.Join(dir, "spec.yaml"), []byte(`schemaVersion: "1"
+kind: agent
+name: bogus-nested
+agent:
+  image: docker/sandbox-templates:shell-docker
+  totallyBogus: yes
+`), 0o644))
+		_, err := LoadFromDirectory(dir)
+		require.ErrorContains(t, err, "totallyBogus")
+	})
+}
+
 func TestCollectFilesFromDir_SymlinkEscape(t *testing.T) {
 	dir := t.TempDir()
 	homeDir := filepath.Join(dir, "files", "home")
@@ -123,6 +241,67 @@ func TestCollectFilesFromDir_SymlinkEscape(t *testing.T) {
 
 	require.NoError(t, os.Symlink(outsideFile, filepath.Join(homeDir, "escaped")))
 
-	_, err := collectFilesFromDir(dir)
+	_, err := enumerateDirFiles(dir)
 	require.ErrorContains(t, err, "escapes the artifact directory")
+}
+
+func TestLoadArtifactFromBytes(t *testing.T) {
+	t.Run("happy_path", func(t *testing.T) {
+		a, err := LoadArtifactFromBytes([]byte(`schemaVersion: "1"
+kind: mixin
+name: bytes-kit
+displayName: Bytes Kit
+description: loaded directly from bytes
+`))
+		require.NoError(t, err)
+		require.Equal(t, "bytes-kit", a.Manifest.Name)
+		require.Equal(t, KindMixin, a.Manifest.Kind)
+		require.Empty(t, a.Files, "LoadArtifactFromBytes never populates Files")
+	})
+
+	t.Run("does_not_validate_files", func(t *testing.T) {
+		// LoadArtifactFromBytes is deliberately validation-free for Files — the
+		// caller is expected to populate Artifact.Files from a separate
+		// source (e.g. an OCI tar layer) and then call ValidateArtifact.
+		// Here we synthesize an Artifact that parses cleanly, then attach
+		// a malformed Files entry that only ValidateArtifact catches.
+		a, err := LoadArtifactFromBytes([]byte(`schemaVersion: "1"
+kind: mixin
+name: deferred-validate
+`))
+		require.NoError(t, err)
+
+		a.Files = []ArtifactFile{
+			{Target: "bogus-target", RelativePath: "x"},
+		}
+		require.ErrorContains(t, ValidateArtifact(a), "invalid target")
+	})
+
+	t.Run("invalid_yaml", func(t *testing.T) {
+		_, err := LoadArtifactFromBytes([]byte(`{{{ broken`))
+		require.ErrorContains(t, err, "invalid")
+	})
+
+	t.Run("unknown_field_rejected", func(t *testing.T) {
+		// Strict-decode behaviour applies to LoadArtifactFromBytes the same way it
+		// does to LoadFromDirectory.
+		_, err := LoadArtifactFromBytes([]byte(`schemaVersion: "1"
+kind: mixin
+name: typo-kit
+mystery: 42
+`))
+		require.Error(t, err)
+	})
+}
+
+func TestManifest_VersionAndSourceURL(t *testing.T) {
+	a, err := LoadArtifactFromBytes([]byte(`schemaVersion: "1"
+kind: mixin
+name: versioned-kit
+version: "2.3.1"
+sourceURL: https://example.com/versioned-kit
+`))
+	require.NoError(t, err)
+	require.Equal(t, "2.3.1", a.Manifest.Version)
+	require.Equal(t, "https://example.com/versioned-kit", a.Manifest.SourceURL)
 }

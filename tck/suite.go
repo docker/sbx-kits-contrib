@@ -34,6 +34,12 @@ type Suite struct {
 	// Artifact is the loaded and validated kit artifact.
 	Artifact *spec.Artifact
 
+	// Dir is the kit directory the artifact was loaded from. Assertions that
+	// need kit-supplied expectations (rather than ones derived from the spec)
+	// read them from <Dir>/testdata/. Empty when the suite was built from an
+	// already-loaded artifact rather than a directory.
+	Dir string
+
 	// Image is the container image used for integration tests.
 	Image string
 
@@ -57,8 +63,8 @@ func (s *Suite) RunAll(t *testing.T) {
 		s.RunCredentialPolicyTests(t)
 		s.RunEnvironmentPolicyTests(t)
 		s.RunCommandsValidationTests(t)
-		s.RunSettingsPolicyTests(t)
 		s.RunOAuthPolicyTests(t)
+		s.RunMCPRegistrationTests(t)
 
 		// Container tests — single container for all assertions
 		s.RunContainerTests(t)
@@ -87,7 +93,13 @@ func (s *Suite) RunContainerTests(t *testing.T) {
 			require.NoError(t, err)
 			require.Equal(t, 0, code, "mkdir -p %s failed", parentDir)
 
-			err = container.CopyToContainer(ctx, f.Content, containerPath, f.Mode)
+			rc, err := f.Open()
+			require.NoError(t, err, "failed to open %s for container copy", containerPath)
+			fileBytes, readErr := io.ReadAll(rc)
+			closeErr := rc.Close()
+			require.NoError(t, readErr, "failed to read %s for container copy", containerPath)
+			require.NoError(t, closeErr, "failed to close %s after read", containerPath)
+			err = container.CopyToContainer(ctx, fileBytes, containerPath, f.Mode)
 			require.NoError(t, err, "failed to copy %s to container", containerPath)
 		}
 
@@ -247,7 +259,7 @@ func (s *Suite) RunValidationTests(t *testing.T) {
 
 		t.Run("required_fields", func(t *testing.T) {
 			require.NotEmpty(t, m.SchemaVersion, "schemaVersion is required")
-			require.Equal(t, spec.SchemaVersion, m.SchemaVersion, "schemaVersion must be %q", spec.SchemaVersion)
+			require.Contains(t, spec.SupportedSchemaVersions, m.SchemaVersion, "schemaVersion must be one of %v", spec.SupportedSchemaVersions)
 			require.NotEmpty(t, m.Kind, "kind is required")
 			require.NotEmpty(t, m.Name, "name is required")
 			require.NotEmpty(t, m.DisplayName, "displayName is required")
@@ -264,13 +276,6 @@ func (s *Suite) RunValidationTests(t *testing.T) {
 			}
 		})
 
-		if m.Persistence != "" {
-			t.Run("persistence", func(t *testing.T) {
-				require.Contains(t, []string{spec.PersistenceEphemeral, spec.PersistencePersistent}, m.Persistence,
-					"persistence must be %q or %q", spec.PersistenceEphemeral, spec.PersistencePersistent)
-			})
-		}
-
 		if m.Security != nil {
 			t.Run("security", func(t *testing.T) {
 				// privileged is a bool — just verify the field is reachable
@@ -280,18 +285,18 @@ func (s *Suite) RunValidationTests(t *testing.T) {
 
 		if len(m.Volumes) > 0 {
 			t.Run("volumes", func(t *testing.T) {
-				for p := range m.Volumes {
-					require.True(t, strings.HasPrefix(p, "/"),
-						"volume path %q must be absolute", p)
+				for i, v := range m.Volumes {
+					require.True(t, strings.HasPrefix(v.Path, "/"),
+						"volumes[%d].path %q must be absolute", i, v.Path)
 				}
 			})
 		}
 
-		if len(m.Tmpfs) > 0 {
+		if tmpfsVolumes := m.TmpfsVolumes(); len(tmpfsVolumes) > 0 {
 			t.Run("tmpfs", func(t *testing.T) {
-				for p := range m.Tmpfs {
-					require.True(t, strings.HasPrefix(p, "/"),
-						"tmpfs path %q must be absolute", p)
+				for i, mnt := range tmpfsVolumes {
+					require.True(t, strings.HasPrefix(mnt.Path, "/"),
+						"tmpfs[%d].path %q must be absolute", i, mnt.Path)
 				}
 			})
 		}
@@ -304,6 +309,22 @@ func (s *Suite) RunValidationTests(t *testing.T) {
 				require.True(t, known,
 					"extends references unknown agent %q; known agents: %v",
 					s.Artifact.Extends, wellKnownAgentNames())
+			})
+		}
+
+		if len(s.Artifact.Locked) > 0 {
+			t.Run("locked", func(t *testing.T) {
+				require.NoError(t, spec.ValidateLocked(s.Artifact.Locked),
+					"locked paths must be well-formed")
+			})
+		}
+
+		if m.Resources != nil {
+			t.Run("resources", func(t *testing.T) {
+				require.GreaterOrEqual(t, m.Resources.CPU, 0.0,
+					"resources.cpu must be non-negative")
+				require.GreaterOrEqual(t, m.Resources.MemoryMB, int64(0),
+					"resources.memoryMB must be non-negative")
 			})
 		}
 
@@ -322,48 +343,72 @@ func (s *Suite) RunValidationTests(t *testing.T) {
 			})
 		}
 
-		if s.Artifact.Memory != "" {
-			t.Run("memory", func(t *testing.T) {
-				require.NotEmpty(t, s.Artifact.Memory, "memory content should not be empty when declared")
+		if s.Artifact.AgentContext != "" {
+			t.Run("agentContext", func(t *testing.T) {
+				require.NotEmpty(t, s.Artifact.AgentContext, "agentContext content should not be empty when declared")
 			})
 		}
 	})
 }
 
 // RunNetworkPolicyTests verifies the artifact's network policy is consistent.
+//
+// Post-Phase-3 commit 7: allow/deny come from Caps.Network; service
+// domains/auth come from Credentials[].ApiKey.Inject. The Suite's
+// Expected* field names are preserved.
 func (s *Suite) RunNetworkPolicyTests(t *testing.T) {
-	if s.Artifact.Network == nil && len(s.ExpectedAllowedDomains) == 0 && len(s.ExpectedDeniedDomains) == 0 && len(s.ExpectedServiceDomains) == 0 {
+	caps := s.Artifact.Caps
+	creds := s.Artifact.Credentials
+	if caps == nil && len(creds) == 0 && len(s.ExpectedAllowedDomains) == 0 && len(s.ExpectedDeniedDomains) == 0 && len(s.ExpectedServiceDomains) == 0 {
 		return
 	}
 
+	// Build the actual service-domains / service-auth maps from
+	// Credentials[].ApiKey.Inject.
+	actualDomains := map[string]string{}
+	actualAuth := map[string]spec.ServiceAuth{}
+	for _, c := range creds {
+		if c.ApiKey == nil {
+			continue
+		}
+		for _, inj := range c.ApiKey.Inject {
+			if inj.Domain != "" {
+				actualDomains[inj.Domain] = c.Service
+			}
+		}
+		if len(c.ApiKey.Inject) > 0 {
+			if _, exists := actualAuth[c.Service]; !exists {
+				inj := c.ApiKey.Inject[0]
+				actualAuth[c.Service] = spec.ServiceAuth{HeaderName: inj.Header, ValueFormat: inj.Format}
+			}
+		}
+	}
+
 	t.Run("network_policy", func(t *testing.T) {
-		net := s.Artifact.Network
-		if net == nil {
-			require.Empty(t, s.ExpectedAllowedDomains, "expected allowed domains but network policy is nil")
-			require.Empty(t, s.ExpectedDeniedDomains, "expected denied domains but network policy is nil")
-			require.Empty(t, s.ExpectedServiceDomains, "expected service domains but network policy is nil")
-			return
+		var actualAllow, actualDeny []string
+		if caps != nil && caps.Network != nil {
+			actualAllow = caps.Network.Allow
+			actualDeny = caps.Network.Deny
 		}
 
 		if len(s.ExpectedAllowedDomains) > 0 {
-			require.ElementsMatch(t, s.ExpectedAllowedDomains, net.AllowedDomains,
+			require.ElementsMatch(t, s.ExpectedAllowedDomains, actualAllow,
 				"allowed domains should match")
 		}
 
 		if len(s.ExpectedDeniedDomains) > 0 {
-			require.ElementsMatch(t, s.ExpectedDeniedDomains, net.DeniedDomains,
+			require.ElementsMatch(t, s.ExpectedDeniedDomains, actualDeny,
 				"denied domains should match")
 		}
 
 		if len(s.ExpectedServiceDomains) > 0 {
-			require.Equal(t, s.ExpectedServiceDomains, net.ServiceDomains,
+			require.Equal(t, s.ExpectedServiceDomains, actualDomains,
 				"service domains should match")
 		}
 
 		if len(s.ExpectedServiceAuth) > 0 {
-			require.NotNil(t, net.ServiceAuth)
 			for service, expected := range s.ExpectedServiceAuth {
-				actual, ok := net.ServiceAuth[service]
+				actual, ok := actualAuth[service]
 				require.True(t, ok, "service auth for %q not found", service)
 				require.Equal(t, expected.HeaderName, actual.HeaderName,
 					"headerName mismatch for service %q", service)
@@ -383,24 +428,21 @@ func (s *Suite) RunCredentialPolicyTests(t *testing.T) {
 	}
 
 	t.Run("credential_policy", func(t *testing.T) {
-		for service, source := range s.Artifact.Credentials.Sources {
-			t.Run(service, func(t *testing.T) {
-				require.True(t, len(source.Env) > 0 || source.File != nil,
-					"credential source for %q must have at least one of env or file", service)
+		for _, c := range s.Artifact.Credentials {
+			t.Run(c.Service, func(t *testing.T) {
+				require.True(t, c.ApiKey != nil || c.OAuth != nil,
+					"credential entry for %q must have at least one of apiKey or oauth", c.Service)
 
-				for i, envVar := range source.Env {
-					require.True(t, shellIdentifierPattern.MatchString(envVar),
-						"credential env[%d] %q for service %q is not a valid shell identifier", i, envVar, service)
-				}
-
-				if source.File != nil {
-					require.NotEmpty(t, source.File.Path,
-						"credential file path for %q must not be empty", service)
-				}
-
-				if source.Priority != "" {
-					require.Contains(t, []string{"env-first", "file-first"}, source.Priority,
-						"invalid priority %q for service %q", source.Priority, service)
+				if c.ApiKey != nil && c.ApiKey.Name != "" {
+					// "Routing-only" credentials (ApiKey.Name empty, Inject
+					// non-empty) are valid under the parallel-load normalize
+					// path: v1 kits that declared services in network.serviceAuth
+					// + network.serviceDomains without a matching
+					// credentials.sources entry produce these entries (e.g.,
+					// amp, github routing in docker-agent). Skip the name
+					// shape check when the credential is routing-only.
+					require.True(t, shellIdentifierPattern.MatchString(c.ApiKey.Name),
+						"credential apiKey.name %q for service %q is not a valid shell identifier", c.ApiKey.Name, c.Service)
 				}
 			})
 		}
@@ -425,14 +467,11 @@ func (s *Suite) RunEnvironmentPolicyTests(t *testing.T) {
 			})
 		}
 
-		if len(env.ProxyManaged) > 0 {
-			t.Run("proxy_managed", func(t *testing.T) {
-				for _, key := range env.ProxyManaged {
-					require.True(t, shellIdentifierPattern.MatchString(key),
-						"proxyManaged entry %q is not a valid shell identifier", key)
-				}
-			})
-		}
+		// Note: post-Phase-3 commit 5, environment.proxyManaged is the
+		// v1-only ProxyManaged shim. The canonical place to enumerate
+		// proxy-managed env-var names is Credentials[].ApiKey.Name, which
+		// is validated by RunCredentialPolicyTests above. The shim is
+		// validated by ValidateEnvironmentPolicy at load time.
 	})
 }
 
@@ -462,49 +501,39 @@ func (s *Suite) RunCommandsValidationTests(t *testing.T) {
 	})
 }
 
-// RunSettingsPolicyTests verifies the settings policy is well-formed.
-func (s *Suite) RunSettingsPolicyTests(t *testing.T) {
-	if s.Artifact.Settings == nil {
-		return
-	}
-
-	t.Run("settings_policy", func(t *testing.T) {
-		require.NotNil(t, s.Artifact.Settings.ContainerSettings,
-			"containerSettings map should not be nil when settings policy is present")
-		for key := range s.Artifact.Settings.ContainerSettings {
-			require.NotEmpty(t, key, "containerSettings key must not be empty")
-		}
-	})
-}
-
-// RunOAuthPolicyTests verifies the OAuth policy is well-formed.
+// RunOAuthPolicyTests verifies the OAuth policy is well-formed for every
+// credential that declares an oauth: sub-block. Post-Phase-3 commit 5,
+// OAuth lives under Credential.OAuth (per-credential); the standalone
+// top-level oauth: block is the v1 LegacyOAuth shim handled at load time.
 func (s *Suite) RunOAuthPolicyTests(t *testing.T) {
-	if s.Artifact.OAuth == nil {
-		return
-	}
-
-	t.Run("oauth_policy", func(t *testing.T) {
-		oauth := s.Artifact.OAuth
-
-		require.NotEmpty(t, oauth.Service, "oauth.service is required")
-
-		t.Run("token_endpoint", func(t *testing.T) {
-			require.NotEmpty(t, oauth.TokenEndpoint.Host, "oauth.tokenEndpoint.host is required")
-			require.NotEmpty(t, oauth.TokenEndpoint.Path, "oauth.tokenEndpoint.path is required")
-		})
-
-		t.Run("sentinels", func(t *testing.T) {
-			require.NotEmpty(t, oauth.Sentinels.AccessToken, "oauth.sentinels.accessToken is required")
-			require.NotEmpty(t, oauth.Sentinels.RefreshToken, "oauth.sentinels.refreshToken is required")
-		})
-
-		if oauth.CredentialFile != nil {
-			t.Run("credential_file", func(t *testing.T) {
-				require.NotEmpty(t, oauth.CredentialFile.Path, "oauth.credentialFile.path is required")
-				require.NotEmpty(t, oauth.CredentialFile.Template, "oauth.credentialFile.template is required")
-			})
+	for _, c := range s.Artifact.Credentials {
+		if c.OAuth == nil {
+			continue
 		}
-	})
+		t.Run("oauth_policy/"+c.Service, func(t *testing.T) {
+			oauth := c.OAuth
+
+			t.Run("token_endpoint", func(t *testing.T) {
+				require.NotEmpty(t, oauth.TokenEndpoint.Host, "oauth.tokenEndpoint.host is required")
+				require.NotEmpty(t, oauth.TokenEndpoint.Path, "oauth.tokenEndpoint.path is required")
+			})
+
+			t.Run("sentinels", func(t *testing.T) {
+				require.NotEmpty(t, oauth.Sentinels.AccessToken, "oauth.sentinels.accessToken is required")
+				require.NotEmpty(t, oauth.Sentinels.RefreshToken, "oauth.sentinels.refreshToken is required")
+			})
+
+			if oauth.CredentialFile != nil {
+				t.Run("credential_file", func(t *testing.T) {
+					require.NotEmpty(t, oauth.CredentialFile.Path, "oauth.credentialFile.path is required")
+					// v2 prefers Structure; v1 Template is still accepted.
+					require.True(t,
+						oauth.CredentialFile.Template != "" || oauth.CredentialFile.Structure != nil,
+						"oauth.credentialFile must have either template (v1) or structure (v2)")
+				})
+			}
+		})
+	}
 }
 
 // startContainer creates and starts a container from the suite's image using testcontainers-go.
@@ -540,17 +569,37 @@ func readOutput(t *testing.T, r io.Reader) string {
 	return strings.TrimRight(buf.String(), "\n\r ")
 }
 
-// containerImage returns the image to use for container tests,
-// resolving well-known agent templates for mixins with extends.
+// containerImage returns the image to use for container tests, resolving a
+// well-known agent template for a mixin from either extends or its declared
+// base-agent affinity (requires.agent).
+//
+// After normalize, both v1 `kind: agent` and v2 `kind: sandbox` end up as
+// KindSandbox (spec/normalize.go migrates the v1 alias with a deprecation
+// warning), so this check matches every non-mixin kit — including v2-native
+// specs that never wrote `kind: agent`.
 func containerImage(a *spec.Artifact) (string, error) {
-	if a.Manifest.Kind == spec.KindAgent {
-		if a.Manifest.Template == "" {
-			return "", fmt.Errorf("agent artifact %q has no template", a.Manifest.Name)
+	if a.Manifest.Kind == spec.KindSandbox {
+		if a.Manifest.Template != "" {
+			return a.Manifest.Template, nil
 		}
-		return a.Manifest.Template, nil
+		// A sandbox may omit template when it inherits its image from an
+		// extends parent — ValidateArtifact allows this, and it is the
+		// recommended shape for a derived agent. Resolve a well-known extends
+		// parent's template; otherwise the author must supply WithImage.
+		if a.Extends != "" {
+			if tmpl, ok := wellKnownTemplates[a.Extends]; ok {
+				return tmpl, nil
+			}
+			return "", fmt.Errorf(
+				"sandbox %q extends unknown agent %q and sets no template; use WithImage to specify the container image",
+				a.Manifest.Name, a.Extends,
+			)
+		}
+		return "", fmt.Errorf("sandbox artifact %q has no template", a.Manifest.Name)
 	}
 
-	// kind=mixin: resolve from extends or default to shell
+	// kind=mixin: extends must resolve to a well-known agent template — an
+	// extends parent the TCK can't resolve is an authoring error.
 	if a.Extends != "" {
 		if tmpl, ok := wellKnownTemplates[a.Extends]; ok {
 			return tmpl, nil
@@ -559,6 +608,17 @@ func containerImage(a *spec.Artifact) (string, error) {
 			"mixin %q extends unknown agent %q; use WithImage to specify the container image",
 			a.Manifest.Name, a.Extends,
 		)
+	}
+
+	// requires.agent affinity: when the target is a well-known agent, run the
+	// container tests in its image so install/startup assertions exercise the
+	// base the mixin is designed for. Otherwise fall back to the shell default
+	// — affinity may name a custom agent whose template the TCK can't resolve,
+	// and the author can still override with WithImage.
+	if a.Requires != nil && a.Requires.Agent != "" {
+		if tmpl, ok := wellKnownTemplates[a.Requires.Agent]; ok {
+			return tmpl, nil
+		}
 	}
 
 	return DefaultShellImage, nil

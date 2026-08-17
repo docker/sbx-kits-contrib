@@ -1,0 +1,27 @@
+# TCK configuration for the copilot kit.
+#
+# copilot is still a built-in agent in released sbx builds, and sbx refuses to
+# load a kit whose name collides with a built-in ("built-in agents cannot be
+# overridden by a kit"). This flag turns that one specific `sbx create` failure
+# into a skip, so the kit can land and be reviewed here before the built-in is
+# removed from sbx.
+#
+# Nothing needs re-enabling later: once a released sbx no longer registers the
+# built-in, `sbx create` succeeds, the full e2e runs, and the test logs a notice
+# that this line is obsolete and can be deleted.
+extractedFromBuiltin: true
+#
+# `promptArgs` is deliberately omitted for now, which skips the e2e `prompt`
+# subtest. Unlike kiro (interactive device-flow only, genuinely no
+# non-interactive mode), Copilot CLI likely has a way to answer a prompt
+# non-interactively with a real GH_TOKEN — but the built-in agent's own e2e
+# test never exercises this either (it runs an auth-free echo/true-only smoke
+# check with SkipCredentialsTest: true), so there is no known-working recipe to
+# carry over from there, and none has been verified from this repo. Wire
+# `promptArgs` once one has, rather than guessing at flags that could flake CI.
+#
+# The remaining subtests (env, files, tmpfs, agentContext) still run and are
+# what actually gate this kit.
+
+# Copilot's startup hook does no MCP-gateway registration (unlike kiro's), so
+# no `mcp:` block is needed here.

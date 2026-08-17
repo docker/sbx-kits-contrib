@@ -1,0 +1,28 @@
+schemaVersion: "2"
+kind: mixin
+name: claude-model-runner
+# Reroutes Claude Code's Anthropic API; only meaningful on the claude base
+# agent. Declares base-agent affinity instead of extends: as a mixin it just
+# overlays environment variables onto the base agent at compose time.
+requires:
+  agent: claude
+displayName: Claude Code (Docker Model Runner)
+description: Route Claude Code's Anthropic API calls to a local Docker Model Runner endpoint at host.docker.internal:12434.
+
+permissions:
+  network:
+    allow:
+      # Every request this mixin reroutes goes here; without the entry the
+      # kit only works when some other kit happens to allow the host.
+      - host.docker.internal:12434
+
+environment:
+  variables:
+    ANTHROPIC_BASE_URL: "http://host.docker.internal:12434"
+    # Pin every Claude Code model alias to the same local model so the
+    # default Sonnet/Opus/Haiku/sub-agent picks all hit Docker Model Runner.
+    # Edit the anchored value below to switch models.
+    ANTHROPIC_DEFAULT_OPUS_MODEL: &model "gpt-oss"
+    ANTHROPIC_DEFAULT_SONNET_MODEL: *model
+    ANTHROPIC_DEFAULT_HAIKU_MODEL: *model
+    CLAUDE_CODE_SUBAGENT_MODEL: *model

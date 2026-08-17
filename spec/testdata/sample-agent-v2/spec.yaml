@@ -1,0 +1,117 @@
+schemaVersion: "2"
+kind: sandbox
+name: sample-agent-v2
+version: "2.0.0"
+displayName: Sample Agent (v2)
+description: "Canonical schemaVersion 2 reference kit — exercises the full v2 surface; doubles as a load/round-trip test fixture."
+sourceURL: https://example.com/sample-agent-v2
+locked:
+  - sandbox.image
+
+sandbox:
+  image: "docker/sandbox-templates:shell-docker"
+  # entrypoint is the fixed process prefix (binary + always-on args); command
+  # selects the mode-specific tail (detached default vs interactive TTY).
+  entrypoint: ["sample-bin", "--verbose"]
+  command:
+    default: ["--task-mode"]
+    interactive: ["--interactive"]
+  resources:
+    cpu: 2.0
+    memory: 4096m
+    gpu: "1"
+
+# Agent instructions: filename is the AI profile filename (sandbox-only);
+# content is the markdown appended to it.
+agentInstructions:
+  filename: SAMPLE.md
+  content: |
+    This is sample-agent-v2 reference content for v2 spec coverage.
+
+# Outbound egress policy lives under permissions.network in v2 (allow/deny).
+permissions:
+  network:
+    allow:
+      - api.anthropic.com
+      - api.openai.com:443
+      - "*.example.com"
+    deny:
+      - telemetry.example.com
+
+# Credentials declare WHAT the kit needs and how to inject it — never where
+# it lives (that's the user-side bindings file). One apiKey credential, one
+# exercising the scheme sugar (bearer + basic), and one OAuth-only credential.
+credentials:
+  - service: anthropic
+    description: "Anthropic API credentials"
+    required: true
+    apiKey:
+      name: ANTHROPIC_API_KEY
+      inject:
+        - domain: api.anthropic.com
+          header: x-api-key
+          format: "%s"
+  - service: github
+    description: "GitHub credential for git + API access"
+    apiKey:
+      name: GITHUB_TOKEN
+      inject:
+        # scheme: bearer is the whole Authorization header — no header: here,
+        # so the sugar is what fills it in.
+        - domain: api.github.com
+          scheme: bearer
+        - domain: github.com
+          header: Authorization
+          scheme: basic
+          username: x-access-token
+  - service: workos
+    description: "OAuth-only example credential"
+    oauth:
+      tokenEndpoint:
+        host: api.workos.com
+        path: /oauth/token
+      resourceHosts:
+        - api.workos.com
+      sentinels: {}
+      passthrough: true
+
+# Inbound service exposure — top-level in v2. Covers the minimal (container
+# only), full (tcp + name), and udp forms.
+ports:
+  - container: 9418
+  - container: 8080
+    protocol: tcp
+    name: web
+  - container: 53
+    protocol: udp
+    name: dns
+
+environment:
+  variables:
+    SAMPLE_AGENT_HOME: /home/agent/.sample-agent-v2
+
+volumes:
+  - path: /home/agent/.cache/sample
+    size: 1g
+  - path: /tmp/scratch
+    type: tmpfs
+    size: 512m
+    mode: "1777"
+
+# setup replaces the v1 commands block; setup.files replaces commands.initFiles.
+setup:
+  install:
+    - command: "echo agent-installed"
+      user: "0"
+      description: Sample agent install
+  startup:
+    - command: ["echo", "agent-started"]
+      user: "1000"
+      background: true
+      description: Sample agent startup
+  files:
+    - path: /home/agent/.sample-agent-v2/init.json
+      content: '{"initialized": true}'
+      mode: "0644"
+      onlyIfMissing: true
+      description: Seed the agent config

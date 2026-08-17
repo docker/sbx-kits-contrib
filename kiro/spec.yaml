@@ -1,0 +1,133 @@
+schemaVersion: "2"
+kind: sandbox
+name: kiro
+# The KIT's version, not Kiro's. It covers this spec, the files/ tree, the
+# network policy and the hooks — the agent inside the image floats, so a newer
+# kiro-cli does not bump this and this does not track releases of kiro-cli.
+#
+# Published as the vnd.docker.sandbox.kit.version OCI annotation at pack time,
+# and `scripts/check-release-tag.sh` refuses a `kiro/vX.Y.Z` tag that disagrees
+# with it. Bump here first, then tag.
+version: "1.0.0"
+displayName: Kiro
+description: Kiro CLI by AWS, with interactive device-flow authentication.
+
+sandbox:
+  # Built from the Dockerfile beside this spec and published by
+  # .github/workflows/build-and-publish-kits.yml. Carries a Docker engine and requests
+  # Docker-in-Docker, matching the built-in agent this kit replaces.
+  #
+  # This value is the source of truth for what CI builds and publishes: the
+  # workflow reads it from here rather than deriving a name, because spec.yaml
+  # is consumed literally (no env interpolation) and so cannot follow a
+  # variable. scripts/check-image-ref.sh asserts it stays inside the namespace
+  # CI can actually push to.
+  #
+  # The `-image` suffix distinguishes the base image from the kit artifact:
+  # when the kit itself is published as an OCI artifact it will be
+  # `docker.io/sbx/kiro-kit`.
+  image: "docker.io/sbx/kiro-image:latest"
+  entrypoint: [kiro, chat, "--trust-all-tools"]
+
+environment:
+  variables:
+    IS_SANDBOX: "1"
+
+permissions:
+  network:
+    # Built-in agents ship no egress policy of their own: they inherit whatever
+    # the host policy is, which defaults to permissive. A community kit cannot
+    # rely on that — this repo's e2e runs every kit under
+    # `sbx policy init deny-all`, so the kit gets exactly the reachability it
+    # declares here and nothing more.
+    allow:
+      # Kiro's own hosts. The initial install happens at image build time, but
+      # kiro-cli reaches these for version checks and self-update, so they are
+      # required at runtime too. Both are needed, not just the first:
+      # cli.kiro.dev serves the install/update script, which then fetches the
+      # versioned binary from prod.download.cli.kiro.dev
+      # (…/stable/latest/kirocli-<arch>-linux.zip).
+      - cli.kiro.dev
+      - prod.download.cli.kiro.dev
+      - kiro.dev
+      # `apt-get update` (the startup hook below) refreshes metadata for every
+      # configured apt source and returns exit 100 if any one of them fails.
+      # The shell-docker base ships three sources, so all three must be
+      # reachable. Ubuntu serves amd64 from archive/security and arm64 from
+      # ports.ubuntu.com, so all three Ubuntu hosts are listed to keep the kit
+      # working cross-arch.
+      - archive.ubuntu.com        # Ubuntu archive (amd64 main)
+      - security.ubuntu.com       # Ubuntu security updates (amd64)
+      - ports.ubuntu.com          # Ubuntu archive/security (arm64)
+      - download.docker.com       # Docker's apt repo, pre-added by shell-docker
+      #
+      # AWS-backed endpoints Kiro's device-flow auth and chat need, reported
+      # in #185. Not publicly documented beyond that. Exact hosts rather than
+      # a *.us-east-1.amazonaws.com wildcard — that would reach every AWS
+      # service in the region, not just Kiro's own backend.
+      - client-telemetry.us-east-1.amazonaws.com
+      - cognito-identity.us-east-1.amazonaws.com
+      - desktop-release.q.us-east-1.amazonaws.com
+      - management.us-east-1.kiro.dev
+      - prod.us-east-1.auth.desktop.kiro.dev
+      - prod.us-east-1.telemetry-v2.kiro.dev
+      - runtime.us-east-1.kiro.dev
+      #
+      # TODO(kiro-extraction): the domains above are the ones reported in
+      # #185; they have not been verified end-to-end under deny-all from this
+      # repo, and other kiro-cli features may reach further endpoints. Confirm
+      # or widen from a live run:
+      #
+      #   sbx run --kit ./kiro kiro       # then attempt a login + a prompt
+      #   sbx policy log                  # lists every blocked host + reason
+
+setup:
+  install:
+    - command: "kiro-cli setup --no-confirm"
+      user: "agent"
+      description: Run Kiro CLI setup
+  startup:
+    - command: ["sh", "-c", "command -v apt-get > /dev/null 2>&1 && (apt-get update -qq -y > /dev/null 2>&1 || true) &"]
+      user: "root"
+      description: Update apt package cache in background
+    # Gateway-first MCP registration. sandboxd injects MCP_GATEWAY_URL +
+    # MCP_SENTINEL_TOKEN_NAME into the container env when a gateway has
+    # been reserved. The sentinel name is not a credential — the proxy
+    # substitutes the real token at request time keyed by this name.
+    # No-op when MCP isn't enabled.
+    #
+    # Kiro owns ~/.kiro/settings/mcp.json (no baseline keys to
+    # preserve), so the script writes it fresh via heredoc. mkdir -p
+    # because the settings/ subdir may not exist on first boot.
+    #
+    # Shape: kiro-cli keys an HTTP MCP server by `url` plus a `headers`
+    # object — there is no `type` field and no `httpUrl` (that spelling
+    # is Gemini's, and is the wrong answer most easily reached for).
+    # See the Authorization Example in
+    # https://kiro.dev/docs/cli/mcp/configuration/
+    # The TCK's mcp_registration subtest pins all of this; the expected
+    # shape lives in testdata/tck.yaml.
+    - command:
+        - sh
+        - -c
+        - |
+          set -e
+          [ -n "$MCP_GATEWAY_URL" ] || exit 0
+          mkdir -p "$HOME/.kiro/settings"
+          cat > "$HOME/.kiro/settings/mcp.json" <<EOF
+          {
+            "mcpServers": {
+              "mcp-gateway": {
+                "url": "$MCP_GATEWAY_URL",
+                "headers": {
+                  "Authorization": "Bearer $MCP_SENTINEL_TOKEN_NAME"
+                }
+              }
+            }
+          }
+          EOF
+      user: "agent"
+      description: Register the sandbox MCP gateway in ~/.kiro/settings/mcp.json
+
+agentInstructions:
+  filename: KIRO.md

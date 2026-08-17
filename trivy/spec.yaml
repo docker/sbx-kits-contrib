@@ -1,33 +1,36 @@
-schemaVersion: "1"
-kind: agent
+schemaVersion: "2"
+kind: sandbox
 name: trivy
 displayName: Trivy
-description: "Aqua's open source vulnerability scanner — sandboxed because security scanners shouldn't be able to compromise their hosts (TeamPCP, March 2026)."
-
-agent:
-  image: "docker/sandbox-templates:shell-docker"
-  aiFilename: AGENTS.md
-  persistence: persistent
+description: Aqua's open source vulnerability scanner — sandboxed because security scanners shouldn't be able to compromise their hosts (TeamPCP, March 2026).
+sandbox:
+  image: docker/sandbox-templates:shell-docker
   # Drop into bash with trivy on PATH and the workspace as cwd. Run `trivy fs .` to scan.
   entrypoint:
-    run: [bash, -l]
-
-network:
-  allowedDomains:
-    # Release tarball download (install time, one-shot).
-    # github.com 302-redirects to release-assets.githubusercontent.com for binary downloads.
-    - github.com
-    - release-assets.githubusercontent.com
-    # Vulnerability DB pull at runtime. Trivy's default chain is mirror.gcr.io (primary)
-    # with ghcr.io as a fallback for the trivy-db OCI artifact; we declare both openly in
-    # the allowlist rather than relying on env-var overrides to redirect the source.
-    # The trust footprint is intentionally explicit at the policy layer; tightening this
-    # is part of the v2 path (hardened-distribution-channel install).
-    - mirror.gcr.io
-    - ghcr.io
-    - pkg-containers.githubusercontent.com
-
-commands:
+    - bash
+    - -l
+agentInstructions:
+  filename: AGENTS.md
+permissions:
+  network:
+    allow:
+      # Release tarball download (install time, one-shot).
+      # github.com 302-redirects to objects.githubusercontent.com for binary
+      # downloads (confirmed by hand); release-assets.githubusercontent.com
+      # kept alongside it since that isn't guaranteed to be the same host
+      # for every repo/asset.
+      - github.com
+      - objects.githubusercontent.com
+      - release-assets.githubusercontent.com
+      # Vulnerability DB pull at runtime. Trivy's default chain is mirror.gcr.io (primary)
+      # with ghcr.io as a fallback for the trivy-db OCI artifact; we declare both openly in
+      # the allowlist rather than relying on env-var overrides to redirect the source.
+      # The trust footprint is intentionally explicit at the policy layer; tightening this
+      # is part of the v2 path (hardened-distribution-channel install).
+      - mirror.gcr.io
+      - ghcr.io
+      - pkg-containers.githubusercontent.com
+setup:
   install:
     # Install Trivy from a pinned, digest-verified GitHub release.
     # Why not the official `install.sh`: that pattern (curl|sh) is exactly what TeamPCP
@@ -59,4 +62,4 @@ commands:
         rm /tmp/trivy.tgz
         trivy --version
       user: "0"
-      description: "Install Trivy CLI v0.70.0, version+digest pinned"
+      description: Install Trivy CLI v0.70.0, version+digest pinned
