@@ -28,6 +28,12 @@ are present on the host — the real values never enter the sandbox.
 ## Usage
 
 ```console
+$ sbx run --kit "docker.io/sbx/open-interpreter-kit:latest" open-interpreter
+```
+
+Or from a git URL targeting this repo:
+
+```console
 # From this repo (tracks default branch)
 $ sbx run --kit "git+https://github.com/docker/sbx-kits-contrib.git#dir=open-interpreter" open-interpreter
 

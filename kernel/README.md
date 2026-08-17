@@ -21,6 +21,12 @@ managed auth, and live session replay built in.
 ## Usage
 
 ```console
+$ sbx run claude --kit "docker.io/sbx/kernel-kit:latest"
+```
+
+Or from a git URL targeting this repo:
+
+```console
 # From this repo (tracks default branch)
 $ sbx run claude --kit "git+https://github.com/docker/sbx-kits-contrib.git#dir=kernel"
 
