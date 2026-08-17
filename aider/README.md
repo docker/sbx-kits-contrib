@@ -25,11 +25,14 @@ up ahead of time:
 $ sbx secret set anthropic   # or: openai, gemini
 ```
 
-To use OpenAI or Gemini instead of the default (Anthropic), also override the model:
+To use OpenAI or Gemini instead of the default (Anthropic), pass Aider's own
+`--model` flag after `--` (there's no supported way to override a kit's
+`environment.variables` at run time, so this goes through Aider's native CLI
+flag instead):
 
 ```console
-$ sbx run --kit "docker.io/sbx/aider-kit:latest" aider -e AIDER_MODEL=gpt-4o
-$ sbx run --kit "docker.io/sbx/aider-kit:latest" aider -e AIDER_MODEL=gemini/gemini-2.5-pro
+$ sbx run --kit "docker.io/sbx/aider-kit:latest" aider -- --model gpt-4o
+$ sbx run --kit "docker.io/sbx/aider-kit:latest" aider -- --model gemini/gemini-2.5-pro
 ```
 
 ## Usage
@@ -79,13 +82,14 @@ sees the actual credential.
 
 ## Switching the default model
 
-`AIDER_MODEL` accepts any model name or alias Aider understands. Override it
-without recreating the sandbox:
+`AIDER_MODEL` sets the kit's default (`sonnet`), but there's no supported way
+to override a kit's `environment.variables` at run time. Use Aider's own
+`--model` flag instead, passed after `--`:
 
 ```console
-$ sbx run aider -e AIDER_MODEL=opus
-$ sbx run aider -e AIDER_MODEL=o3-mini
-$ sbx run aider -e AIDER_MODEL=deepseek/deepseek-chat
+$ sbx run aider -- --model opus
+$ sbx run aider -- --model o3-mini
+$ sbx run aider -- --model deepseek/deepseek-chat
 ```
 
 For a full list of supported models and aliases, run `aider --list-models` inside
