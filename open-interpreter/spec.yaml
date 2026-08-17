@@ -92,9 +92,8 @@ setup:
     - command: apt-get update -qq && apt-get install -y -qq gcc python3-dev
       user: "0"
       description: Install a C compiler for building Python packages with native extensions
-    - command: curl -LsSf https://astral.sh/uv/install.sh | sh
-      user: "1000"
-      description: Install uv
+    # uv ships pre-installed in the shell-docker base image (/usr/local/bin/uv,
+    # already on PATH) -- no need to install it ourselves.
     # --python 3.12: the base image ships Python 3.13, but open-interpreter's
     # numpy dependency has no Python 3.13 wheel. uv downloads a Python 3.12
     # standalone (~28 MB) from releases.astral.sh (already in allowedDomains)
@@ -103,12 +102,12 @@ setup:
     # startup, which setuptools>=81 dropped entirely (ModuleNotFoundError at
     # runtime, not install time -- confirmed by hand). setuptools<81 still
     # bundles it, with just a deprecation warning.
-    - command: /home/agent/.local/bin/uv tool install --with "setuptools<81" --python 3.12 open-interpreter
+    - command: uv tool install --with "setuptools<81" --python 3.12 open-interpreter
       user: "1000"
       description: Install Open Interpreter with Python 3.12
   startup:
     - command:
-        - /home/agent/.local/bin/uv
+        - uv
         - tool
         - upgrade
         - open-interpreter
