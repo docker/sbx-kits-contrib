@@ -26,9 +26,15 @@ Contributing a kit or a fix? Read [`CONTRIBUTING.md`](./CONTRIBUTING.md) first â
 
 ## Using a kit
 
-Kits are passed to `sbx run` (or `sbx create`) via `--kit`. The flag accepts a local path, an OCI registry reference, a ZIP archive, or a `git+...` URL.
+Kits are passed to `sbx run` (or `sbx create`) via `--kit`. The flag accepts an OCI registry reference, a `git+...` URL, a local path, or a ZIP archive.
 
-The most common form is a git URL targeting this repo:
+The primary way to consume a kit from this repo is its published OCI artifact on Docker Hub â€” every kit here is discovered and published automatically (see [`PUBLISHING.md`](./PUBLISHING.md)), so the artifact exists the moment a change merges to `main`:
+
+```console
+$ sbx run --kit "docker.io/sbx/code-server-kit:latest" claude
+```
+
+Or target this repo directly over git:
 
 ```console
 $ sbx run --kit "git+https://github.com/docker/sbx-kits-contrib.git#dir=code-server" claude

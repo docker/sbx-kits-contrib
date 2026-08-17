@@ -46,7 +46,8 @@ $ ./scripts/check-image-ref.sh docker.io/sbx latest
 ```
 
 The `-image` suffix keeps `docker.io/sbx/<kit>-kit` free for the kit artifact
-itself, once kits are distributed as OCI artifacts too.
+itself, which is also distributed as an OCI artifact — see
+[Distribution](distribution.md).
 
 ## Do not reach for `sandbox.build:`
 

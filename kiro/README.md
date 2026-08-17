@@ -18,6 +18,12 @@ authenticates only via device flow, which needs a browser on your host.
 ## Usage
 
 ```console
+$ sbx run --kit "docker.io/sbx/kiro-kit:latest" kiro
+```
+
+Or from a git URL targeting this repo:
+
+```console
 $ sbx run --kit "git+https://github.com/docker/sbx-kits-contrib.git#dir=kiro" kiro
 ```
 
@@ -102,9 +108,9 @@ The image is **`docker.io/sbx/kiro-image`**, built on
 `docker/sandbox-templates:shell-docker`, so it carries a Docker engine and
 requests Docker-in-Docker.
 
-The `-image` suffix distinguishes the base image from the kit itself: when the kit
-is published as an OCI artifact it will be `docker.io/sbx/kiro-kit`. The name is
-derived from the kit directory and enforced repo-wide — see
+The `-image` suffix distinguishes the base image from the kit itself: the kit
+itself is published as an OCI artifact at `docker.io/sbx/kiro-kit` (see
+[Usage](#usage) above). The name is derived from the kit directory and enforced repo-wide — see
 [PUBLISHING.md](../PUBLISHING.md#naming).
 
 There is no flavour suffix and no dockerless variant. The sandbox templates

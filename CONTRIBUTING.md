@@ -32,7 +32,7 @@ Pick an existing kit closest in shape to what you want to build and read it end-
 Every kit should ship a `README.md`. The structure isn't mandatory, but the existing kits converge on:
 
 - **Title and one-paragraph description** of what the kit does and what agent it pairs with.
-- **Usage** — the `sbx run` invocation and any host-side prerequisites.
+- **Usage** — the `sbx run` invocation and any host-side prerequisites. Lead with the published `docker.io/sbx/<kit>-kit:latest` OCI artifact — every kit here publishes automatically (see [`PUBLISHING.md`](./PUBLISHING.md)), so it's the primary way to consume a kit — then the git-URL form, then the local-clone form.
 - **How _X_ works** — short sections explaining non-obvious decisions in the spec, so the next reviewer doesn't have to reverse-engineer the YAML.
 - **Cleanup**, if the kit creates state on the host.
 

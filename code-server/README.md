@@ -12,7 +12,13 @@ CLI agent.
 
 ## Usage
 
-Pair it with the built-in `claude` agent:
+Pair it with the built-in `claude` agent, from its published OCI artifact on Docker Hub:
+
+```console
+$ sbx run claude --kit "docker.io/sbx/code-server-kit:latest" ~/my-project
+```
+
+Or from a git URL targeting this repo:
 
 ```console
 $ sbx run claude --kit "git+https://github.com/docker/sbx-kits-contrib.git#dir=code-server" ~/my-project
