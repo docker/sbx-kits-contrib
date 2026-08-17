@@ -1,0 +1,4 @@
+# Force LF line endings on shell scripts so they keep working when checked
+# out on Windows with core.autocrlf=true. Without this, a CRLF-converted
+# `#!/usr/bin/env bash` becomes `bash\r` and the script fails to invoke.
+*.sh text eol=lf

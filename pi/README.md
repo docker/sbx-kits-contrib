@@ -1,12 +1,18 @@
 # pi
 
 A standalone agent kit (`kind: agent`) for the
-[`@mariozechner/pi-coding-agent`](https://www.npmjs.com/package/@mariozechner/pi-coding-agent)
+[`@earendil-works/pi-coding-agent`](https://www.npmjs.com/package/@earendil-works/pi-coding-agent)
 CLI — a minimal terminal coding agent with extensible tools, skills, and
 TUI. The kit installs `pi` via npm at sandbox creation time and runs
 it as the entrypoint when you attach.
 
 ## Usage
+
+```console
+$ sbx run --kit "docker.io/sbx/pi-kit:latest" pi
+```
+
+Or from a git URL targeting this repo:
 
 ```console
 $ sbx run --kit "git+https://github.com/docker/sbx-kits-contrib.git#dir=pi" pi
