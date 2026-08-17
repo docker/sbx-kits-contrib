@@ -1,0 +1,162 @@
+#!/bin/bash
+# sbx-codex-attach <sandbox-name>
+#
+# Wires a sandbox started with the codex-app-server kit into the Codex Mac
+# GUI. On first run it also adds the `Include ~/.sbx/ssh/codex/*.conf` line
+# to ~/.ssh/config so the generated per-sandbox aliases are picked up.
+#
+# Each per-sandbox conf points at a shared self-healing proxy.sh wrapper
+# that:
+#   - fast path: reads a cached host port, probes it with `nc -z`, exec's
+#     nc if it answers — no sbx round trips when the sandbox is healthy.
+#   - slow path: wakes the sandbox, fires the kit's startup hooks if they
+#     didn't (kit-added-post-create gap), re-publishes port 22 as a
+#     defensive fallback (the kit declares it in `publishedPorts`, so the
+#     runtime publishes it automatically on start), refreshes the cache,
+#     then exec's nc.
+#
+# After running this, add an SSH Connection in the Codex Mac app with the
+# sandbox name as the host. Auth comes from your host SSH agent (the kit
+# pre-populates ~/.ssh/authorized_keys in the sandbox from `ssh-add -L`).
+
+set -euo pipefail
+
+if [ $# -ne 1 ]; then
+    echo "usage: sbx-codex-attach <sandbox-name>" >&2
+    exit 64
+fi
+
+sandbox="$1"
+
+require() {
+    if ! command -v "$1" >/dev/null 2>&1; then
+        echo "sbx-codex-attach: required tool '$1' not on PATH" >&2
+        case "$1" in
+            jq) echo "  install with: brew install jq" >&2 ;;
+        esac
+        exit 127
+    fi
+    command -v "$1"
+}
+
+sbx="$(require sbx)"
+nc="$(require nc)"
+jq="$(require jq)"
+
+if ! "$sbx" ls -q 2>/dev/null | grep -qx "$sandbox"; then
+    echo "sbx-codex-attach: sandbox '$sandbox' not found" >&2
+    echo "  (sbx ls shows the sandboxes you've created)" >&2
+    exit 1
+fi
+
+# The kit declares port 22 in `publishedPorts`, so the runtime publishes
+# it on sandbox start. Re-publish here as a defensive fallback for
+# sandboxes created before the kit grew that declaration.
+if ! "$sbx" ports "$sandbox" --json 2>/dev/null \
+        | "$jq" -e '.[]|select(.sandbox_port==22 and .host_ip=="127.0.0.1")' >/dev/null; then
+    "$sbx" ports "$sandbox" --publish 22/tcp >/dev/null
+fi
+
+dir="$HOME/.sbx/ssh/codex"
+mkdir -p "$dir"
+chmod 700 "$dir"
+
+proxy="$dir/proxy.sh"
+conf="$dir/${sandbox}.conf"
+khf="$dir/${sandbox}.known_hosts"
+cache="$dir/${sandbox}.port"
+
+# Shared self-healing ProxyCommand. Tool paths are baked from the calling
+# shell's resolution; re-run sbx-codex-attach if any tool moves.
+cat > "$proxy" <<EOF
+#!/bin/sh
+# Auto-managed by sbx-codex-attach (shared across all attached sandboxes).
+# Usage: proxy.sh <sandbox-name>  — wired in via each <name>.conf.
+NAME="\$1"
+CACHE="$dir/\${NAME}.port"
+
+port=\$(cat "\$CACHE" 2>/dev/null)
+if [ -n "\$port" ] && ${nc} -z -G 1 localhost "\$port" 2>/dev/null; then
+    exec ${nc} localhost "\$port"
+fi
+
+${sbx} exec "\$NAME" -- pgrep -x sshd >/dev/null 2>&1 || {
+    ${sbx} exec "\$NAME" -- /home/agent/.local/bin/refresh-authorized-keys 2>/dev/null
+    ${sbx} exec -u 0 "\$NAME" -- sh -c 'pgrep -x sshd >/dev/null || { mkdir -p /var/run/sshd && /usr/sbin/sshd > /tmp/sshd.log 2>&1; }'
+}
+${sbx} ports "\$NAME" --json | ${jq} -e '.[]|select(.sandbox_port==22 and .host_ip=="127.0.0.1")' >/dev/null \\
+    || ${sbx} ports "\$NAME" --publish 22/tcp >/dev/null
+# head -1 because sbx ports --publish isn't idempotent on re-runs — repeated
+# calls can leave multiple host ports mapped to sandbox 22; we just need one.
+port=\$(${sbx} ports "\$NAME" --json | ${jq} -r '.[]|select(.sandbox_port==22 and .host_ip=="127.0.0.1").host_port' | head -1)
+printf '%s' "\$port" > "\$CACHE"
+exec ${nc} localhost "\$port"
+EOF
+chmod 700 "$proxy"
+
+# Truncate per-sandbox known_hosts so the next connect TOFUs cleanly
+# (handles sandbox recreate, which generates new host keys).
+: > "$khf"
+chmod 600 "$khf"
+
+# Clear stale cache so the first ssh after attach takes the slow path
+# and writes a fresh one.
+rm -f "$cache"
+
+cat > "$conf" <<EOF
+# Auto-managed by sbx-codex-attach for sandbox '${sandbox}'.
+# Use sbx-codex-detach ${sandbox} to remove.
+Host ${sandbox}
+    HostName localhost
+    User agent
+    ProxyCommand ${proxy} ${sandbox}
+    HostKeyAlias ${sandbox}
+    UserKnownHostsFile ${khf}
+    StrictHostKeyChecking accept-new
+EOF
+chmod 600 "$conf"
+
+# Ensure ~/.ssh/config picks up our include. Idempotent: only adds the line
+# if absent. Wrapped in markers so a future detach-all could remove it
+# cleanly if we ever add that.
+ssh_config="$HOME/.ssh/config"
+include_line="Include ~/.sbx/ssh/codex/*.conf"
+mkdir -p "$HOME/.ssh"
+chmod 700 "$HOME/.ssh"
+touch "$ssh_config"
+chmod 600 "$ssh_config"
+if ! grep -Fxq "$include_line" "$ssh_config"; then
+    # Include directives must come BEFORE any Host blocks they apply to —
+    # prepend so existing Host * etc. inherits.
+    tmp="$(mktemp)"
+    {
+        printf '# Added by sbx-codex-attach\n%s\n\n' "$include_line"
+        cat "$ssh_config"
+    } > "$tmp"
+    mv "$tmp" "$ssh_config"
+    chmod 600 "$ssh_config"
+    echo "added to ~/.ssh/config: $include_line"
+fi
+
+# Sweep orphan attachments — files for sandboxes that no longer exist.
+# Glob on *.conf only (proxy.sh, *.known_hosts, *.port are referenced by them).
+if existing="$("$sbx" ls -q 2>/dev/null)"; then
+    for orphan_conf in "$dir"/*.conf; do
+        [ -e "$orphan_conf" ] || continue
+        orphan_name="${orphan_conf##*/}"
+        orphan_name="${orphan_name%.conf}"
+        if ! printf '%s\n' "$existing" | grep -qx "$orphan_name"; then
+            rm -f -- "$orphan_conf" "$dir/${orphan_name}.known_hosts" "$dir/${orphan_name}.port"
+            echo "pruned orphan: ${orphan_name}"
+        fi
+    done
+fi
+
+cat <<EOF
+attached: ${sandbox}
+  config:       ${conf}
+  known_hosts:  ${khf}
+
+In the Codex Mac app, add an SSH Connection with:
+  Host: ${sandbox}
+EOF

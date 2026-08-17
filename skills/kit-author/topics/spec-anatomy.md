@@ -1,0 +1,509 @@
+# `spec.yaml` Anatomy
+
+Single source of truth: the Go types in [`github.com/docker/sbx-kits-contrib/spec`](../../../spec/types.go). The `sbx` engine consumes these types via the spec library and delegates loading, normalization, and validation to it.
+
+This page documents the **v2** form (`schemaVersion: "2"`). For the legacy v1 spelling and how it folds into v2, see [`v1-migration.md`](v1-migration.md).
+
+### A note on priority labels
+
+Fields below are tagged with their RFC delivery priority — P1 / P2 / P3 / P4. They mean:
+
+| Tag | Meaning |
+|---|---|
+| **P1** | Baseline v2 — must ship to call something v2. |
+| **P2** | Ships in v2, lower priority than P1. |
+| **P3** | **Pending sbx support** — declared in the spec for forward compatibility; loads without error but runtime enforcement is a no-op until sbx implements. |
+| **P4** | Niche / cloud workloads (`sandbox.lifecycle` is the only one today). |
+
+Untagged fields are P1 or carried forward from v1 with no change.
+
+## Top-level
+
+```yaml
+schemaVersion: "2"          # required, must be exactly "2" (string, not integer)
+kind: sandbox               # required: "sandbox" | "mixin" (case-sensitive)
+name: claude                # required, must match ^[a-z0-9]([a-z0-9-]{0,62}[a-z0-9])?$
+displayName: Claude Code    # optional
+description: "..."          # optional
+licenses:                   # optional (P2), SPDX identifiers
+  - MIT
+  - Apache-2.0
+extends: shell              # optional, single-parent inheritance (opt-in resolution)
+mixins:                     # optional (P1), multi-parent composition (sandbox kits only)
+  - my-org-tools
+  - "oci://ghcr.io/org/auditor@sha256:<digest>"
+requires:                   # optional, base-agent affinity (mixins)
+  agent: claude
+locked:                     # optional (P2), dotted paths child kits may not override
+  - sandbox.image
+  - credentials[service=anthropic]
+args:                       # optional, arguments the installer supplies
+  version:
+    default: "latest"
+```
+
+`kind: sandbox` requires the `sandbox:` block. `kind: mixin` must not have a `sandbox:` block. Exactly one `sandbox` is allowed in a composition; mixins stack freely.
+
+The agent-instruction fields (`agentInstructions.filename`, `agentInstructions.content`), the egress policy (`permissions.network`), and the setup hooks (`setup.install` / `setup.startup` / `setup.files`) are all **top-level** blocks — they are not nested under `sandbox:`. See their sections below.
+
+The `name` constraint is exactly: starts and ends with `[a-z0-9]`, may contain `-` in between, 1–64 characters.
+
+### `licenses`
+
+Optional SPDX license list. Non-empty list of strings if present. Implementations should warn on unrecognized SPDX identifiers. In composition, licenses union across the parent chain and declared mixins.
+
+### `args`
+
+Declares the arguments an installer supplies, referenced anywhere in `spec.yaml` or under `files/` as `${{ kit.args.<name> }}`. Substitution happens before the spec is decoded, so an argument can parameterize any value in the grammar. Every reference must be declared — that is what makes the block a complete list of the kit's inputs.
+
+```yaml
+args:
+  version:
+    default: "latest"                  # optional argument; used when nothing is supplied
+    description: "Tool version"
+    pattern: '^(latest|[0-9]+\.[0-9]+)$'
+  channel:
+    default: "stable"
+    enum: ["stable", "beta"]
+  token:
+    required: true                     # installer must supply a value
+```
+
+Each argument declares exactly one of `default` or `required: true`, and constrains its value with at most one of `enum` or `pattern` (a Go RE2 regexp matched against the whole value). Values are always strings: quote the placeholder in a string-valued field (`VERSION: "${{ kit.args.version }}"`), or a value like `1.20` is read as a float.
+
+`args` is v2-only, and unrelated to `sandbox.build.args` (Docker build arguments). Because the block lives in `spec.yaml`, a signature covers the declarations and defaults; the values an installer supplies do not.
+
+### `mixins`
+
+Multi-parent composition for `kind: sandbox` kits. Only valid for sandbox kits — mixins themselves cannot use `mixins:` (or `extends:`). The `extends` prohibition is enforced for `schemaVersion "2"` mixins; a `schemaVersion "1"` mixin that predates the rule still validates (backwards compatibility). To derive from a parent agent, use a `kind: sandbox` kit with `extends`.
+
+```yaml
+mixins:
+  - shell-tools                                  # bare name → built-in mixin
+  - ./local-mixin/                               # local directory
+  - "git+https://github.com/org/repo.git#ref=<40-hex-sha>&dir=<subdir>"
+  - "oci://ghcr.io/org/mixin@sha256:<digest>"
+```
+
+Same reference formats as `extends:` and the same pinning rule (Git: full commit SHA; OCI: digest). See [`distribution.md`](distribution.md).
+
+Resolution order when a kit uses both `extends` and `mixins`:
+
+1. Resolve `extends` chain — recursively merge parent → child using additive semantics.
+2. Apply kit's own fields — merge with the resolved base.
+3. Apply declared mixins in declaration order, using the same additive semantics.
+
+The `--kit` CLI flag is the runtime equivalent — see [composition.md](composition.md).
+
+### `requires`
+
+Optional composition preconditions. Today it carries only **base-agent affinity**:
+
+```yaml
+kind: mixin
+requires:
+  agent: claude              # single base-agent name
+```
+
+A mixin often injects agent-specific configuration — Claude Code's `ANTHROPIC_*`
+environment variables, for instance, mean nothing to a `codex` sandbox. Set
+`requires.agent` to the base agent the mixin is designed for; composing it onto
+any other base agent is a composition error (rather than silently producing a
+nonsensical-but-valid sandbox).
+
+`requires` is **only valid on `kind: mixin`**. A `kind: sandbox` *is* the base
+agent, so affinity is meaningless there and is rejected at validation time
+rather than silently ignored.
+
+`requires.agent` is a **single agent name**, not a set — affinity exists to
+prevent misapplication, so an "any of these" list would defeat the guarantee.
+The spec library validates only that the name is well-formed (same charset as
+`name`); the affinity itself is enforced at composition time by the consumer.
+Broader family matching (e.g. `claude` and its `claude-vertex` / `claude-bedrock`
+variants) is left to the consumer's `extends`-lineage check. Absent or empty
+means the kit declares no affinity and layers onto any base agent.
+
+## `sandbox:` (only for `kind: sandbox`)
+
+A sandbox kit MUST specify `image` (unless it inherits one via `extends:`). `build` is an *additional*, forward-compatible block — not an alternative: because builds are not yet implemented, a kit that sets `build` must set `image` too, and a build-only kit is rejected at load. See [Use `build:` to build from a Dockerfile](#use-build-to-build-from-a-dockerfile) and [Image publishing](image-publishing.md).
+
+### Use `image:` to layer onto a pre-built image
+
+```yaml
+sandbox:
+  image: docker/sandbox-templates:claude-code
+  resources:                                    # optional (P3) — container limits
+    cpu: 4.0                                    # float, cores (must be non-negative if set)
+    memory: 8g                                  # byte-size string ("8g", "8192m", "4096mib")
+    gpu: "1"                                    # consumer-defined string
+  entrypoint: [claude, "--dangerously-skip-permissions"]   # binary + always-on args
+  command:                                      # mode-specific arg tail (optional)
+    default: ["-l"]                             # appended for a non-interactive / --task run
+    interactive: []                             # appended for an interactive session
+```
+
+Use `image:` when you can layer the kit's behaviour onto an existing base image via `setup.install` and `setup.files`.
+
+### `entrypoint` + `command`
+
+`entrypoint` is a **flat string array** — the fixed process prefix. `entrypoint[0]` is the binary (recorded as `Manifest.Binary`); the remaining elements are always-on arguments applied in **both** run modes.
+
+`command` carries the mode-specific tail appended after the entrypoint. It is polymorphic:
+
+```yaml
+command: ["-l"]              # shorthand: a list = the default tail; interactive falls back to it
+```
+
+```yaml
+command:                     # structured form: distinct tails per mode
+  default: ["-l"]            # appended for a non-interactive / --task launch
+  interactive: []            # appended for an interactive (TTY) session
+```
+
+The effective launch args are:
+
+| Mode | Args |
+|---|---|
+| Default (non-interactive / `--task`) | `entrypoint[1:]` + `command.default` |
+| Interactive (TTY) | `entrypoint[1:]` + `command.interactive` (falls back to `command.default` when `interactive` is unset) |
+
+When `command` is omitted entirely, both modes run `entrypoint` as-is. There is no `pipeMode` field in v2 — the v1 `entrypoint.pipeMode` was dropped and has no v2 home.
+
+### Use `build:` to build from a Dockerfile
+
+```yaml
+sandbox:
+  build:                                        # P1
+    context: .                                  # default ".", relative to spec.yaml
+    dockerfile: Dockerfile                      # default "Dockerfile", relative to context
+    args:                                       # passed as --build-arg
+      AGENT_VERSION: "1.4.2"
+    target: runtime                             # optional Dockerfile build stage
+    platforms:                                  # default [linux/amd64, linux/arm64]
+      - linux/amd64
+      - linux/arm64
+  entrypoint: [my-agent, "--yolo"]
+```
+
+Use `build:` when you need custom binaries, complex setup, or full control over the container contents. `sbx kit push` transforms a `build:` source spec into a distribution form: it runs the build, pins the resulting image by digest, and rewrites `sandbox.build` away. The source `spec.yaml` is never modified; the published kit consumers see only `sandbox.image: <ref>@sha256:<digest>`.
+
+> [!IMPORTANT]
+> **`build:` is not wired up in this release.** It decodes, and it emits a not-implemented warning; the runtime does not build from it. A kit that sets `build:` must **also** set `sandbox.image`, or it is rejected at load with `sandbox.build is accepted in the schema but not yet implemented — specify sandbox.image` (`spec/v2.go`, `spec/normalize.go`). The paragraph above therefore describes intent, not current behaviour.
+>
+> To ship a kit with its own image today, see [Image publishing](image-publishing.md): a `Dockerfile` at the kit root plus a literal `sandbox.image`, built and pushed by this repository's CI.
+
+### Validation
+
+- `sandbox.image` MUST be present for `kind: sandbox` (unless inherited via `extends:`) — including when `sandbox.build` is set, since builds are not yet implemented. A build-only kit is rejected at load.
+- `sandbox.resources.cpu` MUST be non-negative if specified.
+- `sandbox.resources.memory` MUST parse as a byte-size string (`units.RAMInBytes`, e.g. `4096m`, `8g`) if specified.
+- `sandbox.entrypoint` MUST be a flat string array; `entrypoint[0]` is the binary.
+- `sandbox.command` MUST be either a string list or a mapping with `default` / `interactive` keys.
+
+## `credentials`
+
+A list. Each entry describes **what the kit needs** (a service identity, where to inject the resolved value); the user-side [bindings file](bindings.md) declares **where the credential lives**.
+
+Per-entry fields:
+
+| Field | Required | Notes |
+|---|---|---|
+| `service` | yes | Must match `^[a-z0-9]([a-z0-9-]{0,62}[a-z0-9])?$`. Auto-detects the provider when the name matches a known provider registry entry (anthropic, openai, github, …). |
+| `description` | no | Surfaced in interactive prompts (first-time setup, binding selection). |
+| `required` | no | Default `false`. When `true`, sandbox creation fails if no binding is available. |
+| `provider` | conditional | Explicit provider registry entry. Only needed when `service` doesn't match a known provider — sets the auth defaults the registry would otherwise derive from the name. |
+| `apiKey` | conditional | api-key shape (see below). |
+| `oauth` | conditional | OAuth shape (see below). |
+
+For custom services not in the provider registry, **at least one** of `apiKey.inject` or `oauth` MUST be specified.
+
+### api-key shape
+
+```yaml
+credentials:
+  - service: anthropic                         # auto-detects provider "anthropic"
+    description: "Anthropic API key"           # surfaced in interactive prompts
+    required: false                            # resolver fails fast if true and unbound
+    apiKey:
+      name: ANTHROPIC_API_KEY                  # env var the proxy populates in-container
+      inject:
+        - domain: api.anthropic.com
+          header: x-api-key
+          format: "%s"                         # must contain exactly one %s
+  - service: github
+    apiKey:
+      name: GITHUB_TOKEN
+      inject:
+        - domain: api.github.com
+          scheme: bearer                       # sugar for header: Authorization, format: "Bearer %s"
+        - domain: github.com                   # HTTPS git clone over HTTP Basic
+          scheme: basic                        # sugar for HTTP Basic Auth
+          username: x-access-token             # required with scheme: basic
+```
+
+`apiKey.name` is set to the literal `proxy-managed` inside the container by the engine — the sentinel-swap proxy replaces it on outbound requests. Authors **don't** put real values in the spec.
+
+### `scheme` — header-encoding sugar (v2)
+
+`inject[].scheme` is decode-time sugar that avoids hand-spelling `header` + `format`:
+
+| `scheme` | Expands to | Notes |
+|---|---|---|
+| `bearer` | `header: Authorization`, `format: "Bearer %s"` | `username` is rejected. |
+| `basic` | HTTP Basic Auth (username-driven at the proxy) | `username` is **required**. |
+
+`scheme` and a raw `format` are **mutually exclusive** — set one or the other, not both. On the normalized artifact `scheme` is expanded away, so consumers only ever read `header` / `format` / `username`. You can still write `header` + `format` directly when you need a header the sugar doesn't cover.
+
+`bearer` supplies `header: Authorization` only when you left `header` empty, so writing an explicit `header:` alongside it still wins. `basic` is username-driven at the proxy rather than a header encoding, so it sets no `header` at all — write one yourself if the service needs a specific one.
+
+**Enforcement:** every `apiKey.inject[].domain` MUST appear in `permissions.network.allow`. There is no auto-derived egress from credentials. The spec validator does not cross-check the two lists; the engine enforces the rule, and a missing domain surfaces at load or sandbox-create time (SPEC-v2 §6).
+
+### OAuth shape
+
+```yaml
+credentials:
+  - service: anthropic
+    oauth:
+      tokenEndpoint:
+        host: platform.claude.com                  # required
+        path: /v1/oauth/token                      # required
+      sentinels:
+        accessToken: sk-ant-oat01-proxy-managed    # required unless passthrough is set
+        refreshToken: sk-ant-ort01-proxy-managed   # required unless passthrough is set
+      credentialFile:                              # optional
+        path: "~/.claude/.credentials.json"
+        structure:                                 # declarative JSON shape (preferred)
+          claudeAiOauth:
+            accessToken: "{{.AccessToken}}"
+            refreshToken: "{{.RefreshToken}}"
+      responseFields:                              # optional — for non-standard OAuth responses
+        accessToken: "access_token"                # default values shown; override for camelCase / non-standard names
+        refreshToken: "refresh_token"
+        expiresIn: "expires_in"
+        scope: "scope"
+      # passthrough: true                          # opt-out of sentinel masking — see below
+```
+
+**`credentialFile.structure`** is a declarative JSON map with `{{.AccessToken}}` / `{{.RefreshToken}}` / `{{.ExpiresAt}}` / `{{.Scopes}}` placeholders. `ExpiresAt` is a Unix-millisecond timestamp. The engine encodes the map as JSON, then substitutes placeholders — output is guaranteed well-formed.
+
+**`responseFields`** maps logical OAuth token field names to the actual JSON field names returned by the token endpoint. Defaults match the OAuth 2.0 RFC (`access_token`, `refresh_token`, `expires_in`, `scope`); set explicit overrides for providers that use camelCase or vendor-specific names.
+
+**`passthrough: true`** bypasses sentinel masking: the proxy returns the real OAuth response to the container instead of swapping in sentinels. This is a security downgrade (the container sees the real token), so say why the kit needs it in the PR description; the typical reason is a provider that returns a JWT the agent must inspect locally. When `passthrough: true`, the validator stops requiring `sentinels`. There is no `passthroughReason` field in the schema.
+
+A credential entry can declare **both** `apiKey` and `oauth`. The precedence rule is: **api key wins when found**. If no API key value is present on the host, the user can authenticate via OAuth (e.g. `/login`). Setting both lets the kit support either auth method without the kit author choosing one.
+
+## `permissions` — capability grants
+
+The top-level capability-grant block. It is the v2 home for what v1 spelled as the top-level `network:` block (and what an earlier v2 draft spelled `caps:`). Today it carries only `network`.
+
+### `permissions.network` (P2 / P3 extended)
+
+Declares the egress allow / deny lists. Replaces the v1 `network` block entirely.
+
+```yaml
+permissions:
+  network:
+    allow:
+      - "*.anthropic.com"
+      - "registry.npmjs.org"
+      - "api.example.com:443"                  # exact + port also accepted
+    deny:
+      - "telemetry.example.com"
+```
+
+Entry formats:
+
+| Pattern | Example | Matches | Status |
+|---|---|---|---|
+| `<domain>` | `api.example.com` | Exact host, default port 443 | **P2 — implemented** |
+| `<domain>:<port>` | `api.example.com:8080` | Exact host, specific port | **P2 — implemented** |
+| `*.<domain>` | `*.example.com` | Exactly one DNS label (e.g. `api.example.com`, `cdn.example.com`). Does **not** match `example.com` itself or `a.b.example.com`. | **P2 — implemented** |
+| `**.<domain>` | `**.example.com` | One or more DNS labels (e.g. `api.example.com`, `a.b.example.com`). | **P3 — pending** |
+| `<domain>:<lo>-<hi>` | `api.example.com:80-443` | Port range | **P3 — pending** |
+| `<domain>:*` | `api.example.com:*` | Port wildcard | **P3 — pending** |
+| CIDR | `10.0.0.0/8` | IP block | **P3 — pending** |
+
+**Deny precedence.** When the same host matches both `allow` and `deny`, **deny wins** — the request is rejected. Overlap is legal (and intentional: a parent kit can allow `*.example.com` while a child or mixin denies `telemetry.example.com`).
+
+**All-domains-declared rule.** Every domain a credential injects into MUST appear in `permissions.network.allow`. There is no auto-derived egress — see the `credentials` validation note above.
+
+Composition: allow / deny lists append across kits. Use `sbx policy log <sandbox>` to see what got through.
+
+## `ports` (top-level)
+
+Ports the kit wants the sandbox runtime to publish on the host when the sandbox starts. (This is the v2 home for what v1 spelled as `network.publishedPorts` / top-level `publishedPorts`.)
+
+```yaml
+ports:
+  - container: 8080
+    protocol: tcp                              # "tcp" (default) or "udp"
+    name: web                                  # informational label for `sbx ports`
+  - container: 9418                            # git-daemon
+  - container: 53
+    protocol: udp
+    name: dns
+```
+
+Host port allocation is **always ephemeral** on `127.0.0.1`. Users wanting a pinned host port still use `sbx ports --publish <host>:<container>` on top of the kit's declaration. A kit can't pick a host port because two kits requesting the same one would collide on the user's machine.
+
+Port publishing is **inbound service exposure** — a separate concern from outbound egress under `permissions.network`.
+
+## `environment` (P2)
+
+The block is **P2** because v2 removed its `proxyManaged` field as part of the credentials redesign — the proxy-managed semantic now lives implicitly on `credentials[].apiKey.name`.
+
+```yaml
+environment:
+  variables:
+    IS_SANDBOX: "1"                            # static, keys must be [A-Za-z_][A-Za-z0-9_]*
+```
+
+Composition: `variables` union with last-wins.
+
+The proxy-managed env-var semantic that lived under `environment.proxyManaged` in v1 is now implicit on `credentials[].apiKey.name`. There's no `proxyManaged` list to maintain separately.
+
+### Reserved env-var prefixes
+
+Kits MUST NOT declare environment variables — neither in `environment.variables` nor as `credentials[].apiKey.name` — that start with these prefixes. They're reserved for the host runtime:
+
+| Prefix | Reserved for |
+|---|---|
+| `DASH_*` | dash runtime internals |
+| `SBX_*` | sandboxes runtime internals |
+| `DOCKER_*` | Docker runtime |
+
+Setting one is a validation error.
+
+The runtime also **warns** (not rejects) on `HOME`, `USER`, `SHELL`, `LD_PRELOAD`, `LD_LIBRARY_PATH`, and `PATH` because the runtime may override these values. Set them only when you know what you're doing.
+
+## `setup`
+
+Three lists. All optional. (This is the v2 home for what v1 spelled as `commands`; `commands.initFiles` is now `setup.files`.)
+
+```yaml
+setup:
+  install:                                     # runs once before startup, synchronous
+    - command: "curl -fsSL https://claude.ai/install.sh | bash"   # string ONLY
+      user: "0"                                # default "0" (root)
+      description: Install Claude Code
+  startup:                                     # runs at every container start
+    - command: ["sh", "-c", "apt-get update -qq -y &"]            # string OR list[string]
+      user: "1000"                             # default "1000" (agent)
+      background: false                        # default false
+      description: ...
+  files:                                       # files written at startup via shell exec
+    - path: /home/agent/.copilot/config.json   # absolute
+      content: '{"trusted_folders": ["${WORKDIR}"]}'
+      mode: "0644"                             # octal string
+      onlyIfMissing: true                      # skip if file exists (e.g. persistent volume)
+      description: ...
+```
+
+### Command-type contract
+
+| Field | Type | How it executes |
+|---|---|---|
+| `install[].command` | **`string` only** | Runs via `sh -c <string>`. Shell metachars (`&&`, `\|\|`, `;`, `\|`, redirects) work as written. A list form is a validation error. |
+| `startup[].command` | **`string` OR `list[string]`** | String form runs via `sh -c`; list form runs as `exec`-style argv with no shell processing. Use the list form when you need to avoid shell quoting issues; do **not** put shell metachars as bare argv tokens (e.g. `["apt-get", "update", "&&", "apt-get", "install", …]` will pass `&&` to `apt-get` literally). The canonical pattern for "list form but I need a shell" is `["sh", "-c", "<shell command>"]`. |
+| `files[].path` / `content` / `mode` / `onlyIfMissing` | strings / bool | No command runs — these are file writes. |
+
+### Other rules
+
+- Placeholders supported only in `files[].content`: **`${WORKDIR}`**. Anything else fails validation.
+- `install` user defaults to `"0"` (root); `startup` user defaults to `"1000"` (agent).
+- `startup.background: true` detaches the command; the runtime moves on without waiting.
+
+Composition: all three lists **concatenate** in `--kit` order. `install` runs for every kit, built-in or user-supplied — use `command -v <binary>` guards or `setup.files` with `onlyIfMissing: true` to keep it idempotent.
+
+## `settings` — **removed in v2**
+
+The v1 `settings` block (with its `containerSettings` map) hardcoded agent-specific setup. v2 removes it entirely. If you need to write an agent-specific configuration file at startup, use `setup.files` instead — that's the migration path.
+
+A v1 kit that still ships `settings:` will load via the legacy shims, but the field has no v2 home; see [`v1-migration.md`](v1-migration.md) for the recipe.
+
+## `volumes`
+
+A single list. Each entry's `type` selects the backing storage.
+
+```yaml
+volumes:
+  - path: /workspace                           # absolute path inside the container
+    # type: ""                                 # default — block-backed volume
+    size: 10g
+    mode: "0755"
+  - path: /tmp/scratch
+    type: tmpfs                                # RAM-backed mount
+    size: 512m
+    mode: "1777"
+```
+
+Composition: union by `path`; same `path` in two kits with different shapes follows last-wins.
+
+## `agentInstructions` (top-level)
+
+Groups the agent-instruction fields. Both are optional.
+
+```yaml
+agentInstructions:
+  filename: CLAUDE.md          # the AI profile filename this sandbox owns (sandbox kits only)
+  content: |                   # markdown appended to the AI profile
+    This kit exposes a PostgreSQL MCP server. To use it, ensure DATABASE_URL
+    is set in the container environment, then call tools under the `postgres`
+    namespace from the agent.
+```
+
+`agentInstructions` is the v2 home for two v1 surfaces: `sandbox.aiFilename` (now `filename`) and the top-level `agentContext:` / v1 `memory:` field (now `content`).
+
+### `filename` — the AI profile the sandbox owns
+
+`filename` is the AI profile file (e.g. `CLAUDE.md`, `GEMINI.md`) the agent reads every session. It is only meaningful for a **`kind: sandbox`** kit. A mixin cannot own the profile filename — if a mixin sets `filename`, it is **ignored** (a warning on `Artifact.Warnings`, not an error), because a mixin contributes _to_ the base sandbox's profile rather than defining one.
+
+### `content` — rendered instructions
+
+**For a base `kind: sandbox` kit**: `content` is rendered **inline** in the AI profile file at sandbox creation. Loaded into the agent's context every session. Ignored when `filename` is unset.
+
+**For a `kind: mixin`**: `content` is written to a separate file under `<dir-of-AIFile>/kits-memory/<kit-name>.md` and **not** inlined into the AI file. The AI file gets a sentinel-wrapped `## Kits` section pointing the agent at that directory. This is **progressive disclosure** — the agent reads kit context on demand, not at startup, so adding many kits does not bloat initial context.
+
+The per-kit file is overwritten on every (re)write — there is no version field in the manifest today, so "what's in the file = what the kit currently provides" is the contract.
+
+Progressive disclosure is a behavioral bet on the agent: it must read the `## Kits` section and follow the pointer when it needs a kit's docs. Claude does this reliably. Other agents may need behavioral verification.
+
+## `files/` directory
+
+```
+my-kit/
+├── spec.yaml
+└── files/
+    ├── home/
+    │   └── .claude/config.json     → /home/agent/.claude/config.json
+    └── workspace/
+        └── .mcp/postgres.json      → <workspace>/.mcp/postgres.json
+```
+
+For user kits, packed into the artifact and copied into the container at create time. Absolute paths and `..` traversal are rejected at validation. Symlinks must stay inside the artifact root.
+
+Only `files/home/` and `files/workspace/` are recognized targets. Any other subdirectory under `files/` (e.g. `files/etc/`, `files/tmp/`) is **ignored with a warning** — kits cannot write outside the agent home or workspace.
+
+Composition: overlay map keyed by `target:relativePath`. Later kits override earlier at the same path.
+
+**Timing:** `files/home/<path>` writes alongside the other kit customizers at container start. `files/workspace/<path>` writes **after** the workspace is populated — including the in-container `git clone` under `sbx run --clone` — so the file always lands inside the materialised working copy. See [lifecycle step 7](lifecycle.md) for the underlying mechanism.
+
+A `files/workspace/<path>` whose relative path matches a real file in the user's repo overlays that file — silently overwriting it on every sandbox start. Overlay is the intended semantic, but see [`pitfalls.md`](pitfalls.md) for the data-loss consideration.
+
+## Validation cheat sheet
+
+Run before committing:
+
+```bash
+sbx kit validate ./my-kit/
+```
+
+Or in tests, `spec.LoadFromDirectory(...)` calls `ValidateArtifact` internally; failure returns a descriptive error.
+
+**Unknown-fields rule.** Unknown fields cause a validation error **everywhere** in the spec — implementations MUST NOT silently ignore unrecognized fields. A typo like `credenta:` or `permissions.netwrok:` is rejected at load time. This is by design: it catches typos early and consistently. The v2 decoder is a **clean grammar with no legacy shims**: a v1 field (`agent:`, `caps:`, `commands:`, `agentContext:`, `network:`, `sandbox.aiFilename`, `sandbox.entrypoint.run`, …) appearing in a `schemaVersion: "2"` spec is a hard error, not a silent fold. Use `schemaVersion: "1"` (which loads via the legacy shims) or run the migrate script.
+
+Validation errors include the field path, the invalid value, and an actionable suggestion when one applies.
+
+## Loading a v1 spec.yaml
+
+v1 spec.yaml files keep loading via the legacy shims. See [`v1-migration.md`](v1-migration.md) for the per-surface mappings, the `Artifact.Warnings` channel, and the `migrate-v1-to-v2.go` script.

@@ -1,0 +1,46 @@
+# TCK configuration for the kiro kit.
+#
+# kiro is still a built-in agent in released sbx builds, and sbx refuses to load
+# a kit whose name collides with a built-in ("built-in agents cannot be
+# overridden by a kit"). This flag turns that one specific `sbx create` failure
+# into a skip, so the kit can land and be reviewed here before the built-in is
+# removed from sbx.
+#
+# Nothing needs re-enabling later: once a released sbx no longer registers the
+# built-in, `sbx create` succeeds, the full e2e runs, and the test logs a notice
+# that this line is obsolete and can be deleted.
+extractedFromBuiltin: true
+#
+# `promptArgs` is deliberately omitted, which skips the e2e `prompt` subtest.
+# That is the documented opt-out "for agents with no non-interactive mode"
+# (tck/e2e_test.go), and kiro is exactly that case:
+#
+#   * Kiro authenticates only via interactive device flow — the user must open a
+#     URL and enter a verification code. There is no API-key path, so CI has no
+#     way to reach an authenticated state.
+#   * The `kiro` entrypoint is the kit's start.sh, which runs `kiro-cli whoami`
+#     and, when unauthenticated, execs `kiro-cli login --use-device-flow`. Under
+#     `sbx exec` that would block waiting on a human rather than answer a prompt.
+#
+# The remaining subtests (env, files, tmpfs, agentContext) still run and are
+# what actually gate this kit.
+#
+# If kiro-cli ever grows a non-interactive/offline mode that emits output
+# without credentials, set `binary: kiro-cli` to bypass the auth wrapper and add
+# the matching `promptArgs` here.
+
+# Shape of the MCP-gateway registration written by the startup hook in
+# spec.yaml, checked by the TCK's mcp_registration subtest. The
+# format-independent parts (no-op guard, env-var indirection, no literal token,
+# non-root user) are asserted for every kit and need no configuration here.
+#
+# kiro-cli keys an HTTP MCP server by `url` plus a `headers` object. There is no
+# `type` field, and `httpUrl` is Gemini's spelling of the same concept — the
+# wrong answer nearest to hand when editing this. See the Authorization Example
+# in https://kiro.dev/docs/cli/mcp/configuration/
+mcp:
+  configPath: $HOME/.kiro/settings/mcp.json
+  transportKey: url
+  forbiddenKeys:
+    - httpUrl
+    - type

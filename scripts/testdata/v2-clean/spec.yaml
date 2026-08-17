@@ -1,0 +1,13 @@
+schemaVersion: "2"
+kind: sandbox
+name: clean-v2-kit
+displayName: Clean v2 Kit
+description: already v2 — running the migration on this must be a no-op
+
+sandbox:
+  image: "example/test:latest"
+
+agentInstructions:
+  filename: TEST.md
+  content: |
+    Already in v2 spelling.
