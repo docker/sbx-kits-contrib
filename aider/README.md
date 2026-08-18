@@ -1,6 +1,6 @@
 # aider
 
-A standalone agent kit (`kind: agent`) for [Aider](https://aider.chat/), an
+A standalone sandbox kit (`kind: sandbox`) for [Aider](https://aider.chat/), an
 AI pair programming tool. The kit installs Aider via
 [uv](https://astral.sh/uv/), wires LLM API auth through the sandbox proxy,
 and runs `aider` as the entrypoint when you attach.
@@ -103,7 +103,7 @@ analytics off). To customise:
 - **Inside the sandbox**: edit `~/.aider.conf.yml` directly — changes persist across
   restarts.
 - **Per-project**: add an `.aider.conf.yml` at the root of your workspace.
-- **Coding conventions**: add an `CONVENTIONS.md` or pass `--read <file>` at launch.
+- **Coding conventions**: add a `CONVENTIONS.md` or pass `--read <file>` at launch.
 
 ## Why Python 3.12
 
@@ -111,7 +111,7 @@ The base sandbox image ships Python 3.13, but aider's `numpy` dependency resolve
 to a version that only has prebuilt wheels for Python ≤3.12. The base image has no
 C compiler, so building numpy from source fails. The kit pins `--python 3.12` to
 install Aider, and uv downloads a standalone Python 3.12 runtime (~28 MB) from
-`releases.astral.sh` (already in `allowedDomains`) automatically.
+`releases.astral.sh` (already in `permissions.network.allow`) automatically.
 
 ## Coding conventions
 
@@ -119,7 +119,7 @@ To give Aider project-specific style rules or context, create a `CONVENTIONS.md`
 in your repo and pass it at launch:
 
 ```console
-$ sbx run aider aider -- --read CONVENTIONS.md
+$ sbx run aider -- --read CONVENTIONS.md
 ```
 
 Or set it permanently in your project's `.aider.conf.yml`:
