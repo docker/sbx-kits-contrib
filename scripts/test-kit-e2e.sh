@@ -122,13 +122,23 @@ unset probe_err
 # Lists sandbox names under $APP_NAME starting with $1, via `ls --json`
 # rather than the human table so this survives table-formatting changes.
 # `ls --json` pretty-prints (a space after the ':'), so match that loosely
-# rather than assuming compact JSON. Defined once and used at both call
-# sites below (here and in the on_exit trap) so they can't drift apart.
+# rather than assuming compact JSON. The prefix match uses a bash `case`
+# glob, not `grep "^$1"`: sbx names allow periods and plus signs
+# (tck/e2e_test.go's sandboxName), both regex metacharacters that a grep
+# anchor would misinterpret and could match sandboxes outside this kit's
+# own prefix. `*`/`?` are the only glob metacharacters and sbx names can't
+# contain them, so this is safe for every name sbx will actually accept.
+# Used only for the pre-run stale-sandbox cleanup below — the on_exit trap
+# uses the recorded name from $SBX_E2E_NAME_LOG instead (see its comment).
 list_sandboxes_matching() {
   sbx --app-name "$APP_NAME" ls --json 2>/dev/null \
     | grep -o '"name":[[:space:]]*"[^"]*"' \
     | cut -d'"' -f4 \
-    | grep "^$1"
+    | while IFS= read -r sandbox_name; do
+        case "$sandbox_name" in
+          "$1"*) printf '%s\n' "$sandbox_name" ;;
+        esac
+      done
 }
 
 # A sandbox from a previous FAILED run of this same kit is deliberately left
@@ -310,7 +320,7 @@ it was left running for further inspection:
 removes any such leftover automatically before starting.
 EOF
     else
-      echo "No sandbox name recorded — the failure happened before sbx create was even attempted." >&2
+      echo "No sandbox name recorded — either the failure happened before sbx create was attempted, or tck/e2e_test.go's createSbx couldn't write \$SBX_E2E_NAME_LOG (it ignores that error so a broken TMPDIR can't fail the test itself)." >&2
     fi
 
     cat >&2 <<EOF
