@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1.7
 # gstack sandbox image.
 #
-# gstack is a Claude Code skill pack (23 slash commands: /ship, /review,
+# gstack is a Claude Code skill pack (slash commands: /ship, /review,
 # /qa, /browse, ...) plus compiled Bun binaries, including a headless
 # Chromium browse daemon. This image pre-bakes the full install — Bun,
 # the gstack checkout @ pinned SHA with its setup run, and Chromium —

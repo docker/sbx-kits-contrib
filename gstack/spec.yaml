@@ -2,7 +2,7 @@ schemaVersion: "2"
 kind: sandbox
 name: gstack
 displayName: gstack (Claude Code + Garry's Stack)
-description: 'Claude Code with the gstack skill pack pre-installed: 23 opinionated slash commands (/ship, /review, /qa, /browse, ...) plus a headless-Chromium browse daemon. Uses a pre-baked image so sandboxes start in seconds.'
+description: 'Claude Code with the gstack skill pack pre-installed: opinionated slash commands (/ship, /review, /qa, /browse, ...) plus a headless-Chromium browse daemon. Uses a pre-baked image so sandboxes start in seconds.'
 sandbox:
   # Pre-baked image: Bun, the gstack checkout @ pinned SHA with setup run
   # (skills registered under ~/.claude/skills), and Chromium for the

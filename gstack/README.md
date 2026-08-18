@@ -2,7 +2,7 @@
 
 A standalone sandbox kit (`kind: sandbox`, the v2 spec naming) for
 [gstack](https://github.com/garrytan/gstack) — Garry Tan's Claude Code
-skill pack: 23 opinionated slash commands (`/ship`, `/review`, `/qa`,
+skill pack: opinionated slash commands (`/ship`, `/review`, `/qa`,
 `/browse`, `/office-hours`, …) plus compiled Bun binaries including a
 headless-Chromium browse daemon.
 
