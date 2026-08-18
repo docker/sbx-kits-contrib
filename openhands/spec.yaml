@@ -85,7 +85,10 @@ credentials:
         - domain: api.anthropic.com
           header: x-api-key
           format: '%s'
-  - service: gemini
+  # google (not gemini) is the canonical service name for this provider
+  # across the repo -- matches crush/junie's credentials[].service, so a
+  # binding set for one kit is reused by another.
+  - service: google
     apiKey:
       name: GEMINI_API_KEY
       proxyManaged: true

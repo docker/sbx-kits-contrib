@@ -26,7 +26,7 @@ provider's credential (or reuses one you've already stored). You can also set it
 up ahead of time:
 
 ```console
-$ sbx secret set anthropic   # or: openai, gemini
+$ sbx secret set anthropic   # or: openai, google
 ```
 
 To use OpenAI or Gemini instead of the default (Anthropic): there's no supported
