@@ -1,0 +1,81 @@
+schemaVersion: "2"
+kind: sandbox
+name: aider
+displayName: Aider
+description: |
+  AI pair programming in your terminal. Edits code, runs tests, and commits changes using Claude, GPT, Gemini, or any LiteLLM-compatible model.
+sandbox:
+  image: docker/sandbox-templates:shell-docker
+  entrypoint:
+    - /home/agent/.local/bin/aider
+permissions:
+  network:
+    allow:
+      - github.com
+      - api.github.com
+      - raw.githubusercontent.com
+      - objects.githubusercontent.com
+      - pypi.org
+      - files.pythonhosted.org
+      - astral.sh
+      - '*.astral.sh'
+      - aider.chat
+# Aider uses LiteLLM under the hood, which checks the relevant env var is
+# present *before* it will attempt a request -- with no placeholder set,
+# LiteLLM raises its own "missing API key" error locally, before the proxy
+# ever gets a chance to inject the real credential. proxyManaged: true is
+# what makes the engine populate a placeholder value for each of these
+# automatically; the actual secret comes from the service-keyed store
+# (sbx secret set <service>, or the interactive wizard on first run).
+credentials:
+  - service: anthropic
+    apiKey:
+      name: ANTHROPIC_API_KEY
+      proxyManaged: true
+      inject:
+        - domain: api.anthropic.com
+          header: x-api-key
+          format: '%s'
+  - service: gemini
+    apiKey:
+      name: GEMINI_API_KEY
+      proxyManaged: true
+      inject:
+        - domain: generativelanguage.googleapis.com
+          header: x-goog-api-key
+          format: '%s'
+  - service: openai
+    apiKey:
+      name: OPENAI_API_KEY
+      proxyManaged: true
+      inject:
+        - domain: api.openai.com
+          header: Authorization
+          format: Bearer %s
+environment:
+  variables:
+    AIDER_ANALYTICS: "false"
+    AIDER_AUTO_COMMITS: "true"
+    AIDER_CHECK_UPDATE: "false"
+    AIDER_MODEL: sonnet
+setup:
+  install:
+    # uv ships pre-installed in the shell-docker base image (/usr/local/bin/uv,
+    # already on PATH) -- no need to install it ourselves.
+    # --python 3.12: the base image ships Python 3.13, but aider's numpy
+    # dependency (<=1.26.x) has no Python 3.13 wheel and the base image
+    # has no C compiler. uv downloads a Python 3.12 standalone (~28 MB)
+    # from releases.astral.sh, which is already in permissions.network.allow.
+    - command: uv tool install --with pip --python 3.12 aider-chat
+      user: "1000"
+      description: Install Aider with Python 3.12
+  startup:
+    - command:
+        - uv
+        - tool
+        - upgrade
+        - aider-chat
+        - --quiet
+      user: "1000"
+      background: true
+      description: Upgrade Aider to latest
