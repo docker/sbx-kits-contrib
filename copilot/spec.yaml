@@ -1,0 +1,104 @@
+schemaVersion: "2"
+kind: sandbox
+name: copilot
+# The KIT's version, not Copilot's. It covers this spec, the network policy
+# and the hooks — the agent inside the image floats, so a newer copilot-cli
+# does not bump this and this does not track releases of copilot-cli.
+#
+# Published as the vnd.docker.sandbox.kit.version OCI annotation at pack time,
+# and `scripts/check-release-tag.sh` refuses a `copilot/vX.Y.Z` tag that
+# disagrees with it. Bump here first, then tag.
+version: "1.0.0"
+displayName: GitHub Copilot
+description: GitHub Copilot CLI, GitHub's agentic coding CLI.
+sandbox:
+  image: "docker.io/sbx/copilot-image:latest"
+  entrypoint: [copilot, "--yolo"]
+
+credentials:
+  - service: github
+    apiKey:
+      name: GH_TOKEN
+      inject:
+        - domain: api.github.com
+          header: Authorization
+          format: Bearer %s
+        - domain: github.com
+          header: Authorization
+          format: Bearer %s
+  - service: copilot
+    apiKey:
+      # Copilot CLI prioritizes COPILOT_GITHUB_TOKEN over GH_TOKEN/GITHUB_TOKEN,
+      # so this can hold a separate, fine-grained PAT (copilot request scope)
+      # without affecting the broader github secret used for gh/git access.
+      # https://docs.github.com/en/copilot/how-tos/set-up/install-copilot-cli
+      name: COPILOT_GITHUB_TOKEN
+      inject:
+        # https://github.blog/changelog/2026-02-13-network-configuration-changes-for-copilot-coding-agent/
+        - domain: api.business.githubcopilot.com # Copilot Business
+          header: Authorization
+          format: Bearer %s
+        - domain: api.enterprise.githubcopilot.com # Copilot Enterprise
+          header: Authorization
+          format: Bearer %s
+        - domain: api.githubcopilot.com
+          header: Authorization
+          format: Bearer %s
+        - domain: api.individual.githubcopilot.com # Copilot Pro and Pro+
+          header: Authorization
+          format: Bearer %s
+        - domain: copilot.github.com
+          header: Authorization
+          format: Bearer %s
+
+permissions:
+  network:
+    allow:
+      # Every domain either credential injects into — required here too, not
+      # just above: this repo's e2e runs every kit under
+      # `sbx policy init deny-all`, so a domain absent from this list is
+      # unreachable regardless of what the credential block declares.
+      - api.business.githubcopilot.com # Copilot Business
+      - api.enterprise.githubcopilot.com # Copilot Enterprise
+      - api.github.com
+      - api.githubcopilot.com
+      - api.individual.githubcopilot.com # Copilot Pro and Pro+
+      - copilot.github.com
+      - github.com
+      # `apt-get update` (the startup hook below) refreshes metadata for every
+      # configured apt source and returns exit 100 if any one of them fails.
+      # The shell-docker base ships three sources, so all three must be
+      # reachable. Ubuntu serves amd64 from archive/security and arm64 from
+      # ports.ubuntu.com, so all three Ubuntu hosts are listed to keep the kit
+      # working cross-arch.
+      - archive.ubuntu.com        # Ubuntu archive (amd64 main)
+      - security.ubuntu.com       # Ubuntu security updates (amd64)
+      - ports.ubuntu.com          # Ubuntu archive/security (arm64)
+      - download.docker.com       # Docker's apt repo, pre-added by shell-docker
+      #
+      # TODO(copilot-extraction): the domains above are the ones the
+      # credential block already declared; they have not been verified
+      # end-to-end under deny-all from this repo, and Copilot CLI may reach
+      # further hosts (telemetry, self-update, extension registry). Confirm
+      # or widen from a live run:
+      #
+      #   sbx run --kit ./copilot copilot   # then attempt a prompt
+      #   sbx policy log                    # lists every blocked host + reason
+
+setup:
+  install:
+    - command: mkdir -p /home/agent/.copilot && chown agent:agent /home/agent/.copilot
+      user: "0"
+      description: Ensure .copilot is owned by agent before bind mounts and initFiles run
+  startup:
+    - command: ["sh", "-c", "command -v apt-get > /dev/null 2>&1 && (apt-get update -qq -y > /dev/null 2>&1 || true) &"]
+      user: "root"
+      description: Update apt package cache in background
+  files:
+    - path: /home/agent/.copilot/config.json
+      content: '{"trusted_folders": ["${WORKDIR}"]}'
+      onlyIfMissing: true
+      description: Copilot config with trusted workspace folder
+
+agentInstructions:
+  filename: AGENTS.md

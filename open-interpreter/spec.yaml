@@ -1,0 +1,123 @@
+schemaVersion: "2"
+kind: sandbox
+name: open-interpreter
+displayName: Open Interpreter
+description: |
+  Natural language interface for your sandbox. Describe what you need; Open Interpreter writes and runs the code (Python, JS, Shell, and more) to complete the task.
+sandbox:
+  image: docker/sandbox-templates:shell-docker
+  entrypoint:
+    - /home/agent/.local/bin/interpreter
+agentInstructions:
+  filename: AGENTS.md
+  content: |
+    ## Open Interpreter
+
+    You are Open Interpreter. You take natural language requests and complete
+    them by writing and running code.
+
+    The sandbox is isolated — you can run code freely without worrying about
+    damaging the host system.
+
+    - **Auto-run is on**: code executes without confirmation prompts.
+    - **Supported languages**: Python, JavaScript, Shell, and anything else
+      installed in the environment.
+    - **Switch models**: run `interpreter --model claude-3-5-sonnet-20241022`
+      to use Claude, or `interpreter --model ollama/llama3` for a local model.
+    - **Workspace**: your working directory is `${WORKDIR}`. Files created
+      there persist across sandbox restarts.
+permissions:
+  network:
+    allow:
+      # Every domain the two LLM credentials inject into -- required here
+      # too, not just below: this repo's e2e runs every kit under
+      # `sbx policy init deny-all`, so a domain absent from this list is
+      # unreachable regardless of what the credential block declares.
+      - api.anthropic.com
+      - api.openai.com
+      # Open Procedures: OI fetches task-specific best-practice snippets at runtime
+      - raw.githubusercontent.com
+      - objects.githubusercontent.com
+      - api.github.com
+      # uv installer and releases (including Python 3.12 standalone runtime)
+      - astral.sh
+      - '*.astral.sh'
+      # PyPI: uv installs at creation time and during code execution
+      - pypi.org
+      - files.pythonhosted.org
+      # npm: OI can write and run JS
+      - registry.npmjs.org
+      - '*.npmjs.org'
+      # apt: OI can run shell commands that install system packages, and the
+      # kit's own gcc/python3-dev install needs `apt-get update` to succeed
+      # against every configured source -- it fails on the first one that
+      # doesn't resolve, even if the package itself comes from elsewhere.
+      # Ubuntu hosts amd64 packages on archive/security and arm64 packages on
+      # ports.ubuntu.com; download.docker.com is pre-added by the *-docker
+      # base templates.
+      - deb.debian.org
+      - archive.ubuntu.com
+      - security.ubuntu.com
+      - ports.ubuntu.com
+      - download.docker.com
+      # LiteLLM model info and routing
+      - '*.litellm.ai'
+credentials:
+  # Narrow inject domains: only the LLM API hosts that need auth injection.
+  # A wildcard here would TLS-intercept all traffic, including code that
+  # OI executes on your behalf, breaking arbitrary downloads.
+  - service: anthropic
+    apiKey:
+      name: ANTHROPIC_API_KEY
+      proxyManaged: true
+      inject:
+        - domain: api.anthropic.com
+          header: x-api-key
+          format: '%s'
+  # NOTE (migration gap, flagged for review): the original v1 spec also
+  # declared a file-based fallback source for this credential
+  # (credentials.sources.openai.file: {path: ~/.openai-api-key}) alongside
+  # the env var. kit-spec v2's apiKey has no file-source equivalent -- only
+  # env-var sourcing -- so that fallback has no way to be expressed here and
+  # is dropped by this migration. A host relying on the file fallback (no
+  # OPENAI_API_KEY env var set) will stop getting the credential injected.
+  - service: openai
+    apiKey:
+      name: OPENAI_API_KEY
+      proxyManaged: true
+      inject:
+        - domain: api.openai.com
+          header: Authorization
+          format: Bearer %s
+setup:
+  install:
+    # open-interpreter's psutil dependency has no prebuilt wheel for the
+    # Python 3.12 standalone uv downloads below on some architectures
+    # (confirmed on arm64) and falls back to compiling from source, which
+    # needs a C compiler the base image doesn't ship by default.
+    - command: apt-get update -qq && apt-get install -y -qq gcc python3-dev
+      user: "0"
+      description: Install a C compiler for building Python packages with native extensions
+    # uv ships pre-installed in the shell-docker base image (/usr/local/bin/uv,
+    # already on PATH) -- no need to install it ourselves.
+    # --python 3.12: the base image ships Python 3.13, but open-interpreter's
+    # numpy dependency has no Python 3.13 wheel. uv downloads a Python 3.12
+    # standalone (~28 MB) from releases.astral.sh (already in allowedDomains)
+    # automatically.
+    # --with "setuptools<81": open-interpreter still imports pkg_resources at
+    # startup, which setuptools>=81 dropped entirely (ModuleNotFoundError at
+    # runtime, not install time -- confirmed by hand). setuptools<81 still
+    # bundles it, with just a deprecation warning.
+    - command: uv tool install --with "setuptools<81" --python 3.12 open-interpreter
+      user: "1000"
+      description: Install Open Interpreter with Python 3.12
+  startup:
+    - command:
+        - uv
+        - tool
+        - upgrade
+        - open-interpreter
+        - --quiet
+      user: "1000"
+      background: true
+      description: Upgrade Open Interpreter to latest

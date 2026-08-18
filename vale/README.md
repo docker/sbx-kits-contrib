@@ -5,8 +5,14 @@ A mixin kit (`kind: mixin`) that installs the latest [Vale](https://vale.sh/) pr
 ## Usage
 
 ```console
-$ sbx run --kit "git+https://github.com/docker/sbx-kits-contrib.git#dir=vale" claude
+$ sbx run --kit "docker.io/sbx/vale-kit:latest" claude
 agent@...$ vale --version
+```
+
+Or from a git URL targeting this repo:
+
+```console
+$ sbx run --kit "git+https://github.com/docker/sbx-kits-contrib.git#dir=vale" claude
 ```
 
 Or with a local clone:

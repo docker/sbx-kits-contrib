@@ -23,6 +23,7 @@ import (
 	"github.com/docker/sbx-kits-contrib/spec"
 	"github.com/docker/sbx-kits-contrib/tck"
 	"github.com/stretchr/testify/require"
+	"go.yaml.in/yaml/v3"
 )
 
 // sandboxWorkDir is the workspace mount point inside every sbx template
@@ -33,30 +34,33 @@ import (
 // their own workdir; it does not match a real sbx sandbox.)
 const sandboxWorkDir = "/home/agent/workspace"
 
-// TestE2ECreateSandbox creates a sandbox with the kit under test against a
-// real sbx daemon, asserts that `sbx create` succeeds, then verifies the kit
-// content is present inside the running container: env vars, container files
-// (from `files/home` and `commands.initFiles`), tmpfs mounts, and — when the
-// kit declares an `agentContext:` block — the rendered file. The sandbox is
-// removed in cleanup.
+// TestE2EKit is the single e2e entry point for all kit types. It creates one
+// sandbox, verifies kit content (env vars, files, tmpfs, agentContext) for
+// every kit, and — for kind:sandbox kits that declare promptArgs in their
+// testdata/tck.yaml — also sends a non-interactive prompt to the agent.
+//
+// Subtest layout:
+//
+//	TestE2EKit/<kit>
+//	  env          — all kits
+//	  files        — all kits
+//	  tmpfs        — all kits
+//	  agentContext — all kits (skipped when agentContext is absent)
+//	  prompt       — kind:sandbox only, skipped when tck.yaml/promptArgs absent
 //
 // The agent passed to `sbx create` depends on the kit's manifest:
 //
-//   - kind: sandbox → the kit's own name (sbx enforces this match).
-//   - kind: mixin   → "claude" (the default agent kit-author exercised).
+//	kind: sandbox → the kit's own name (sbx enforces this match).
+//	kind: mixin   → "claude" (the default agent the kit is exercised against).
 //
 // KIT_UNDER_TEST is read from the environment; the CI matrix sets it per-kit.
-func TestE2ECreateSandbox(t *testing.T) {
+func TestE2EKit(t *testing.T) {
 	kitPath := os.Getenv("KIT_UNDER_TEST")
 	require.NotEmpty(t, kitPath, "KIT_UNDER_TEST must point at a kit directory")
 
 	absKit, err := filepath.Abs(kitPath)
 	require.NoError(t, err, "resolve KIT_UNDER_TEST=%q", kitPath)
 
-	// Name the parent subtest after the kit directory so loops invoking this
-	// test once per kit produce distinguishable test names in the output
-	// (e.g. TestE2ECreateSandbox/crush, TestE2ECreateSandbox/code-server)
-	// instead of repeated TestE2ECreateSandbox lines.
 	t.Run(filepath.Base(absKit), func(t *testing.T) {
 		info, err := os.Stat(absKit)
 		require.NoErrorf(t, err, "stat KIT_UNDER_TEST=%q", absKit)
@@ -68,37 +72,58 @@ func TestE2ECreateSandbox(t *testing.T) {
 		_, err = exec.LookPath("sbx")
 		require.NoError(t, err, "sbx must be on PATH; CI installs it from docker/sbx-releases")
 
-		workspace := t.TempDir()
-		name := sandboxName(t, absKit)
 		agent := agentForKit(suite.Artifact)
 
-		t.Cleanup(func() {
-			cleanCtx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
-			defer cancel()
-			out, err := exec.CommandContext(cleanCtx, "sbx", "rm", "-f", name).CombinedOutput()
-			if err != nil {
-				t.Logf("cleanup `sbx rm -f %s` failed: %v\n%s", name, err, out)
-			}
-		})
+		// Loaded before `sbx create` rather than just before the prompt
+		// subtest: it may declare that a built-in agent still shadows this
+		// kit's name, which changes how a create failure is interpreted.
+		td := loadKitTCKData(t, absKit)
 
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 		defer cancel()
 
-		createOut, err := runSbx(t, ctx, "create",
-			"--kit", absKit,
-			"--name", name,
-			agent, workspace,
-		)
-		require.NoErrorf(t, err, "sbx create failed (agent=%s):\n%s", agent, createOut)
-		t.Logf("sbx create succeeded for kit %s as sandbox %q (agent=%s)\n%s", absKit, name, agent, createOut)
+		name := createSbx(t, ctx, absKit, agent, td)
 
-		// Verify the kit content landed inside the running container. Files
-		// are re-derived here so `${WORKDIR}` resolves to the real sandbox
-		// workdir instead of the TCK in-suite constant.
+		// Verify kit content landed inside the running container. Files are
+		// re-derived here so `${WORKDIR}` resolves to the real sandbox workdir
+		// instead of the TCK in-suite constant. These run for all kit kinds.
 		assertSbxEnv(t, ctx, name, suite.ExpectedEnvVars)
 		assertSbxFiles(t, ctx, name, expectedSandboxFiles(suite.Artifact))
 		assertSbxTmpfs(t, ctx, name, suite.ExpectedTmpfs)
 		assertSbxAgentContext(t, ctx, name, suite.Artifact)
+
+		// Prompt subtest: kind:sandbox only, opt-in via testdata/tck.yaml.
+		if suite.Artifact.Manifest.Kind != spec.KindSandbox {
+			return
+		}
+		if td == nil || len(td.PromptArgs) == 0 {
+			return
+		}
+
+		// Wait for any background installation before sending the prompt.
+		waitForAgentReady(t, ctx, name, td.ReadyFile)
+
+		binary := td.Binary
+		if binary == "" {
+			binary = filepath.Base(suite.Artifact.Manifest.Binary)
+		}
+		require.NotEmptyf(t, binary,
+			"kit %s: binary not derivable from spec.yaml entrypoint or tck.yaml", suite.Artifact.Manifest.Name)
+
+		t.Run("prompt", func(t *testing.T) {
+			execArgs := []string{"exec", name, "--", binary}
+			execArgs = append(execArgs, td.PromptArgs...)
+			execArgs = append(execArgs, promptMessage)
+
+			// Ignore exit error: auth failures (401/403) are expected without
+			// credentials. The assertion is that the agent ran and responded.
+			out, _ := runSbx(t, ctx, execArgs...)
+			require.NotEmptyf(t, out,
+				"sbx exec produced no output for kit %s (binary=%s, promptArgs=%v)",
+				absKit, binary, td.PromptArgs)
+			t.Logf("sbx exec output for kit %s (binary=%s, promptArgs=%v):\n%s",
+				absKit, binary, td.PromptArgs, out)
+		})
 	})
 }
 
@@ -264,13 +289,187 @@ func agentContextNeedle(agentContext string) string {
 	return best
 }
 
+// kitTCKData holds kit-specific configuration for TCK e2e tests, loaded from
+// <kit-dir>/testdata/tck.yaml.
+type kitTCKData struct {
+	// ReadyFile is the absolute path of a sentinel file written inside the
+	// sandbox when a background installation completes. When set,
+	// TestE2ERunAgent polls `sbx exec -- test -f <readyFile>` before running
+	// the prompt subtest. Leave empty for kits whose install commands are synchronous.
+	ReadyFile string `yaml:"readyFile"`
+
+	// PromptArgs are the arguments prepended before the prompt message when
+	// invoking the binary non-interactively via `sbx exec`, e.g. ["-p"] for
+	// claude, ["-m"] for nanobot, ["chat", "-q"] for hermes. An empty slice
+	// skips the prompt subtest (for agents with no non-interactive mode).
+	PromptArgs []string `yaml:"promptArgs"`
+
+	// Binary overrides the agent binary name used in `sbx exec`. When absent,
+	// filepath.Base(suite.Artifact.Manifest.Binary) is used — the normalizer
+	// derives that from sandbox.entrypoint.run[0]. Set this only when the
+	// entrypoint is a wrapper script whose real binary has a different name
+	// (e.g. nanoclaw's nanoclaw-start wraps claude).
+	Binary string `yaml:"binary"`
+
+	// ExtractedFromBuiltin marks a kind:sandbox kit whose name is (still) that
+	// of an agent built into sbx. sbx refuses to load such a kit, failing with
+	// "already registered (built-in agents cannot be overridden by a kit)", so
+	// `sbx create` cannot succeed until a released sbx drops the built-in.
+	//
+	// Setting this to true turns that specific failure into a SKIP instead of a
+	// failure, which lets an extracted kit land and be reviewed in this repo
+	// before the sbx side of the extraction ships. Every other failure mode
+	// still fails.
+	//
+	// It is deliberately narrow, not a blanket "skip e2e":
+	//
+	//   * The skip only triggers on the collision error itself. Once sbx no
+	//     longer registers the built-in, `sbx create` succeeds and the full e2e
+	//     runs — nothing to remember to re-enable.
+	//   * Without this flag the collision is a hard failure, so a kit that
+	//     accidentally takes a built-in's name (a contributor naming a kit
+	//     "claude") is still caught.
+	//   * When the flag is set but creation succeeds, the test logs a notice
+	//     that the flag is now obsolete and should be deleted.
+	ExtractedFromBuiltin bool `yaml:"extractedFromBuiltin"`
+}
+
+// builtinCollisionMarker is the distinguishing text of the error sbx returns
+// when a kit's name collides with a built-in agent. Matched as a substring
+// because the message embeds the agent name:
+//
+//	ERROR: agent "kiro" is already registered (built-in agents cannot be overridden by a kit)
+//
+// This couples to sbx's user-facing error text, so it can break if that wording
+// changes. The failure mode is safe — a reworded message stops matching and the
+// collision becomes an ordinary test failure rather than a silent skip.
+const builtinCollisionMarker = "built-in agents cannot be overridden by a kit"
+
+// loadKitTCKData reads <kitDir>/testdata/tck.yaml. Returns nil, nil when the
+// file does not exist — callers should skip rather than fail in that case.
+func loadKitTCKData(t *testing.T, kitDir string) *kitTCKData {
+	t.Helper()
+
+	p := filepath.Join(kitDir, "testdata", "tck.yaml")
+	data, err := os.ReadFile(p)
+	if os.IsNotExist(err) {
+		return nil
+	}
+	require.NoErrorf(t, err, "read %s", p)
+
+	var td kitTCKData
+	if err := yaml.Unmarshal(data, &td); err != nil {
+		require.NoErrorf(t, err, "parse %s", p)
+	}
+	return &td
+}
+
+// promptMessage is the fixed text sent to every agent in TestE2EKit's prompt subtest.
+// It is short, benign, and produces a non-empty response even when the
+// agent rejects the call with an authentication error.
+const promptMessage = "what version are you running"
+
+// createSbx creates a sandbox for the kit using `sbx create`, registers a
+// t.Cleanup that force-removes it, and returns the sandbox name. A fresh temp
+// dir is used as the workspace.
+// td may be nil (no testdata/tck.yaml); see kitTCKData.ExtractedFromBuiltin for
+// the one failure this tolerates.
+func createSbx(t *testing.T, ctx context.Context, absKit, agent string, td *kitTCKData) string {
+	t.Helper()
+	workspace := t.TempDir()
+	name := sandboxName(t, absKit)
+	t.Cleanup(func() {
+		cleanCtx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+		defer cancel()
+		out, err := exec.CommandContext(cleanCtx, "sbx", "--app-name", "sbx-kits-contrib-tck", "rm", "-f", name).CombinedOutput()
+		// A sandbox that was never created has nothing to remove. Reporting
+		// that as a cleanup failure buries the real error under a misleading
+		// "not found" whenever `sbx create` itself failed.
+		if err != nil && !strings.Contains(string(out), "not found") {
+			t.Logf("cleanup `sbx rm -f %s` failed: %v\n%s", name, err, out)
+		}
+	})
+	createOut, err := runSbx(t, ctx, "create", "--kit", absKit, "--name", name, agent, workspace)
+
+	if err != nil && strings.Contains(createOut, builtinCollisionMarker) {
+		if td != nil && td.ExtractedFromBuiltin {
+			t.Skipf("kit %q is still shadowed by the built-in %q agent in this sbx build, and "+
+				"declares extractedFromBuiltin: true — skipping e2e.\n"+
+				"This resolves itself once a released sbx drops the built-in; no action needed here.\n%s",
+				filepath.Base(absKit), agent, createOut)
+		}
+		// Same error without the declaration: almost always a kit that has
+		// taken a built-in agent's name by mistake. Say so explicitly, since
+		// the raw sbx message does not mention the two ways out.
+		require.FailNowf(t, "kit name collides with a built-in agent",
+			"kit %q cannot be loaded because sbx already registers %q as a built-in agent.\n"+
+				"Either rename the kit, or — if this kit is intentionally replacing that built-in — "+
+				"set `extractedFromBuiltin: true` in %s/testdata/tck.yaml.\n%s",
+			filepath.Base(absKit), agent, filepath.Base(absKit), createOut)
+	}
+
+	require.NoErrorf(t, err, "sbx create failed (agent=%s):\n%s", agent, createOut)
+
+	// The kit declared a built-in collision but none happened. Report the
+	// observation without drawing the conclusion: "no collision" has two very
+	// different causes, and only one of them means the flag is obsolete.
+	//
+	//   1. A released sbx dropped the built-in — the flag has done its job and
+	//      should be deleted.
+	//   2. The kit is being run under a different name (an author renaming it
+	//      locally to get past the collision and exercise the real create path).
+	//      The flag is still needed and deleting it would be wrong.
+	//
+	// Nothing here can tell those apart, so an unconditional "remove the flag"
+	// would hand out bad advice in exactly the case authors hit while extracting
+	// a built-in agent.
+	if td != nil && td.ExtractedFromBuiltin {
+		t.Logf("NOTICE: kit %q declares `extractedFromBuiltin: true`, but creating it as "+
+			"agent %q hit no built-in collision. If a released sbx has dropped the built-in, "+
+			"the flag is obsolete and can be removed from testdata/tck.yaml. If this ran under "+
+			"a renamed agent, the flag is still required — leave it.",
+			filepath.Base(absKit), agent)
+	}
+
+	t.Logf("sbx create succeeded for kit %s as sandbox %q (agent=%s)\n%s", absKit, name, agent, createOut)
+	return name
+}
+
+// waitForAgentReady polls until readyFile exists inside the sandbox, indicating
+// that a background installation completed. No-op when readyFile is empty
+// (synchronous-install kits are ready as soon as sbx create returns).
+func waitForAgentReady(t *testing.T, ctx context.Context, name, readyFile string) {
+	t.Helper()
+	if readyFile == "" {
+		return
+	}
+	t.Logf("polling for %s in sandbox %s...", readyFile, name)
+	for {
+		_, err := runSbx(t, ctx, "exec", name, "--", "test", "-f", readyFile)
+		if err == nil {
+			t.Logf("%s present — agent installation complete", readyFile)
+			return
+		}
+		select {
+		case <-ctx.Done():
+			t.Fatalf("timed out waiting for %s in sandbox %s — installation did not complete", readyFile, name)
+			return
+		case <-time.After(10 * time.Second):
+		}
+	}
+}
+
 // agentForKit picks the positional agent argument for `sbx create`. Sandbox
-// kits must be invoked with their own name as the agent; mixin kits
-// piggy-back on whichever agent kit-author wants to exercise — claude is
-// the default.
+// kits must be invoked with their own name as the agent. A mixin that declares
+// base-agent affinity (requires.agent) must be exercised on that agent —
+// composing it onto any other base is a hard error, since affinity is enforced
+// at compose time. Mixins without affinity default to claude.
 func agentForKit(a *spec.Artifact) string {
 	if a.Manifest.Kind == spec.KindSandbox {
 		return a.Manifest.Name
+	}
+	if a.Requires != nil && a.Requires.Agent != "" {
+		return a.Requires.Agent
 	}
 	return "claude"
 }
@@ -293,11 +492,15 @@ func sandboxName(t *testing.T, kitDir string) string {
 
 // runSbx invokes the sbx CLI and returns combined stdout+stderr. Inherits the
 // current environment so secrets and credential stores set up by the CI
-// `sbx login` step flow through. Marked as a test helper so require/Fatal
-// failures inside callers point at the call site, not this wrapper.
+// `sbx login` step flow through. --app-name is prepended to every call for
+// telemetry attribution. Marked as a test helper so require/Fatal failures
+// inside callers point at the call site, not this wrapper.
 func runSbx(t *testing.T, ctx context.Context, args ...string) (string, error) {
 	t.Helper()
-	cmd := exec.CommandContext(ctx, "sbx", args...)
+	all := make([]string, 0, len(args)+2)
+	all = append(all, "--app-name", "sbx-kits-contrib-tck")
+	all = append(all, args...)
+	cmd := exec.CommandContext(ctx, "sbx", all...)
 	cmd.Env = os.Environ()
 	out, err := cmd.CombinedOutput()
 	return string(out), err
