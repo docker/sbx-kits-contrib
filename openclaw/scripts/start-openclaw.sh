@@ -7,9 +7,14 @@
 GATEWAY_URL="http://127.0.0.1:${OPENCLAW_GATEWAY_PORT:-18789}"
 
 # The sandbox runtime seeds its own openclaw.json at create time, which
-# can drop gateway.mode — ensure it before the gateway (re)starts.
+# can drop gateway.mode/gateway.bind -- ensure both before the gateway
+# (re)starts. bind must be "lan" (0.0.0.0), not the "loopback" default:
+# the sandbox port-forwarder targets the container's external interface,
+# same as it would for any other Docker port mapping.
 openclaw config get gateway.mode 2>/dev/null | grep -q local || \
     openclaw config set gateway.mode local
+openclaw config get gateway.bind 2>/dev/null | grep -q lan || \
+    openclaw config set gateway.bind lan
 
 if ! curl -fsS "$GATEWAY_URL/readyz" >/dev/null 2>&1; then
     echo "Starting OpenClaw gateway..." >&2
