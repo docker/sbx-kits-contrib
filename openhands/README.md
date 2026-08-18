@@ -79,7 +79,7 @@ $ sbx run --kit ./openhands/ openhands
 
 The first launch installs OpenHands (takes ~2 minutes; subsequent starts reuse the
 sandbox). Subsequent launches reconnect to the existing sandbox and check for
-OpenHands updates in the background.
+OpenHands updates before starting.
 
 ## How auth works
 

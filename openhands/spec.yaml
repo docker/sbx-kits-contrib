@@ -121,5 +121,4 @@ setup:
         - openhands
         - --quiet
       user: "1000"
-      background: true
-      description: Upgrade OpenHands to latest
+      description: Upgrade OpenHands to latest (foreground -- must finish before the entrypoint execs the binary it's upgrading)
