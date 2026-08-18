@@ -14,7 +14,13 @@ permissions:
       - github.com
       - api.github.com
       - raw.githubusercontent.com
+      # uv's `--python 3.12` fetches a standalone Python runtime from a
+      # GitHub release (astral-sh/python-build-standalone). The redirect
+      # target isn't a fixed constant -- both of GitHub's release-asset CDN
+      # hosts are needed (confirmed against the identical gap in kernel's
+      # kit, see kernel/spec.yaml).
       - objects.githubusercontent.com
+      - release-assets.githubusercontent.com
       - pypi.org
       - files.pythonhosted.org
       - astral.sh
