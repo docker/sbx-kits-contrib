@@ -23,10 +23,10 @@ Or from a git URL targeting this repo:
 $ sbx run --kit "git+https://github.com/docker/sbx-kits-contrib.git#dir=openclaw" openclaw
 ```
 
-The kit starts the openclaw gateway in the background at sandbox start;
-on attach the entrypoint waits for the gateway's `/readyz` and drops you
-into `openclaw chat` (the interactive TUI). Loopback CLI connections are
-auto-approved for pairing, so there's no token handoff.
+On attach, the entrypoint starts the gateway in the background, waits for
+its `/readyz`, and drops you into `openclaw chat` (the interactive TUI).
+Loopback CLI connections are auto-approved for pairing, so there's no
+token handoff.
 
 ## Published ports
 
@@ -71,8 +71,8 @@ kit is published separately as an OCI artifact at `docker.io/sbx/openclaw-kit`
 
 One runtime quirk: the sandbox runtime seeds its own
 `~/.openclaw/openclaw.json` at create time, which lacks `gateway.mode` —
-the startup command idempotently runs `openclaw config set gateway.mode
-local` before starting the gateway.
+the entrypoint idempotently runs `openclaw config set gateway.mode local`
+before starting the gateway.
 
 ### Building and publishing
 

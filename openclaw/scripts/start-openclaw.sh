@@ -1,8 +1,8 @@
 #!/bin/sh
-# OpenClaw sandbox entrypoint. The gateway is started by the kit's startup
-# command; this script waits for it to report ready, then drops into the
-# interactive TUI. Loopback CLI connections are auto-approved for pairing,
-# so no token handoff is needed.
+# OpenClaw sandbox entrypoint. Starts the gateway if it isn't already
+# running, waits for it to report ready, then drops into the interactive
+# TUI. Loopback CLI connections are auto-approved for pairing, so no token
+# handoff is needed.
 
 GATEWAY_URL="http://127.0.0.1:${OPENCLAW_GATEWAY_PORT:-18789}"
 
