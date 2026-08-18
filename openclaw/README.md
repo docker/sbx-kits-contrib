@@ -14,6 +14,12 @@ applies policy, so a new sandbox is chatting in seconds.
 ## Usage
 
 ```console
+$ sbx run --kit "docker.io/sbx/openclaw-kit:latest" openclaw
+```
+
+Or from a git URL targeting this repo:
+
+```console
 $ sbx run --kit "git+https://github.com/docker/sbx-kits-contrib.git#dir=openclaw" openclaw
 ```
 

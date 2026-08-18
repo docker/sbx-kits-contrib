@@ -1,0 +1,84 @@
+schemaVersion: "2"
+kind: sandbox
+name: junie
+displayName: Junie
+description: The AI coding agent by JetBrains.
+sandbox:
+  image: docker/sandbox-templates:shell-docker
+  entrypoint:
+    - junie
+agentInstructions:
+  filename: AGENTS.md
+permissions:
+  network:
+    allow:
+      - junie.jetbrains.com
+      - api.jetbrains.ai
+      - github.com
+      - raw.githubusercontent.com
+      - release-assets.githubusercontent.com
+      - api.anthropic.com
+      - api.openai.com
+      - generativelanguage.googleapis.com
+      - api.x.ai
+      - openrouter.ai
+credentials:
+  - service: anthropic
+    apiKey:
+      name: ANTHROPIC_API_KEY
+      proxyManaged: true
+      inject:
+        - domain: api.anthropic.com
+          header: x-api-key
+          format: '%s'
+  # v1 also accepted GOOGLE_GENERATIVE_AI_API_KEY as a fallback host env var
+  # name for this credential (credentials.sources.google.env listed both).
+  # v2's apiKey.name is a single string with no alias list, so only one host
+  # env var can be recognized here; GEMINI_API_KEY is Google's current
+  # canonical name for this key, so it's the one kept. A host with only
+  # GOOGLE_GENERATIVE_AI_API_KEY set will no longer be picked up.
+  - service: google
+    apiKey:
+      name: GEMINI_API_KEY
+      proxyManaged: true
+      inject:
+        - domain: generativelanguage.googleapis.com
+          header: x-goog-api-key
+          format: '%s'
+  - service: junie
+    apiKey:
+      name: JUNIE_API_KEY
+      proxyManaged: true
+      inject:
+        - domain: junie.jetbrains.com
+          header: Authorization
+          format: Bearer %s
+  - service: openai
+    apiKey:
+      name: OPENAI_API_KEY
+      proxyManaged: true
+      inject:
+        - domain: api.openai.com
+          header: Authorization
+          format: Bearer %s
+  - service: openrouter
+    apiKey:
+      name: OPENROUTER_API_KEY
+      proxyManaged: true
+      inject:
+        - domain: openrouter.ai
+          header: Authorization
+          format: Bearer %s
+  - service: xai
+    apiKey:
+      name: XAI_API_KEY
+      proxyManaged: true
+      inject:
+        - domain: api.x.ai
+          header: Authorization
+          format: Bearer %s
+setup:
+  install:
+    - command: curl -fsSL https://junie.jetbrains.com/install.sh | bash
+      user: "1000"
+      description: Install Junie

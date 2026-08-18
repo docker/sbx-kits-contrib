@@ -44,15 +44,20 @@ memory: |
 	}
 }
 
-func TestV2AgentContext_WinsOverV1Memory(t *testing.T) {
+// TestV2AgentInstructions_PopulatesAgentContext pins the v2 grammar: the
+// AI profile content lives under agentInstructions.content (and
+// agentInstructions.filename names the file). There is no v1
+// memory:/agentContext: surface in a v2 spec.
+func TestV2AgentInstructions_PopulatesAgentContext(t *testing.T) {
 	dir := t.TempDir()
 	specYAML := `schemaVersion: "2"
-kind: agent
+kind: sandbox
 name: test-agent
-agent:
+sandbox:
   image: example/test:latest
-memory: "v1 content"
-agentContext: "v2 content"
+agentInstructions:
+  filename: TEST.md
+  content: "v2 content"
 `
 	if err := os.WriteFile(filepath.Join(dir, "spec.yaml"), []byte(specYAML), 0o644); err != nil {
 		t.Fatal(err)
@@ -64,7 +69,13 @@ agentContext: "v2 content"
 	}
 
 	if art.AgentContext != "v2 content" {
-		t.Errorf("AgentContext = %q; want v2 content (v2 wins on conflict)", art.AgentContext)
+		t.Errorf("AgentContext = %q; want v2 content (from agentInstructions.content)", art.AgentContext)
+	}
+	if art.Manifest.AIFilename != "TEST.md" {
+		t.Errorf("AIFilename = %q; want TEST.md (from agentInstructions.filename)", art.Manifest.AIFilename)
+	}
+	if len(art.Warnings) != 0 {
+		t.Errorf("canonical v2 spec must not warn, got %v", art.Warnings)
 	}
 }
 
@@ -103,7 +114,7 @@ func TestV2Kind_Sandbox_Accepted(t *testing.T) {
 	specYAML := `schemaVersion: "2"
 kind: sandbox
 name: test
-agent:
+sandbox:
   image: example/test:latest
 `
 	if err := os.WriteFile(filepath.Join(dir, "spec.yaml"), []byte(specYAML), 0o644); err != nil {
@@ -161,7 +172,8 @@ kind: sandbox
 name: test
 sandbox:
   image: example/test:latest
-  aiFilename: TEST.md
+agentInstructions:
+  filename: TEST.md
 `
 	if err := os.WriteFile(filepath.Join(dir, "spec.yaml"), []byte(specYAML), 0o644); err != nil {
 		t.Fatal(err)
@@ -173,10 +185,11 @@ sandbox:
 	if art.Manifest.Template != "example/test:latest" {
 		t.Errorf("Template = %q; want example/test:latest", art.Manifest.Template)
 	}
-	for _, w := range art.Warnings {
-		if strings.Contains(w, "agent:") {
-			t.Errorf("unexpected deprecation warning for v2 sandbox block: %s", w)
-		}
+	if art.Manifest.AIFilename != "TEST.md" {
+		t.Errorf("AIFilename = %q; want TEST.md", art.Manifest.AIFilename)
+	}
+	if len(art.Warnings) != 0 {
+		t.Errorf("unexpected warnings for canonical v2 sandbox block: %v", art.Warnings)
 	}
 }
 
@@ -621,13 +634,15 @@ environment:
 	require.True(t, c.Required)
 	require.NotNil(t, c.ApiKey)
 	require.Equal(t, "ANTHROPIC_API_KEY", c.ApiKey.Name)
+	require.True(t, c.ApiKey.ProxyManaged, "v1 environment.proxyManaged must fold onto apiKey.proxyManaged, not just apiKey.name")
 	require.Len(t, c.ApiKey.Inject, 1)
 	require.Equal(t, "api.anthropic.com", c.ApiKey.Inject[0].Domain)
 	require.Equal(t, "x-api-key", c.ApiKey.Inject[0].Header)
 	require.Equal(t, "%s", c.ApiKey.Inject[0].Format)
 
 	// One deprecation warning per legacy block.
-	var sourcesWarn, serviceAuthWarn, serviceDomainsWarn, proxyManagedWarn bool
+	var sourcesWarn, serviceAuthWarn, serviceDomainsWarn bool
+	var proxyManagedWarn string
 	for _, w := range art.Warnings {
 		switch {
 		case strings.Contains(w, "credentials.sources"):
@@ -637,13 +652,20 @@ environment:
 		case strings.Contains(w, "network.serviceDomains"):
 			serviceDomainsWarn = true
 		case strings.Contains(w, "environment.proxyManaged"):
-			proxyManagedWarn = true
+			proxyManagedWarn = w
 		}
 	}
 	require.True(t, sourcesWarn, "expected credentials.sources warning, got %v", art.Warnings)
 	require.True(t, serviceAuthWarn, "expected network.serviceAuth warning, got %v", art.Warnings)
 	require.True(t, serviceDomainsWarn, "expected network.serviceDomains warning, got %v", art.Warnings)
-	require.True(t, proxyManagedWarn, "expected environment.proxyManaged warning, got %v", art.Warnings)
+	// The full instruction must name both apiKey.name and apiKey.proxyManaged:
+	// true. A message naming apiKey.name alone (the pre-#170 wording) sent
+	// kit authors migrating off environment.proxyManaged straight into
+	// docker/sbx-releases#259 — apiKey.name alone never seeds the
+	// in-container sentinel, only apiKey.proxyManaged does.
+	require.Equal(t,
+		`deprecated field "environment.proxyManaged": use credentials[].apiKey.name with credentials[].apiKey.proxyManaged: true (kit-spec v2)`,
+		proxyManagedWarn)
 }
 
 // TestV1OAuth_StandaloneBlock_RoundTripsToCredentials exercises the
@@ -681,17 +703,17 @@ oauth:
 	require.True(t, oauthWarn, "expected standalone oauth: deprecation warning, got %v", art.Warnings)
 }
 
-// TestV2CapsNetwork_Accepted exercises the v2 caps.network block —
+// TestV2Network_Accepted exercises the v2 permissions.network block —
 // allow + deny lists with the three P2 formats (exact, exact:port,
 // single-label wildcard).
-func TestV2CapsNetwork_Accepted(t *testing.T) {
+func TestV2Network_Accepted(t *testing.T) {
 	dir := t.TempDir()
 	specYAML := `schemaVersion: "2"
 kind: sandbox
-name: caps-test
+name: net-test
 sandbox:
   image: docker/sandbox-templates:shell-docker
-caps:
+permissions:
   network:
     allow: [api.anthropic.com, api.openai.com:443, "*.github.com"]
     deny: [malware.example.com]
@@ -703,6 +725,40 @@ caps:
 	require.NotNil(t, art.Caps.Network)
 	require.ElementsMatch(t, []string{"api.anthropic.com", "api.openai.com:443", "*.github.com"}, art.Caps.Network.Allow)
 	require.ElementsMatch(t, []string{"malware.example.com"}, art.Caps.Network.Deny)
+}
+
+// TestV1DirectCaps_Deprecated exercises a v1 spec that writes the `caps:`
+// block directly — an earlier v2 draft's spelling for what the current v2
+// grammar calls `permissions:` — rather than the still-live
+// network.allowedDomains/deniedDomains fold. It must load, keep working
+// (caps: is still a decodable v1-grammar field), and warn, same as every
+// other legacy surface in normalize.go.
+func TestV1DirectCaps_Deprecated(t *testing.T) {
+	dir := t.TempDir()
+	specYAML := `schemaVersion: "1"
+kind: sandbox
+name: caps-v1
+sandbox:
+  image: docker/sandbox-templates:shell-docker
+caps:
+  network:
+    allow: [api.anthropic.com]
+`
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "spec.yaml"), []byte(specYAML), 0o644))
+	art, err := LoadFromDirectory(dir)
+	require.NoError(t, err)
+
+	require.NotNil(t, art.Caps)
+	require.NotNil(t, art.Caps.Network)
+	require.Contains(t, art.Caps.Network.Allow, "api.anthropic.com")
+
+	var capsWarn bool
+	for _, w := range art.Warnings {
+		if strings.Contains(w, `"caps"`) {
+			capsWarn = true
+		}
+	}
+	require.True(t, capsWarn, "expected a deprecation warning for direct 'caps:' usage, got %v", art.Warnings)
 }
 
 // TestV1NetworkAllowedDomains_RoundTripsToCapsNetwork exercises the

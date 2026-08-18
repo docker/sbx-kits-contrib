@@ -1,6 +1,6 @@
 # trivy
 
-A standalone agent kit (`kind: agent`) for the [Trivy](https://trivy.dev/)
+A standalone sandbox kit for the [Trivy](https://trivy.dev/)
 open-source vulnerability scanner from [Aqua Security](https://aquasec.com/).
 The kit installs `trivy` from a pinned, digest-verified GitHub release at
 sandbox creation time and drops you into a bash shell with the binary on
@@ -16,15 +16,21 @@ packages downstream. Microsoft's
 prescribes "governed execution pipelines" with "vault isolation and egress
 filtering". This kit puts that prescription one `sbx run` away: scanner
 runs in a microVM, your `~/.aws` / `~/.ssh` / `~/.docker/config.json` are
-not mounted, egress is allowlisted to four hosts (release fetch + vuln DB),
+not mounted, egress is allowlisted to six hosts (release fetch + vuln DB),
 and the install is digest-pinned against tag-rewrite attacks.
 
 ## Usage
 
 ```console
 $ cd ~/work/some-project
-$ sbx run --kit "git+https://github.com/docker/sbx-kits-contrib.git#dir=trivy" trivy .
+$ sbx run --kit "docker.io/sbx/trivy-kit:latest" trivy .
 agent@trivy-some-project:/Users/mark/work/some-project$ trivy fs .
+```
+
+Or from a git URL targeting this repo:
+
+```console
+$ sbx run --kit "git+https://github.com/docker/sbx-kits-contrib.git#dir=trivy" trivy .
 ```
 
 Or with a local clone of this repo:
@@ -43,12 +49,13 @@ flows (`fs`, `repo`, plain `image`). Aqua's commercial feeds (premium
 indicators, SaaS reporting) are out of scope for this kit; if you need
 them, fork and add the appropriate `serviceDomains` and `credentials`.
 
-The kit's `allowedDomains` covers exactly five hosts:
+The kit's network allowlist covers exactly six hosts:
 
 | Host | Why |
 | --- | --- |
 | `github.com` | Release page entry point for the install tarball (302-redirects) |
-| `release-assets.githubusercontent.com` | Where GitHub release blobs actually live (the redirect target) |
+| `objects.githubusercontent.com` | Actual redirect target for this repo's release asset (confirmed by hand) |
+| `release-assets.githubusercontent.com` | Kept alongside it since the redirect target isn't guaranteed to be the same host for every repo/asset |
 | `mirror.gcr.io` | Trivy's default *primary* vuln DB source (`mirror.gcr.io/aquasec/trivy-db`) |
 | `ghcr.io` | Trivy's *fallback* vuln DB source (`ghcr.io/aquasecurity/trivy-db`) |
 | `pkg-containers.githubusercontent.com` | GHCR blob storage backend |

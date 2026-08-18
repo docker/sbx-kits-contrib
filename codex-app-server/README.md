@@ -44,7 +44,9 @@ this in your `~/.bashrc` / `~/.zshrc`:
 sbx_codex() {
     local name="${1:?usage: sbx_codex <name> [path]}"
     local path="${2:-.}"
-    local kit="git+https://github.com/docker/sbx-kits-contrib.git#dir=codex-app-server"
+    local kit="docker.io/sbx/codex-app-server-kit:latest"
+    # Or, from a git URL targeting this repo, instead of the published OCI artifact:
+    #   local kit="git+https://github.com/docker/sbx-kits-contrib.git#dir=codex-app-server"
 
     if ! sbx ls -q | grep -qx "$name"; then
         sbx create --clone --kit "$kit" --name "$name" codex "$path" || return
@@ -145,7 +147,9 @@ $ ln -s $(pwd)/bin/sbx-codex-{attach,detach} ~/.local/bin/
 Then per sandbox:
 
 ```console
-$ sbx create --kit "git+https://github.com/docker/sbx-kits-contrib.git#dir=codex-app-server" --name myproject codex ~/myproject
+$ sbx create --kit "docker.io/sbx/codex-app-server-kit:latest" --name myproject codex ~/myproject
+# Or from a git URL targeting this repo:
+# $ sbx create --kit "git+https://github.com/docker/sbx-kits-contrib.git#dir=codex-app-server" --name myproject codex ~/myproject
 $ sbx-codex-attach myproject
 # … later, when done with the GUI integration for this sandbox …
 $ sbx-codex-detach myproject
