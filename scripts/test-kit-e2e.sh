@@ -320,7 +320,7 @@ it was left running for further inspection:
 removes any such leftover automatically before starting.
 EOF
     else
-      echo "No sandbox name recorded — either the failure happened before sbx create was attempted, or tck/e2e_test.go's createSbx couldn't write \$SBX_E2E_NAME_LOG (it ignores that error so a broken TMPDIR can't fail the test itself)." >&2
+      echo "No sandbox name recorded — either the failure happened before sbx create was attempted, or tck/e2e_test.go's createSbx couldn't write to \$SBX_E2E_NAME_LOG after this script's mktemp already succeeded (e.g. the file was removed or its permissions changed mid-run, or the disk filled up; that error is ignored so it can't fail the test itself)." >&2
     fi
 
     cat >&2 <<EOF
