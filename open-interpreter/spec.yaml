@@ -45,7 +45,10 @@ permissions:
       # GitHub release (astral-sh/python-build-standalone). The redirect
       # target isn't a fixed constant -- both of GitHub's release-asset CDN
       # hosts are needed (confirmed against the identical gap in kernel's
-      # kit, see kernel/spec.yaml).
+      # kit, see kernel/spec.yaml). Resolving the release itself hits
+      # github.com directly, not just its CDN hosts -- confirmed via a real
+      # e2e run under deny-all.
+      - github.com
       - objects.githubusercontent.com
       - release-assets.githubusercontent.com
       # PyPI: uv installs at creation time and during code execution
