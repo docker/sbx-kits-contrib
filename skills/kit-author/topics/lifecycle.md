@@ -37,30 +37,33 @@ YAML decoding is strict: unknown top-level fields fail. Once a field is removed 
 
 ## 3. Normalization
 
-For v1 spec.yaml files, the normalize layer folds legacy fields into their v2 canonical homes:
+The loader **forks on `schemaVersion`**: a `"2"` spec is decoded by a clean v2 grammar with no legacy shims, while a `"1"` spec runs through the normalize layer, which folds legacy fields onto the same canonical model the v2 grammar targets:
 
 - `kind: agent` → `kind: sandbox`
 - `agent:` → `sandbox:`
-- `memory:` → `agentContext:`
+- `sandbox.aiFilename` → `agentInstructions.filename`
+- `memory:` / `agentContext:` → `agentInstructions.content`
+- `sandbox.entrypoint.run` / `args` / `ttyArgs` → `sandbox.entrypoint` (flat array) + `sandbox.command.default` / `interactive`
 - `credentials.sources` + `network.serviceAuth` + `network.serviceDomains` + `environment.proxyManaged` + standalone `oauth:` → unified `credentials[]`
-- `network.allowedDomains` / `deniedDomains` → `caps.network.allow` / `deny`
-- `network.publishedPorts` → top-level `publishedPorts`
+- `network.allowedDomains` / `deniedDomains` → `permissions.network.allow` / `deny`
+- `network.publishedPorts` → top-level `ports`
+- `commands:` / `commands.initFiles` → `setup:` / `setup.files`
 
-Each fold appends one deprecation entry to `Artifact.Warnings`. See [`v1-migration.md`](v1-migration.md) for the per-surface migration recipes.
+Each fold appends one deprecation entry to `Artifact.Warnings`. See [`v1-migration.md`](v1-migration.md) for the per-surface migration recipes. A v2 spec produces no such warnings — it is already canonical.
 
-After normalization, only the canonical v2 fields are populated. The legacy fields are dropped — they do **not** round-trip. `sbx kit inspect --output json` shows the canonical form.
+After normalization, only the canonical fields are populated. The legacy fields are dropped — they do **not** round-trip. `sbx kit inspect --output json` shows the canonical form.
 
 ## 4. Validation
 
 `spec.ValidateArtifact` runs from each `Load*` path:
 
-- **Manifest** — `schemaVersion ∈ {"1", "2"}`, `kind ∈ {sandbox, mixin}` (also accepts v1 `agent` alias), `name` is lowercase alphanumeric + hyphen (1–64 chars), exactly one of `sandbox.image` / `sandbox.build` required for sandbox kits, `resources.cpu` / `resources.memory_mb` must be positive if set.
-- **Caps.Network** — entry strings are exact host, exact host+port, or leading-label wildcard (`*.example.com`). Overlap between `allow` and `deny` is **legal** — at request time, deny wins.
-- **Credentials** — each entry has `service` set; `apiKey.inject[].format` (when set) is well-formed; `oauth.tokenEndpoint` has host+path.
+- **Manifest** — `schemaVersion ∈ {"1", "2"}`, `kind ∈ {sandbox, mixin}` (also accepts v1 `agent` alias), `name` is lowercase alphanumeric + hyphen (1–64 chars), exactly one of `sandbox.image` / `sandbox.build` required for sandbox kits, `resources.cpu` must be a non-negative number and `resources.memory` (v2) a valid byte-size string if set.
+- **permissions.network** — entry strings are exact host, exact host+port, or leading-label wildcard (`*.example.com`). Overlap between `allow` and `deny` is **legal** — at request time, deny wins.
+- **Credentials** — each entry has `service` set; `apiKey.inject[].format` (when set) is well-formed; a v2 `apiKey.inject[].scheme` is mutually exclusive with `format` and expands to it; `oauth.tokenEndpoint` has host+path.
 - **Volumes** — every entry has an absolute `path`; `type ∈ {"", "tmpfs"}`; `size` if set must parse as a byte-size string; `mode` if set must be octal.
 - **PublishedPorts** — `container` in 1..65535; `protocol ∈ {"", "tcp", "udp"}`.
 - **Locked** — each entry is a well-formed dotted YAML path; no duplicates.
-- **InitFiles** — only `${WORKDIR}` placeholder is allowed; mode is octal; container paths are absolute.
+- **setup.files** — only `${WORKDIR}` placeholder is allowed; mode is octal; container paths are absolute.
 - **Static files** — relative-to-target only. Absolute paths and `..` traversal rejected. Symlink resolution must stay inside the artifact root.
 
 Validation **never errors on legacy fields**; that's normalization's job. A v1 spec.yaml that's structurally valid in v1 will load, normalize, and pass `ValidateArtifact` — with one or more entries on `Artifact.Warnings`.
@@ -81,8 +84,8 @@ Merge is **additive** — child inherits the parent's configuration and adds to 
 | Scalars (strings, numbers, booleans) | Child wins if set | Child overrides parent |
 | Maps (key-value objects) | Recursive merge | Child wins for conflicting keys |
 | Named arrays (objects with an identity key, e.g. `credentials[].service`, `volumes[].path`) | Union by identity key | Matching key: **error**; new key: appended |
-| Primitive arrays (e.g. `caps.network.allow`) | Set union | Deduplicated, order preserved (parent first) |
-| Commands (`install`, `startup`, `initFiles`) | Concatenate | Parent commands first, then child |
+| Primitive arrays (e.g. `permissions.network.allow`) | Set union | Deduplicated, order preserved (parent first) |
+| Setup lists (`install`, `startup`, `files`) | Concatenate | Parent commands first, then child |
 | Files | Overlay | Child overrides at same path |
 | `security.privileged` | OR semantics | Any `true` → `true` |
 
@@ -113,13 +116,13 @@ Merge rules (per section):
 
 | Section | Rule |
 |---|---|
-| `caps.network.allow` / `deny` | Append (deny wins at policy time) |
+| `permissions.network.allow` / `deny` | Append (deny wins at policy time) |
 | `credentials[]` | Union by `service`; same service in two kits with different shapes is an error |
 | `environment.variables` | Union; later kits override earlier (last-wins) |
-| `commands.install` | Concatenate; **base install is skipped when the base sandbox is built-in (`Embedded == true`)**; kit installs always run |
-| `commands.startup` / `initFiles` | Concatenate |
+| `setup.install` | Concatenate; runs for every kit, built-in or user-supplied |
+| `setup.startup` / `files` | Concatenate |
 | `files` | Overlay map by `target:relativePath` — later kits override earlier |
-| `publishedPorts` | Append (each entry gets its own ephemeral host port) |
+| `ports` | Append (each entry gets its own ephemeral host port) |
 | `volumes` / `manifest.security` | Union with last-wins |
 
 Order of `--kit` flags is the merge order.
@@ -149,11 +152,11 @@ For each kit, the engine builds a chain of container customizations. The chain e
 **Bucket: customizers** — fires first, in declared order:
 
 1. **Container settings** — privileged, volumes (including `type: tmpfs`). **Creation-time only** — `sbx kit add` cannot apply these to a running container.
-2. **Install commands** (`commands.install`) — `sh -c <string>`, synchronous, default user `0`. Skipped when the base artifact is built-in.
+2. **Install commands** (`setup.install`) — `sh -c <string>`, synchronous, default user `0`, runs **once at sandbox creation** before the agent launches. Runs for every kit, built-in or user-supplied. Use it to install the agent binary (if not already baked into the base image) and for any pre-launch setup such as seeding a credential-gated settings file. See [Pitfalls §5](pitfalls.md#5-setupinstall-footguns) for idempotency and duplication guidance.
 3. **Environment variables** (`environment.variables`).
 4. **Static home files** (`artifact.Files` where `target == home`) — copied to `/home/agent/`, mode preserved.
-5. **Init files** (`commands.initFiles`) — written via shell exec at startup, `${WORKDIR}` substituted **in content only**, `onlyIfMissing` wraps the write in `test -f`. *Cannot* target a path under the in-container clone directory (the CLI rejects such kits up front under `--clone`).
-6. **Startup commands** (`commands.startup`) — argv form, default user `1000`, optional `background: true`. Rendered into per-kit shell scripts at create time and re-run on **every** container start (initial create, stop/start cycles, daemon restarts, container resurrection). Author them idempotent.
+5. **Setup files** (`setup.files`) — written via shell exec at startup, `${WORKDIR}` substituted **in content only**, `onlyIfMissing` wraps the write in `test -f`. *Cannot* target a path under the in-container clone directory (the CLI rejects such kits up front under `--clone`).
+6. **Startup commands** (`setup.startup`) — argv form, default user `1000`, optional `background: true`. Rendered into per-kit shell scripts at create time and re-run on **every** container start (initial create, stop/start cycles, daemon restarts, container resurrection). Author them idempotent.
 7. **Hooks** — see step 9.
 
 **Bucket: post-workspace-ready hooks** — fires last, after every customizer above and after the system-level customizers the CLI layers on top (DinD wiring, secrets tmpfs, `--clone` startup command, SSH-agent relay, AI file, docker config). Fires once the workspace is populated, either by the `git clone` startup command in `--clone` mode or by the bind mount in direct-mount mode:
@@ -180,14 +183,14 @@ CLI flow on `sbx run <agent> --kit X`:
 2. Resolve each `--kit` reference and load the artifact.
 3. Compose: separate sandbox + mixins, run merge rules, build the customizer chain.
 4. Create the container with all customizers applied.
-5. For each `publishedPorts[]` entry, the runtime assigns an ephemeral `127.0.0.1:<host>` binding and records it. `sbx ports <sandbox>` lists the active bindings.
+5. For each `ports[]` entry, the runtime assigns an ephemeral `127.0.0.1:<host>` binding and records it. `sbx ports <sandbox>` lists the active bindings.
 
 ## 11. Runtime injection (`sbx kit add`)
 
 `sbx kit add <sandbox> <kit-ref>` applies a kit to a running container.
 
 - **Immutable warning** — if the artifact requires privileged mode or volume changes (including tmpfs entries), `sbx kit add` warns and skips those parts. The kit is still applied for the mutable parts.
-- Install → env → files → init files → startup are re-played against the running container: files via `docker cp`-style copies, commands via `exec`.
+- Install → env → files → setup files → startup are re-played against the running container: files via `docker cp`-style copies, commands via `exec`.
 - A metadata file (`~/.sandbox-plugins.json`) is written inside the container to record the kit (container labels are immutable, so this JSON file is the audit trail).
 
 What `kit add` **cannot** do: change privileged mode, attach new volumes, add new port publishings. Those need a recreate.
@@ -196,11 +199,11 @@ What `kit add` **cannot** do: change privileged mode, attach new volumes, add ne
 
 Distinct from the customizer chain, the AI file write happens as a post-start lifecycle hook:
 
-- **Base sandbox's `agentContext`** is inlined into the AI file (`<dir-of-AIFile>/<AIFilename>`) — small, always-loaded identity content.
-- **Each composed mixin with non-empty `agentContext`** gets its own file at `<dir-of-AIFile>/kits-memory/<kit-name>.md`.
+- **Base sandbox's `agentInstructions.content`** is inlined into the AI file (`<dir-of-AIFile>/<agentInstructions.filename>`) — small, always-loaded identity content.
+- **Each composed mixin with non-empty `agentInstructions.content`** gets its own file at `<dir-of-AIFile>/kits-memory/<kit-name>.md`.
 - The AI file gains a sentinel-wrapped `## Kits` section pointing the agent at the kits-memory directory for progressive disclosure. Sentinels (`<!-- sbx:kits-section start --> ... end -->`) make the section detectable and replaceable on re-runs.
 
-`sbx kit add` partially follows the same model — the engine writes the kit memory file and refreshes the `## Kits` section. **Known gap**: when the kit being added is a `kind: mixin`, the memory write is currently gated on the artifact's own `aiFilename` field, which mixins intentionally don't set. The kit memory file is silently not written, and the `## Kits` section is not refreshed. Workaround until fixed: recreate the sandbox with `--kit <mixin>` instead of using `sbx kit add`. The create-time path is unaffected.
+`sbx kit add` partially follows the same model — the engine writes the kit memory file and refreshes the `## Kits` section. **Known gap**: when the kit being added is a `kind: mixin`, the memory write is currently gated on the artifact's own `agentInstructions.filename`, which mixins intentionally don't set. The kit memory file is silently not written, and the `## Kits` section is not refreshed. Workaround until fixed: recreate the sandbox with `--kit <mixin>` instead of using `sbx kit add`. The create-time path is unaffected.
 
 ## 12. Request-time / proxy
 
@@ -208,10 +211,10 @@ Independent of the customizer chain. The proxy runs on the host (or in the VM) a
 
 - Routes outbound HTTPS by `credentials[].apiKey.inject[].domain` and `credentials[].oauth.tokenEndpoint`.
 - Injects credentials per `credentials[]` using the `inject[].header` / `format` declared in the spec.
-- Enforces `caps.network.allow` / `deny` at policy-evaluation time. Use `sbx policy log <sandbox>` to see what the proxy blocked and what got through.
+- Enforces `permissions.network.allow` / `deny` at policy-evaluation time. Use `sbx policy log <sandbox>` to see what the proxy blocked and what got through.
 - For sentinel-swap credentials (the default for `apiKey`), the proxy swaps the literal `proxy-managed` value for the real one per request. The container never sees the real credential.
 
-The alternative — container-resident credentials — is necessary for signature-based auth (AWS SigV4) where the signature is over canonical headers the proxy doesn't see. Today that means writing the credential to a file inside the container; the kit's `caps.network.allow` then bounds where the credential can be sent.
+The alternative — container-resident credentials — is necessary for signature-based auth (AWS SigV4) where the signature is over canonical headers the proxy doesn't see. Today that means writing the credential to a file inside the container; the kit's `permissions.network.allow` then bounds where the credential can be sent.
 
 ## Quick mental model
 
@@ -220,9 +223,9 @@ ref string
   │
   ▼ resolve            local | oci@digest | git@commit-sha | embedded
   │
-  ▼ load               read spec.yaml + walk files/ (strict YAML decode)
+  ▼ load               read spec.yaml + walk files/ (strict decode, forked on schemaVersion)
   │
-  ▼ normalize          sugar + v1 → canonical v2 Artifact + Warnings
+  ▼ normalize          v1 → canonical Artifact + Warnings (v2 decodes straight to canonical)
   │
   ▼ validate           schema + safety checks
   │
@@ -233,7 +236,7 @@ ref string
   ▼ configure          build customizer chain
   │                    (or inject: exec into running container)
   │
-  ▼ container creation customizers applied + publishedPorts allocated
+  ▼ container creation customizers applied + ports allocated
   │
-  ▼ proxy              credentials + caps.network at request time
+  ▼ proxy              credentials + permissions.network at request time
 ```

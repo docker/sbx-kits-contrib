@@ -6,6 +6,10 @@ displayName: Sample Mixin
 description: "A test-only mixin that exercises every spec field the TCK validates"
 sourceURL: https://example.com/sample-mixin
 
+# Base-agent affinity: this mixin is designed for the sample-agent base.
+requires:
+  agent: sample-agent
+
 network:
   allowedDomains:
     - example.com

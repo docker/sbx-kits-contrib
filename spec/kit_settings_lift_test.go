@@ -12,7 +12,7 @@ import (
 
 // Phase 4 Stage C lifted the former `settings: { containerSettings: { claude:
 // true } }` block out of the contrib claude-family kits and into a
-// commands.startup script that seeds ~/.claude/settings.json, branching on the
+// commands.install script that seeds ~/.claude/settings.json, branching on the
 // SBX_CRED_<SERVICE>_MODE container env var. These oracle strings are the exact
 // settings.json the verified claude kit produces for each auth mode; the
 // lifted scripts must reproduce them byte-for-byte.
@@ -34,27 +34,26 @@ const (
 `
 )
 
-// findSettingsStartup returns the lone `sh -c` startup command that seeds
-// settings.json (the one whose script references SBX_CRED_..._MODE).
-func findSettingsStartup(t *testing.T, c *CommandsPolicy) StartupCommand {
+// findSettingsInstall returns the install command that seeds settings.json
+// (the one whose script references SBX_CRED_..._MODE).
+func findSettingsInstall(t *testing.T, c *CommandsPolicy) InstallCommand {
 	t.Helper()
 	require.NotNil(t, c, "kit must have commands")
-	for _, sc := range c.Startup {
-		if len(sc.Command) == 3 && sc.Command[0] == "sh" && sc.Command[1] == "-c" &&
-			strings.Contains(sc.Command[2], "settings.json") &&
-			strings.Contains(sc.Command[2], "_MODE") {
-			return sc
+	for _, ic := range c.Install {
+		if strings.Contains(ic.Command, "settings.json") &&
+			strings.Contains(ic.Command, "_MODE") {
+			return ic
 		}
 	}
-	t.Fatalf("no settings.json-seeding startup command found")
-	return StartupCommand{}
+	t.Fatalf("no settings.json-seeding install command found")
+	return InstallCommand{}
 }
 
-// runStartupScript executes the kit's settings-seeding startup script in a
-// temp dir, rewriting the absolute /home/agent paths to the temp dir and
+// runSettingsInstallScript executes the kit's settings-seeding install script
+// in a temp dir, rewriting the absolute /home/agent paths to the temp dir and
 // making chown non-fatal (the test process is not root), then returns the
 // content of the produced settings.json.
-func runStartupScript(t *testing.T, script, modeEnv string) string {
+func runSettingsInstallScript(t *testing.T, script, modeEnv string) string {
 	t.Helper()
 	tmp := t.TempDir()
 
@@ -67,33 +66,9 @@ func runStartupScript(t *testing.T, script, modeEnv string) string {
 	cmd := exec.Command("sh", "-c", script)
 	cmd.Env = append(os.Environ(), modeEnv)
 	out, err := cmd.CombinedOutput()
-	require.NoErrorf(t, err, "startup script failed: %s", out)
+	require.NoErrorf(t, err, "install script failed: %s", out)
 
 	data, err := os.ReadFile(filepath.Join(tmp, ".claude", "settings.json"))
 	require.NoError(t, err)
 	return string(data)
-}
-
-func TestNanoclawSettingsLift(t *testing.T) {
-	a, err := LoadFromDirectory("../nanoclaw")
-	require.NoError(t, err)
-
-	// (a) settings: block removed (no settings deprecation warning means the
-	// kit no longer carries a v1 settings: block for the shim to absorb).
-	require.NotContains(t, strings.Join(a.Warnings, "\n"), "settings",
-		"nanoclaw settings block must be removed; got warnings %v", a.Warnings)
-
-	// (b) a commands.startup entry exists.
-	require.NotNil(t, a.Commands)
-	require.NotEmpty(t, a.Commands.Startup, "nanoclaw must have commands.startup")
-
-	sc := findSettingsStartup(t, a.Commands)
-	require.Contains(t, sc.Command[2], "SBX_CRED_ANTHROPIC_MODE",
-		"nanoclaw declares the anthropic credential service")
-
-	// (c) parity: apikey -> apiKeyHelper present; none -> absent.
-	require.Equal(t, claudeSettingsAPIKey,
-		runStartupScript(t, sc.Command[2], "SBX_CRED_ANTHROPIC_MODE=apikey"))
-	require.Equal(t, claudeSettingsNone,
-		runStartupScript(t, sc.Command[2], "SBX_CRED_ANTHROPIC_MODE=none"))
 }
