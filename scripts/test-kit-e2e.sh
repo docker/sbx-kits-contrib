@@ -268,13 +268,20 @@ fi
 # run the diagnostics ourselves and print the real output, so a CI failure is
 # debuggable from the log alone.
 #
-# tck/e2e_test.go's createSbx deliberately skips its own cleanup when the
-# test fails, so the sandbox this run created is still around for exactly
-# this. Find it by name (matching kit_sandbox_prefix above) rather than
-# assuming it's the only sandbox under $APP_NAME — a from-scratch or manually
-# populated daemon could have others, and printing every one of those
-# instead of this run's own would be noise at best and misleading at worst.
-#
+# The sandbox name isn't discovered via `sbx ls`: `sbx create` itself tears a
+# sandbox down when kit-apply/container-run fails (the most common e2e
+# failure), before this script ever gets a chance to look — `ls` would
+# already show nothing. Instead, tck/e2e_test.go's createSbx writes the name
+# it generated to $sbx_name_log as soon as it's known, before attempting
+# create at all. The daemon's policy log is independent of the sandbox
+# object's lifetime (a daemon-level log filtered by VM name), so `policy log
+# <name>` still works after that rollback as long as the name is known.
+sbx_name_log=$(mktemp "${TMPDIR:-/tmp}/sbx-e2e-name-log-XXXXXX") || {
+  echo "ERROR: could not create a temp file to record the e2e sandbox name" >&2
+  exit 1
+}
+export SBX_E2E_NAME_LOG="$sbx_name_log"
+
 # Wired as an EXIT trap (not ERR) so it also fires when `set -e` aborts
 # mid-test. Only fires on non-zero exit. Every diagnostic call is best-effort
 # (`|| true`): if the scoped daemon is itself wedged or already gone, that
@@ -285,24 +292,25 @@ on_exit() {
     echo "" >&2
     echo "e2e test failed (exit $rc)." >&2
 
-    failed_sandboxes=$(list_sandboxes_matching "$kit_sandbox_prefix") || true
-    if [ -z "$failed_sandboxes" ]; then
-      echo "No sandbox found under --app-name=$APP_NAME matching '${kit_sandbox_prefix}*' — the failure happened before sbx create ran, or the sandbox is gone." >&2
-    else
-      for sbox in $failed_sandboxes; do
+    if [ -s "$sbx_name_log" ]; then
+      while IFS= read -r sbox; do
+        [ -n "$sbox" ] || continue
         echo "" >&2
         echo "Policy log for sandbox $sbox (policy: ${POLICY:-current default}):" >&2
         sbx --app-name "$APP_NAME" policy log "$sbox" >&2 || true
-      done
+      done < "$sbx_name_log"
       cat >&2 <<EOF
 
 Every row under 'Blocked requests' above is a host your kit reached for. Add
 it to network.allowedDomains in spec.yaml and re-run this script.
 
-The failed sandbox above is left running for further inspection (e.g.
-'sbx --app-name $APP_NAME exec <name> -- ...'); the next run of this script
-removes it automatically before starting.
+If the sandbox still exists (e.g. a failure other than a rolled-back create),
+it was left running for further inspection:
+'sbx --app-name $APP_NAME exec <name> -- ...'. The next run of this script
+removes any such leftover automatically before starting.
 EOF
+    else
+      echo "No sandbox name recorded — the failure happened before sbx create was even attempted." >&2
     fi
 
     cat >&2 <<EOF
@@ -317,6 +325,7 @@ If you haven't logged in to the scoped daemon yet:
 
 EOF
   fi
+  rm -f "$sbx_name_log"
   exit "$rc"
 }
 trap on_exit EXIT
