@@ -46,6 +46,13 @@ agentInstructions:
 permissions:
   network:
     allow:
+      # Every domain the credential blocks below inject into -- required here
+      # too, not just below: this repo's e2e runs every kit under
+      # `sbx policy init deny-all`, so a domain absent from this list is
+      # unreachable regardless of what the credential block declares.
+      - api.anthropic.com
+      - api.openai.com
+      - generativelanguage.googleapis.com
       - github.com
       - api.github.com
       - raw.githubusercontent.com
