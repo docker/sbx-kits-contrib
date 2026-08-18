@@ -379,6 +379,18 @@ func createSbx(t *testing.T, ctx context.Context, absKit, agent string, td *kitT
 	workspace := t.TempDir()
 	name := sandboxName(t, absKit)
 	t.Cleanup(func() {
+		// Leave a failed test's sandbox behind instead of removing it: it's
+		// the only post-mortem evidence of what went wrong (e.g. the policy
+		// log showing which host got blocked), and t.Cleanup runs — removing
+		// it — during the normal failure unwind of require.NoErrorf/t.Fatal,
+		// before the process ever exits. scripts/test-kit-e2e.sh's on_exit
+		// trap depends on the sandbox still existing at that point to print
+		// `sbx policy log`. The scoped --app-name daemon is torn down with
+		// the CI runner regardless, so a leaked sandbox here costs nothing.
+		if t.Failed() {
+			t.Logf("keeping sandbox %q for post-mortem: sbx --app-name sbx-kits-contrib-tck policy log %s", name, name)
+			return
+		}
 		cleanCtx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 		defer cancel()
 		out, err := exec.CommandContext(cleanCtx, "sbx", "--app-name", "sbx-kits-contrib-tck", "rm", "-f", name).CombinedOutput()

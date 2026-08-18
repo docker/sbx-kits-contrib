@@ -90,6 +90,13 @@ if ! command -v sbx >/dev/null 2>&1; then
   exit 1
 fi
 
+# Sandbox name prefix this run's kit will create under, matching
+# tck/e2e_test.go's sandboxName() exactly (e2e-<kit-basename>-<random>, with
+# underscores turned to hyphens since sbx names disallow them) — keep the two
+# in sync. Used below to find and clean up only this kit's own sandboxes,
+# never someone else's leftovers under the same --app-name.
+kit_sandbox_prefix="e2e-$(basename "$kit_abs" | tr '[:upper:]_' '[:lower:]-')-"
+
 # Smoke test — fail fast if the scoped daemon can't talk to the runtime.
 # The most common cause is "not logged in to Docker Hub" (sbx create then
 # fails ~minutes into the test), but the same probe also catches a dead
@@ -112,14 +119,40 @@ EOF
 }
 unset probe_err
 
+# Lists sandbox names under $APP_NAME starting with $1, via `ls --json`
+# rather than the human table so this survives table-formatting changes.
+# `ls --json` pretty-prints (a space after the ':'), so match that loosely
+# rather than assuming compact JSON. Defined once and used at both call
+# sites below (here and in the on_exit trap) so they can't drift apart.
+list_sandboxes_matching() {
+  sbx --app-name "$APP_NAME" ls --json 2>/dev/null \
+    | grep -o '"name":[[:space:]]*"[^"]*"' \
+    | cut -d'"' -f4 \
+    | grep "^$1"
+}
+
+# A sandbox from a previous FAILED run of this same kit is deliberately left
+# behind (see tck/e2e_test.go's createSbx) so its policy log survives for
+# post-mortem inspection — see the on_exit trap below. That means a stale one
+# can exist when this script starts; remove it now so it doesn't get counted
+# as "this run's" sandbox by the trap, and so it doesn't pile up indefinitely
+# across repeated local debugging iterations. Best-effort: nothing to clean
+# up is the common case, not an error.
+for stale in $(list_sandboxes_matching "$kit_sandbox_prefix"); do
+  echo "Removing stale sandbox from a previous failed run: $stale"
+  sbx --app-name "$APP_NAME" rm -f "$stale" >/dev/null 2>&1 || true
+done
+
 # Configure the scoped daemon's global network policy. `policy init` is
 # one-time per daemon (sbx errors with "already initialized" on the second
 # call), so to stay idempotent we try `init` first and fall back to
 # `reset --force` + `init` when a policy is already set — that lands the
 # scoped daemon on the desired baseline regardless of prior state. The
 # `--force` skips the confirmation prompt about stopping running sandboxes
-# (we don't keep any across runs). Skipped when POLICY is explicitly set
-# to the empty string.
+# (a stale one from a previous failed run was just removed above; a
+# currently-running sandbox here would mean a concurrent invocation, which
+# isn't a supported use of this script). Skipped when POLICY is explicitly
+# set to the empty string.
 if [ -n "$POLICY" ]; then
   echo "Initializing --app-name=$APP_NAME global policy to $POLICY"
   if ! sbx --app-name "$APP_NAME" policy init "$POLICY" >/dev/null 2>&1; then
@@ -227,22 +260,52 @@ EOF
   fi
 fi
 
-# Helper hint on failure — the most common e2e failure is a missing entry
-# in network.allowedDomains, which `sbx policy log` surfaces precisely. Wired
-# as an EXIT trap (not ERR) so the hint also fires when `set -e` aborts
-# mid-test. Only fires on non-zero exit.
+# Auto-diagnose on failure — the most common e2e failure is a missing entry
+# in network.allowedDomains, which `sbx policy log` surfaces precisely. In CI
+# the runner (and its scoped daemon) is destroyed the moment the job ends, so
+# printing instructions for a human to run afterward is useless there — by
+# the time anyone reads the log, there's nothing left to inspect. Instead,
+# run the diagnostics ourselves and print the real output, so a CI failure is
+# debuggable from the log alone.
+#
+# tck/e2e_test.go's createSbx deliberately skips its own cleanup when the
+# test fails, so the sandbox this run created is still around for exactly
+# this. Find it by name (matching kit_sandbox_prefix above) rather than
+# assuming it's the only sandbox under $APP_NAME — a from-scratch or manually
+# populated daemon could have others, and printing every one of those
+# instead of this run's own would be noise at best and misleading at worst.
+#
+# Wired as an EXIT trap (not ERR) so it also fires when `set -e` aborts
+# mid-test. Only fires on non-zero exit. Every diagnostic call is best-effort
+# (`|| true`): if the scoped daemon is itself wedged or already gone, that
+# failure must not mask the original exit code.
 on_exit() {
   rc=$?
   if [ "$rc" -ne 0 ]; then
+    echo "" >&2
+    echo "e2e test failed (exit $rc)." >&2
+
+    failed_sandboxes=$(list_sandboxes_matching "$kit_sandbox_prefix") || true
+    if [ -z "$failed_sandboxes" ]; then
+      echo "No sandbox found under --app-name=$APP_NAME matching '${kit_sandbox_prefix}*' — the failure happened before sbx create ran, or the sandbox is gone." >&2
+    else
+      for sbox in $failed_sandboxes; do
+        echo "" >&2
+        echo "Policy log for sandbox $sbox (policy: ${POLICY:-current default}):" >&2
+        sbx --app-name "$APP_NAME" policy log "$sbox" >&2 || true
+      done
+      cat >&2 <<EOF
+
+Every row under 'Blocked requests' above is a host your kit reached for. Add
+it to network.allowedDomains in spec.yaml and re-run this script.
+
+The failed sandbox above is left running for further inspection (e.g.
+'sbx --app-name $APP_NAME exec <name> -- ...'); the next run of this script
+removes it automatically before starting.
+EOF
+    fi
+
     cat >&2 <<EOF
-
-e2e test failed (exit $rc). To see which hosts the proxy blocked under '${POLICY:-current default}':
-
-  sbx --app-name $APP_NAME ls                              # find the tck-e2e-* sandbox
-  sbx --app-name $APP_NAME policy log <sandbox-name>
-
-Every row under 'Blocked requests' is a host your kit reached for. Add it
-to network.allowedDomains in spec.yaml and re-run this script.
 
 If the scoped daemon is wedged, wipe it (your main sbx is unaffected):
 
