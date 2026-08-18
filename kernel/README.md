@@ -14,7 +14,7 @@ managed auth, and live session replay built in.
   export KERNEL_API_KEY=<your-api-key>
   ```
 
-  The kit reads this from your host environment via `credentials.sources`.
+  The kit reads this from your host as a `credentials[].apiKey` secret.
   The real value never enters the sandbox — the proxy injects it into
   outbound requests to `api.onkernel.com`.
 
@@ -69,22 +69,23 @@ PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 pip install kernel playwright
 
 ## How auth works
 
-The kit declares three things in its `network` block:
+The kit declares two things:
 
-- `serviceDomains: api.onkernel.com → kernel` maps the REST API host to the
-  `kernel` credential service.
-- `serviceAuth.kernel` tells the proxy to inject
-  `Authorization: Bearer <key>` on outbound requests to that host.
-- `allowedDomains` uses `*.onkernel.com` to permit CDP WebSocket proxy URLs
-  (`wss://proxy.<region>.onkernel.com:8443/...`) without auth injection.
+- `credentials[].apiKey.inject` maps `api.onkernel.com` to the `kernel`
+  credential, telling the proxy to inject `Authorization: Bearer <key>` on
+  outbound requests to that host.
+- `permissions.network.allow` uses `*.onkernel.com` to also permit CDP
+  WebSocket proxy URLs (`wss://proxy.<region>.onkernel.com:8443/...`),
+  which don't get auth injection.
 
-`serviceDomains` is intentionally narrow. A wildcard there would put the proxy
-into TLS-intercept mode for all `*.onkernel.com` traffic — including the CDP
-WebSocket connections that carry browser data — which would corrupt them.
+The inject domain is intentionally narrow (just the REST API host). A wildcard
+there would put the proxy into TLS-intercept mode for all `*.onkernel.com`
+traffic — including the CDP WebSocket connections that carry browser data —
+which would corrupt them.
 
-`KERNEL_API_KEY` is declared in `environment.proxyManaged`: the sandbox holds
-a placeholder value; the proxy substitutes the real credential at request time.
-The real key is sourced from `KERNEL_API_KEY` on the host via `credentials.sources`.
+`KERNEL_API_KEY` is declared with `apiKey.proxyManaged: true`: the sandbox
+holds a placeholder value; the proxy substitutes the real credential at
+request time. The real key comes from `KERNEL_API_KEY` set as a host secret.
 
 ## What gets installed
 

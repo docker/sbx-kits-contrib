@@ -76,9 +76,9 @@ Requires Start-Up or Enterprise plan.
 
 ## Session replays (record as MP4)
 
-    const { id: replayId } = await kernel.browsers.replays.start(session.session_id);
+    const { replay_id: replayId } = await kernel.browsers.replays.start(session.session_id);
     // ... do work ...
-    await kernel.browsers.replays.stop(session.session_id, replayId);
+    await kernel.browsers.replays.stop(replayId, { id: session.session_id });
 
 Download recordings from the Kernel dashboard or via API.
 
@@ -87,9 +87,9 @@ Download recordings from the Kernel dashboard or via API.
 ## Browser pools (pre-warmed for sub-30ms acquisition)
 
     const pool = await kernel.browserPools.create({ size: 5, headless: true });
-    const session = await kernel.browserPools.acquire(pool.id);
+    const session = await kernel.browserPools.acquire(pool.id, {});
     // ... use session ...
-    await kernel.browserPools.release(pool.id, session.session_id);
+    await kernel.browserPools.release(pool.id, { session_id: session.session_id });
 
 ---
 
