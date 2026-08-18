@@ -1,82 +1,86 @@
-schemaVersion: "1"
+schemaVersion: "2"
 kind: sandbox
 name: gstack
 displayName: gstack (Claude Code + Garry's Stack)
-description: "Claude Code with the gstack skill pack pre-installed: 23 opinionated slash commands (/ship, /review, /qa, /browse, ...) plus a headless-Chromium browse daemon. Uses a pre-baked image so sandboxes start in seconds."
-
+description: 'Claude Code with the gstack skill pack pre-installed: 23 opinionated slash commands (/ship, /review, /qa, /browse, ...) plus a headless-Chromium browse daemon. Uses a pre-baked image so sandboxes start in seconds.'
 sandbox:
   # Pre-baked image: Bun, the gstack checkout @ pinned SHA with setup run
   # (skills registered under ~/.claude/skills), and Chromium for the
-  # browse daemon. Built by scripts/build-image.sh.
-  image: "docker.io/ealeyner/gstack-sbx:latest"
-  aiFilename: CLAUDE.md
+  # browse daemon. Built and published by build-and-publish-kits.yml, the
+  # shared kit-image pipeline (see ../PUBLISHING.md) -- no bespoke
+  # workflow needed, same as kiro/copilot.
+  image: docker.io/sbx/gstack-image:latest
   entrypoint:
-    run: ["claude"]
+    - claude
+agentInstructions:
+  filename: CLAUDE.md
+  content: |
+    # gstack
 
-network:
-  serviceDomains:
-    api.anthropic.com: anthropic
-    console.anthropic.com: anthropic
-    claude.ai: anthropic
-  serviceAuth:
-    anthropic:
-      headerName: x-api-key
-      valueFormat: "%s"
-  allowedDomains:
-    # Claude Code runtime
-    - "downloads.claude.ai:443"
-    - "claude.com:443"
-    # gstack update checks and /gstack-upgrade
-    - "github.com:443"
-    - "raw.githubusercontent.com:443"
-    # bun install during /gstack-upgrade rebuilds
-    - registry.npmjs.org
-    - "*.npmjs.org"
-    # lazy-loaded prompt-injection classifier for the browse security stack
-    - "huggingface.co:443"
-    - "*.huggingface.co:443"
-    # Note: gstack's Supabase telemetry endpoint is deliberately not
-    # listed; the sync exits silently when unreachable.
+    This sandbox has gstack pre-installed: Garry Tan's Claude Code skill
+    pack. Use the slash commands for the full AI engineering workflow:
 
+    /office-hours, /plan-ceo-review, /plan-eng-review, /plan-design-review,
+    /design-consultation, /review, /ship, /land-and-deploy, /canary,
+    /benchmark, /browse, /qa, /qa-only, /design-review,
+    /setup-browser-cookies, /setup-deploy, /retro, /investigate,
+    /document-release, /codex, /cso, /autoplan, /careful, /freeze, /guard,
+    /unfreeze, /gstack-upgrade
+
+    Use the /browse skill for all web browsing — it drives a local headless
+    Chromium daemon (loopback only, auto-started on first use).
+permissions:
+  network:
+    allow:
+      # Every domain the anthropic credential injects into, plus the OAuth
+      # token endpoint -- required here too, not just below: this repo's
+      # e2e runs every kit under `sbx policy init deny-all`, so a domain
+      # absent from this list is unreachable regardless of what the
+      # credential block declares. Matches the built-in claude kit's own
+      # allow list for the same reasons.
+      - api.anthropic.com
+      - claude.ai
+      - console.anthropic.com
+      - platform.claude.com:443
+      - downloads.claude.ai:443
+      - claude.com:443
+      - github.com:443
+      - raw.githubusercontent.com:443
+      - registry.npmjs.org
+      - '*.npmjs.org'
+      - huggingface.co:443
+      - '*.huggingface.co:443'
 credentials:
-  sources:
-    anthropic:
-      env:
-        - ANTHROPIC_API_KEY
-
+  - service: anthropic
+    apiKey:
+      name: ANTHROPIC_API_KEY
+      proxyManaged: true
+      inject:
+        - domain: api.anthropic.com
+          header: x-api-key
+          format: '%s'
+        - domain: claude.ai
+          header: x-api-key
+          format: '%s'
+        - domain: console.anthropic.com
+          header: x-api-key
+          format: '%s'
+    oauth:
+      tokenEndpoint:
+        host: platform.claude.com
+        path: /v1/oauth/token
+      sentinels:
+        accessToken: sk-ant-oat01-proxy-managed
+        refreshToken: sk-ant-ort01-proxy-managed
+      credentialFile:
+        path: ~/.claude/.credentials.json
+        structure:
+          claudeAiOauth:
+            accessToken: '{{.AccessToken}}'
+            refreshToken: '{{.RefreshToken}}'
+            expiresAt: '{{.ExpiresAt}}'
+            scopes: '{{.Scopes}}'
 environment:
   variables:
-    PLAYWRIGHT_BROWSERS_PATH: /opt/playwright-browsers
-    # Keep the observational plan-tune hooks off for a predictable
-    # headless baseline; enable later by re-running ./setup.
     GSTACK_PLAN_TUNE_HOOKS: "no"
-
-oauth:
-  service: anthropic
-  tokenEndpoint:
-    host: platform.claude.com
-    path: /v1/oauth/token
-  sentinels:
-    accessToken: sk-ant-oat01-proxy-managed
-    refreshToken: sk-ant-ort01-proxy-managed
-  credentialFile:
-    path: "~/.claude/.credentials.json"
-    template: '{"claudeAiOauth":{"accessToken":"{{.AccessToken}}","refreshToken":"{{.RefreshToken}}","expiresAt":{{.ExpiresAt}},"scopes":{{.ScopesJSON}}}}'
-  skipIfEnv:
-    - ANTHROPIC_API_KEY
-
-agentContext: |
-  # gstack
-
-  This sandbox has gstack pre-installed: Garry Tan's Claude Code skill
-  pack. Use the slash commands for the full AI engineering workflow:
-
-  /office-hours, /plan-ceo-review, /plan-eng-review, /plan-design-review,
-  /design-consultation, /review, /ship, /land-and-deploy, /canary,
-  /benchmark, /browse, /qa, /qa-only, /design-review,
-  /setup-browser-cookies, /setup-deploy, /retro, /investigate,
-  /document-release, /codex, /cso, /autoplan, /careful, /freeze, /guard,
-  /unfreeze, /gstack-upgrade
-
-  Use the /browse skill for all web browsing — it drives a local headless
-  Chromium daemon (loopback only, auto-started on first use).
+    PLAYWRIGHT_BROWSERS_PATH: /opt/playwright-browsers

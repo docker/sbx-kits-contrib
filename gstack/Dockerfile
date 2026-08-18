@@ -8,7 +8,9 @@
 # on the claude-code template, so a sandbox attaches straight into a
 # Claude Code session with all skills registered.
 #
-# Build with scripts/build-image.sh.
+# Built and published by build-and-publish-kits.yml, the shared kit-image
+# pipeline (see ../PUBLISHING.md) -- no bespoke workflow needed, same as
+# kiro/copilot.
 
 FROM docker/sandbox-templates:claude-code
 
@@ -31,7 +33,8 @@ ARG TARGETARCH
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
         fonts-liberation fonts-noto-color-emoji fontconfig xvfb x11-utils && \
-    PW_ARCH=$([ "$TARGETARCH" = "amd64" ] && echo x64 || echo arm64) && \
+    ARCH="${TARGETARCH:-$(dpkg --print-architecture)}" && \
+    PW_ARCH=$([ "$ARCH" = "amd64" ] && echo x64 || echo arm64) && \
     PLAYWRIGHT_HOST_PLATFORM_OVERRIDE="ubuntu24.04-$PW_ARCH" \
       npx -y playwright@1.58.2 install --with-deps chromium && \
     chmod -R a+rX /opt/playwright-browsers && \
