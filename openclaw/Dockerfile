@@ -34,7 +34,8 @@ RUN npm install -g n && n 22 && npm install -g "openclaw@${OPENCLAW_VERSION}"
 ENV PLAYWRIGHT_BROWSERS_PATH=/opt/ms-playwright
 ARG TARGETARCH
 RUN apt-get update && apt-get install -y --no-install-recommends xvfb && \
-    PW_ARCH=$([ "$TARGETARCH" = "amd64" ] && echo x64 || echo arm64) && \
+    ARCH="${TARGETARCH:-$(dpkg --print-architecture)}" && \
+    PW_ARCH=$([ "$ARCH" = "amd64" ] && echo x64 || echo arm64) && \
     PLAYWRIGHT_HOST_PLATFORM_OVERRIDE="ubuntu24.04-$PW_ARCH" \
       node "$(npm root -g)/openclaw/node_modules/playwright-core/cli.js" install --with-deps chromium && \
     chmod -R a+rX /opt/ms-playwright && \
