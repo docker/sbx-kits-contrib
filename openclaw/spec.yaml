@@ -23,10 +23,16 @@ permissions:
       - api.anthropic.com
       - claude.ai
       - console.anthropic.com
+      # OpenRouter is a supported alternate model provider (`/model
+      # openrouter/...`). Confirmed necessary via a real e2e run under
+      # deny-all.
+      - openrouter.ai
       # runtime plugin installs (/plugins install, externalized channels)
       - registry.npmjs.org
       - '*.npmjs.org'
       - clawhub.ai:443
+      # Confirmed necessary via a real e2e run under deny-all.
+      - raw.githubusercontent.com
       # chat platforms
       - '*.telegram.org'
       - '*.discord.com'
