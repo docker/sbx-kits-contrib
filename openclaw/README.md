@@ -34,56 +34,66 @@ auto-approved for pairing, so there's no token handoff.
 |-------|---------|---------|
 | 18789 | gateway | Gateway WS control plane, Control UI dashboard, Canvas, health (`/healthz`, `/readyz`), OpenAI-compatible HTTP API |
 
-> `sbx` v0.32.0 validates `publishedPorts` but does not yet bind them
-> automatically at sandbox start. Until that lands, publish manually:
->
-> ```console
-> $ sbx ports <sandbox> --publish 18789/tcp
-> ```
+The sandbox runtime publishes the declared port on an ephemeral host port
+at start time — find it with `sbx ports <sandbox-name>`. If you'd rather
+pin the host port to a fixed value, the classic
+`sbx ports <sandbox-name> --publish 18789:18789/tcp` still works alongside
+the declared ephemeral binding.
 
 ## How auth works
 
-The kit declares the Anthropic auth wiring (`serviceDomains`,
-`serviceAuth`, `credentials.sources.anthropic`, `proxyManaged`); the
-sandbox proxy injects the real `ANTHROPIC_API_KEY` on egress, so the
-secret never enters the container. Other providers and channel tokens
-(Telegram, Discord, Slack, WhatsApp) are configured from inside the
-session via `openclaw onboard` / `openclaw configure`.
+The kit declares the Anthropic auth wiring in `credentials[].apiKey`
+(inject domains/header/format, `proxyManaged: true`); the sandbox proxy
+injects the real `ANTHROPIC_API_KEY` on egress, so the secret never
+enters the container. Other providers and channel tokens (Telegram,
+Discord, Slack, WhatsApp) are configured from inside the session via
+`openclaw onboard` / `openclaw configure`.
 
-## Image architecture
+## Base image
+
+Unlike most kits here — which are `kind: mixin` or `kind: agent` and layer
+onto an existing `docker/sandbox-templates` image — a `kind: sandbox` kit
+*is* the whole environment, so it names the image the sandbox boots from.
+This kit builds and publishes its own, from the `Dockerfile` in this
+directory:
 
 ```
-docker.io/ealeyner/openclaw-sbx
+docker.io/sbx/openclaw-image
 └── FROM docker/sandbox-templates:shell-docker
     ├── Node 22 (openclaw requires >= 22.19)
     ├── openclaw @ pinned version   npm global install (+ /usr/local/bin symlink)
     └── /opt/ms-playwright          Chromium + xvfb for the browser tool
 ```
 
+The `-image` suffix distinguishes the base image from the kit itself: the
+kit is published separately as an OCI artifact at `docker.io/sbx/openclaw-kit`
+(see [Usage](#usage) above).
+
 One runtime quirk: the sandbox runtime seeds its own
 `~/.openclaw/openclaw.json` at create time, which lacks `gateway.mode` —
 the startup command idempotently runs `openclaw config set gateway.mode
 local` before starting the gateway.
 
-## Building and publishing the image
+### Building and publishing
 
-```console
-$ OPENCLAW_VERSION=2026.6.5 IMAGE=docker.io/<you>/openclaw-sbx:latest ./scripts/build-image.sh
-$ docker push docker.io/<you>/openclaw-sbx:latest
-```
+How the image is named, tagged, verified and pushed is the same for every
+kit in this repo that builds its own image — see
+**[PUBLISHING.md](../PUBLISHING.md)** for the pipeline. There is no
+kit-specific build script or workflow; CI builds and publishes this image
+the same way it does for `kiro`/`copilot`.
 
 Upstream versions are date-based and release ~daily; bump
-`OPENCLAW_VERSION` deliberately (update the default in the Dockerfile
-and `scripts/build-image.sh`).
+`OPENCLAW_VERSION` deliberately in the `Dockerfile`.
 
-## Testing locally without pushing
+### Building locally
 
 ```console
-$ IMAGE=docker.io/ealeyner/openclaw-sbx:latest ./scripts/build-image.sh
-$ docker save docker.io/ealeyner/openclaw-sbx:latest -o /tmp/openclaw-sbx.tar
-$ sbx template load /tmp/openclaw-sbx.tar
-$ sbx run --kit . openclaw
+$ docker build -t docker.io/sbx/openclaw-image:latest openclaw
+$ ./scripts/test-kit.sh openclaw
 ```
+
+`scripts/test-kit.sh` builds the kit's own image before running the suite
+(`SBX_KIT_SKIP_IMAGE_BUILD=1` to skip and reuse what's already built).
 
 ## Debugging
 

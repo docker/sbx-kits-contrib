@@ -1,61 +1,69 @@
-schemaVersion: "1"
+schemaVersion: "2"
 kind: sandbox
 name: openclaw
 displayName: OpenClaw
-description: "Personal AI assistant with multi-platform chat, skills, and gateway support. Uses a pre-baked image so sandboxes start in seconds."
-
+description: Personal AI assistant with multi-platform chat, skills, and gateway support. Uses a pre-baked image so sandboxes start in seconds.
 sandbox:
   # Pre-baked image: Node 22, openclaw @ pinned version, Chromium for the
-  # browser tool, and a minimal gateway config. Built by
-  # scripts/build-image.sh.
-  image: "docker.io/ealeyner/openclaw-sbx:latest"
-  aiFilename: AGENTS.md
+  # browser tool, and a minimal gateway config. Built and published by
+  # build-and-publish-kits.yml, the shared kit-image pipeline (see
+  # ../PUBLISHING.md) -- no bespoke workflow needed, same as kiro/copilot.
+  image: docker.io/sbx/openclaw-image:latest
   entrypoint:
-    run: ["/usr/local/bin/openclaw-start"]
-
-network:
-  serviceDomains:
-    api.anthropic.com: anthropic
-    console.anthropic.com: anthropic
-    claude.ai: anthropic
-  serviceAuth:
-    anthropic:
-      headerName: x-api-key
-      valueFormat: "%s"
-  allowedDomains:
-    # runtime plugin installs (/plugins install, externalized channels)
-    - registry.npmjs.org
-    - "*.npmjs.org"
-    - "clawhub.ai:443"
-    # chat platforms
-    - "*.telegram.org"
-    - "*.discord.com"
-    - gateway.discord.gg
-    - "*.whatsapp.com"
-    - "*.whatsapp.net"
-    - "*.slack.com"
-    # project domains (docs links, update notes)
-    - openclaw.ai
-    - docs.openclaw.ai
-  publishedPorts:
-    - container: 18789
-      name: gateway
-
+    - /usr/local/bin/openclaw-start
+agentInstructions:
+  filename: AGENTS.md
+permissions:
+  network:
+    allow:
+      # Every domain the anthropic credential injects into -- required here
+      # too, not just below: this repo's e2e runs every kit under
+      # `sbx policy init deny-all`, so a domain absent from this list is
+      # unreachable regardless of what the credential block declares.
+      - api.anthropic.com
+      - claude.ai
+      - console.anthropic.com
+      # runtime plugin installs (/plugins install, externalized channels)
+      - registry.npmjs.org
+      - '*.npmjs.org'
+      - clawhub.ai:443
+      # chat platforms
+      - '*.telegram.org'
+      - '*.discord.com'
+      - gateway.discord.gg
+      - '*.whatsapp.com'
+      - '*.whatsapp.net'
+      - '*.slack.com'
+      # project domains (docs links, update notes)
+      - openclaw.ai
+      - docs.openclaw.ai
+ports:
+  - container: 18789
+    name: gateway
 credentials:
-  sources:
-    anthropic:
-      env:
-        - ANTHROPIC_API_KEY
-
+  - service: anthropic
+    apiKey:
+      name: ANTHROPIC_API_KEY
+      proxyManaged: true
+      inject:
+        - domain: api.anthropic.com
+          header: x-api-key
+          format: '%s'
+        - domain: claude.ai
+          header: x-api-key
+          format: '%s'
+        - domain: console.anthropic.com
+          header: x-api-key
+          format: '%s'
 environment:
   variables:
     OPENCLAW_STATE_DIR: /home/agent/.openclaw
     PLAYWRIGHT_BROWSERS_PATH: /opt/ms-playwright
-  proxyManaged:
-    - ANTHROPIC_API_KEY
-
-commands:
+setup:
   startup:
-    - command: ["sh", "-c", "openclaw config get gateway.mode 2>/dev/null | grep -q local || openclaw config set gateway.mode local; curl -fsS http://127.0.0.1:18789/readyz >/dev/null 2>&1 || setsid sh -c 'openclaw gateway run > /home/agent/.openclaw/gateway.log 2>&1' &"]
+    - command:
+        - sh
+        - -c
+        - openclaw config get gateway.mode 2>/dev/null | grep -q local || openclaw config set gateway.mode local; curl -fsS http://127.0.0.1:18789/readyz >/dev/null 2>&1 || setsid sh -c 'openclaw gateway run > /home/agent/.openclaw/gateway.log 2>&1' &
       user: "1000"
       description: Ensure gateway.mode=local (the kit's files/ config is injected at create over the baked one), then start the gateway in the background

@@ -7,7 +7,9 @@
 # minimal gateway config. The kit (spec.yaml) only applies policy and the
 # entrypoint waits for the gateway then drops into `openclaw chat`.
 #
-# Build with scripts/build-image.sh.
+# Built and published by build-and-publish-kits.yml, the shared kit-image
+# pipeline (see ../PUBLISHING.md) -- no bespoke workflow needed, same as
+# kiro/copilot.
 
 FROM docker/sandbox-templates:shell-docker
 
