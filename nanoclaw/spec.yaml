@@ -80,6 +80,7 @@ environment:
     NO_PROXY: 127.0.0.1,localhost
     NODE_NO_WARNINGS: "1"
     ONECLI_BIND_HOST: 0.0.0.0
+    ONECLI_GATEWAY_URL: http://127.0.0.1:10255
     ONECLI_URL: http://127.0.0.1:10254
     TZ: UTC
     no_proxy: 127.0.0.1,localhost
