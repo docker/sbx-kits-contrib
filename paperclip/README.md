@@ -15,7 +15,16 @@ sandbox serves the web UI in seconds.
 ## Usage
 
 ```console
+$ sbx run --kit "docker.io/sbx/paperclip-kit:latest" paperclip
+```
+
+Or from a git URL targeting this repo:
+
+```console
 $ sbx run --kit "git+https://github.com/docker/sbx-kits-contrib.git#dir=paperclip" paperclip
+```
+
+```console
 $ sbx ports <sandbox> --publish 3100/tcp   # then open the printed host port
 ```
 
@@ -35,39 +44,68 @@ loopback bind, which the sandbox port-forwarder can't reach.)
 
 Embedded PostgreSQL stays on loopback :54329 inside the sandbox.
 
-> `sbx` v0.32.0 validates `publishedPorts` but does not yet bind them
-> automatically — publish manually as shown above.
+The sandbox runtime publishes the declared port on an ephemeral host port
+at start time — find it with `sbx ports <sandbox-name>`. If you'd rather
+pin the host port to a fixed value, the classic
+`sbx ports <sandbox-name> --publish 3100:3100/tcp` still works alongside
+the declared ephemeral binding.
 
 ## How auth works
 
 Agent adapters spawn provider CLIs in-container; the Anthropic wiring
-(`serviceDomains`/`serviceAuth`/`proxyManaged`) lets the sandbox proxy
+(`credentials[].apiKey`, with `proxyManaged: true`) lets the sandbox proxy
 inject `ANTHROPIC_API_KEY` on egress for the `claude_local` adapter.
 Other provider keys (OpenAI, Gemini, …) can be added as sandbox secrets
 or configured in the UI.
 
 Telemetry is opted out at the source (`PAPERCLIP_TELEMETRY_DISABLED=1`);
-`telemetry.paperclip.ing` is deliberately not in `allowedDomains`.
+`telemetry.paperclip.ing` is deliberately not in `permissions.network.allow`.
 
-## Image architecture
+## Base image
+
+Unlike most kits here — which are `kind: mixin` or `kind: agent` and layer
+onto an existing `docker/sandbox-templates` image — a `kind: sandbox` kit
+*is* the whole environment, so it names the image the sandbox boots from.
+This kit builds and publishes its own, from the `Dockerfile` in this
+directory:
 
 ```
-docker.io/ealeyner/paperclip-sbx
+docker.io/sbx/paperclip-image
 └── FROM docker/sandbox-templates:claude-code
     ├── Node 22 (paperclip requires >= 20)
     └── paperclipai @ pinned version   npm global install:
         ├── @paperclipai/server + built React UI
-        ├── embedded-postgres (chowned to agent — it creates lib
-        │   symlinks in its package dir on first run)
+        ├── distro PostgreSQL (not the bundled embedded-postgres, whose
+        │   arm64 binaries fail to load under the sandbox microVM's
+        │   16KB-page kernel)
         └── /usr/local/bin/paperclipai symlink
 ```
 
-## Building and publishing the image
+The `-image` suffix distinguishes the base image from the kit itself: the
+kit is published separately as an OCI artifact at `docker.io/sbx/paperclip-kit`
+(see [Usage](#usage) above).
+
+### Building and publishing
+
+How the image is named, tagged, verified and pushed is the same for every
+kit in this repo that builds its own image — see
+**[PUBLISHING.md](../PUBLISHING.md)** for the pipeline. There is no
+kit-specific build script or workflow; CI builds and publishes this image
+the same way it does for `kiro`/`copilot`.
+
+### Building locally
 
 ```console
-$ PAPERCLIP_VERSION=2026.609.0 IMAGE=docker.io/<you>/paperclip-sbx:latest ./scripts/build-image.sh
-$ docker push docker.io/<you>/paperclip-sbx:latest
+$ docker build -t docker.io/sbx/paperclip-image:latest paperclip
+$ ./scripts/test-kit.sh paperclip
 ```
+
+`scripts/test-kit.sh` builds the kit's own image before running the suite
+(`SBX_KIT_SKIP_IMAGE_BUILD=1` to skip and reuse what's already built).
+
+`PAPERCLIP_VERSION` is a build arg, so a different (calendar-versioned)
+`paperclipai` release can be baked without editing the `Dockerfile`:
+`--build-arg PAPERCLIP_VERSION=2026.MDD.P`.
 
 ## Debugging
 

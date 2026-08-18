@@ -5,11 +5,14 @@
 # agents ("if OpenClaw is an employee, Paperclip is the company"). Agent
 # CLIs run as child processes in the same container — no Docker-in-Docker
 # — so the whole install pre-bakes into one image: the pinned paperclipai
-# CLI (which carries @paperclipai/server, the built UI, and the
-# embedded-postgres binaries), running on the claude-code template so the
-# claude_local adapter has Claude Code available.
+# CLI (which carries @paperclipai/server and the built UI; its bundled
+# embedded-postgres binaries are swapped for distro PostgreSQL below),
+# running on the claude-code template so the claude_local adapter has
+# Claude Code available.
 #
-# Build with scripts/build-image.sh.
+# Built and published by build-and-publish-kits.yml, the shared kit-image
+# pipeline (see ../PUBLISHING.md) -- no bespoke workflow needed, same as
+# kiro/copilot.
 
 FROM docker/sandbox-templates:claude-code
 
