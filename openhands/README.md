@@ -1,7 +1,8 @@
 # openhands
 
-A standalone agent kit (`kind: agent`) for [OpenHands](https://openhands.dev/), an
-open-source AI software engineering agent. The kit installs OpenHands via
+A standalone sandbox kit (`kind: sandbox`, `schemaVersion: "2"`) for
+[OpenHands](https://openhands.dev/), an open-source AI software engineering
+agent. The kit installs OpenHands via
 [uv](https://astral.sh/uv/), wires LLM API auth through the sandbox proxy, and runs
 `openhands --always-approve` as the entrypoint when you attach.
 
