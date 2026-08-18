@@ -1,6 +1,6 @@
 # open-interpreter
 
-An agent kit (`kind: agent`) for [Open Interpreter](https://www.openinterpreter.com/) —
+A sandbox kit (`kind: sandbox`) for [Open Interpreter](https://www.openinterpreter.com/) —
 a natural language interface for your computer. Describe what you want in plain English;
 Open Interpreter writes and runs the code (Python, JS, Shell, and more) to complete it.
 
@@ -22,7 +22,7 @@ To use Claude instead (recommended — Anthropic key only):
 export ANTHROPIC_API_KEY=<your-anthropic-key>
 ```
 
-Both are declared in `credentials.sources`. The kit proxy-manages whichever ones
+Both are declared in `credentials[].apiKey`. The kit proxy-manages whichever ones
 are present on the host — the real values never enter the sandbox.
 
 ## Usage
@@ -58,29 +58,29 @@ The default profile sets `model: gpt-4o`. Override at launch:
 
 ```console
 # Use Claude (requires ANTHROPIC_API_KEY)
-$ sbx run --kit ./open-interpreter/ open-interpreter --args="--model claude-3-5-sonnet-20241022"
+$ sbx run --kit ./open-interpreter/ open-interpreter -- --model claude-3-5-sonnet-20241022
 
 # Use a local Ollama model (no API key needed)
-$ sbx run --kit ./open-interpreter/ open-interpreter --args="--model ollama/llama3"
+$ sbx run --kit ./open-interpreter/ open-interpreter -- --model ollama/llama3
 
 # Or update ~/.config/open-interpreter/profiles/default.yaml inside the sandbox
 ```
 
 ## How auth works
 
-Both `api.openai.com` and `api.anthropic.com` are listed in `serviceDomains`.
-The proxy injects `Authorization: Bearer <key>` for OpenAI and `x-api-key: <key>`
+Both `api.openai.com` and `api.anthropic.com` are listed as `credentials[].apiKey.inject`
+domains. The proxy injects `Authorization: Bearer <key>` for OpenAI and `x-api-key: <key>`
 for Anthropic on matching outbound requests. Keys never enter the sandbox VM.
 
-`serviceDomains` is intentionally limited to the two LLM API hosts. A wildcard
+Credential injection is intentionally limited to the two LLM API hosts. A wildcard
 there would put the proxy into TLS-intercept mode for all traffic, including the
 arbitrary HTTP requests that OI's executed code makes — breaking downloads,
 package installs, and web scraping tasks.
 
 ## Network policy and code execution
 
-OI executes arbitrary code that can reach any domain. The kit's `allowedDomains`
-covers OI's own operational needs:
+OI executes arbitrary code, which can only reach domains in `permissions.network.allow`
+— not "any domain". The kit's allow list covers OI's own operational needs:
 
 | Domain | Purpose |
 | --- | --- |
@@ -97,14 +97,15 @@ mixin kit with the extra domains.
 
 | Component | How |
 | --- | --- |
-| `uv` | `curl -LsSf https://astral.sh/uv/install.sh \| sh` at creation time |
-| `open-interpreter` | `uv tool install --python 3.12 open-interpreter` at creation time |
+| `gcc` / `python3-dev` | `apt-get install` at creation time — a C compiler for building `psutil` from source |
+| `uv` | Preinstalled in the base image (`/usr/local/bin/uv`) |
+| `open-interpreter` | `uv tool install --with "setuptools<81" --python 3.12 open-interpreter` at creation time |
 | Default profile | Dropped via `files/` at `/home/agent/.config/open-interpreter/profiles/default.yaml` |
 
-`uv` is used instead of `pip` for two reasons: the base image runs Ubuntu 24.04
-which enforces PEP 668 (bare `pip install` is blocked), and `open-interpreter`'s
-`numpy` dependency has no Python 3.13 wheel — `uv --python 3.12` fetches a
-standalone Python 3.12 runtime automatically without needing a system compiler.
+`uv --python 3.12` is used because the base image ships Python 3.13, and
+`open-interpreter`'s `numpy` dependency has no Python 3.13 wheel; `uv` fetches
+a standalone Python 3.12 runtime automatically. `setuptools<81` keeps
+`pkg_resources` available, which `open-interpreter` still imports at startup.
 
 On every sandbox start, `uv tool upgrade open-interpreter` runs in the background
 so you stay on the latest release without recreating the sandbox.
