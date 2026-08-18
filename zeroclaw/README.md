@@ -14,6 +14,12 @@ for when a pre-baked image *is* worth it.)
 ## Usage
 
 ```console
+$ sbx run --kit "docker.io/sbx/zeroclaw-kit:latest" zeroclaw
+```
+
+Or from a git URL targeting this repo:
+
+```console
 $ sbx run --kit "git+https://github.com/docker/sbx-kits-contrib.git#dir=zeroclaw" zeroclaw
 ```
 
@@ -29,8 +35,13 @@ scheduler, heartbeat). Talk to it over the gateway's WebSocket chat
 
 > The web dashboard isn't bundled in upstream's release binaries (only in
 > their container image), so `/` returns 503 — the API and WS endpoints
-> are fully functional. `sbx` v0.32.0 doesn't auto-bind `publishedPorts`
-> yet; publish manually with `sbx ports <sandbox> --publish 42617/tcp`.
+> are fully functional.
+
+The sandbox runtime publishes the declared port on an ephemeral host port
+at start time — find it with `sbx ports <sandbox-name>`. If you'd rather
+pin the host port to a fixed value, the classic
+`sbx ports <sandbox-name> --publish 42617:42617/tcp` still works alongside
+the declared ephemeral binding.
 
 ## How auth works
 

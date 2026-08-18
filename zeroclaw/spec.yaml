@@ -1,62 +1,65 @@
-schemaVersion: "1"
+schemaVersion: "2"
 kind: sandbox
 name: zeroclaw
 displayName: ZeroClaw
-description: "Fast, small, fully autonomous AI assistant infrastructure (Rust, single binary) — gateway with 30+ channels and ~20 providers. Installs in seconds from the pinned upstream release; no custom image needed."
-
+description: Fast, small, fully autonomous AI assistant infrastructure (Rust, single binary) — gateway with 30+ channels and ~20 providers. Installs in seconds from the pinned upstream release; no custom image needed.
 sandbox:
-  image: "docker/sandbox-templates:shell"
+  image: docker/sandbox-templates:shell
   entrypoint:
-    run: ["/home/agent/.local/bin/zeroclaw-start"]
-
-network:
-  serviceDomains:
-    api.anthropic.com: anthropic
-    console.anthropic.com: anthropic
-    claude.ai: anthropic
-  serviceAuth:
-    anthropic:
-      headerName: x-api-key
-      valueFormat: "%s"
-  allowedDomains:
-    # pinned release download at install time
-    - "github.com:443"
-    - "objects.githubusercontent.com:443"
-    - "release-assets.githubusercontent.com:443"
-    # chat platforms (enabled via config; tokens supplied by the user)
-    - "*.telegram.org"
-    - "*.discord.com"
-    - gateway.discord.gg
-    - "*.matrix.org"
-    - "*.slack.com"
-  publishedPorts:
-    - container: 42617
-      name: gateway
-
+    - /home/agent/.local/bin/zeroclaw-start
+permissions:
+  network:
+    allow:
+      # Every domain the anthropic credential injects into -- required here
+      # too, not just below: this repo's e2e runs every kit under
+      # `sbx policy init deny-all`, so a domain absent from this list is
+      # unreachable regardless of what the credential block declares.
+      - api.anthropic.com
+      - claude.ai
+      - console.anthropic.com
+      - github.com:443
+      - objects.githubusercontent.com:443
+      - release-assets.githubusercontent.com:443
+      - '*.telegram.org'
+      - '*.discord.com'
+      - gateway.discord.gg
+      - '*.matrix.org'
+      - '*.slack.com'
+ports:
+  - container: 42617
+    name: gateway
 credentials:
-  sources:
-    anthropic:
-      env:
-        - ANTHROPIC_API_KEY
-
+  - service: anthropic
+    apiKey:
+      name: ANTHROPIC_API_KEY
+      proxyManaged: true
+      inject:
+        - domain: api.anthropic.com
+          header: x-api-key
+          format: '%s'
+        - domain: claude.ai
+          header: x-api-key
+          format: '%s'
+        - domain: console.anthropic.com
+          header: x-api-key
+          format: '%s'
 environment:
   variables:
-    ZEROCLAW_gateway__host: "0.0.0.0"
-  proxyManaged:
-    - ANTHROPIC_API_KEY
-
-commands:
+    ZEROCLAW_gateway__host: 0.0.0.0
+setup:
   install:
-    # Single static binary — a pinned release download beats maintaining a
-    # pre-baked image (see docs/recipe-prebaked-image-kit.md for when an
-    # image IS worth it).
-    - command: "set -e; v=v0.8.0; case \"$(uname -m)\" in x86_64) t=x86_64-unknown-linux-gnu;; aarch64|arm64) t=aarch64-unknown-linux-gnu;; *) echo \"unsupported arch\"; exit 1;; esac; curl -fsSL \"https://github.com/zeroclaw-labs/zeroclaw/releases/download/$v/zeroclaw-$t.tar.gz\" | tar -xz -C /usr/local/bin zeroclaw && chmod 0755 /usr/local/bin/zeroclaw"
+    - command: set -e; v=v0.8.0; case "$(uname -m)" in x86_64) t=x86_64-unknown-linux-gnu;; aarch64|arm64) t=aarch64-unknown-linux-gnu;; *) echo "unsupported arch"; exit 1;; esac; curl -fsSL "https://github.com/zeroclaw-labs/zeroclaw/releases/download/$v/zeroclaw-$t.tar.gz" | tar -xz -C /usr/local/bin zeroclaw && chmod 0755 /usr/local/bin/zeroclaw
       user: "0"
       description: Install the pinned zeroclaw release binary
-  initFiles:
+  startup:
+    - command:
+        - sh
+        - -c
+        - CFG=$HOME/.zeroclaw/config.toml; [ -n "$ANTHROPIC_API_KEY" ] && grep -q __ANTHROPIC_API_KEY__ $CFG 2>/dev/null && sed -i "s/__ANTHROPIC_API_KEY__/$ANTHROPIC_API_KEY/" $CFG || true
+      user: "1000"
+      description: Template the proxy-managed key into config.toml at sandbox start
+  files:
     - path: /home/agent/.local/bin/zeroclaw-start
-      mode: "0755"
-      description: Entrypoint — template the proxy-managed key into config.toml (v0.8.0 dropped legacy env fallbacks), then run the daemon
       content: |
         #!/bin/sh
         CFG="$HOME/.zeroclaw/config.toml"
@@ -64,7 +67,5 @@ commands:
             sed -i "s/__ANTHROPIC_API_KEY__/$ANTHROPIC_API_KEY/" "$CFG"
         fi
         exec zeroclaw daemon
-  startup:
-    - command: ["sh", "-c", "CFG=$HOME/.zeroclaw/config.toml; [ -n \"$ANTHROPIC_API_KEY\" ] && grep -q __ANTHROPIC_API_KEY__ $CFG 2>/dev/null && sed -i \"s/__ANTHROPIC_API_KEY__/$ANTHROPIC_API_KEY/\" $CFG || true"]
-      user: "1000"
-      description: Template the proxy-managed key into config.toml at sandbox start
+      mode: "0755"
+      description: Entrypoint — template the proxy-managed key into config.toml (v0.8.0 dropped legacy env fallbacks), then run the daemon
