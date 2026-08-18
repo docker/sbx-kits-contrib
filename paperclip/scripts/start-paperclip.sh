@@ -1,4 +1,5 @@
 #!/bin/sh
+set -e
 # Paperclip sandbox entrypoint. `onboard --yes` is idempotent — first run
 # writes config (instance id, agent JWT secret, local secrets key) under
 # PAPERCLIP_HOME and starts the server; later runs keep config and just
@@ -16,6 +17,7 @@ PAPERCLIP_HOME="${PAPERCLIP_HOME:-/home/agent/.paperclip}"
 PGDATA="$PAPERCLIP_HOME/pgdata"
 PGBIN="$(ls -d /usr/lib/postgresql/*/bin | head -1)"
 export PATH="$PGBIN:$PATH"
+mkdir -p "$PAPERCLIP_HOME"
 if [ ! -d "$PGDATA" ]; then
     initdb -D "$PGDATA" --auth=trust -U paperclip >/dev/null
 fi

@@ -26,6 +26,8 @@ RUN sed -i 's|http://|https://|g' /etc/apt/sources.list.d/*.sources /etc/apt/sou
 # Node 22 (paperclip requires >=20; its own agent images use 22) and the
 # pinned paperclipai CLI. The install pulls @paperclipai/server, the
 # built UI, embedded-postgres platform binaries, and sharp prebuilds.
+# `n 22` floats to the latest 22.x patch intentionally (security fixes);
+# the shared kit-image pipeline's nightly rebuild catches any drift.
 RUN npm install -g n && n 22 && npm install -g "paperclipai@${PAPERCLIP_VERSION}"
 
 # Pin the binary somewhere always on PATH (startup commands and

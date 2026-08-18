@@ -42,7 +42,8 @@ loopback bind, which the sandbox port-forwarder can't reach.)
 |------|------|---------|
 | 3100 | web  | REST API + web UI + WebSocket (single port) |
 
-Embedded PostgreSQL stays on loopback :54329 inside the sandbox.
+PostgreSQL (distro, not Paperclip's bundled embedded-postgres) stays on
+loopback :54329 inside the sandbox.
 
 The sandbox runtime publishes the declared port on an ephemeral host port
 at start time — find it with `sbx ports <sandbox-name>`. If you'd rather
