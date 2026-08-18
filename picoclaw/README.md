@@ -14,6 +14,12 @@ for when a pre-baked image *is* worth it.)
 ## Usage
 
 ```console
+$ sbx run --kit "docker.io/sbx/picoclaw-kit:latest" picoclaw
+```
+
+Or from a git URL targeting this repo:
+
+```console
 $ sbx run --kit "git+https://github.com/docker/sbx-kits-contrib.git#dir=picoclaw" picoclaw
 ```
 
@@ -29,7 +35,7 @@ restarting the gateway (`POST /reload` on :18790, or kill + reattach).
 | 18790 | gateway | Gateway health (`/health`, `/ready`) and reload |
 | 18791 | webhook | Channel webhook callbacks |
 
-> `sbx` v0.32.0 validates `publishedPorts` but does not yet bind them
+> `sbx` v0.32.0 validates the kit's `ports` but does not yet bind them
 > automatically — publish manually with `sbx ports <sandbox> --publish ...`.
 
 ## How auth works
