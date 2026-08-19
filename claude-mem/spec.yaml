@@ -87,7 +87,11 @@ setup:
           # overwrites whatever exists; merging before that loses our key.
           i=0
           until grep -q themeId "$S" 2>/dev/null || [ $i -ge 60 ]; do sleep 1; i=$((i+1)); done
-          echo "platform settings present after ${i}s"
+          if grep -q themeId "$S" 2>/dev/null; then
+            echo "platform settings present after ${i}s"
+          else
+            echo "timed out after ${i}s waiting for platform settings; proceeding anyway"
+          fi
           MODE="${SBX_CRED_ANTHROPIC_MODE:-none}" node -e '
             const fs = require("fs");
             const p = process.argv[1];
