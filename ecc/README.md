@@ -1,12 +1,19 @@
 # ecc
 
-A mixin kit (extends `claude`) installing
+A mixin installing
 [affaan-m/ECC](https://github.com/affaan-m/ECC) — "Everything Claude
 Code": a large agent-harness content pack of skills, agents, rules, and
 commands. Pinned to `v2.0.0`, installed with upstream's **minimal
-profile**.
+profile**. The content is Claude-Code-specific, so the kit declares
+`requires.agent: claude`.
 
 ## Usage
+
+```console
+$ sbx run --kit "docker.io/sbx/ecc-kit:latest" claude
+```
+
+Or from a git URL targeting this repo:
 
 ```console
 $ sbx run --kit "git+https://github.com/docker/sbx-kits-contrib.git#dir=ecc" claude
