@@ -1,8 +1,8 @@
 schemaVersion: "2"
 kind: mixin
 name: vscode
-displayName: Visual Studio Code (native, via --display)
-description: Installs VS Code from Microsoft's apt repository and starts it as a Wayland client on the host desktop, opening the sandbox workspace. Requires `--display` at sandbox creation time and the `feature.sandbox-display` feature flag — see the README.
+displayName: Visual Studio Code
+description: Installs VS Code from Microsoft's apt repository, runs it in the sandbox and opens the display on the host. Requires `--display` at sandbox creation time and the `feature.sandbox-display` feature flag — see the README.
 permissions:
   network:
     allow:
