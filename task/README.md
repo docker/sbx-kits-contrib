@@ -8,26 +8,26 @@ agents can run `Taskfile.yml` tasks from the workspace.
 Run it with any agent kit or built-in agent, from its published OCI artifact on Docker Hub:
 
 ```console
-$ sbx run --kit "docker.io/sbx/task-kit:latest" claude
+sbx run --kit "docker.io/sbx/task-kit:latest" claude
 ```
 
 Or from a git URL targeting this repo:
 
 ```console
-$ sbx run --kit "git+https://github.com/docker/sbx-kits-contrib.git#dir=task" claude
+sbx run --kit "git+https://github.com/docker/sbx-kits-contrib.git#dir=task" claude
 ```
 
 For local development, point `--kit` at this directory:
 
 ```console
-$ sbx run --kit ./task/ claude
+sbx run --kit ./task/ claude
 ```
 
 After the sandbox starts, `task` is available on `PATH`:
 
 ```console
-$ task --version
-$ task --list
+task --version
+task --list
 ```
 
 ## Versioning

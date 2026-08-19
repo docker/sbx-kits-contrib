@@ -22,7 +22,7 @@ provider's credential (or reuses one you've already stored). You can also set it
 up ahead of time:
 
 ```console
-$ sbx secret set anthropic   # or: openai, gemini
+sbx secret set anthropic   # or: openai, gemini
 ```
 
 To use OpenAI or Gemini instead of the default (Anthropic), pass Aider's own
@@ -31,26 +31,26 @@ To use OpenAI or Gemini instead of the default (Anthropic), pass Aider's own
 flag instead):
 
 ```console
-$ sbx run --kit "docker.io/sbx/aider-kit:latest" aider -- --model gpt-4o
-$ sbx run --kit "docker.io/sbx/aider-kit:latest" aider -- --model gemini/gemini-2.5-pro
+sbx run --kit "docker.io/sbx/aider-kit:latest" aider -- --model gpt-4o
+sbx run --kit "docker.io/sbx/aider-kit:latest" aider -- --model gemini/gemini-2.5-pro
 ```
 
 ## Usage
 
 ```console
-$ sbx run --kit "docker.io/sbx/aider-kit:latest" aider
+sbx run --kit "docker.io/sbx/aider-kit:latest" aider
 ```
 
 Or from a git URL targeting this repo:
 
 ```console
-$ sbx run --kit "git+https://github.com/docker/sbx-kits-contrib.git#dir=aider" aider
+sbx run --kit "git+https://github.com/docker/sbx-kits-contrib.git#dir=aider" aider
 ```
 
 Or with a local clone:
 
 ```console
-$ sbx run --kit ./aider/ aider
+sbx run --kit ./aider/ aider
 ```
 
 The first launch installs Aider (~2 minutes — uv downloads a Python 3.12
@@ -87,9 +87,9 @@ to override a kit's `environment.variables` at run time. Use Aider's own
 `--model` flag instead, passed after `--`:
 
 ```console
-$ sbx run aider -- --model opus
-$ sbx run aider -- --model o3-mini
-$ sbx run aider -- --model deepseek/deepseek-chat
+sbx run aider -- --model opus
+sbx run aider -- --model o3-mini
+sbx run aider -- --model deepseek/deepseek-chat
 ```
 
 For a full list of supported models and aliases, run `aider --list-models` inside
@@ -119,7 +119,7 @@ To give Aider project-specific style rules or context, create a `CONVENTIONS.md`
 in your repo and pass it at launch:
 
 ```console
-$ sbx run aider -- --read CONVENTIONS.md
+sbx run aider -- --read CONVENTIONS.md
 ```
 
 Or set it permanently in your project's `.aider.conf.yml`:
@@ -134,13 +134,13 @@ read:
 To remove stored secrets:
 
 ```console
-$ sbx secret rm anthropic
-$ sbx secret rm openai    # if set
-$ sbx secret rm gemini    # if set
+sbx secret rm anthropic
+sbx secret rm openai    # if set
+sbx secret rm gemini    # if set
 ```
 
 To remove the sandbox:
 
 ```console
-$ sbx rm aider
+sbx rm aider
 ```

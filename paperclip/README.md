@@ -15,17 +15,17 @@ sandbox serves the web UI in seconds.
 ## Usage
 
 ```console
-$ sbx run --kit "docker.io/sbx/paperclip-kit:latest" paperclip
+sbx run --kit "docker.io/sbx/paperclip-kit:latest" paperclip
 ```
 
 Or from a git URL targeting this repo:
 
 ```console
-$ sbx run --kit "git+https://github.com/docker/sbx-kits-contrib.git#dir=paperclip" paperclip
+sbx run --kit "git+https://github.com/docker/sbx-kits-contrib.git#dir=paperclip" paperclip
 ```
 
 ```console
-$ sbx ports <sandbox> --publish 3100/tcp   # then open the printed host port
+sbx ports <sandbox> --publish 3100/tcp   # then open the printed host port
 ```
 
 On attach the entrypoint runs `paperclipai onboard --yes` — idempotent:
@@ -97,8 +97,8 @@ the same way it does for `kiro`/`copilot`.
 ### Building locally
 
 ```console
-$ docker build -t docker.io/sbx/paperclip-image:latest paperclip
-$ ./scripts/test-kit.sh paperclip
+docker build -t docker.io/sbx/paperclip-image:latest paperclip
+./scripts/test-kit.sh paperclip
 ```
 
 `scripts/test-kit.sh` builds the kit's own image before running the suite
@@ -111,9 +111,9 @@ $ ./scripts/test-kit.sh paperclip
 ## Debugging
 
 ```console
-$ sbx exec <sandbox> -- tail -f /home/agent/.paperclip/instances/default/logs/*.log
-$ sbx exec <sandbox> -- curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:3100/
-$ sbx exec <sandbox> -- paperclipai doctor
+sbx exec <sandbox> -- tail -f /home/agent/.paperclip/instances/default/logs/*.log
+sbx exec <sandbox> -- curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:3100/
+sbx exec <sandbox> -- paperclipai doctor
 ```
 
 See [`docs/recipe-prebaked-image-kit.md`](../docs/recipe-prebaked-image-kit.md)

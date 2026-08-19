@@ -12,13 +12,13 @@ Your SSH key must be loaded in the agent on the host and registered with your
 GitHub account. Start the sandbox with this kit attached, from its published OCI artifact on Docker Hub:
 
 ```console
-$ sbx run --kit "docker.io/sbx/github-ssh-kit:latest" claude
+sbx run --kit "docker.io/sbx/github-ssh-kit:latest" claude
 ```
 
 Or from a git URL targeting this repo:
 
 ```console
-$ sbx run --kit "git+https://github.com/docker/sbx-kits-contrib.git#dir=github-ssh" claude
+sbx run --kit "git+https://github.com/docker/sbx-kits-contrib.git#dir=github-ssh" claude
 ```
 
 ## Usage
@@ -27,8 +27,8 @@ Once the kit is installed, SSH operations to GitHub work without any
 additional configuration:
 
 ```console
-$ git clone git@github.com:org/repo.git
-$ git push origin my-branch
+git clone git@github.com:org/repo.git
+git push origin my-branch
 ```
 
 ## Composing with git-ssh-sign
@@ -37,7 +37,7 @@ If you also want SSH commit signing, combine this kit with
 [git-ssh-sign](../git-ssh-sign/):
 
 ```console
-$ sbx run \
+sbx run \
   --kit "git+https://github.com/docker/sbx-kits-contrib.git#dir=github-ssh" \
   --kit "git+https://github.com/docker/sbx-kits-contrib.git#dir=git-ssh-sign" \
   claude

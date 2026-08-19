@@ -5,19 +5,19 @@ A mixin kit that installs the **Playwright** browser-automation toolchain inside
 ## Usage
 
 ```console
-$ sbx run claude --kit "docker.io/sbx/playwright-kit:latest" .
+sbx run claude --kit "docker.io/sbx/playwright-kit:latest" .
 ```
 
 Or straight from this repository over git:
 
 ```console
-$ sbx run --kit "git+https://github.com/docker/sbx-kits-contrib.git#dir=playwright" claude
+sbx run --kit "git+https://github.com/docker/sbx-kits-contrib.git#dir=playwright" claude
 ```
 
 Or with a local clone of this repo:
 
 ```console
-$ sbx run claude --kit ./playwright/ .
+sbx run claude --kit ./playwright/ .
 ```
 
 Prerequisites:
@@ -27,9 +27,9 @@ Prerequisites:
 Inside the sandbox:
 
 ```console
-$ playwright --version                       # CLI on PATH for every user
-$ npx playwright test                        # run a project's test suite
-$ npx playwright screenshot http://localhost:3000 page.png
+playwright --version                       # CLI on PATH for every user
+npx playwright test                        # run a project's test suite
+npx playwright screenshot http://localhost:3000 page.png
 ```
 
 Driving a browser from code works with the globally installed library or a project-local one:

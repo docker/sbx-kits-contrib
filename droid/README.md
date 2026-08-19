@@ -25,19 +25,19 @@ Either of these works — you do not need both:
 ## Usage
 
 ```console
-$ sbx run --kit "docker.io/sbx/droid-kit:latest" droid
+sbx run --kit "docker.io/sbx/droid-kit:latest" droid
 ```
 
 Or from a git URL targeting this repo:
 
 ```console
-$ sbx run --kit "git+https://github.com/docker/sbx-kits-contrib.git#dir=droid" droid
+sbx run --kit "git+https://github.com/docker/sbx-kits-contrib.git#dir=droid" droid
 ```
 
 Or with a local clone of this repo:
 
 ```console
-$ sbx run --kit ./droid/ droid
+sbx run --kit ./droid/ droid
 ```
 
 The trailing `droid` is required, not redundant: for `kind: sandbox` kits,
@@ -133,7 +133,7 @@ are below.
 ### Building locally
 
 ```console
-$ docker build -t docker.io/sbx/droid-image:latest droid
+docker build -t docker.io/sbx/droid-image:latest droid
 ```
 
 `BASE_IMAGE` is a build arg, so the base can be re-pointed or digest-pinned

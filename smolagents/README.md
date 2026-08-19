@@ -10,14 +10,14 @@ and exposes the upstream `smolagent` and `webagent` CLIs on `PATH`.
 Pair it with whichever sandbox agent you want to work from, from its published OCI artifact on Docker Hub:
 
 ```console
-$ sbx run claude --kit "docker.io/sbx/smolagents-kit:latest" ~/my-project
+sbx run claude --kit "docker.io/sbx/smolagents-kit:latest" ~/my-project
 ```
 
 Or from a git URL targeting this repo:
 
 ```console
-$ sbx run shell --kit "git+https://github.com/docker/sbx-kits-contrib.git#dir=smolagents" ~/my-project
-$ sbx run claude --kit "git+https://github.com/docker/sbx-kits-contrib.git#dir=smolagents" ~/my-project
+sbx run shell --kit "git+https://github.com/docker/sbx-kits-contrib.git#dir=smolagents" ~/my-project
+sbx run claude --kit "git+https://github.com/docker/sbx-kits-contrib.git#dir=smolagents" ~/my-project
 ```
 
 Once attached, the command-line tools are available:
@@ -82,9 +82,9 @@ To update the kit, change `SMOLAGENTS_VERSION` in `spec.yaml`, run the TCK,
 and verify the CLIs in a real sandbox:
 
 ```console
-$ cd smolagents
-$ ../scripts/test-kit.sh
-$ sbx run shell --kit ./ ~/tmp-project
+cd smolagents
+../scripts/test-kit.sh
+sbx run shell --kit ./ ~/tmp-project
 ```
 
 If the new release adds dependencies or changes provider hosts, update the

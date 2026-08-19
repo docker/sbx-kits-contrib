@@ -15,19 +15,19 @@ non-interactive ACP adapter can start authenticated.
 For ChatGPT OAuth:
 
 ```console
-$ sbx secret set -g openai --oauth
+sbx secret set -g openai --oauth
 ```
 
 For an OpenAI API key:
 
 ```console
-$ echo "$OPENAI_API_KEY" | sbx secret set -g openai
+echo "$OPENAI_API_KEY" | sbx secret set -g openai
 ```
 
 You can also import a detected host environment variable:
 
 ```console
-$ sbx secret import openai
+sbx secret import openai
 ```
 
 The Codex ACP adapter does not advertise a terminal-auth command. Keep provider
@@ -41,19 +41,19 @@ kit can refresh its Codex auth files.
 Create a sandbox from its published OCI artifact on Docker Hub:
 
 ```console
-$ sbx create --kit "docker.io/sbx/codex-acp-kit:latest" --name my-task codex /path/to/task
+sbx create --kit "docker.io/sbx/codex-acp-kit:latest" --name my-task codex /path/to/task
 ```
 
 Or from a git URL targeting this repo:
 
 ```console
-$ sbx create --kit "git+https://github.com/docker/sbx-kits-contrib.git#dir=codex-acp" --name my-task codex /path/to/task
+sbx create --kit "git+https://github.com/docker/sbx-kits-contrib.git#dir=codex-acp" --name my-task codex /path/to/task
 ```
 
 Run the adapter over stdio:
 
 ```console
-$ sbx exec -i my-task /home/agent/.local/bin/codex-acp
+sbx exec -i my-task /home/agent/.local/bin/codex-acp
 ```
 
 Do not allocate a TTY for ACP sessions; the adapter expects newline-delimited

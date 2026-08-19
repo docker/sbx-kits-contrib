@@ -10,14 +10,14 @@ agent can resolve and install per-project tool versions from
 `mise` is agent-agnostic — pair it with whichever agent you're using:
 
 ```console
-$ sbx run claude --kit "docker.io/sbx/mise-kit:latest" ~/my-project
+sbx run claude --kit "docker.io/sbx/mise-kit:latest" ~/my-project
 ```
 
 Or from a git URL targeting this repo:
 
 ```console
-$ sbx run shell --kit "git+https://github.com/docker/sbx-kits-contrib.git#dir=mise" ~/my-project
-$ sbx run claude --kit "git+https://github.com/docker/sbx-kits-contrib.git#dir=mise" ~/my-project
+sbx run shell --kit "git+https://github.com/docker/sbx-kits-contrib.git#dir=mise" ~/my-project
+sbx run claude --kit "git+https://github.com/docker/sbx-kits-contrib.git#dir=mise" ~/my-project
 ```
 
 Once attached, any interactive shell has `mise` on PATH and shell hooks

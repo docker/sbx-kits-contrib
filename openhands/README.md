@@ -27,7 +27,7 @@ provider's credential (or reuses one you've already stored). You can also set it
 up ahead of time:
 
 ```console
-$ sbx secret set anthropic   # or: openai, google
+sbx secret set anthropic   # or: openai, google
 ```
 
 To use OpenAI or Gemini instead of the default (Anthropic): there's no supported
@@ -37,9 +37,9 @@ has no `--model` flag either. Once attached, edit the seeded
 the sandbox:
 
 ```console
-$ sbx run --kit "docker.io/sbx/openhands-kit:latest" openhands
+sbx run --kit "docker.io/sbx/openhands-kit:latest" openhands
 # inside the sandbox:
-$ vi ~/.openhands/settings.json   # set llm_config.model to e.g. "openai/gpt-4o"
+vi ~/.openhands/settings.json   # set llm_config.model to e.g. "openai/gpt-4o"
 ```
 
 ### Optional: Tavily web search
@@ -49,7 +49,7 @@ there's no automatic proxy injection for it — register the raw key as a custom
 secret instead:
 
 ```console
-$ sbx secret set-custom -g \
+sbx secret set-custom -g \
     --host api.tavily.com \
     --env TAVILY_API_KEY \
     --placeholder "tvly-{rand}" \
@@ -63,19 +63,19 @@ $ sbx secret set-custom -g \
 ## Usage
 
 ```console
-$ sbx run --kit "docker.io/sbx/openhands-kit:latest" openhands
+sbx run --kit "docker.io/sbx/openhands-kit:latest" openhands
 ```
 
 Or from a git URL targeting this repo:
 
 ```console
-$ sbx run --kit "git+https://github.com/docker/sbx-kits-contrib.git#dir=openhands" openhands
+sbx run --kit "git+https://github.com/docker/sbx-kits-contrib.git#dir=openhands" openhands
 ```
 
 Or with a local clone:
 
 ```console
-$ sbx run --kit ./openhands/ openhands
+sbx run --kit ./openhands/ openhands
 ```
 
 The first launch installs OpenHands (takes ~2 minutes; subsequent starts reuse the
@@ -122,7 +122,7 @@ run time. Once attached, edit `~/.openhands/settings.json`'s `llm_config.model`
 and restart OpenHands:
 
 ```console
-$ vi ~/.openhands/settings.json   # set llm_config.model to e.g. "anthropic/claude-sonnet-4-5"
+vi ~/.openhands/settings.json   # set llm_config.model to e.g. "anthropic/claude-sonnet-4-5"
 ```
 
 ## Cleanup
@@ -130,14 +130,14 @@ $ vi ~/.openhands/settings.json   # set llm_config.model to e.g. "anthropic/clau
 To remove stored secrets:
 
 ```console
-$ sbx secret rm -g --host api.anthropic.com
-$ sbx secret rm -g --host api.openai.com    # if set
-$ sbx secret rm -g --host generativelanguage.googleapis.com  # if set
-$ sbx secret rm -g --host api.tavily.com    # if set
+sbx secret rm -g --host api.anthropic.com
+sbx secret rm -g --host api.openai.com    # if set
+sbx secret rm -g --host generativelanguage.googleapis.com  # if set
+sbx secret rm -g --host api.tavily.com    # if set
 ```
 
 To remove the sandbox:
 
 ```console
-$ sbx rm openhands
+sbx rm openhands
 ```

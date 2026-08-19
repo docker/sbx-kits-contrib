@@ -32,19 +32,19 @@ two credential services (`github` and `copilot`) instead of one.
 ## Usage
 
 ```console
-$ sbx run --kit "docker.io/sbx/copilot-kit:latest" copilot
+sbx run --kit "docker.io/sbx/copilot-kit:latest" copilot
 ```
 
 Or from a git URL targeting this repo:
 
 ```console
-$ sbx run --kit "git+https://github.com/docker/sbx-kits-contrib.git#dir=copilot" copilot
+sbx run --kit "git+https://github.com/docker/sbx-kits-contrib.git#dir=copilot" copilot
 ```
 
 Or with a local clone of this repo:
 
 ```console
-$ sbx run --kit ./copilot/ copilot
+sbx run --kit ./copilot/ copilot
 ```
 
 The trailing `copilot` is required, not redundant: for `kind: sandbox` kits,
@@ -134,7 +134,7 @@ parts are below.
 ### Building locally
 
 ```console
-$ docker build -t docker.io/sbx/copilot-image:latest copilot
+docker build -t docker.io/sbx/copilot-image:latest copilot
 ```
 
 `BASE_IMAGE` is a build arg, so the base can be re-pointed or digest-pinned

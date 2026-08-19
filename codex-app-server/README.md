@@ -122,7 +122,7 @@ EOF
 Then run a sandbox:
 
 ```console
-$ sbx_codex myproject ~/myproject
+sbx_codex myproject ~/myproject
 ready — add SSH Connection in Codex Mac app:  Host: myproject
 ```
 
@@ -141,18 +141,18 @@ If you'd rather not paste a function into your rc, the same logic is
 shipped as standalone scripts under `bin/`:
 
 ```console
-$ ln -s $(pwd)/bin/sbx-codex-{attach,detach} ~/.local/bin/
+ln -s $(pwd)/bin/sbx-codex-{attach,detach} ~/.local/bin/
 ```
 
 Then per sandbox:
 
 ```console
-$ sbx create --kit "docker.io/sbx/codex-app-server-kit:latest" --name myproject codex ~/myproject
+sbx create --kit "docker.io/sbx/codex-app-server-kit:latest" --name myproject codex ~/myproject
 # Or from a git URL targeting this repo:
 # $ sbx create --kit "git+https://github.com/docker/sbx-kits-contrib.git#dir=codex-app-server" --name myproject codex ~/myproject
-$ sbx-codex-attach myproject
+sbx-codex-attach myproject
 # … later, when done with the GUI integration for this sandbox …
-$ sbx-codex-detach myproject
+sbx-codex-detach myproject
 ```
 
 The first `sbx-codex-attach` run adds the `Include ~/.sbx/ssh/codex/*.conf`
@@ -220,8 +220,8 @@ before the bridge was installed (e.g. after a kit update on a
 long-lived sandbox). Kill it and let the GUI respawn:
 
 ```console
-$ sbx exec <sandbox-name> -- pkill -f 'codex app-server'
-$ sbx exec <sandbox-name> -- rm -f /home/agent/.codex/app-server-control/app-server-control.sock
+sbx exec <sandbox-name> -- pkill -f 'codex app-server'
+sbx exec <sandbox-name> -- rm -f /home/agent/.codex/app-server-control/app-server-control.sock
 ```
 
 If `sbx-codex-attach` complains about a missing tool, install it

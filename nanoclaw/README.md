@@ -12,19 +12,19 @@ starting OneCLI/Postgres, and walking through NanoClaw setup.
 ## Usage
 
 ```console
-$ sbx run --name nanoclaw --kit "docker.io/sbx/nanoclaw-kit:latest" nanoclaw
+sbx run --name nanoclaw --kit "docker.io/sbx/nanoclaw-kit:latest" nanoclaw
 ```
 
 Or from a git URL targeting this repository:
 
 ```console
-$ sbx run --name nanoclaw --kit "git+https://github.com/docker/sbx-kits-contrib.git#dir=nanoclaw" nanoclaw
+sbx run --name nanoclaw --kit "git+https://github.com/docker/sbx-kits-contrib.git#dir=nanoclaw" nanoclaw
 ```
 
 Or with a local clone of this repository:
 
 ```console
-$ sbx run --name nanoclaw --kit ./nanoclaw nanoclaw
+sbx run --name nanoclaw --kit ./nanoclaw nanoclaw
 ```
 
 The `--name nanoclaw` flag gives the sandbox a stable name for follow-up
@@ -59,7 +59,7 @@ To customize NanoClaw after setup, keep the original sandbox session open and
 open Claude Code in a second terminal:
 
 ```console
-$ sbx exec -it -w /home/agent/nanoclaw nanoclaw claude
+sbx exec -it -w /home/agent/nanoclaw nanoclaw claude
 ```
 
 From there, use NanoClaw skills such as `/add-telegram`, `/add-slack`,
@@ -74,7 +74,7 @@ with `502 Bad Gateway`, it may be blocked by the sandbox network policy.
 Inspect the active policy from the host:
 
 ```console
-$ sbx policy ls nanoclaw --type network
+sbx policy ls nanoclaw --type network
 ```
 
 The OneCLI dashboard and gateway are published by the sandbox. Use the port
