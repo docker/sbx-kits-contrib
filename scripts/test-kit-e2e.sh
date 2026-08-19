@@ -33,9 +33,10 @@
 #   - The scoped daemon must be logged in to Docker Hub:
 #         sbx --app-name sbx-kits-contrib-tck login
 #     Each --app-name has its own credential store; this is separate from
-#     any login on your main daemon.
-#   - On Linux: a Secret Service provider for libsecret (gnome-keyring,
-#     kwallet, etc.). Not needed on macOS.
+#     any login on your main daemon. On Linux, sbx uses a Secret Service
+#     provider for libsecret when one is available (gnome-keyring, kwallet,
+#     etc.), and otherwise falls back to an encrypted on-disk store — no
+#     Secret Service setup is required.
 #
 # Overrides (env vars):
 #   APP_NAME — change the app-name (default: sbx-kits-contrib-tck). Must
