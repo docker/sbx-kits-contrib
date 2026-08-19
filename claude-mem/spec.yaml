@@ -23,11 +23,22 @@ permissions:
       - bun.sh:443
       - astral.sh:443
       - github.com:443
+      - api.github.com:443
       - objects.githubusercontent.com:443
       - release-assets.githubusercontent.com:443
+      - raw.githubusercontent.com:443
       - pypi.org:443
       - files.pythonhosted.org:443
       - chroma-onnx-models.s3.amazonaws.com:443
+      # `requires.agent: claude` composes this mixin onto the built-in claude
+      # kit, which runs its own background `apt-get update` on every sandbox
+      # (best-effort, non-blocking). Ubuntu hosts amd64 packages on
+      # archive/security and arm64 on ports.ubuntu.com; all three are listed
+      # so the kit works cross-arch (CI runs amd64).
+      - archive.ubuntu.com
+      - security.ubuntu.com
+      - ports.ubuntu.com
+      - download.docker.com
 ports:
   - container: 37777
     name: memory-viewer
