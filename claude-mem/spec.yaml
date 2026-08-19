@@ -12,9 +12,10 @@ agentInstructions:
     Persistent memory is active: session activity is captured into a local
     SQLite database under `~/.claude-mem/` and relevant context is injected
     at session start. Search past sessions with the mem-search skill or the
-    mcp-search MCP tools. The memory viewer runs on localhost:37777
-    (publish with `sbx ports <sandbox> --publish 37777/tcp` to browse from
-    the host). Telemetry is disabled (DO_NOT_TRACK=1).
+    mcp-search MCP tools. The worker (viewer UI + live activity stream) runs
+    on port 37700 (publish with `sbx ports <sandbox> --publish 37700/tcp`
+    to browse from the host). Telemetry is disabled
+    (DO_NOT_TRACK=1).
 permissions:
   network:
     allow:
@@ -40,12 +41,18 @@ permissions:
       - ports.ubuntu.com
       - download.docker.com
 ports:
-  - container: 37777
+  - container: 37700
     name: memory-viewer
 environment:
   variables:
     CLAUDE_MEM_TELEMETRY: "0"
     DO_NOT_TRACK: "1"
+    # Worker port otherwise defaults to 37700 + (uid % 100); pinned so it
+    # doesn't shift if the base image's agent uid ever changes.
+    CLAUDE_MEM_WORKER_PORT: "37700"
+    # Upstream default host is 127.0.0.1, unreachable via `sbx ports
+    # --publish` (must bind eth0/0.0.0.0 to be forwarded).
+    CLAUDE_MEM_WORKER_HOST: "0.0.0.0"
 setup:
   install:
     - command: npm config set proxy $HTTP_PROXY && npm config set https-proxy $HTTPS_PROXY || true

@@ -23,11 +23,11 @@ sbx run --kit "git+https://github.com/docker/sbx-kits-contrib.git#dir=claude-mem
 ```
 
 Search past sessions with the bundled `mem-search` skill or the
-`mcp-search` MCP tools. The memory viewer worker listens on
-localhost:37777:
+`mcp-search` MCP tools. The worker (viewer UI + live activity stream)
+listens on port 37700:
 
 ```console
-sbx ports <sandbox> --publish 37777/tcp
+sbx ports <sandbox> --publish 37700/tcp
 ```
 
 ## Design notes
