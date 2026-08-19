@@ -80,14 +80,21 @@ setup:
         - |
           set -e
           exec > /tmp/claude-mem-reconcile.log 2>&1
+          # Run unconditionally (including on early failure below) so root
+          # never leaves /home/agent/.claude un-chowned.
+          trap 'chown -R agent:agent /home/agent/.claude' EXIT
           S=/home/agent/.claude/settings.json
           mkdir -p /home/agent/.claude
           # Wait for the platform's own settings write to land first — at
           # create time the engine seeds this file late in the sequence and
           # overwrites whatever exists; merging before that loses our key.
           i=0
-          until grep -q themeId "$S" 2>/dev/null || [ $i -ge 60 ]; do sleep 1; i=$((i+1)); done
-          if grep -q themeId "$S" 2>/dev/null; then
+          found=0
+          while [ $i -lt 60 ]; do
+            if grep -q themeId "$S" 2>/dev/null; then found=1; break; fi
+            sleep 1; i=$((i+1))
+          done
+          if [ "$found" = "1" ]; then
             echo "platform settings present after ${i}s"
           else
             echo "timed out after ${i}s waiting for platform settings; proceeding anyway"
@@ -113,8 +120,7 @@ setup:
             fs.writeFileSync(p, JSON.stringify(s, null, 2));
             console.log("reconciled");
           ' "$S"
-          chown -R agent:agent /home/agent/.claude
-      # root + chown: /home/agent/.claude ownership isn't guaranteed
+      # root + chown-on-exit: /home/agent/.claude ownership isn't guaranteed
       # agent-owned on every base image (matches claude-sbx-statusline,
       # claude-ollama).
       user: "0"
