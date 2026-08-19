@@ -20,6 +20,8 @@ func TestLoadFromDirectory(t *testing.T) {
 		require.Equal(t, "1.0.0", a.Manifest.Version)
 		require.Equal(t, "https://example.com/sample-mixin", a.Manifest.SourceURL)
 		require.Empty(t, a.Manifest.Template, "mixins have no template")
+		require.NotNil(t, a.Requires, "sample-mixin declares base-agent affinity")
+		require.Equal(t, "sample-agent", a.Requires.Agent)
 		require.NotEmpty(t, a.PublishedPorts)
 		require.NotNil(t, a.Credentials)
 		require.NotNil(t, a.Environment)
@@ -88,6 +90,18 @@ func TestLoadFromDirectory(t *testing.T) {
 			services = append(services, c.Service)
 		}
 		require.ElementsMatch(t, []string{"anthropic", "github", "workos"}, services)
+
+		// The github credential exercises the `scheme:` sugar with no explicit
+		// header:, so bearer must supply the Authorization header itself.
+		for _, c := range a.Credentials {
+			if c.Service != "github" {
+				continue
+			}
+			require.Len(t, c.ApiKey.Inject, 2)
+			require.Equal(t, "Authorization", c.ApiKey.Inject[0].Header)
+			require.Equal(t, "Bearer %s", c.ApiKey.Inject[0].Format)
+			require.Empty(t, c.ApiKey.Inject[0].Scheme)
+		}
 
 		require.Len(t, a.Manifest.Volumes, 2)
 		require.NotNil(t, a.Commands)
@@ -231,9 +245,9 @@ func TestCollectFilesFromDir_SymlinkEscape(t *testing.T) {
 	require.ErrorContains(t, err, "escapes the artifact directory")
 }
 
-func TestLoadFromBytes(t *testing.T) {
+func TestLoadArtifactFromBytes(t *testing.T) {
 	t.Run("happy_path", func(t *testing.T) {
-		a, err := LoadFromBytes([]byte(`schemaVersion: "1"
+		a, err := LoadArtifactFromBytes([]byte(`schemaVersion: "1"
 kind: mixin
 name: bytes-kit
 displayName: Bytes Kit
@@ -242,16 +256,16 @@ description: loaded directly from bytes
 		require.NoError(t, err)
 		require.Equal(t, "bytes-kit", a.Manifest.Name)
 		require.Equal(t, KindMixin, a.Manifest.Kind)
-		require.Empty(t, a.Files, "LoadFromBytes never populates Files")
+		require.Empty(t, a.Files, "LoadArtifactFromBytes never populates Files")
 	})
 
 	t.Run("does_not_validate_files", func(t *testing.T) {
-		// LoadFromBytes is deliberately validation-free for Files — the
+		// LoadArtifactFromBytes is deliberately validation-free for Files — the
 		// caller is expected to populate Artifact.Files from a separate
 		// source (e.g. an OCI tar layer) and then call ValidateArtifact.
 		// Here we synthesize an Artifact that parses cleanly, then attach
 		// a malformed Files entry that only ValidateArtifact catches.
-		a, err := LoadFromBytes([]byte(`schemaVersion: "1"
+		a, err := LoadArtifactFromBytes([]byte(`schemaVersion: "1"
 kind: mixin
 name: deferred-validate
 `))
@@ -264,14 +278,14 @@ name: deferred-validate
 	})
 
 	t.Run("invalid_yaml", func(t *testing.T) {
-		_, err := LoadFromBytes([]byte(`{{{ broken`))
+		_, err := LoadArtifactFromBytes([]byte(`{{{ broken`))
 		require.ErrorContains(t, err, "invalid")
 	})
 
 	t.Run("unknown_field_rejected", func(t *testing.T) {
-		// Strict-decode behaviour applies to LoadFromBytes the same way it
+		// Strict-decode behaviour applies to LoadArtifactFromBytes the same way it
 		// does to LoadFromDirectory.
-		_, err := LoadFromBytes([]byte(`schemaVersion: "1"
+		_, err := LoadArtifactFromBytes([]byte(`schemaVersion: "1"
 kind: mixin
 name: typo-kit
 mystery: 42
@@ -281,7 +295,7 @@ mystery: 42
 }
 
 func TestManifest_VersionAndSourceURL(t *testing.T) {
-	a, err := LoadFromBytes([]byte(`schemaVersion: "1"
+	a, err := LoadArtifactFromBytes([]byte(`schemaVersion: "1"
 kind: mixin
 name: versioned-kit
 version: "2.3.1"

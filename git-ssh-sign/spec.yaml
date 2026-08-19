@@ -1,14 +1,31 @@
-schemaVersion: "1"
+schemaVersion: "2"
 kind: mixin
 name: git-ssh-sign
 displayName: Git SSH Commit Signing
 description: Configures git to sign commits using the SSH key forwarded from the host's SSH agent.
+agentInstructions:
+  content: |
+    ## Git commit signing
 
-commands:
-  initFiles:
+    This sandbox is configured to sign git commits with your host's SSH key.
+    Commits and tags are signed automatically. Use `git log --show-signature`
+    to verify signatures on existing commits.
+setup:
+  install:
+    - command: |
+        git config --system gpg.format ssh
+        git config --system --unset-all user.signingKey || true
+        git config --system commit.gpgSign true
+        git config --system tag.gpgSign true
+        git config --system gpg.ssh.defaultKeyCommand /home/agent/.config/git/ssh-signing-key-command
+        git config --system gpg.ssh.allowedSignersFile /home/agent/.config/git/allowed_signers
+        if [ "$(git config --system --get core.hooksPath || true)" = "/home/agent/.config/git/hooks" ]; then
+            git config --system --unset-all core.hooksPath
+        fi
+      user: "0"
+      description: Configure SSH commit signing with a dynamic key command
+  files:
     - path: /home/agent/.config/git/ssh-signing-key-command
-      mode: "0755"
-      description: Resolve the forwarded SSH agent key for Git SSH signing
       content: |
         #!/bin/sh
         set -e
@@ -33,24 +50,5 @@ commands:
         email=$(git config user.email 2>/dev/null || printf '%s' "agent@sandbox.local")
         printf '%s %s\n' "$email" "$key" > "$config_dir/allowed_signers"
         printf 'key::%s\n' "$key"
-
-  install:
-    - command: |
-        git config --system gpg.format ssh
-        git config --system --unset-all user.signingKey || true
-        git config --system commit.gpgSign true
-        git config --system tag.gpgSign true
-        git config --system gpg.ssh.defaultKeyCommand /home/agent/.config/git/ssh-signing-key-command
-        git config --system gpg.ssh.allowedSignersFile /home/agent/.config/git/allowed_signers
-        if [ "$(git config --system --get core.hooksPath || true)" = "/home/agent/.config/git/hooks" ]; then
-            git config --system --unset-all core.hooksPath
-        fi
-      user: "0"
-      description: Configure SSH commit signing with a dynamic key command
-
-memory: |
-  ## Git commit signing
-
-  This sandbox is configured to sign git commits with your host's SSH key.
-  Commits and tags are signed automatically. Use `git log --show-signature`
-  to verify signatures on existing commits.
+      mode: "0755"
+      description: Resolve the forwarded SSH agent key for Git SSH signing

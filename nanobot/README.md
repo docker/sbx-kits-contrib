@@ -12,13 +12,19 @@ attach.
 ## Usage
 
 ```console
-$ sbx run --kit "git+https://github.com/docker/sbx-kits-contrib.git#dir=nanobot" nanobot
+sbx run --kit "docker.io/sbx/nanobot-kit:latest" nanobot
+```
+
+Or from a git URL targeting this repo:
+
+```console
+sbx run --kit "git+https://github.com/docker/sbx-kits-contrib.git#dir=nanobot" nanobot
 ```
 
 Or with a local clone of this repo:
 
 ```console
-$ sbx run --kit ./nanobot/ nanobot
+sbx run --kit ./nanobot/ nanobot
 ```
 
 The first launch installs nanobot via `pip install nanobot-ai` and
@@ -31,7 +37,7 @@ If you need the upstream onboarding flow (creates `SOUL.md`,
 from another terminal and run:
 
 ```console
-$ nanobot onboard
+nanobot onboard
 ```
 
 Nanobot's "Next steps" output mentions OpenRouter — that message is
@@ -46,9 +52,13 @@ The kit drops `/home/agent/.nanobot/config.json` configured with:
 ```json
 {
   "agents": { "defaults": { "model": "claude-sonnet-4-20250514" } },
-  "providers": { "anthropic": { "api_key": "proxy-managed" } }
+  "providers": { "anthropic": { "api_key": "${ANTHROPIC_API_KEY}" } }
 }
 ```
+
+nanobot expands `${VAR}` references in config values at startup, so the
+config picks up whatever value the runtime put in `ANTHROPIC_API_KEY`
+for this sandbox instead of pinning one sandbox's value into the kit.
 
 The kit declares the Anthropic auth wiring (`serviceDomains`,
 `serviceAuth`, `credentials.sources.anthropic`, and

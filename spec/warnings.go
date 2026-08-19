@@ -25,3 +25,10 @@ func (w *warnings) deprecate(field, note string) {
 func (w *warnings) notImplemented(field, note string) {
 	w.messages = append(w.messages, fmt.Sprintf("field %q is accepted but not yet implemented: %s", field, note))
 }
+
+// ignored records that a field is valid in the schema but has no effect in
+// the current context (e.g. a field only meaningful for another kind). note
+// explains why it was dropped.
+func (w *warnings) ignored(field, note string) {
+	w.messages = append(w.messages, fmt.Sprintf("field %q ignored: %s", field, note))
+}

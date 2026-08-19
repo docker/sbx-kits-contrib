@@ -1,0 +1,50 @@
+schemaVersion: "2"
+kind: mixin
+name: kernel
+displayName: Kernel Browser
+description: |
+  Cloud-hosted Chromium for AI agents via kernel.sh. Sessions start in <30ms with stealth mode, managed auth, and live session replay built in.
+permissions:
+  network:
+    allow:
+      # CDP WebSocket proxy URLs take the form:
+      #   wss://proxy.<region>.onkernel.com:8443/browser/cdp?jwt=...
+      # The wildcard covers all regional proxy hosts without auth injection.
+      - '*.onkernel.com'
+      # npm — for agents that install @onkernel/sdk or playwright-core
+      - registry.npmjs.org
+      - '*.npmjs.org'
+      # PyPI — for agents that install the kernel Python SDK
+      - pypi.org
+      - files.pythonhosted.org
+      # @onkernel/cli's postinstall (install.js, GoReleaser-generated) downloads
+      # the actual kernel binary from a GitHub release asset
+      # (github.com/kernel/cli/releases/download/...). The 302 redirect target
+      # isn't a fixed constant -- confirmed by hand to land on
+      # objects.githubusercontent.com once and release-assets.githubusercontent.com
+      # on a real e2e run -- so both are allowed. Without these, `npm install -g
+      # @onkernel/cli` fails under a deny-all policy even though the npm
+      # registry fetch itself succeeds.
+      - github.com
+      - objects.githubusercontent.com
+      - release-assets.githubusercontent.com
+credentials:
+  # Narrow inject domain: only the REST API host gets auth injection.
+  # A wildcard here would put the proxy into TLS-intercept mode for all
+  # *.onkernel.com traffic, including the CDP WebSocket proxy and any CDN
+  # traffic — that corrupts the connection. List only the auth-bearing host.
+  - service: kernel
+    apiKey:
+      name: KERNEL_API_KEY
+      # KERNEL_API_KEY is proxy-managed: the sandbox receives a placeholder;
+      # the proxy substitutes the real value on outbound requests to api.onkernel.com.
+      proxyManaged: true
+      inject:
+        - domain: api.onkernel.com
+          header: Authorization
+          format: Bearer %s
+setup:
+  install:
+    - command: npm install -g @onkernel/cli
+      user: "0"
+      description: Install the Kernel CLI

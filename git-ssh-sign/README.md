@@ -14,19 +14,25 @@ for the underlying mechanism this kit builds on.
 On the host, load your SSH key into the agent:
 
 ```console
-$ ssh-add ~/.ssh/id_ed25519
+ssh-add ~/.ssh/id_ed25519
 ```
 
-Then start the sandbox with the kit attached:
+Then start the sandbox with the kit attached, from its published OCI artifact on Docker Hub:
 
 ```console
-$ sbx run claude --kit "git+https://github.com/docker/sbx-kits-contrib.git#dir=git-ssh-sign" ~/my-project
+sbx run claude --kit "docker.io/sbx/git-ssh-sign-kit:latest" ~/my-project
+```
+
+Or from a git URL targeting this repo:
+
+```console
+sbx run claude --kit "git+https://github.com/docker/sbx-kits-contrib.git#dir=git-ssh-sign" ~/my-project
 ```
 
 Inside the sandbox, verify that the forwarded agent exposes your key:
 
 ```console
-$ ssh-add -L
+ssh-add -L
 ssh-ed25519 AAAA... you@example.com
 ```
 
@@ -37,7 +43,7 @@ if no key is available.
 ## Verifying
 
 ```console
-$ git log --show-signature -1
+git log --show-signature -1
 commit abc1234...
 Good "git" signature for you@example.com with ED25519 key SHA256:...
 ```
@@ -85,7 +91,7 @@ To also enable SSH push/pull to GitHub from the sandbox, combine this kit
 with [github-ssh](../github-ssh/):
 
 ```console
-$ sbx run \
+sbx run \
   --kit "git+https://github.com/docker/sbx-kits-contrib.git#dir=git-ssh-sign" \
   --kit "git+https://github.com/docker/sbx-kits-contrib.git#dir=github-ssh" \
   claude

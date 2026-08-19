@@ -10,8 +10,14 @@ agent can resolve and install per-project tool versions from
 `mise` is agent-agnostic — pair it with whichever agent you're using:
 
 ```console
-$ sbx run shell --kit "git+https://github.com/docker/sbx-kits-contrib.git#dir=mise" ~/my-project
-$ sbx run claude --kit "git+https://github.com/docker/sbx-kits-contrib.git#dir=mise" ~/my-project
+sbx run claude --kit "docker.io/sbx/mise-kit:latest" ~/my-project
+```
+
+Or from a git URL targeting this repo:
+
+```console
+sbx run shell --kit "git+https://github.com/docker/sbx-kits-contrib.git#dir=mise" ~/my-project
+sbx run claude --kit "git+https://github.com/docker/sbx-kits-contrib.git#dir=mise" ~/my-project
 ```
 
 Once attached, any interactive shell has `mise` on PATH and shell hooks
@@ -78,8 +84,11 @@ tools:
   `<tool>@latest`, `<tool>@<major>`, etc., and even validates exact
   tags through it. Without this, github-hosted tool installs fail at
   the resolve step with a 403 from the sandbox proxy
-- `release-assets.githubusercontent.com` — 302 target for binary
-  downloads from those release URLs
+- `objects.githubusercontent.com` — the actual 302 target for the
+  kit's own install download, confirmed by hand against a real request
+- `release-assets.githubusercontent.com` — kept alongside it since a
+  release asset's redirect target isn't guaranteed to be the same host
+  for every repo
 
 Note that wildcard subdomains (`*.github.com`) match subdomains only,
 not the apex — so listing the apex and the subdomains explicitly is
@@ -92,22 +101,23 @@ the trust footprint. Add what you need in a fork. A starter set
 covering the most common backends:
 
 ```yaml
-network:
-  allowedDomains:
-    - github.com
-    - api.github.com
-    - release-assets.githubusercontent.com
-    - objects.githubusercontent.com   # older release asset host
-    - codeload.github.com             # source tarballs (some asdf plugins)
-    - nodejs.org                      # node
-    - registry.npmjs.org              # npm-backed plugins
-    - dl.google.com                   # go (golang.org redirects here)
-    - go.dev
-    - www.python.org                  # python
-    - files.pythonhosted.org          # pip
-    - pypi.org
-    - static.crates.io                # rust
-    - crates.io
+permissions:
+  network:
+    allow:
+      - github.com
+      - api.github.com
+      - objects.githubusercontent.com   # confirmed release-asset redirect target
+      - release-assets.githubusercontent.com
+      - codeload.github.com             # source tarballs (some asdf plugins)
+      - nodejs.org                      # node
+      - registry.npmjs.org              # npm-backed plugins
+      - dl.google.com                   # go (golang.org redirects here)
+      - go.dev
+      - www.python.org                  # python
+      - files.pythonhosted.org          # pip
+      - pypi.org
+      - static.crates.io                # rust
+      - crates.io
 ```
 
 If `mise install` fails with a DNS / connection refused error, the

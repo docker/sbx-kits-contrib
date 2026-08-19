@@ -25,13 +25,14 @@ Pick an existing kit closest in shape to what you want to build and read it end-
 
 - **[`code-server/`](./code-server)** — mixin: `extends: claude`, `initFiles` with `${WORKDIR}` substitution, shipped config in `files/`.
 - **[`amp/`](./amp)** — `kind: agent` kit: custom image, `serviceDomains`/`serviceAuth` for proxy-injected credentials, paired with a one-time `sbx secret set-custom` step.
+- **[`kiro/`](./kiro)** — `kind: sandbox` kit that builds and publishes its own image from a `Dockerfile` at the kit root. If yours does too, read [`PUBLISHING.md`](./PUBLISHING.md) before you start.
 
 ## Per-kit README
 
 Every kit should ship a `README.md`. The structure isn't mandatory, but the existing kits converge on:
 
 - **Title and one-paragraph description** of what the kit does and what agent it pairs with.
-- **Usage** — the `sbx run` invocation and any host-side prerequisites.
+- **Usage** — the `sbx run` invocation and any host-side prerequisites. Lead with the published `docker.io/sbx/<kit>-kit:latest` OCI artifact — every kit here publishes automatically (see [`PUBLISHING.md`](./PUBLISHING.md)), so it's the primary way to consume a kit — then the git-URL form, then the local-clone form.
 - **How _X_ works** — short sections explaining non-obvious decisions in the spec, so the next reviewer doesn't have to reverse-engineer the YAML.
 - **Cleanup**, if the kit creates state on the host.
 
@@ -47,27 +48,53 @@ See [Declare every domain your kit needs](./README.md#declare-every-domain-your-
 
 ## Verifying locally
 
-Before opening a PR:
+Before opening a PR, run **all four** of these:
 
 ```console
-$ sbx kit validate ./my-kit/
-$ cd my-kit && ../scripts/test-kit.sh
-$ sbx run --kit ./my-kit/ <agent>
+sbx kit validate ./my-kit/
+cd my-kit && ../scripts/test-kit.sh
+../scripts/test-kit-e2e.sh           # under deny-all — see below
+sbx run --kit . <agent>              # quick manual smoke
 ```
 
-The first two are what CI runs. The third catches things the TCK doesn't — install scripts hitting unexpected hosts, startup wrappers crashing silently, agents not authenticating.
+The first two are what CI runs on every PR. **The third is not run on CI for PRs opened from a fork** — the CI e2e legs (`e2e-release`, which gates the PR, and the informational `e2e-nightly`) need `DOCKERHUB_USERNAME`/`DOCKERHUB_TOKEN`, and GitHub doesn't expose secrets to fork-triggered workflows, so they are skipped silently and the reviewer sees a green check that does **not** include the e2e assertions. If you're contributing from a fork (the common case), your laptop is the only place those assertions ever run before merge.
 
 `scripts/test-kit.sh` resolves the kit directory (default: `$PWD`), sets `KIT` to its absolute path, and runs `go test -run TestKitTCK ./tck/...` against the repo-root `tck` package. Forwards extra flags to `go test`, so `../scripts/test-kit.sh -v -run TestKitTCK/my-kit/validation` works.
 
-For an automated check that the engine actually materialises the kit's content inside a real sandbox (env vars, container files, tmpfs, rendered memory), opt into the e2e layer:
+### Running e2e
+
+The wrapper script does the dance for you:
 
 ```console
-$ cd my-kit && ../scripts/test-kit-e2e.sh
+cd my-kit && ../scripts/test-kit-e2e.sh
 ```
 
-Or, from the repo root: `./scripts/test-kit-e2e.sh my-kit`. The wrapper checks `sbx` is on PATH and the kit dir has a `spec.yaml`, then runs `go test -tags=e2e -run TestE2ECreateSandbox ./tck/...`.
+That single command:
 
-See [End-to-end (e2e) Tests](./README.md#end-to-end-e2e-tests) in the README for prerequisites (`sbx login`, default policy, etc.) and what each subtest verifies.
+- scopes every `sbx` call to `--app-name sbx-kits-contrib-tck`, so the test daemon (sandboxes, policy, cache) is isolated from your main sbx state and nothing the script does touches your day-to-day setup,
+- sets the scoped daemon's default network policy to `deny-all` — the same baseline CI uses, so any host your install or startup hooks reach for must be in `network.allowedDomains` or the request is blocked, and
+- runs `TestE2EKit` (env, files, tmpfs, agentContext, and — for `kind: sandbox` kits with a `testdata/tck.yaml` — a non-interactive prompt to the agent).
+
+The script is idempotent (re-runs converge on the same state) and non-interactive (no prompts).
+
+One-time setup per machine — the scoped daemon has its own credential store, separate from any login on your main daemon:
+
+```console
+sbx --app-name sbx-kits-contrib-tck login
+```
+
+When the test fails, the script prints how to dump the proxy log. The recurring fix is the same loop: read the log, add the blocked host to `network.allowedDomains`, re-run.
+
+```console
+sbx --app-name sbx-kits-contrib-tck ls                          # find the tck-e2e-* sandbox
+sbx --app-name sbx-kits-contrib-tck policy log <sandbox-name>
+```
+
+Every row under `Blocked requests` is a host your kit reached for under `deny-all`. See [Declare every domain your kit needs](./README.md#declare-every-domain-your-kit-needs) for the cross-arch gotchas (`archive.ubuntu.com`, `security.ubuntu.com`, **and** `ports.ubuntu.com`) and the package-manager refresh trap (`apt-get update` re-fetches every configured source).
+
+If the scoped daemon ever gets wedged: `sbx --app-name sbx-kits-contrib-tck reset --force` wipes only that daemon's state.
+
+Prerequisites for e2e (`/dev/kvm`, Secret Service on Linux, etc.) are in [End-to-end (e2e) Tests](./README.md#end-to-end-e2e-tests) in the README.
 
 ## Sign-off and signing
 
