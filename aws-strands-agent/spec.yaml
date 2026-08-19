@@ -1,141 +1,126 @@
-schemaVersion: "1"
+schemaVersion: "2"
 kind: mixin
 name: aws-strands-agent
 displayName: Strands Agents (AWS)
-description: "Installs the AWS Strands Agents SDK in an isolated Python virtual environment and allows egress to Amazon Bedrock in every commercial region. Works with any Bedrock model/inference profile (Anthropic Claude, Amazon Nova, and others); the caller picks the model and region."
-
-network:
-  allowedDomains:
-    # pip install path for strands-agents and its Python dependencies
-    - "pypi.org:443"
-    - "files.pythonhosted.org:443"
-    # Bedrock runtime (Converse/InvokeModel). boto3 only ever connects to the
-    # region set via AWS_DEFAULT_REGION; cross-region/global inference profiles
-    # are routed server-side by AWS, so only the caller's region is contacted.
-    # Every commercial region is listed so the kit works wherever the user runs.
-    # (GovCloud/China use different partitions/domains and are not included.)
-    - "bedrock-runtime.af-south-1.amazonaws.com:443"
-    - "bedrock-runtime.ap-east-1.amazonaws.com:443"
-    - "bedrock-runtime.ap-east-2.amazonaws.com:443"
-    - "bedrock-runtime.ap-northeast-1.amazonaws.com:443"
-    - "bedrock-runtime.ap-northeast-2.amazonaws.com:443"
-    - "bedrock-runtime.ap-northeast-3.amazonaws.com:443"
-    - "bedrock-runtime.ap-south-1.amazonaws.com:443"
-    - "bedrock-runtime.ap-south-2.amazonaws.com:443"
-    - "bedrock-runtime.ap-southeast-1.amazonaws.com:443"
-    - "bedrock-runtime.ap-southeast-2.amazonaws.com:443"
-    - "bedrock-runtime.ap-southeast-3.amazonaws.com:443"
-    - "bedrock-runtime.ap-southeast-4.amazonaws.com:443"
-    - "bedrock-runtime.ap-southeast-5.amazonaws.com:443"
-    - "bedrock-runtime.ap-southeast-7.amazonaws.com:443"
-    - "bedrock-runtime.ca-central-1.amazonaws.com:443"
-    - "bedrock-runtime.ca-west-1.amazonaws.com:443"
-    - "bedrock-runtime.eu-central-1.amazonaws.com:443"
-    - "bedrock-runtime.eu-central-2.amazonaws.com:443"
-    - "bedrock-runtime.eu-north-1.amazonaws.com:443"
-    - "bedrock-runtime.eu-south-1.amazonaws.com:443"
-    - "bedrock-runtime.eu-south-2.amazonaws.com:443"
-    - "bedrock-runtime.eu-west-1.amazonaws.com:443"
-    - "bedrock-runtime.eu-west-2.amazonaws.com:443"
-    - "bedrock-runtime.eu-west-3.amazonaws.com:443"
-    - "bedrock-runtime.il-central-1.amazonaws.com:443"
-    - "bedrock-runtime.me-central-1.amazonaws.com:443"
-    - "bedrock-runtime.me-south-1.amazonaws.com:443"
-    - "bedrock-runtime.mx-central-1.amazonaws.com:443"
-    - "bedrock-runtime.sa-east-1.amazonaws.com:443"
-    - "bedrock-runtime.us-east-1.amazonaws.com:443"
-    - "bedrock-runtime.us-east-2.amazonaws.com:443"
-    - "bedrock-runtime.us-west-1.amazonaws.com:443"
-    - "bedrock-runtime.us-west-2.amazonaws.com:443"
-    # Bedrock control plane (ListInferenceProfiles, ListFoundationModels, etc.)
-    - "bedrock.af-south-1.amazonaws.com:443"
-    - "bedrock.ap-east-1.amazonaws.com:443"
-    - "bedrock.ap-east-2.amazonaws.com:443"
-    - "bedrock.ap-northeast-1.amazonaws.com:443"
-    - "bedrock.ap-northeast-2.amazonaws.com:443"
-    - "bedrock.ap-northeast-3.amazonaws.com:443"
-    - "bedrock.ap-south-1.amazonaws.com:443"
-    - "bedrock.ap-south-2.amazonaws.com:443"
-    - "bedrock.ap-southeast-1.amazonaws.com:443"
-    - "bedrock.ap-southeast-2.amazonaws.com:443"
-    - "bedrock.ap-southeast-3.amazonaws.com:443"
-    - "bedrock.ap-southeast-4.amazonaws.com:443"
-    - "bedrock.ap-southeast-5.amazonaws.com:443"
-    - "bedrock.ap-southeast-7.amazonaws.com:443"
-    - "bedrock.ca-central-1.amazonaws.com:443"
-    - "bedrock.ca-west-1.amazonaws.com:443"
-    - "bedrock.eu-central-1.amazonaws.com:443"
-    - "bedrock.eu-central-2.amazonaws.com:443"
-    - "bedrock.eu-north-1.amazonaws.com:443"
-    - "bedrock.eu-south-1.amazonaws.com:443"
-    - "bedrock.eu-south-2.amazonaws.com:443"
-    - "bedrock.eu-west-1.amazonaws.com:443"
-    - "bedrock.eu-west-2.amazonaws.com:443"
-    - "bedrock.eu-west-3.amazonaws.com:443"
-    - "bedrock.il-central-1.amazonaws.com:443"
-    - "bedrock.me-central-1.amazonaws.com:443"
-    - "bedrock.me-south-1.amazonaws.com:443"
-    - "bedrock.mx-central-1.amazonaws.com:443"
-    - "bedrock.sa-east-1.amazonaws.com:443"
-    - "bedrock.us-east-1.amazonaws.com:443"
-    - "bedrock.us-east-2.amazonaws.com:443"
-    - "bedrock.us-west-1.amazonaws.com:443"
-    - "bedrock.us-west-2.amazonaws.com:443"
-    # STS — credential verification and assumed-role/SSO token refresh.
-    # Global endpoint covers most cases; regional endpoints support
-    # regional STS and role/SSO refresh in the caller's region.
-    - "sts.amazonaws.com:443"
-    - "sts.af-south-1.amazonaws.com:443"
-    - "sts.ap-east-1.amazonaws.com:443"
-    - "sts.ap-east-2.amazonaws.com:443"
-    - "sts.ap-northeast-1.amazonaws.com:443"
-    - "sts.ap-northeast-2.amazonaws.com:443"
-    - "sts.ap-northeast-3.amazonaws.com:443"
-    - "sts.ap-south-1.amazonaws.com:443"
-    - "sts.ap-south-2.amazonaws.com:443"
-    - "sts.ap-southeast-1.amazonaws.com:443"
-    - "sts.ap-southeast-2.amazonaws.com:443"
-    - "sts.ap-southeast-3.amazonaws.com:443"
-    - "sts.ap-southeast-4.amazonaws.com:443"
-    - "sts.ap-southeast-5.amazonaws.com:443"
-    - "sts.ap-southeast-7.amazonaws.com:443"
-    - "sts.ca-central-1.amazonaws.com:443"
-    - "sts.ca-west-1.amazonaws.com:443"
-    - "sts.eu-central-1.amazonaws.com:443"
-    - "sts.eu-central-2.amazonaws.com:443"
-    - "sts.eu-north-1.amazonaws.com:443"
-    - "sts.eu-south-1.amazonaws.com:443"
-    - "sts.eu-south-2.amazonaws.com:443"
-    - "sts.eu-west-1.amazonaws.com:443"
-    - "sts.eu-west-2.amazonaws.com:443"
-    - "sts.eu-west-3.amazonaws.com:443"
-    - "sts.il-central-1.amazonaws.com:443"
-    - "sts.me-central-1.amazonaws.com:443"
-    - "sts.me-south-1.amazonaws.com:443"
-    - "sts.mx-central-1.amazonaws.com:443"
-    - "sts.sa-east-1.amazonaws.com:443"
-    - "sts.us-east-1.amazonaws.com:443"
-    - "sts.us-east-2.amazonaws.com:443"
-    - "sts.us-west-1.amazonaws.com:443"
-    - "sts.us-west-2.amazonaws.com:443"
-    # apt-get update refreshes every configured apt source from the base
-    # template. Keep all template sources allowed for amd64 and arm64 sandboxes.
-    - "archive.ubuntu.com:80"
-    - "security.ubuntu.com:80"
-    - "ports.ubuntu.com:80"
-    - "download.docker.com:443"
-
+description: Installs the AWS Strands Agents SDK in an isolated Python virtual environment and allows egress to Amazon Bedrock in every commercial region. Works with any Bedrock model/inference profile (Anthropic Claude, Amazon Nova, and others); the caller picks the model and region.
+permissions:
+  network:
+    allow:
+      - pypi.org:443
+      - files.pythonhosted.org:443
+      - bedrock-runtime.af-south-1.amazonaws.com:443
+      - bedrock-runtime.ap-east-1.amazonaws.com:443
+      - bedrock-runtime.ap-east-2.amazonaws.com:443
+      - bedrock-runtime.ap-northeast-1.amazonaws.com:443
+      - bedrock-runtime.ap-northeast-2.amazonaws.com:443
+      - bedrock-runtime.ap-northeast-3.amazonaws.com:443
+      - bedrock-runtime.ap-south-1.amazonaws.com:443
+      - bedrock-runtime.ap-south-2.amazonaws.com:443
+      - bedrock-runtime.ap-southeast-1.amazonaws.com:443
+      - bedrock-runtime.ap-southeast-2.amazonaws.com:443
+      - bedrock-runtime.ap-southeast-3.amazonaws.com:443
+      - bedrock-runtime.ap-southeast-4.amazonaws.com:443
+      - bedrock-runtime.ap-southeast-5.amazonaws.com:443
+      - bedrock-runtime.ap-southeast-7.amazonaws.com:443
+      - bedrock-runtime.ca-central-1.amazonaws.com:443
+      - bedrock-runtime.ca-west-1.amazonaws.com:443
+      - bedrock-runtime.eu-central-1.amazonaws.com:443
+      - bedrock-runtime.eu-central-2.amazonaws.com:443
+      - bedrock-runtime.eu-north-1.amazonaws.com:443
+      - bedrock-runtime.eu-south-1.amazonaws.com:443
+      - bedrock-runtime.eu-south-2.amazonaws.com:443
+      - bedrock-runtime.eu-west-1.amazonaws.com:443
+      - bedrock-runtime.eu-west-2.amazonaws.com:443
+      - bedrock-runtime.eu-west-3.amazonaws.com:443
+      - bedrock-runtime.il-central-1.amazonaws.com:443
+      - bedrock-runtime.me-central-1.amazonaws.com:443
+      - bedrock-runtime.me-south-1.amazonaws.com:443
+      - bedrock-runtime.mx-central-1.amazonaws.com:443
+      - bedrock-runtime.sa-east-1.amazonaws.com:443
+      - bedrock-runtime.us-east-1.amazonaws.com:443
+      - bedrock-runtime.us-east-2.amazonaws.com:443
+      - bedrock-runtime.us-west-1.amazonaws.com:443
+      - bedrock-runtime.us-west-2.amazonaws.com:443
+      - bedrock.af-south-1.amazonaws.com:443
+      - bedrock.ap-east-1.amazonaws.com:443
+      - bedrock.ap-east-2.amazonaws.com:443
+      - bedrock.ap-northeast-1.amazonaws.com:443
+      - bedrock.ap-northeast-2.amazonaws.com:443
+      - bedrock.ap-northeast-3.amazonaws.com:443
+      - bedrock.ap-south-1.amazonaws.com:443
+      - bedrock.ap-south-2.amazonaws.com:443
+      - bedrock.ap-southeast-1.amazonaws.com:443
+      - bedrock.ap-southeast-2.amazonaws.com:443
+      - bedrock.ap-southeast-3.amazonaws.com:443
+      - bedrock.ap-southeast-4.amazonaws.com:443
+      - bedrock.ap-southeast-5.amazonaws.com:443
+      - bedrock.ap-southeast-7.amazonaws.com:443
+      - bedrock.ca-central-1.amazonaws.com:443
+      - bedrock.ca-west-1.amazonaws.com:443
+      - bedrock.eu-central-1.amazonaws.com:443
+      - bedrock.eu-central-2.amazonaws.com:443
+      - bedrock.eu-north-1.amazonaws.com:443
+      - bedrock.eu-south-1.amazonaws.com:443
+      - bedrock.eu-south-2.amazonaws.com:443
+      - bedrock.eu-west-1.amazonaws.com:443
+      - bedrock.eu-west-2.amazonaws.com:443
+      - bedrock.eu-west-3.amazonaws.com:443
+      - bedrock.il-central-1.amazonaws.com:443
+      - bedrock.me-central-1.amazonaws.com:443
+      - bedrock.me-south-1.amazonaws.com:443
+      - bedrock.mx-central-1.amazonaws.com:443
+      - bedrock.sa-east-1.amazonaws.com:443
+      - bedrock.us-east-1.amazonaws.com:443
+      - bedrock.us-east-2.amazonaws.com:443
+      - bedrock.us-west-1.amazonaws.com:443
+      - bedrock.us-west-2.amazonaws.com:443
+      - sts.amazonaws.com:443
+      - sts.af-south-1.amazonaws.com:443
+      - sts.ap-east-1.amazonaws.com:443
+      - sts.ap-east-2.amazonaws.com:443
+      - sts.ap-northeast-1.amazonaws.com:443
+      - sts.ap-northeast-2.amazonaws.com:443
+      - sts.ap-northeast-3.amazonaws.com:443
+      - sts.ap-south-1.amazonaws.com:443
+      - sts.ap-south-2.amazonaws.com:443
+      - sts.ap-southeast-1.amazonaws.com:443
+      - sts.ap-southeast-2.amazonaws.com:443
+      - sts.ap-southeast-3.amazonaws.com:443
+      - sts.ap-southeast-4.amazonaws.com:443
+      - sts.ap-southeast-5.amazonaws.com:443
+      - sts.ap-southeast-7.amazonaws.com:443
+      - sts.ca-central-1.amazonaws.com:443
+      - sts.ca-west-1.amazonaws.com:443
+      - sts.eu-central-1.amazonaws.com:443
+      - sts.eu-central-2.amazonaws.com:443
+      - sts.eu-north-1.amazonaws.com:443
+      - sts.eu-south-1.amazonaws.com:443
+      - sts.eu-south-2.amazonaws.com:443
+      - sts.eu-west-1.amazonaws.com:443
+      - sts.eu-west-2.amazonaws.com:443
+      - sts.eu-west-3.amazonaws.com:443
+      - sts.il-central-1.amazonaws.com:443
+      - sts.me-central-1.amazonaws.com:443
+      - sts.me-south-1.amazonaws.com:443
+      - sts.mx-central-1.amazonaws.com:443
+      - sts.sa-east-1.amazonaws.com:443
+      - sts.us-east-1.amazonaws.com:443
+      - sts.us-east-2.amazonaws.com:443
+      - sts.us-west-1.amazonaws.com:443
+      - sts.us-west-2.amazonaws.com:443
+      - archive.ubuntu.com:80
+      - security.ubuntu.com:80
+      - ports.ubuntu.com:80
+      - download.docker.com:443
 environment:
   variables:
-    STRANDS_VENV: "/opt/strands"
-    STRANDS_PYTHON: "/opt/strands/bin/python"
-
-commands:
+    STRANDS_PYTHON: /opt/strands/bin/python
+    STRANDS_VENV: /opt/strands
+setup:
   install:
-    - command: "apt-get update && apt-get install -y --no-install-recommends ca-certificates python3 python3-venv python3-pip && rm -rf /var/lib/apt/lists/*"
+    - command: apt-get update && apt-get install -y --no-install-recommends ca-certificates python3 python3-venv python3-pip && rm -rf /var/lib/apt/lists/*
       user: "0"
       description: Install Python and venv prerequisites for Strands Agents
-
     - command: |
         set -euo pipefail
         STRANDS_VERSION=1.44.0
@@ -226,8 +211,7 @@ commands:
         print('SigV4 Bedrock colon-encoding correct')
         PYCHK
       user: "0"
-      description: "Install strands-agents v1.44.0 and strands-agents-tools v0.8.1 in /opt/strands venv"
-
+      description: Install strands-agents v1.44.0 and strands-agents-tools v0.8.1 in /opt/strands venv
     - command: |
         set -euo pipefail
         grep -qF 'STRANDS_VENV' ~/.bashrc 2>/dev/null || \
