@@ -6,7 +6,13 @@ Model provider is Amazon Bedrock, usable in any commercial AWS region — you'll
 
 ## Getting started
 
-Then run with whichever agent you prefer:
+Pair it with whichever agent you prefer, from its published OCI artifact on Docker Hub:
+
+```bash
+sbx run claude --kit "docker.io/sbx/aws-strands-agent-kit:latest" ~/my-project
+```
+
+Or from a git URL targeting this repo:
 
 ```bash
 sbx run claude --kit "git+https://github.com/docker/sbx-kits-contrib.git#dir=aws-strands-agent" ~/my-project
@@ -75,7 +81,7 @@ for p in c.list_inference_profiles()['inferenceProfileSummaries']:
 EOF
 ```
 
-The `allowedDomains` list in `spec.yaml` enumerates Bedrock runtime/control-plane and STS endpoints for all commercial regions (GovCloud/China are intentionally excluded).
+The `permissions.network.allow` list in `spec.yaml` enumerates Bedrock runtime/control-plane and STS endpoints for all commercial regions (GovCloud/China are intentionally excluded).
 
 ## Known issue: Python 3.14 + SigV4 signing
 
@@ -94,7 +100,7 @@ from strands.models.anthropic import AnthropicModel
 agent = Agent(model=AnthropicModel(model_id="claude-sonnet-4-6"))
 ```
 
-If you do this, you'll need to add that provider's domain to `allowedDomains` in `spec.yaml` (e.g. `api.anthropic.com:443`).
+If you do this, you'll need to add that provider's domain to `permissions.network.allow` in `spec.yaml` (e.g. `api.anthropic.com:443`).
 
 ## Testing
 
@@ -106,12 +112,10 @@ Three levels, run them in order:
 sbx kit validate ./
 ```
 
-**2. TCK (Go tests against a container)** — clone `sbx-kits-contrib` first, then:
+**2. TCK (Go tests against a container)**
 
 ```bash
-cp -r . ../sbx-kits-contrib/aws-strands-agent
-cd ../sbx-kits-contrib/aws-strands-agent
-../scripts/test-kit.sh
+cd aws-strands-agent && ../scripts/test-kit.sh
 ```
 
 **3. Live sandbox + smoke test** — mount the kit directory as the workspace so the script is available inside the sandbox:
@@ -124,4 +128,4 @@ bash scripts/smoke-test.sh
 
 ## Bumping versions
 
-Change `STRANDS_VERSION` / `STRANDS_TOOLS_VERSION` in `spec.yaml`. If the new release pulls in packages that reach new hosts, update `allowedDomains` in the same commit — CI runs under `deny-all` so anything missing will fail.
+Change `STRANDS_VERSION` / `STRANDS_TOOLS_VERSION` in `spec.yaml`. If the new release pulls in packages that reach new hosts, update `permissions.network.allow` in the same commit — CI runs under `deny-all` so anything missing will fail.
