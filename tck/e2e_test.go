@@ -378,7 +378,36 @@ func createSbx(t *testing.T, ctx context.Context, absKit, agent string, td *kitT
 	t.Helper()
 	workspace := t.TempDir()
 	name := sandboxName(t, absKit)
+
+	// Record the name for scripts/test-kit-e2e.sh's on_exit trap, regardless
+	// of what happens next: `sbx create` itself tears the sandbox down on a
+	// failed kit-apply/container-run (sandboxd's Provision/Run rollback) —
+	// the most common e2e failure — so by the time this test process exits,
+	// `sbx ls` may show nothing to find at all. The daemon's network/policy
+	// log is independent of the sandbox object's lifetime (it's a daemon-
+	// level log filtered by VM name, not per-sandbox state), so `sbx policy
+	// log <name>` still works after that rollback as long as the name is
+	// known — this file is the only way the wrapping shell script can learn
+	// a name generated randomly inside this process. Best-effort: a failure
+	// to record it must not fail the test itself.
+	if logPath := os.Getenv("SBX_E2E_NAME_LOG"); logPath != "" {
+		if f, err := os.OpenFile(logPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644); err == nil {
+			_, _ = fmt.Fprintln(f, name)
+			_ = f.Close()
+		}
+	}
+
 	t.Cleanup(func() {
+		// Leave a failed test's sandbox behind instead of removing it: on
+		// any failure that does NOT already trigger sandboxd's own rollback
+		// (e.g. an assertion failing after a successful create), this is
+		// the only post-mortem evidence of what went wrong. t.Cleanup runs
+		// during the normal failure unwind of require.NoErrorf/t.Fatal,
+		// before the process ever exits.
+		if t.Failed() {
+			t.Logf("keeping sandbox %q for post-mortem: sbx --app-name sbx-kits-contrib-tck policy log %s", name, name)
+			return
+		}
 		cleanCtx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 		defer cancel()
 		out, err := exec.CommandContext(cleanCtx, "sbx", "--app-name", "sbx-kits-contrib-tck", "rm", "-f", name).CombinedOutput()
