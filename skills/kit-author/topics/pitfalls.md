@@ -15,7 +15,7 @@ sbx exec probe -- which <expected-binary>
 sbx exec probe -- <expected-binary> --version
 ```
 
-## 2. `commands.startup` runs on every container start
+## 2. `setup.startup` runs on every container start
 
 Startup commands run on **every** container start: the initial create, subsequent stop/start cycles, daemon restarts, and Docker-engine container resurrection (e.g. after a host reboot). They are persisted as per-kit shell scripts under `/etc/durable-startup.d/` inside the container and invoked by an `sbx`-managed dispatcher after every real `ContainerStart`.
 
@@ -23,23 +23,23 @@ Author startup commands to be **idempotent** — they will run again. Common pat
 
 ## 3. `sbx kit add` of a mixin does not write kit memory (known gap)
 
-The engine's kit-memory write is gated on the artifact's own `aiFilename`. Mixins intentionally don't carry their own `aiFilename` (a mixin contributes _to_ the base sandbox's AI file, it doesn't define one), so the gate always trips for `kind: mixin` artifacts during `sbx kit add`. The kit memory file under `kits-memory/<name>.md` is silently not written, and the `## Kits` section is not refreshed.
+The engine's kit-memory write is gated on the artifact's own `agentInstructions.filename`. Mixins intentionally don't carry their own filename (a mixin contributes _to_ the base sandbox's AI file, it doesn't define one), so the gate always trips for `kind: mixin` artifacts during `sbx kit add`. The kit memory file under `kits-memory/<name>.md` is silently not written, and the `## Kits` section is not refreshed.
 
 Workaround until the gate is fixed: recreate the sandbox with `--kit <mixin>` instead of adding it at runtime. The create-time path writes the per-kit files correctly.
 
 ## 4. `sbx kit add` cannot apply immutable settings
 
-Container labels, privileged mode, volumes (block-backed or `type: tmpfs`), and `publishedPorts` are fixed at container creation. `sbx kit add` warns and skips them — but applies everything else. If your kit requires those, the user must recreate the sandbox with `--kit`.
+Container labels, privileged mode, volumes (block-backed or `type: tmpfs`), and `ports` are fixed at container creation. `sbx kit add` warns and skips them — but applies everything else. If your kit requires those, the user must recreate the sandbox with `--kit`.
 
-## 5. `commands.install` footguns
+## 5. `setup.install` footguns
 
-`commands.install` runs **once, synchronously, before the agent launches** (at sandbox creation). It runs for every kit, built-in or user-supplied. Use it to install the agent binary if your base image does not already include it, and for any pre-launch setup such as seeding a credential-gated settings file.
+`setup.install` runs **once, synchronously, before the agent launches** (at sandbox creation). It runs for every kit, built-in or user-supplied. Use it to install the agent binary if your base image does not already include it, and for any pre-launch setup such as seeding a credential-gated settings file.
 
 Three traps:
 
-**Don't duplicate an install your image already provides.** If your base image or Dockerfile bakes the agent binary in, do **not** also declare its install in `commands.install` — it runs redundantly every creation (and every recreate). Guard with `command -v <binary> || <install>` if you are unsure whether the image already has it.
+**Don't duplicate an install your image already provides.** If your base image or Dockerfile bakes the agent binary in, do **not** also declare its install in `setup.install` — it runs redundantly every creation (and every recreate). Guard with `command -v <binary> || <install>` if you are unsure whether the image already has it.
 
-**`install` re-runs on recreate.** A script that writes files must guard itself (`if [ ! -f … ]`). For a *static* file with no logic, prefer `commands.initFiles` with `onlyIfMissing: true` — the engine provides the idempotency for you. Reach for an `install` script only when you need logic: conditional content, multiple files, or branching on `SBX_CRED_<SERVICE>_MODE`.
+**`install` re-runs on recreate.** A script that writes files must guard itself (`if [ ! -f … ]`). For a *static* file with no logic, prefer `setup.files` with `onlyIfMissing: true` — the engine provides the idempotency for you. Reach for an `install` script only when you need logic: conditional content, multiple files, or branching on `SBX_CRED_<SERVICE>_MODE`.
 
 **`SBX_CRED_<SERVICE>_MODE` is available at install time.** The variable is injected into the container env before install commands run and takes the value `apikey`, `oauth`, or `none`. Read it defensively: `${SBX_CRED_<SERVICE>_MODE:-none}` so an unset value is treated as `none`.
 
@@ -74,7 +74,7 @@ For `credentials[]`, two kits writing the same `service` with different shapes i
 
 Unlike credentials, conflicting `environment.variables` does not error — later `--kit` flags silently override earlier ones. Useful for downstream override, dangerous if you didn't intend it. Document override semantics in your mixin's `description`.
 
-## 10. `initFiles.content` placeholders
+## 10. `setup.files[].content` placeholders
 
 The only supported placeholder is **`${WORKDIR}`**. Anything else (`${HOME}`, env interpolation) fails validation. If you need richer substitution, you'll need to compose with a startup command that does the substitution at runtime.
 
@@ -86,14 +86,14 @@ This is by design — kits are sandbox-scoped and must not write outside the age
 
 ## 12. Use `sbx policy log` to confirm enforcement
 
-When verifying `caps.network.allow` enforcement, run `sbx policy log <sandbox>` after triggering a request. The output lists allowed and blocked requests with the host/port, and is the authoritative view of what the proxy actually evaluated. Don't try to read daemon logs directly — the policy log is the user-facing surface and is stable.
+When verifying `permissions.network.allow` enforcement, run `sbx policy log <sandbox>` after triggering a request. The output lists allowed and blocked requests with the host/port, and is the authoritative view of what the proxy actually evaluated. Don't try to read daemon logs directly — the policy log is the user-facing surface and is stable.
 
 ## 13. Credential delivery: sentinel-swap vs container-resident
 
 Two models:
 
 - **Sentinel-swap (proxy)** — the default for `credentials[].apiKey`. The engine sets `apiKey.name` inside the container to the literal `proxy-managed`; the proxy swaps the real value into the outbound request based on `apiKey.inject[]`. The container never sees the credential. Used by Anthropic, OpenAI, GitHub.
-- **Container-resident (egress-bounded)** — the real credential lives in the container, restricted by `caps.network.allow`. Used when signatures must be computed in-container — **AWS SigV4 forces this**, because the signature is over canonical headers the proxy doesn't see.
+- **Container-resident (egress-bounded)** — the real credential lives in the container, restricted by `permissions.network.allow`. Used when signatures must be computed in-container — **AWS SigV4 forces this**, because the signature is over canonical headers the proxy doesn't see.
 
 Pick the right model for your service. Sentinel-swap is stricter; container-resident is necessary for SigV4-style auth.
 
@@ -105,9 +105,9 @@ When debugging "auth header isn't appearing": confirm the user's `~/.config/sbx/
 
 ## 15. Package managers refresh **every** configured source
 
-A subtle network trap from the repository README, worth restating here: `apt-get update` re-fetches metadata for every file in `/etc/apt/sources.list[.d/]` — including sources the base template added. If *any* of those returns non-2xx (because it's not in your `caps.network.allow`), `apt-get` exits non-zero even if the package you want is in a different source.
+A subtle network trap from the repository README, worth restating here: `apt-get update` re-fetches metadata for every file in `/etc/apt/sources.list[.d/]` — including sources the base template added. If *any* of those returns non-2xx (because it's not in your `permissions.network.allow`), `apt-get` exits non-zero even if the package you want is in a different source.
 
-For kits built on `shell-docker` / `*-docker` templates that means `download.docker.com` (Docker's apt repo, pre-added by the template) needs to be in your `caps.network.allow` even if you're only installing something from Ubuntu's main archive.
+For kits built on `shell-docker` / `*-docker` templates that means `download.docker.com` (Docker's apt repo, pre-added by the template) needs to be in your `permissions.network.allow` even if you're only installing something from Ubuntu's main archive.
 
 For Ubuntu cross-arch coverage, list all three: `archive.ubuntu.com` and `security.ubuntu.com` (amd64) + `ports.ubuntu.com` (arm64). CI is amd64; many developer Macs are arm64.
 
@@ -128,7 +128,7 @@ If overlay isn't what you want, rename the file or move it under `files/home/<pa
 
 ### Sensitive-path overlay warnings
 
-Implementations warn (loudly) when a mixin's `files/` or `commands.initFiles` writes to paths the user almost certainly didn't expect a mixin to touch:
+Implementations warn (loudly) when a mixin's `files/` or `setup.files` writes to paths the user almost certainly didn't expect a mixin to touch:
 
 - `~/.ssh/**` — anything under the agent's SSH config.
 - `credentials[].oauth.credentialFile.path` already declared by the parent kit — a mixin overwriting the parent's OAuth credential file is suspicious.
@@ -136,13 +136,13 @@ Implementations warn (loudly) when a mixin's `files/` or `commands.initFiles` wr
 
 The warning is informational (not a refusal); a mixin that legitimately needs to touch one of these paths should call it out in `description:`.
 
-## 18. `commands.initFiles` cannot target the in-container clone directory
+## 18. `setup.files` cannot target the in-container clone directory
 
-Under `sbx run --clone`, the in-container working copy is populated by a `git clone` startup command. `commands.initFiles` runs as a post-start hook in the same phase; if its path resolves under the clone target, the initFile's `mkdir -p && printf > path` creates the workspace dir and writes a file inside it, and then `git clone` refuses the non-empty target.
+Under `sbx run --clone`, the in-container working copy is populated by a `git clone` startup command. `setup.files` runs as a post-start hook in the same phase; if its path resolves under the clone target, the setup-file's `mkdir -p && printf > path` creates the workspace dir and writes a file inside it, and then `git clone` refuses the non-empty target.
 
-The CLI catches this up front: a kit whose `initFiles[i].path` resolves at or under the clone target is rejected at sandbox-create time with an actionable error pointing you at `files/workspace/<path>`. See [`authoring.md`](authoring.md) for the decision rule between `files/workspace/` and `commands.initFiles`.
+The CLI catches this up front: a kit whose `setup.files[i].path` resolves at or under the clone target is rejected at sandbox-create time with an actionable error pointing you at `files/workspace/<path>`. See [`authoring.md`](authoring.md) for the decision rule between `files/workspace/` and `setup.files`.
 
-## 19. `caps.network.allow` wildcard semantics
+## 19. `permissions.network.allow` wildcard semantics
 
 `*.example.com` matches **exactly one** DNS label — `api.example.com` ✓, `cdn.example.com` ✓; `example.com` ✗ (zero labels), `a.b.example.com` ✗ (two labels).
 

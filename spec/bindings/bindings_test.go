@@ -17,31 +17,24 @@ func TestLoad_ParsesExampleFile(t *testing.T) {
 	require.NoError(t, os.WriteFile(path, []byte(`
 bindings:
   anthropic:
-    discovery:
-      - env: [ANTHROPIC_API_KEY]
-    allowedDomains: [api.anthropic.com]
+    apiKey:
+      domains: [api.anthropic.com]
 
   github:
-    discovery:
-      - env: [GH_TOKEN, GITHUB_TOKEN]
-      - file:
-          path: ~/.config/gh/token
-    allowedDomains: [api.github.com, github.com]
+    apiKey:
+      domains: [api.github.com, github.com]
 `), 0o600))
 
 	b, err := Load(path)
 	require.NoError(t, err)
 	require.NotNil(t, b)
 	require.Contains(t, b.Bindings, "anthropic")
-	require.Len(t, b.Bindings["anthropic"].Discovery, 1)
-	require.Equal(t, []string{"ANTHROPIC_API_KEY"}, b.Bindings["anthropic"].Discovery[0].Env)
-	require.Equal(t, []string{"api.anthropic.com"}, b.Bindings["anthropic"].AllowedDomains)
+	require.NotNil(t, b.Bindings["anthropic"].ApiKey)
+	require.Equal(t, []string{"api.anthropic.com"}, b.Bindings["anthropic"].ApiKey.Domains)
 
 	require.Contains(t, b.Bindings, "github")
-	require.Len(t, b.Bindings["github"].Discovery, 2)
-	require.Equal(t, []string{"GH_TOKEN", "GITHUB_TOKEN"}, b.Bindings["github"].Discovery[0].Env)
-	require.NotNil(t, b.Bindings["github"].Discovery[1].File)
-	require.Equal(t, "~/.config/gh/token", b.Bindings["github"].Discovery[1].File.Path)
+	require.NotNil(t, b.Bindings["github"].ApiKey)
+	require.Equal(t, []string{"api.github.com", "github.com"}, b.Bindings["github"].ApiKey.Domains)
 }
 
 func TestLoad_MissingFileIsError(t *testing.T) {
@@ -60,56 +53,6 @@ func TestLoad_MalformedYAMLRejected(t *testing.T) {
 	require.NoError(t, os.WriteFile(path, []byte("bindings:\n  : oops\n  - unbalanced"), 0o600))
 	_, err := Load(path)
 	require.ErrorContains(t, err, "parse")
-}
-
-func TestLoad_DiscoveryWithBothEnvAndFileRejected(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "credentials.yaml")
-	require.NoError(t, os.WriteFile(path, []byte(`
-bindings:
-  bad:
-    discovery:
-      - env: [FOO]
-        file:
-          path: ~/foo
-    allowedDomains: [foo.example.com]
-`), 0o600))
-	_, err := Load(path)
-	require.ErrorContains(t, err, "exactly one of env or file")
-}
-
-func TestLoad_EmptyDiscoveryAccepted(t *testing.T) {
-	// Discovery is optional — a binding with only allowedDomains is the
-	// canonical way to express "the value lives in the secret store, I'm
-	// just declaring the trust scope here." The resolver consults the
-	// store before any user-declared discovery entries so an empty
-	// discovery list is well-formed.
-	dir := t.TempDir()
-	path := filepath.Join(dir, "credentials.yaml")
-	require.NoError(t, os.WriteFile(path, []byte(`
-bindings:
-  store-only:
-    discovery: []
-    allowedDomains: [foo.example.com]
-`), 0o600))
-	b, err := Load(path)
-	require.NoError(t, err)
-	require.Equal(t, []string{"foo.example.com"}, b.Bindings["store-only"].AllowedDomains)
-	require.Empty(t, b.Bindings["store-only"].Discovery)
-}
-
-func TestLoad_FilePathRequired(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "credentials.yaml")
-	require.NoError(t, os.WriteFile(path, []byte(`
-bindings:
-  bad:
-    discovery:
-      - file: {}
-    allowedDomains: [foo.example.com]
-`), 0o600))
-	_, err := Load(path)
-	require.ErrorContains(t, err, "file.path is required")
 }
 
 func TestDefaultPath_ResolvesXDGConfigHome(t *testing.T) {
@@ -141,9 +84,9 @@ func TestDefaultPath_FallsBackToHomeDir(t *testing.T) {
 		"DefaultPath should end with .config/sbx/credentials.yaml on non-Windows, got %q", path)
 }
 
-// TestUserBindings_RoundTripPreservesRememberedAndVariants guards D11: the
-// sandboxes-side consent flow rewrites credentials.yaml via yaml.Marshal of
-// this struct, so any section the struct does not model is silently dropped
+// TestUserBindings_RoundTripPreservesRememberedAndVariants guards the contract
+// that the sandboxes-side consent flow rewrites credentials.yaml via yaml.Marshal
+// of this struct, so any section the struct does not model is silently dropped
 // on save. Named-variant keys (service@variant) and the remembered section
 // are RFC P2 features we do not implement yet but MUST not destroy when a
 // user has hand-written them. This test loads a file containing both, marshals
@@ -154,13 +97,11 @@ func TestUserBindings_RoundTripPreservesRememberedAndVariants(t *testing.T) {
 	require.NoError(t, os.WriteFile(path, []byte(`
 bindings:
   github:
-    discovery:
-      - env: [GITHUB_TOKEN]
-    allowedDomains: [api.github.com, github.com]
+    apiKey:
+      domains: [api.github.com, github.com]
   github@work-org-a:
-    discovery:
-      - env: [ORG_A_GITHUB_TOKEN]
-    allowedDomains: [api.github.com]
+    apiKey:
+      domains: [api.github.com]
 remembered:
   /Users/me/work/org-a:
     github: github@work-org-a
@@ -187,18 +128,16 @@ remembered:
 	require.Equal(t, first.Bindings, second.Bindings)
 }
 
-// TestValidate_ToleratesVariantKeysAndDomainsOnlyBindings locks the contract
-// the sandboxes side depends on (D11): a service@variant binding name and a
-// binding that declares only allowedDomains (value lives in the secret store,
-// discovery empty) must both validate. If a future validation rule wants to
-// constrain these, it must do so deliberately and update this test.
-func TestValidate_ToleratesVariantKeysAndDomainsOnlyBindings(t *testing.T) {
+// TestValidate_ToleratesVariantKeysAndOAuthOnlyBindings locks the contract
+// the sandboxes side depends on: a service@variant binding name and a
+// binding that declares only OAuth (value is user-granted, no secret store)
+// must both validate. If a future validation rule wants to constrain these,
+// it must do so deliberately and update this test.
+func TestValidate_ToleratesVariantKeysAndOAuthOnlyBindings(t *testing.T) {
 	b := &UserBindings{
 		Bindings: map[string]Binding{
 			"anthropic@personal": {
-				AllowedDomains: []string{"api.anthropic.com"},
-				// Discovery intentionally empty: the value is expected in
-				// the secret store under the binding name.
+				OAuth: &OAuthBinding{Domains: []string{"platform.claude.com"}},
 			},
 		},
 		Remembered: map[string]map[string]string{
@@ -206,4 +145,54 @@ func TestValidate_ToleratesVariantKeysAndDomainsOnlyBindings(t *testing.T) {
 		},
 	}
 	require.NoError(t, Validate(b))
+}
+
+func TestBinding_RoundTrip_PerMechanism(t *testing.T) {
+	in := &UserBindings{Bindings: map[string]Binding{
+		"anthropic": {
+			ApiKey: &ApiKeyBinding{Domains: []string{"api.anthropic.com", "claude.ai"}},
+			OAuth:  &OAuthBinding{Domains: []string{"platform.claude.com"}},
+		},
+		"github": {ApiKey: &ApiKeyBinding{Domains: []string{"api.github.com"}}},
+	}}
+	data, err := yaml.Marshal(in)
+	require.NoError(t, err)
+	require.Contains(t, string(data), "apiKey:")
+	require.Contains(t, string(data), "oauth:")
+	require.NotContains(t, string(data), "discovery")
+	require.NotContains(t, string(data), "allowedDomains")
+
+	var out UserBindings
+	require.NoError(t, yaml.Unmarshal(data, &out))
+	require.Equal(t, in.Bindings, out.Bindings)
+}
+
+func TestBinding_NilSafeAccessors(t *testing.T) {
+	require.Nil(t, Binding{}.ApiKeyDomains())
+	require.Nil(t, Binding{}.OAuthDomains())
+	require.Equal(t, []string{"x"}, Binding{ApiKey: &ApiKeyBinding{Domains: []string{"x"}}}.ApiKeyDomains())
+	require.Equal(t, []string{"y"}, Binding{OAuth: &OAuthBinding{Domains: []string{"y"}}}.OAuthDomains())
+}
+
+func TestBinding_AllDomains(t *testing.T) {
+	require.Nil(t, Binding{}.AllDomains())
+	// Union, deduped, apiKey-first: api.anthropic.com is shared between both
+	// mechanisms and must appear once; platform.claude.com is OAuth-only.
+	got := Binding{
+		ApiKey: &ApiKeyBinding{Domains: []string{"api.anthropic.com", "console.anthropic.com"}},
+		OAuth:  &OAuthBinding{Domains: []string{"api.anthropic.com", "platform.claude.com"}},
+	}.AllDomains()
+	require.Equal(t, []string{"api.anthropic.com", "console.anthropic.com", "platform.claude.com"}, got)
+}
+
+func TestValidate_OK_PerMechanism(t *testing.T) {
+	require.NoError(t, Validate(&UserBindings{Bindings: map[string]Binding{
+		"anthropic": {OAuth: &OAuthBinding{Domains: []string{"platform.claude.com"}}},
+	}}))
+}
+
+func TestValidate_EmptyServiceName(t *testing.T) {
+	require.Error(t, Validate(&UserBindings{Bindings: map[string]Binding{
+		"": {ApiKey: &ApiKeyBinding{Domains: []string{"x"}}},
+	}}))
 }

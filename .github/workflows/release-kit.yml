@@ -1,0 +1,67 @@
+name: Release a kit
+
+# Publishes a named version of one kit, triggered by a `<kit>/vX.Y.Z` tag —
+# e.g. `kiro/v1.0.0` publishes docker.io/sbx/kiro-kit:v1.0.0.
+#
+# Separate from build-and-publish-kits.yml on purpose. The two answer different questions,
+# and folding them together would mean one workflow deciding, per event, what to
+# build and which tags may move:
+#
+#   build-and-publish-kits.yml  which kits changed? → <date>-<sha>, rolling tag moves
+#   release-kit.yml  which kit is named in the ref? → vX.Y.Z, nothing moves
+#
+# The version describes THE KIT — its spec, files, network policy and hooks —
+# not the agent inside the image it references. That image stays on a floating
+# tag by design: the agent CLI changes on its own schedule, and pinning it into
+# the kit's version would either ship stale agents or churn the kit's version
+# for reasons the kit did not cause. So `kiro-kit:v1.0.0` is a stable kit
+# CONTRACT, not a reproducible end-to-end environment; a sandbox created from it
+# next month gets the same kit and a newer agent.
+
+on:
+  push:
+    tags:
+      - "*/v*"
+
+permissions:
+  contents: read
+
+jobs:
+  # Resolves the kit and version from the tag, and refuses a release the spec
+  # does not agree with. Kept out of the reusable workflow: it is the one part
+  # specific to releasing, and it must fail before anything is published.
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      kit: ${{ steps.tag.outputs.kit }}
+      version: ${{ steps.tag.outputs.version }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Validate the release tag
+        id: tag
+        # The rules live in the script so they can be run against a tag before
+        # pushing it — `./scripts/check-release-tag.sh kiro/v1.0.0` — rather
+        # than only being discoverable by tagging and watching CI. It prints
+        # `kit=`/`version=` on stdout and diagnostics on stderr, which is what
+        # makes redirecting into $GITHUB_OUTPUT safe.
+        run: ./scripts/check-release-tag.sh "${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+
+  publish:
+    needs: verify
+    # This workflow's top-level block is contents-read only, and a called
+    # workflow can never hold more than its caller grants — without this the
+    # OIDC exchange and the keyless signature both fail.
+    permissions:
+      contents: read
+      id-token: write
+    uses: ./.github/workflows/publish-artifact.yml
+    secrets: inherit
+    with:
+      kit: ${{ needs.verify.outputs.kit }}
+      tag: ${{ needs.verify.outputs.version }}
+      # The rolling tag follows `main`, not releases: it is the tip of the
+      # branch every kit here is tested against on every PR. A release is a
+      # named point someone chose to pin, which is the opposite of rolling.
+      move-latest: false
