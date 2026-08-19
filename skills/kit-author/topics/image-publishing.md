@@ -42,7 +42,7 @@ namespace, at the rolling tag. `scripts/check-image-ref.sh` derives all three
 from the kit directory and fails the build otherwise:
 
 ```console
-$ ./scripts/check-image-ref.sh docker.io/sbx latest
+./scripts/check-image-ref.sh docker.io/sbx latest
 ```
 
 The `-image` suffix keeps `docker.io/sbx/<kit>-kit` free for the kit artifact
@@ -93,8 +93,8 @@ first publish happens when the PR merges to `main`. Expect that window, and
 verify the build locally in the meantime:
 
 ```console
-$ docker build -t docker.io/sbx/my-kit-image:latest my-kit
-$ ./scripts/test-kit.sh my-kit
+docker build -t docker.io/sbx/my-kit-image:latest my-kit
+./scripts/test-kit.sh my-kit
 ```
 
 `scripts/test-kit.sh` builds a kit's own image before running the suite, so the

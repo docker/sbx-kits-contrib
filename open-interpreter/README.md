@@ -28,20 +28,20 @@ are present on the host — the real values never enter the sandbox.
 ## Usage
 
 ```console
-$ sbx run --kit "docker.io/sbx/open-interpreter-kit:latest" open-interpreter
+sbx run --kit "docker.io/sbx/open-interpreter-kit:latest" open-interpreter
 ```
 
 Or from a git URL targeting this repo:
 
 ```console
 # From this repo (tracks default branch)
-$ sbx run --kit "git+https://github.com/docker/sbx-kits-contrib.git#dir=open-interpreter" open-interpreter
+sbx run --kit "git+https://github.com/docker/sbx-kits-contrib.git#dir=open-interpreter" open-interpreter
 
 # Pinned to a tag
-$ sbx run --kit "git+https://github.com/docker/sbx-kits-contrib.git#ref=v1.0.0&dir=open-interpreter" open-interpreter
+sbx run --kit "git+https://github.com/docker/sbx-kits-contrib.git#ref=v1.0.0&dir=open-interpreter" open-interpreter
 
 # Local development
-$ sbx run --kit ./open-interpreter/ open-interpreter
+sbx run --kit ./open-interpreter/ open-interpreter
 ```
 
 You attach directly to the Open Interpreter REPL. Type a natural language request
@@ -58,10 +58,10 @@ The default profile sets `model: gpt-4o`. Override at launch:
 
 ```console
 # Use Claude (requires ANTHROPIC_API_KEY)
-$ sbx run --kit ./open-interpreter/ open-interpreter -- --model claude-3-5-sonnet-20241022
+sbx run --kit ./open-interpreter/ open-interpreter -- --model claude-3-5-sonnet-20241022
 
 # Use a local Ollama model (no API key needed)
-$ sbx run --kit ./open-interpreter/ open-interpreter -- --model ollama/llama3
+sbx run --kit ./open-interpreter/ open-interpreter -- --model ollama/llama3
 
 # Or update ~/.config/open-interpreter/profiles/default.yaml inside the sandbox
 ```

@@ -51,10 +51,10 @@ See [Declare every domain your kit needs](./README.md#declare-every-domain-your-
 Before opening a PR, run **all four** of these:
 
 ```console
-$ sbx kit validate ./my-kit/
-$ cd my-kit && ../scripts/test-kit.sh
-$ ../scripts/test-kit-e2e.sh           # under deny-all — see below
-$ sbx run --kit . <agent>              # quick manual smoke
+sbx kit validate ./my-kit/
+cd my-kit && ../scripts/test-kit.sh
+../scripts/test-kit-e2e.sh           # under deny-all — see below
+sbx run --kit . <agent>              # quick manual smoke
 ```
 
 The first two are what CI runs on every PR. **The third is not run on CI for PRs opened from a fork** — the CI e2e legs (`e2e-release`, which gates the PR, and the informational `e2e-nightly`) need `DOCKERHUB_USERNAME`/`DOCKERHUB_TOKEN`, and GitHub doesn't expose secrets to fork-triggered workflows, so they are skipped silently and the reviewer sees a green check that does **not** include the e2e assertions. If you're contributing from a fork (the common case), your laptop is the only place those assertions ever run before merge.
@@ -66,7 +66,7 @@ The first two are what CI runs on every PR. **The third is not run on CI for PRs
 The wrapper script does the dance for you:
 
 ```console
-$ cd my-kit && ../scripts/test-kit-e2e.sh
+cd my-kit && ../scripts/test-kit-e2e.sh
 ```
 
 That single command:
@@ -80,14 +80,14 @@ The script is idempotent (re-runs converge on the same state) and non-interactiv
 One-time setup per machine — the scoped daemon has its own credential store, separate from any login on your main daemon:
 
 ```console
-$ sbx --app-name sbx-kits-contrib-tck login
+sbx --app-name sbx-kits-contrib-tck login
 ```
 
 When the test fails, the script prints how to dump the proxy log. The recurring fix is the same loop: read the log, add the blocked host to `network.allowedDomains`, re-run.
 
 ```console
-$ sbx --app-name sbx-kits-contrib-tck ls                          # find the tck-e2e-* sandbox
-$ sbx --app-name sbx-kits-contrib-tck policy log <sandbox-name>
+sbx --app-name sbx-kits-contrib-tck ls                          # find the tck-e2e-* sandbox
+sbx --app-name sbx-kits-contrib-tck policy log <sandbox-name>
 ```
 
 Every row under `Blocked requests` is a host your kit reached for under `deny-all`. See [Declare every domain your kit needs](./README.md#declare-every-domain-your-kit-needs) for the cross-arch gotchas (`archive.ubuntu.com`, `security.ubuntu.com`, **and** `ports.ubuntu.com`) and the package-manager refresh trap (`apt-get update` re-fetches every configured source).

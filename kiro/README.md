@@ -18,19 +18,19 @@ authenticates only via device flow, which needs a browser on your host.
 ## Usage
 
 ```console
-$ sbx run --kit "docker.io/sbx/kiro-kit:latest" kiro
+sbx run --kit "docker.io/sbx/kiro-kit:latest" kiro
 ```
 
 Or from a git URL targeting this repo:
 
 ```console
-$ sbx run --kit "git+https://github.com/docker/sbx-kits-contrib.git#dir=kiro" kiro
+sbx run --kit "git+https://github.com/docker/sbx-kits-contrib.git#dir=kiro" kiro
 ```
 
 Or with a local clone of this repo:
 
 ```console
-$ sbx run --kit ./kiro/ kiro
+sbx run --kit ./kiro/ kiro
 ```
 
 The trailing `kiro` is required, not redundant: for `kind: sandbox` kits, `sbx`
@@ -52,7 +52,7 @@ sandbox, so it survives restarts of the same sandbox but not recreation.
 To re-run the login explicitly:
 
 ```console
-$ sbx run --kit ./kiro/ kiro --name <sandbox-name> -- login --use-device-flow
+sbx run --kit ./kiro/ kiro --name <sandbox-name> -- login --use-device-flow
 ```
 
 ## Passing arguments
@@ -135,7 +135,7 @@ sample. It also catches drift in the floating base image.
 ### Building locally
 
 ```console
-$ docker build -t docker.io/sbx/kiro-image:latest kiro
+docker build -t docker.io/sbx/kiro-image:latest kiro
 ```
 
 The build needs egress to `cli.kiro.dev` (install script) **and**

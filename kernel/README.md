@@ -21,23 +21,23 @@ managed auth, and live session replay built in.
 ## Usage
 
 ```console
-$ sbx run claude --kit "docker.io/sbx/kernel-kit:latest"
+sbx run claude --kit "docker.io/sbx/kernel-kit:latest"
 ```
 
 Or from a git URL targeting this repo:
 
 ```console
 # From this repo (tracks default branch)
-$ sbx run claude --kit "git+https://github.com/docker/sbx-kits-contrib.git#dir=kernel"
+sbx run claude --kit "git+https://github.com/docker/sbx-kits-contrib.git#dir=kernel"
 
 # Pinned to a tag — recommended for production
-$ sbx run claude --kit "git+https://github.com/docker/sbx-kits-contrib.git#ref=v1.0.0&dir=kernel"
+sbx run claude --kit "git+https://github.com/docker/sbx-kits-contrib.git#ref=v1.0.0&dir=kernel"
 
 # Local development
-$ sbx run claude --kit ./kernel/
+sbx run claude --kit ./kernel/
 
 # Stack with another mixin
-$ sbx run claude --kit ./kernel/ --kit ./ruff-lint/
+sbx run claude --kit ./kernel/ --kit ./ruff-lint/
 ```
 
 The kit works with any agent that ships npm. It installs the `kernel` CLI

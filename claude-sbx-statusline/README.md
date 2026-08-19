@@ -31,19 +31,19 @@ it reflects the sandbox's allocation, not the host's.
 Pair the mixin with the `claude` agent via `--kit`, from its published OCI artifact on Docker Hub:
 
 ```console
-$ sbx run claude --kit "docker.io/sbx/claude-sbx-statusline-kit:latest" .
+sbx run claude --kit "docker.io/sbx/claude-sbx-statusline-kit:latest" .
 ```
 
 Or pull it straight from this repo over git (pinned by ref):
 
 ```console
-$ sbx run claude --kit "git+https://github.com/docker/sbx-kits-contrib.git#dir=claude-sbx-statusline" .
+sbx run claude --kit "git+https://github.com/docker/sbx-kits-contrib.git#dir=claude-sbx-statusline" .
 ```
 
 Or with a local clone of this repo:
 
 ```console
-$ sbx run claude --kit ./claude-sbx-statusline .
+sbx run claude --kit ./claude-sbx-statusline .
 ```
 
 ## How it works

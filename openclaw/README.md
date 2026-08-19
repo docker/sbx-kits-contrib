@@ -14,13 +14,13 @@ applies policy, so a new sandbox is chatting in seconds.
 ## Usage
 
 ```console
-$ sbx run --kit "docker.io/sbx/openclaw-kit:latest" openclaw
+sbx run --kit "docker.io/sbx/openclaw-kit:latest" openclaw
 ```
 
 Or from a git URL targeting this repo:
 
 ```console
-$ sbx run --kit "git+https://github.com/docker/sbx-kits-contrib.git#dir=openclaw" openclaw
+sbx run --kit "git+https://github.com/docker/sbx-kits-contrib.git#dir=openclaw" openclaw
 ```
 
 On attach, the entrypoint starts the gateway in the background, waits for
@@ -88,8 +88,8 @@ Upstream versions are date-based and release ~daily; bump
 ### Building locally
 
 ```console
-$ docker build -t docker.io/sbx/openclaw-image:latest openclaw
-$ ./scripts/test-kit.sh openclaw
+docker build -t docker.io/sbx/openclaw-image:latest openclaw
+./scripts/test-kit.sh openclaw
 ```
 
 `scripts/test-kit.sh` builds the kit's own image before running the suite
@@ -98,9 +98,9 @@ $ ./scripts/test-kit.sh openclaw
 ## Debugging
 
 ```console
-$ sbx exec <sandbox> -- tail -f /home/agent/.openclaw/gateway.log
-$ sbx exec <sandbox> -- curl -s http://127.0.0.1:18789/healthz
-$ sbx exec <sandbox> -- openclaw doctor
+sbx exec <sandbox> -- tail -f /home/agent/.openclaw/gateway.log
+sbx exec <sandbox> -- curl -s http://127.0.0.1:18789/healthz
+sbx exec <sandbox> -- openclaw doctor
 ```
 
 See [`docs/recipe-prebaked-image-kit.md`](../docs/recipe-prebaked-image-kit.md)

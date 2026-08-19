@@ -22,21 +22,21 @@ and the install is digest-pinned against tag-rewrite attacks.
 ## Usage
 
 ```console
-$ cd ~/work/some-project
-$ sbx run --kit "docker.io/sbx/trivy-kit:latest" trivy .
+cd ~/work/some-project
+sbx run --kit "docker.io/sbx/trivy-kit:latest" trivy .
 agent@trivy-some-project:/Users/mark/work/some-project$ trivy fs .
 ```
 
 Or from a git URL targeting this repo:
 
 ```console
-$ sbx run --kit "git+https://github.com/docker/sbx-kits-contrib.git#dir=trivy" trivy .
+sbx run --kit "git+https://github.com/docker/sbx-kits-contrib.git#dir=trivy" trivy .
 ```
 
 Or with a local clone of this repo:
 
 ```console
-$ sbx run --kit ./trivy/ trivy .
+sbx run --kit ./trivy/ trivy .
 ```
 
 The first launch downloads, verifies, and installs Trivy. Subsequent
@@ -78,7 +78,7 @@ mirrors, your reporting endpoint — should be added with a per-sandbox or
 operator-level allow rule, *not* in the kit:
 
 ```console
-$ sbx policy allow network --sandbox trivy-some-project "registry-1.docker.io,auth.docker.io,production.cloudflare.docker.com"
+sbx policy allow network --sandbox trivy-some-project "registry-1.docker.io,auth.docker.io,production.cloudflare.docker.com"
 ```
 
 This keeps the kit's default footprint minimal and forces deliberate

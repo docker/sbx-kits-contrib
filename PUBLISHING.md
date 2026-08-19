@@ -26,7 +26,7 @@ a table, so it binds new kits automatically and has nothing to keep in sync. Run
 it yourself with:
 
 ```console
-$ ./scripts/check-image-ref.sh docker.io/sbx latest
+./scripts/check-image-ref.sh docker.io/sbx latest
 ```
 
 `spec.yaml`'s `sandbox.image` is the **source of truth** for what gets
