@@ -87,7 +87,7 @@ The `permissions.network.allow` list in `spec.yaml` enumerates Bedrock runtime/c
 
 Inference-profile model IDs contain a colon (`...-v1:0`). On Python 3.14, botocore leaves that colon unencoded in the request URL, the transport then sends `%3A` on the wire, and the SigV4 signature — computed over the raw colon — no longer matches. Every Bedrock call fails with `InvalidSignatureException`.
 
-The kit ships a small, self-contained botocore patch (auto-loaded inside the venv via a `.pth` file) that normalizes the URL path before signing. It is gated to Python 3.14+ so it never touches the already-correct signing on ≤3.13, and is scoped to the exact `SigV4Auth` class so S3 is untouched. `scripts/smoke-test.sh` and the install step both run an offline guard — exercising boto3's real serializer and SigV4 signer with the network short-circuited — that asserts the signed canonical path is double-encoded, so the regression can't return silently.
+The kit ships a small, self-contained botocore patch (auto-loaded inside the venv via a `.pth` file) that normalizes the URL path before signing. It is gated to Python 3.14+ so it never touches the already-correct signing on ≤3.13, and is scoped to the exact `SigV4Auth` class so S3 is untouched. The install step in `spec.yaml` runs an offline guard — exercising boto3's real serializer and SigV4 signer with the network short-circuited — that asserts the signed canonical path is double-encoded, so the regression can't return silently. That guard runs on every install, including in the TCK (below).
 
 ## Using a different model
 
@@ -104,7 +104,7 @@ If you do this, you'll need to add that provider's domain to `permissions.networ
 
 ## Testing
 
-Three levels, run them in order:
+Two levels, run them in order:
 
 **1. Validate the spec**
 
@@ -118,13 +118,7 @@ sbx kit validate ./
 cd aws-strands-agent && ../scripts/test-kit.sh
 ```
 
-**3. Live sandbox + smoke test** — mount the kit directory as the workspace so the script is available inside the sandbox:
-
-```bash
-sbx run shell --kit ./ .
-# then inside the sandbox:
-bash scripts/smoke-test.sh
-```
+The TCK's `post_install_checks` (see `testdata/tck.yaml`) verify the venv layout and that `strands`, `strands_tools`, and `boto3` all import cleanly; the SigV4 colon-encoding guard runs as part of `install_execution` (see above).
 
 ## Bumping versions
 
