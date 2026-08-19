@@ -1,0 +1,28 @@
+# TCK configuration for the droid kit.
+#
+# droid is still a built-in agent in released sbx builds, and sbx refuses to
+# load a kit whose name collides with a built-in ("built-in agents cannot be
+# overridden by a kit"). This flag turns that one specific `sbx create` failure
+# into a skip, so the kit can land and be reviewed here before the built-in is
+# removed from sbx.
+#
+# Nothing needs re-enabling later: once a released sbx no longer registers the
+# built-in, `sbx create` succeeds, the full e2e runs, and the test logs a notice
+# that this line is obsolete and can be deleted.
+extractedFromBuiltin: true
+#
+# `promptArgs` is deliberately omitted for now, which skips the e2e `prompt`
+# subtest. This is also the first kit extraction with an OAuth-bearing
+# credential: Droid falls back to an interactive device/token-exchange flow
+# whenever FACTORY_API_KEY is unset, so a non-interactive e2e prompt would
+# either need a real FACTORY_API_KEY on the runner or block on that flow.
+# Neither has been set up here, and the built-in agent's own e2e test never
+# exercises this path either. Wire `promptArgs` once a known-working
+# non-interactive recipe (with a real key) exists, rather than guessing at
+# flags that could flake or hang CI.
+#
+# The remaining subtests (env, files, tmpfs, agentContext) still run and are
+# what actually gate this kit.
+
+# Droid's startup hook does no MCP-gateway registration, so no `mcp:` block is
+# needed here.

@@ -1,17 +1,27 @@
-schemaVersion: "1"
+schemaVersion: "2"
 kind: mixin
 name: vale
 displayName: Vale
 description: Installs the Vale prose linter from a pinned GitHub release.
+agentInstructions:
+  content: |
+    ## Vale prose linter
 
-network:
-  allowedDomains:
-    # Release tarball download (install time, one-shot).
-    # github.com 302-redirects to release-assets.githubusercontent.com for binary downloads.
-    - github.com
-    - release-assets.githubusercontent.com
-
-commands:
+    The `vale` CLI is installed and available on `PATH`. Use it to lint
+    prose in Markdown, AsciiDoc, reStructuredText, and other text formats.
+    Run `vale --version` to confirm, and `vale <file>` to lint a file.
+permissions:
+  network:
+    allow:
+      # Release tarball download (install time, one-shot).
+      # github.com 302-redirects to objects.githubusercontent.com for binary
+      # downloads (confirmed by hand); release-assets.githubusercontent.com
+      # kept alongside it since that isn't guaranteed to be the same host
+      # for every repo/asset.
+      - github.com
+      - objects.githubusercontent.com
+      - release-assets.githubusercontent.com
+setup:
   install:
     # Install Vale from a pinned, SHA256-verified GitHub release. We deliberately
     # do NOT query api.github.com for `releases/latest`: unauthenticated API calls
@@ -45,11 +55,4 @@ commands:
         rm /tmp/vale.tgz
         vale --version
       user: "0"
-      description: "Install pinned Vale CLI"
-
-memory: |
-  ## Vale prose linter
-
-  The `vale` CLI is installed and available on `PATH`. Use it to lint
-  prose in Markdown, AsciiDoc, reStructuredText, and other text formats.
-  Run `vale --version` to confirm, and `vale <file>` to lint a file.
+      description: Install pinned Vale CLI

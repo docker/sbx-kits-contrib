@@ -2,13 +2,17 @@
 
 Community-contributed kits for [Docker Sandboxes](https://docs.docker.com/ai/sandboxes/).
 
-Each top-level directory is a **kit** — a declarative artifact containing a `spec.yaml` and optional `files/` directory that extends sandbox agents with additional capabilities.
+Each top-level directory containing a `spec.yaml` is a **kit** — a declarative artifact with that `spec.yaml` and an optional `files/` directory, extending sandbox agents with additional capabilities. A `kind: sandbox` kit may also carry a `Dockerfile` for the image its sandbox boots from (see [`kiro/`](./kiro)); CI builds and publishes that image as `docker.io/sbx/<kit>-image` — see [`PUBLISHING.md`](./PUBLISHING.md).
+
+The remaining top-level directories are shared infrastructure: [`spec/`](./spec) (the kit spec implementation), [`tck/`](./tck) (the compatibility test kit), [`scripts/`](./scripts) (maintainer utilities), and [`skills/`](./skills).
 
 ## Documentation
 
 - [Kits overview](https://docs.docker.com/ai/sandboxes/customize/kits/) — what kits are and how to use them
 - [Kit examples](https://docs.docker.com/ai/sandboxes/customize/kit-examples/) — reference examples for common kit patterns
 - [Build your own agent kit](https://docs.docker.com/ai/sandboxes/customize/build-an-agent/) — step-by-step tutorial using the `amp` kit in this repo
+
+Repository docs: [`CONTRIBUTING.md`](./CONTRIBUTING.md) (how to submit a kit) and [`PUBLISHING.md`](./PUBLISHING.md) (for kits that build their own image).
 
 Contributing a kit or a fix? Read [`CONTRIBUTING.md`](./CONTRIBUTING.md) first — this repo enforces verified commit signatures, so you'll need GPG or SSH signing set up before your PR can be merged.
 
@@ -22,12 +26,18 @@ Contributing a kit or a fix? Read [`CONTRIBUTING.md`](./CONTRIBUTING.md) first �
 
 ## Using a kit
 
-Kits are passed to `sbx run` (or `sbx create`) via `--kit`. The flag accepts a local path, an OCI registry reference, a ZIP archive, or a `git+...` URL.
+Kits are passed to `sbx run` (or `sbx create`) via `--kit`. The flag accepts an OCI registry reference, a `git+...` URL, a local path, or a ZIP archive.
 
-The most common form is a git URL targeting this repo:
+The primary way to consume a kit from this repo is its published OCI artifact on Docker Hub — every kit here is discovered and published automatically (see [`PUBLISHING.md`](./PUBLISHING.md)), so the artifact exists the moment a change merges to `main`:
 
 ```console
-$ sbx run --kit "git+https://github.com/docker/sbx-kits-contrib.git#dir=code-server" claude
+sbx run --kit "docker.io/sbx/code-server-kit:latest" claude
+```
+
+Or target this repo directly over git:
+
+```console
+sbx run --kit "git+https://github.com/docker/sbx-kits-contrib.git#dir=code-server" claude
 ```
 
 The fragment after `#` accepts two parameters, both optional:
@@ -41,13 +51,13 @@ Combine them with `&`:
 
 ```console
 # Pin to a tag — the recommended form for production use
-$ sbx run --kit "git+https://github.com/docker/sbx-kits-contrib.git#ref=v0.2.0&dir=code-server" claude
+sbx run --kit "git+https://github.com/docker/sbx-kits-contrib.git#ref=v0.2.0&dir=code-server" claude
 
 # Track a branch (less stable; the kit may change under you)
-$ sbx run --kit "git+https://github.com/docker/sbx-kits-contrib.git#ref=main&dir=code-server" claude
+sbx run --kit "git+https://github.com/docker/sbx-kits-contrib.git#ref=main&dir=code-server" claude
 
 # Pin to an exact commit SHA — fully reproducible
-$ sbx run --kit "git+https://github.com/docker/sbx-kits-contrib.git#ref=abc1234&dir=code-server" claude
+sbx run --kit "git+https://github.com/docker/sbx-kits-contrib.git#ref=abc1234&dir=code-server" claude
 ```
 
 Without `ref`, sbx clones the default branch shallowly. With a branch or tag, sbx clones at that ref shallowly. With a commit SHA, sbx clones fully and checks out the commit.
@@ -55,13 +65,13 @@ Without `ref`, sbx clones the default branch shallowly. With a branch or tag, sb
 You can also use SSH instead of HTTPS for private repos:
 
 ```console
-$ sbx run --kit "git+ssh://git@github.com/docker/sbx-kits-contrib.git#dir=code-server" claude
+sbx run --kit "git+ssh://git@github.com/docker/sbx-kits-contrib.git#dir=code-server" claude
 ```
 
 For local development, point `--kit` at a directory:
 
 ```console
-$ sbx run --kit ./code-server/ claude
+sbx run --kit ./code-server/ claude
 ```
 
 ## Repository Structure
@@ -260,7 +270,12 @@ Each subtest (`env`, `files/<path>`, `tmpfs/<path>`, `memory`) reports independe
 
 ### Running in CI
 
-The `test-kit-e2e` job in [`.github/workflows/tck.yml`](.github/workflows/tck.yml) runs alongside the default `test-kit` job. It downloads the latest `sbx` release, signs in to Docker Hub using `DOCKERHUB_USERNAME` / `DOCKERHUB_TOKEN` repo secrets, then runs the e2e test once per detected kit. **The job is skipped on fork PRs** because GitHub does not expose secrets to fork-triggered workflows — so for the typical contributor, e2e never runs in CI on their PR, and the reviewer sees a green check that does **not** cover the e2e assertions.
+The e2e legs in [`.github/workflows/tck.yml`](.github/workflows/tck.yml) run alongside the default `test-kit` job, via the reusable [`.github/workflows/e2e.yml`](.github/workflows/e2e.yml). Each signs in to Docker Hub using `DOCKERHUB_USERNAME` / `DOCKERHUB_TOKEN` repo secrets, then runs the e2e test once per detected kit — against two `sbx` channels:
+
+- **`e2e-release`** downloads the latest tagged `sbx` release. This is the channel users have today, so it **gates the PR** through the stable `e2e` job (the required status check).
+- **`e2e-nightly`** downloads the rolling `nightly` build, so kits are also exercised against what `sbx` will ship next. It is **informational only** — a broken nightly shows a red check but never blocks merge. The `e2e-nightly-report` job echoes its outcome to the run log and the job summary.
+
+**All e2e legs are skipped on fork PRs** because GitHub does not expose secrets to fork-triggered workflows — so for the typical contributor, e2e never runs in CI on their PR, and the reviewer sees a green check that does **not** cover the e2e assertions.
 
 That makes a local e2e run **mandatory** before opening a PR from a fork. Run `./scripts/test-kit-e2e.sh <kit>` — the script applies the same `deny-all` baseline CI uses on a scoped daemon (`--app-name sbx-kits-contrib-tck`), so the network contract gets tested without touching your main sbx state. See [Declare every domain your kit needs](#declare-every-domain-your-kit-needs) for the recurring "read the proxy log, add a host, re-run" loop.
 
@@ -312,7 +327,7 @@ Pull requests trigger TCK tests automatically:
 - **Kit changes**: only the modified kit is tested
 - **TCK/spec changes**: all kits are tested
 - Each kit runs in a separate CI runner on Linux
-- The optional `test-kit-e2e` job exercises every detected kit against a real `sbx` CLI — see [End-to-end (e2e) Tests](#end-to-end-e2e-tests). Skipped on fork PRs (no Docker Hub secrets).
+- The optional e2e legs exercise every detected kit against a real `sbx` CLI — `e2e-release` (latest release, gates the PR) and `e2e-nightly` (rolling nightly, informational only). See [End-to-end (e2e) Tests](#end-to-end-e2e-tests). Skipped on fork PRs (no Docker Hub secrets).
 
 ## Prerequisites
 

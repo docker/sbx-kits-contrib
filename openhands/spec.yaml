@@ -1,0 +1,127 @@
+schemaVersion: "2"
+kind: sandbox
+name: openhands
+displayName: OpenHands
+description: |
+  AI software engineering agent. Resolves issues, writes code, runs tests, and opens PRs — all autonomously.
+sandbox:
+  image: docker/sandbox-templates:shell-docker
+  entrypoint:
+    - /home/agent/.local/bin/openhands
+    - --always-approve
+agentInstructions:
+  filename: AGENTS.md
+  content: |
+    # OpenHands — Sandbox Context
+
+    You are running inside a Docker SBX sandbox.
+
+    ## Environment
+
+    | Item | Value |
+    |------|-------|
+    | Workspace | `${WORKDIR}` |
+    | Sandbox mode | local (code runs in this container) |
+    | Persistence | enabled — workspace survives restarts |
+    | Confirmation | always-approve mode is active |
+
+    ## Network access
+
+    Outbound requests are filtered. Reachable: GitHub, PyPI, npm, Docker registries,
+    the configured LLM API (auth injected by proxy). Tavily search is available
+    if `TAVILY_API_KEY` is set.
+
+    ## Working conventions
+
+    1. Read the repo README and existing tests before making changes.
+    2. Make the smallest change that satisfies the task.
+    3. Run the test suite; fix failures before reporting completion.
+    4. Commit with a clear message and push to the current branch.
+    5. Use `gh pr create` for pull requests (GitHub CLI is pre-installed).
+
+    ## Switching LLM providers
+
+    Recreate the sandbox with `LLM_MODEL` overridden and the matching provider
+    secret registered via `sbx secret set <service>`. See the kit README for details.
+permissions:
+  network:
+    allow:
+      # Every domain the credential blocks below inject into -- required here
+      # too, not just below: this repo's e2e runs every kit under
+      # `sbx policy init deny-all`, so a domain absent from this list is
+      # unreachable regardless of what the credential block declares.
+      - api.anthropic.com
+      - api.openai.com
+      - generativelanguage.googleapis.com
+      - github.com
+      - api.github.com
+      - raw.githubusercontent.com
+      - objects.githubusercontent.com
+      - pypi.org
+      - files.pythonhosted.org
+      - astral.sh
+      - '*.astral.sh'
+      - registry.npmjs.org
+      - registry-1.docker.io
+      - index.docker.io
+      - auth.docker.io
+      - production.cloudflare.docker.com
+      - ghcr.io
+      - docker.openhands.dev
+      - api.tavily.com
+# litellm (which OpenHands uses under the hood) checks these env vars are
+# present *before* it ever makes a request -- if the var is unset it raises
+# its own "Missing API Key" error locally, and the proxy never gets a chance
+# to inject the real credential. proxyManaged: true is what makes the engine
+# populate a placeholder value for each of these automatically; the actual
+# secret comes from the service-keyed store (sbx secret set <service>, or
+# the interactive wizard on first run of a kit that isn't a built-in agent).
+credentials:
+  - service: anthropic
+    apiKey:
+      name: ANTHROPIC_API_KEY
+      proxyManaged: true
+      inject:
+        - domain: api.anthropic.com
+          header: x-api-key
+          format: '%s'
+  # google (not gemini) is the canonical service name for this provider
+  # across the repo -- matches crush/junie's credentials[].service, so a
+  # binding set for one kit is reused by another.
+  - service: google
+    apiKey:
+      name: GEMINI_API_KEY
+      proxyManaged: true
+      inject:
+        - domain: generativelanguage.googleapis.com
+          header: x-goog-api-key
+          format: '%s'
+  - service: openai
+    apiKey:
+      name: OPENAI_API_KEY
+      proxyManaged: true
+      inject:
+        - domain: api.openai.com
+          header: Authorization
+          format: Bearer %s
+environment:
+  variables:
+    LLM_MODEL: anthropic/claude-opus-4-5
+    OPENHANDS_SUPPRESS_BANNER: "1"
+    SANDBOX_TYPE: local
+setup:
+  install:
+    # uv ships pre-installed in the shell-docker base image (/usr/local/bin/uv,
+    # already on PATH) -- no need to install it ourselves.
+    - command: uv tool install openhands
+      user: "1000"
+      description: Install OpenHands CLI
+  startup:
+    - command:
+        - uv
+        - tool
+        - upgrade
+        - openhands
+        - --quiet
+      user: "1000"
+      description: Upgrade OpenHands to latest (foreground -- must finish before the entrypoint execs the binary it's upgrading)
