@@ -1,16 +1,25 @@
 # claude-mem
 
-A mixin kit (extends `claude`) installing
+A mixin installing
 [thedotmack/claude-mem](https://github.com/thedotmack/claude-mem) —
 persistent context across Claude Code sessions: session activity is
 captured into SQLite+FTS5 under `~/.claude-mem/`, compressed via the
 Agent SDK, and relevant memory is injected at session start. Pinned to
-`13.5.5`.
+`13.5.5`. The content is Claude-Code-specific, so the kit declares
+`requires.agent: claude`.
 
 ## Usage
 
+Pair it with the built-in `claude` agent, from its published OCI artifact on Docker Hub:
+
 ```console
-$ sbx run --kit "git+https://github.com/docker/sbx-kits-contrib.git#dir=claude-mem" claude
+sbx run --kit "docker.io/sbx/claude-mem-kit:latest" claude
+```
+
+Or from a git URL targeting this repo:
+
+```console
+sbx run --kit "git+https://github.com/docker/sbx-kits-contrib.git#dir=claude-mem" claude
 ```
 
 Search past sessions with the bundled `mem-search` skill or the
@@ -18,7 +27,7 @@ Search past sessions with the bundled `mem-search` skill or the
 localhost:37777:
 
 ```console
-$ sbx ports <sandbox> --publish 37777/tcp
+sbx ports <sandbox> --publish 37777/tcp
 ```
 
 ## Design notes
@@ -43,7 +52,7 @@ $ sbx ports <sandbox> --publish 37777/tcp
 ## Debugging
 
 ```console
-$ sbx exec <sandbox> -- cat /tmp/claude-mem-merge.log
-$ sbx exec <sandbox> -- cat /home/agent/.claude/settings.json
-$ sbx exec <sandbox> -- ls /home/agent/.claude-mem/
+sbx exec <sandbox> -- cat /tmp/claude-mem-reconcile.log
+sbx exec <sandbox> -- cat /home/agent/.claude/settings.json
+sbx exec <sandbox> -- ls /home/agent/.claude-mem/
 ```

@@ -1,55 +1,61 @@
-schemaVersion: "1"
+schemaVersion: "2"
 kind: mixin
 name: claude-mem
-extends: claude
 displayName: claude-mem (persistent memory)
-description: "Persistent context across Claude Code sessions: captures session activity into SQLite+FTS5, compresses with the Agent SDK, and injects relevant memory at session start. Pinned to 13.5.5."
+description: 'Persistent context across Claude Code sessions: captures session activity into SQLite+FTS5, compresses with the Agent SDK, and injects relevant memory at session start. Pinned to 13.5.5.'
+requires:
+  agent: claude
+agentInstructions:
+  content: |
+    ## claude-mem
 
-network:
-  allowedDomains:
-    # install: npm package, bun + uv installers
-    - registry.npmjs.org
-    - "*.npmjs.org"
-    - "bun.sh:443"
-    - "astral.sh:443"
-    - "github.com:443"
-    - "objects.githubusercontent.com:443"
-    - "release-assets.githubusercontent.com:443"
-    # first-run: chroma-mcp via uvx + its ONNX embedding model
-    - "pypi.org:443"
-    - "files.pythonhosted.org:443"
-    - "chroma-onnx-models.s3.amazonaws.com:443"
-  publishedPorts:
-    - container: 37777
-      name: memory-viewer
-
+    Persistent memory is active: session activity is captured into a local
+    SQLite database under `~/.claude-mem/` and relevant context is injected
+    at session start. Search past sessions with the mem-search skill or the
+    mcp-search MCP tools. The memory viewer runs on localhost:37777
+    (publish with `sbx ports <sandbox> --publish 37777/tcp` to browse from
+    the host). Telemetry is disabled (DO_NOT_TRACK=1).
+permissions:
+  network:
+    allow:
+      - registry.npmjs.org
+      - '*.npmjs.org'
+      - bun.sh:443
+      - astral.sh:443
+      - github.com:443
+      - objects.githubusercontent.com:443
+      - release-assets.githubusercontent.com:443
+      - pypi.org:443
+      - files.pythonhosted.org:443
+      - chroma-onnx-models.s3.amazonaws.com:443
+ports:
+  - container: 37777
+    name: memory-viewer
 environment:
   variables:
-    # Telemetry off at the source (PostHog is ON by default upstream);
-    # us.i.posthog.com is deliberately not allow-listed.
-    DO_NOT_TRACK: "1"
     CLAUDE_MEM_TELEMETRY: "0"
-
-commands:
+    DO_NOT_TRACK: "1"
+setup:
   install:
-    - command: "npm config set proxy $HTTP_PROXY && npm config set https-proxy $HTTPS_PROXY || true"
+    - command: npm config set proxy $HTTP_PROXY && npm config set https-proxy $HTTPS_PROXY || true
       user: "1000"
       description: Point npm at the sandbox egress proxy
-    # The installer copies the plugin into ~/.claude/plugins, registers the
-    # marketplace + plugin, runs bun install, and merges enabledPlugins
-    # into ~/.claude/settings.json (creating it if missing).
-    - command: "npx -y claude-mem@13.5.5 install"
+    # Without this, claude-mem's marketplace deps hit a real ERESOLVE peer-
+    # dependency conflict (tree-sitter@0.21.1 vs 0.22.4, pulled in by two
+    # dev deps of @derekstride/tree-sitter-sql and
+    # @tree-sitter-grammars/tree-sitter-lua). The installer's own internal
+    # "retry once with --legacy-peer-deps" fallback for that case hangs
+    # indefinitely rather than actually retrying -- confirmed by hand: a
+    # plain `npx claude-mem install` times out at that exact step, while
+    # this env var avoids the conflict (and the buggy retry path) entirely
+    # and installs cleanly. Scoped to this one command via the env var
+    # (rather than `npm config set`, which would persist to ~/.npmrc for
+    # the sandbox's whole lifetime) so it doesn't silently weaken conflict
+    # detection for any later npm install the agent or user runs.
+    - command: npm_config_legacy_peer_deps=true npx -y claude-mem@13.5.5 install
       user: "1000"
       description: Install claude-mem 13.5.5 (plugin, marketplace registration, bun deps)
   startup:
-    # Reconcile settings.json: install/startup ordering at create is racy —
-    # whichever of the installer or the platform's seeding wrote the file
-    # first, the other's keys may be missing (the platform only seeds when
-    # the file is absent). This idempotent reconciler ensures both the
-    # platform keys (content SYNCed with the claude kit, driven by
-    # SBX_CRED_ANTHROPIC_MODE) and claude-mem's enabledPlugins entry are
-    # present. Re-runs harmlessly every boot; never overwrites existing
-    # keys. Trace at /tmp/claude-mem-reconcile.log.
     - command:
         - sh
         - -c
@@ -84,13 +90,3 @@ commands:
           ' "$S"
       user: "1000"
       description: Reconcile settings.json — ensure platform keys and claude-mem's enabledPlugins both present (ordering-immune, idempotent)
-
-agentContext: |
-  ## claude-mem
-
-  Persistent memory is active: session activity is captured into a local
-  SQLite database under `~/.claude-mem/` and relevant context is injected
-  at session start. Search past sessions with the mem-search skill or the
-  mcp-search MCP tools. The memory viewer runs on localhost:37777
-  (publish with `sbx ports <sandbox> --publish 37777/tcp` to browse from
-  the host). Telemetry is disabled (DO_NOT_TRACK=1).
