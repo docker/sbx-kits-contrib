@@ -21,6 +21,24 @@ permissions:
       - github.com:443
       - objects.githubusercontent.com:443
       - release-assets.githubusercontent.com:443
+      # Confirmed necessary via a real e2e run under deny-all.
+      - api.github.com:443
+      - raw.githubusercontent.com:443
+      # `requires.agent: claude` composes this mixin onto the built-in
+      # claude kit, which runs its own background `apt-get update` on
+      # every sandbox (best-effort, non-blocking) -- refreshing metadata
+      # for every configured apt source, which fails on any one of them
+      # even if the kit's own package would come from a different repo.
+      # claude's base image (claude-code-docker) ships three sources, so
+      # all three must be allowed under `deny-all`. Ubuntu hosts amd64
+      # packages on archive/security and arm64 packages on ports.ubuntu.com,
+      # so all three Ubuntu hosts are listed to keep the kit working
+      # cross-arch (CI runs amd64; a real e2e run on arm64 only exercised
+      # ports.ubuntu.com).
+      - archive.ubuntu.com        # Ubuntu archive (amd64 main)
+      - security.ubuntu.com       # Ubuntu security updates (amd64)
+      - ports.ubuntu.com          # Ubuntu archive/security (arm64)
+      - download.docker.com       # Docker's apt repo
       - registry.npmjs.org
       - '*.npmjs.org'
 setup:
