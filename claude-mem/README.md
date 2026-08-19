@@ -4,8 +4,9 @@ A mixin installing
 [thedotmack/claude-mem](https://github.com/thedotmack/claude-mem) —
 persistent context across Claude Code sessions: session activity is
 captured into SQLite+FTS5 under `~/.claude-mem/`, compressed via the
-Agent SDK, and relevant memory is injected at session start. Pinned to
-`13.5.5`. The content is Claude-Code-specific, so the kit declares
+Agent SDK, and relevant memory is injected at session start. Installs
+`claude-mem@latest` (unpinned — see [Design notes](#design-notes) for
+why). The content is Claude-Code-specific, so the kit declares
 `requires.agent: claude`.
 
 ## Usage
@@ -32,6 +33,28 @@ sbx ports <sandbox> --publish 37700/tcp
 
 ## Design notes
 
+- **Unpinned version (`@latest`)**: this kit deliberately does not pin
+  claude-mem to a specific release, unlike this repo's usual convention
+  (see `skills/kit-author/topics/authoring.md`). claude-mem's own hook
+  scripts compare the plugin's marketplace-tracked version against the
+  installed worker's version and recycle (kill + respawn) the worker on
+  any mismatch. Pinning the install to an older version than the
+  marketplace metadata tracks causes a permanent mismatch, which sends
+  every hook into a recycle loop that fails outright (worker
+  unreachable, blocking `Read`/`Bash`/`Stop` hooks every call) — see
+  upstream [thedotmack/claude-mem#3378](https://github.com/thedotmack/claude-mem/issues/3378),
+  [#3568](https://github.com/thedotmack/claude-mem/issues/3568),
+  [#3161](https://github.com/thedotmack/claude-mem/issues/3161), and the
+  open tracking issue
+  [#3605](https://github.com/thedotmack/claude-mem/issues/3605). Tracking
+  `@latest` keeps the installed version aligned with the marketplace
+  metadata in the common case, narrowing the mismatch window to the
+  brief lag between a new claude-mem release and the marketplace catalog
+  picking it up — at the cost of losing
+  reproducibility across sandboxes created at different times, and
+  inheriting whatever regressions ship in a new claude-mem release
+  (claude-mem's issue tracker shows a fairly high rate of worker-lifecycle
+  regressions). Re-introduce a pin if this trade proves worse in practice.
 - **Settings reconciler**: claude-mem's installer merges
   `enabledPlugins` into `~/.claude/settings.json`, while the platform
   seeds the same file at startup *only when missing* — and the two race
