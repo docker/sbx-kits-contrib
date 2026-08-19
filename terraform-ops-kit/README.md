@@ -8,7 +8,17 @@ and cost-estimate Terraform infrastructure.
 
 ## Usage
 
-Pair with any sbx agent:
+```console
+sbx run --kit "docker.io/sbx/terraform-ops-kit-kit:latest" claude
+```
+
+Or from a git URL targeting this repo:
+
+```console
+sbx run --kit "git+https://github.com/docker/sbx-kits-contrib.git#dir=terraform-ops-kit" claude
+```
+
+Pair with any sbx agent, using a local checkout during development:
 
 ```console
 # Claude Code
@@ -34,27 +44,31 @@ return a validated plan + security report — no manual CLI work needed.
 
 ### Installation Flow
 
-At sandbox creation time the kit runs six install commands in sequence:
+At sandbox creation time the kit runs these install commands in sequence:
 
-1. **Terraform** — HashiCorp official APT repo (`apt-get install terraform`).
+1. **Prerequisites** — `curl`, `gpg`, `unzip`, `python3-pip`, `ca-certificates`
+   via apt.
+
+2. **Terraform** — HashiCorp official APT repo (`apt-get install terraform`).
    Ubuntu release detected from `/etc/os-release` (works on focal, jammy,
    noble). Installs the latest stable version.
 
-2. **Terragrunt** v0.59.3 — Binary downloaded from GitHub releases. Pinned
-   to a specific version because the GitHub API is rate-limited inside
-   sandboxes (no auth token), making "latest" detection unreliable.
+3. **Terragrunt** v0.59.3 — Binary downloaded from GitHub releases,
+   SHA256-verified per architecture. Pinned to a specific version because
+   the GitHub API is rate-limited inside sandboxes (no auth token), making
+   "latest" detection unreliable.
 
-3. **tflint** — Installed via the official install script from
-   `terraform-linters/tflint`.
+4. **tflint** v0.57.0 — Binary downloaded from GitHub releases,
+   SHA256-verified per architecture.
 
-4. **checkov** — Installed via `apt-get install python3-checkov`. Falls
-   back gracefully if not available in the distro.
+5. **checkov** — Installed via `pip install --break-system-packages
+   --ignore-installed checkov`. Always the latest release on PyPI.
 
-5. **Infracost** v0.10.31 — Binary downloaded directly from GitHub releases.
-   Pinned for stability; the upstream `install.sh` script redirects to a
-   new CLI repository for v1+.
+6. **Infracost** v0.10.31 — Binary downloaded directly from GitHub releases,
+   SHA256-verified per architecture. Pinned for stability; the upstream
+   `install.sh` script redirects to a new CLI repository for v1+.
 
-6. **AWS CLI v2** — Downloaded as a zip from `awscli.amazonaws.com`,
+7. **AWS CLI v2** — Downloaded as a zip from `awscli.amazonaws.com`,
    extracted, and installed with `./aws/install --update`.
 
 All binaries land in system PATH (`/usr/local/bin`).
@@ -65,8 +79,8 @@ All binaries land in system PATH (`/usr/local/bin`).
 |------|---------|--------|
 | terraform | No (apt) | HashiCorp repo always serves latest stable |
 | terragrunt | v0.59.3 | GitHub API rate-limited without auth |
-| tflint | No (script) | Install script always gets latest |
-| checkov | No (apt) | APT picks distro-packaged version |
+| tflint | v0.57.0 | Pinned binary, SHA256-verified per architecture |
+| checkov | No (pip) | PyPI always serves the latest release |
 | infracost | v0.10.31 | Upstream moved to new CLI repo |
 | aws-cli | No (installer) | Installer always gets latest v2 |
 
@@ -127,15 +141,21 @@ Agents execute the tools and parse results — no manual command-line work:
 
 ## AWS Credentials
 
-The sandbox inherits AWS credentials from the host:
+Pass AWS credentials into the sandbox with `--env`/`-e` (repeatable) or
+`--env-file`:
 
 ```bash
-# Option A: Mount ~/.aws directory
+# Option A: Forward specific variables from the host environment
 sbx create --kit ./terraform-ops-kit/ claude /path/to/tf \
-  --mount ~/.aws:/home/agent/.aws:ro
+  -e AWS_ACCESS_KEY_ID -e AWS_SECRET_ACCESS_KEY -e AWS_SESSION_TOKEN
 
-# Option B: Environment variables
-AWS_PROFILE=my-profile sbx create --kit ./terraform-ops-kit/ claude /path/to/tf
+# Option B: Set them explicitly, or point at a profile
+sbx create --kit ./terraform-ops-kit/ claude /path/to/tf \
+  -e AWS_PROFILE=my-profile
+
+# Option C: Read from a file of KEY=VALUE pairs
+sbx create --kit ./terraform-ops-kit/ claude /path/to/tf \
+  --env-file ./aws.env
 ```
 
 Verify inside the sandbox:
@@ -150,8 +170,8 @@ aws sts get-caller-identity
 |------|---------------------|------|
 | terraform | Latest stable | apt.releases.hashicorp.com |
 | terragrunt | v0.59.3 | GitHub release |
-| tflint | Latest | install script |
-| checkov | Distro version | apt (python3-checkov) |
+| tflint | v0.57.0 | GitHub release |
+| checkov | Latest | PyPI (pip install) |
 | infracost | v0.10.31 | GitHub release |
 | aws-cli | Latest v2 | awscli.amazonaws.com |
 
@@ -181,7 +201,7 @@ This kit creates no state on the host outside the sandbox. All installed
 tools live inside the container. To clean up:
 
 ```console
-$ sbx rm <sandbox-name>
+sbx rm <sandbox-name>
 ```
 
 No persistent files, caches, or credentials are left behind.
@@ -191,10 +211,10 @@ No persistent files, caches, or credentials are left behind.
 | Symptom | Likely cause |
 |---------|-------------|
 | `terraform: command not found` | APT install failed — check network policy and run `apt-get install -y terraform` |
-| `checkov: command not found` | `python3-checkov` not in distro — use `pip install checkov` in a project venv |
-| `aws: command not found` | AWS CLI zip download failed — verify `awscli.amazonaws.com` is in `allowedDomains` |
-| AWS auth fails | Credentials not mounted — use `--mount ~/.aws:/home/agent/.aws:ro` |
-| `terragrunt: not found` | GitHub release download failed — check `github.com` is in `allowedDomains` |
+| `checkov: command not found` | pip install failed — check network policy allows `pypi.org` / `files.pythonhosted.org` |
+| `aws: command not found` | AWS CLI zip download failed — verify `awscli.amazonaws.com` is in the network policy |
+| AWS auth fails | No credentials passed in — forward them with `--env`/`--env-file` (see [AWS Credentials](#aws-credentials)) |
+| `terragrunt: not found` | GitHub release download failed — check `github.com` is in the network policy |
 | `infracost: not found` | GitHub release download failed — pinned URL may be stale |
 
 ## Origin
