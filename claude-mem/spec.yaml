@@ -113,5 +113,9 @@ setup:
             fs.writeFileSync(p, JSON.stringify(s, null, 2));
             console.log("reconciled");
           ' "$S"
-      user: "1000"
+          chown -R agent:agent /home/agent/.claude
+      # root + chown: /home/agent/.claude ownership isn't guaranteed
+      # agent-owned on every base image (matches claude-sbx-statusline,
+      # claude-ollama).
+      user: "0"
       description: Reconcile settings.json — ensure platform keys and claude-mem's enabledPlugins both present (ordering-immune, idempotent)
