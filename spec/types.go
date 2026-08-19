@@ -8,7 +8,9 @@
 package spec
 
 import (
+	"bytes"
 	"fmt"
+	"io"
 	"sort"
 
 	"go.yaml.in/yaml/v3"
@@ -23,8 +25,10 @@ const SchemaVersion = "1"
 
 // SupportedSchemaVersions enumerates every schemaVersion value the
 // loader accepts. "1" is the legacy shape (the current default); "2"
-// opts the kit into the v2 OCI artifact format at distribution time —
-// the spec fields themselves are unchanged across the two versions.
+// opts the kit into the v2 OCI artifact format at distribution time.
+// The set of decodable fields is the same across both versions, but
+// "2" additionally carries the v2 validation rules — currently that a
+// mixin must not set extends (ValidateArtifact); v1 kits are exempt.
 //
 // New entries should be appended (never reordered) so existing kits
 // continue to validate.
@@ -95,11 +99,30 @@ type Manifest struct {
 	// AIFilename is the AI profile markdown filename (e.g., "CLAUDE.md").
 	AIFilename string `json:"aiFilename,omitempty" yaml:"aiFilename,omitempty"`
 
-	// RunOptions are CLI arguments passed to the agent binary at startup.
+	// RunOptions are CLI arguments passed to the agent binary in
+	// detached/default mode (the baked start script). In v2 this is
+	// entrypoint[1:] plus sandbox.command.default.
 	RunOptions []string `json:"runOptions,omitempty" yaml:"runOptions,omitempty"`
+
+	// InteractiveOptions are CLI arguments passed to the agent binary when a
+	// TTY/interactive session is attached, in place of RunOptions. In v2 this
+	// is entrypoint[1:] plus sandbox.command.interactive (falling back to
+	// sandbox.command.default when interactive is unset). Empty for v1 kits
+	// and for v2 kits with no command distinction; callers on the interactive
+	// attach path fall back to RunOptions when this is empty.
+	InteractiveOptions []string `json:"interactiveOptions,omitempty" yaml:"interactiveOptions,omitempty"`
 
 	// Resources optionally constrains container CPU, memory, and GPU.
 	Resources *Resources `json:"resources,omitempty" yaml:"resources,omitempty"`
+
+	// Build optionally describes how to build the sandbox image from a
+	// Dockerfile, as an alternative to pulling a pre-built Template (image).
+	// Forward-compat (RFC §490, P1): accepted at decode time so kits and the
+	// published v2 docs can declare it, but NOT yet wired — the runtime does
+	// not build images from this block in this release. A kit that sets
+	// `build:` must still set `sandbox.image`; build-only kits are rejected at
+	// load with an actionable error. See BuildConfig.
+	Build *BuildConfig `json:"build,omitempty" yaml:"build,omitempty"`
 
 	// Security defines container security settings.
 	Security *Security `json:"security,omitempty" yaml:"security,omitempty"`
@@ -193,6 +216,36 @@ type Resources struct {
 	GPU string `json:"gpu,omitempty" yaml:"gpu,omitempty"`
 }
 
+// BuildConfig describes how to build a container image from a Dockerfile,
+// an alternative to referencing a pre-built image (RFC §490, P1).
+//
+// Forward-compat only: this block is accepted at decode time so kit authors
+// and the published v2 docs can declare it, but the runtime does NOT build
+// images from it in this release. A kit that sets `build:` must still set
+// `sandbox.image` (the image is the source of truth this release); a
+// build-only kit is rejected at load with an actionable error. When the
+// build path lands, omitted fields take their documented defaults
+// (Context ".", Dockerfile "Dockerfile") — defaults are intentionally not
+// applied here so the decoded form round-trips exactly as written.
+type BuildConfig struct {
+	// Context is the build context directory, relative to spec.yaml.
+	// Default "." when the build path is implemented.
+	Context string `json:"context,omitempty" yaml:"context,omitempty"`
+
+	// Dockerfile is the Dockerfile path, relative to Context.
+	// Default "Dockerfile" when the build path is implemented.
+	Dockerfile string `json:"dockerfile,omitempty" yaml:"dockerfile,omitempty"`
+
+	// Args are build arguments passed to `docker build --build-arg`.
+	Args map[string]string `json:"args,omitempty" yaml:"args,omitempty"`
+
+	// Target selects a multi-stage build target.
+	Target string `json:"target,omitempty" yaml:"target,omitempty"`
+
+	// Platforms lists target platforms (e.g. "linux/amd64", "linux/arm64").
+	Platforms []string `json:"platforms,omitempty" yaml:"platforms,omitempty"`
+}
+
 // NetworkPolicy defines network rules for which external domains the agent
 // communicates with and how to authenticate.
 type NetworkPolicy struct {
@@ -213,7 +266,7 @@ type NetworkPolicy struct {
 
 	// PublishedPorts is the v1 location for declared ports
 	// (`network.publishedPorts`). In v2 this moved to the top-level
-	// `publishedPorts:` field; normalize promotes this shim there with a
+	// `ports:` field; normalize promotes this shim there with a
 	// deprecation warning. Retained only so v1 spec.yaml still decodes
 	// under strict (KnownFields) decoding. Removed in the Phase 6 cutover.
 	//
@@ -331,8 +384,15 @@ func (c Credential) RoutingHosts() []string {
 // (set to the literal "proxy-managed" by the engine when this credential
 // is wired up).
 type ApiKey struct {
-	Name   string         `json:"name" yaml:"name"`
-	Inject []ApiKeyInject `json:"inject,omitempty" yaml:"inject,omitempty"`
+	Name string `json:"name" yaml:"name"`
+	// ProxyManaged, when true, makes the engine set Name to the literal
+	// "proxy-managed" sentinel inside the container (the sentinel-swap proxy
+	// replaces it on the matching inject domains). Default false: a credential
+	// is injected by the proxy on its domains but its env var is NOT set
+	// in-container unless this is set. Re-expresses the removed v1
+	// environment.proxyManaged list per-credential.
+	ProxyManaged bool           `json:"proxyManaged,omitempty" yaml:"proxyManaged,omitempty"`
+	Inject       []ApiKeyInject `json:"inject,omitempty" yaml:"inject,omitempty"`
 }
 
 // ApiKeyInject describes one (domain, header) injection rule for an
@@ -348,6 +408,16 @@ type ApiKeyInject struct {
 	// as the password. Used by the github kit for git HTTPS clone
 	// (`x-access-token` as the literal username).
 	Username string `json:"username,omitempty" yaml:"username,omitempty"`
+
+	// Scheme is a v2-only decode-time sugar that selects the header
+	// encoding without spelling out Format: "bearer" expands to
+	// Format "Bearer %s"; "basic" marks the entry as HTTP Basic Auth
+	// (username-driven). normalizeV2 expands Scheme into Format/Username
+	// and clears it, so the canonical Artifact never carries a scheme —
+	// consumers read Format/Username exactly as before. Mutually
+	// exclusive with a raw Format (validated at load). Always empty on a
+	// normalized Artifact.
+	Scheme string `json:"-" yaml:"scheme,omitempty"`
 }
 
 // CredentialSource defines how to discover a credential for a specific service.
@@ -395,6 +465,69 @@ type Caps struct {
 type CapsNetwork struct {
 	Allow []string `json:"allow,omitempty" yaml:"allow,omitempty"`
 	Deny  []string `json:"deny,omitempty" yaml:"deny,omitempty"`
+}
+
+// Requires declares composition preconditions for a kit. Today it carries
+// only base-agent affinity — the base agent a mixin is designed to layer onto.
+// Env vars, credentials, and settings a mixin injects are often agent-specific
+// (e.g. Claude Code's ANTHROPIC_* variables mean nothing to a codex sandbox),
+// so a mixin can pin the base agent it makes sense on.
+//
+// The spec library validates only well-formedness; enforcement — rejecting a
+// mixin applied to a non-matching base agent — lives in the consumer that
+// performs composition, alongside Locked and Licenses.
+type Requires struct {
+	// Agent is the base-agent name this kit is designed for. When set,
+	// composing the kit onto a different base agent is a composition error.
+	// Absent or empty means the kit declares no affinity and layers onto any
+	// base agent. A single agent, not a set: affinity exists to prevent
+	// misapplication, and an "any of these" set would defeat that guarantee.
+	// Broader family matching (claude and its claude-* variants) is left to
+	// the consumer's extends-lineage check, not an explicit list.
+	Agent string `json:"agent,omitempty" yaml:"agent,omitempty"`
+}
+
+// KitArg declares one caller-supplied argument the kit accepts. A
+// `${{ kit.args.<name> }}` placeholder anywhere in spec.yaml or under files/
+// is replaced with the argument's value before the spec is decoded, which is
+// how an argument can parameterize any value in the grammar without the
+// schema knowing which one.
+//
+// Declaring arguments is what makes them discoverable: the block names the
+// kit's inputs, their meaning, and the values they accept, so a reader, a
+// `kit inspect`, and a registry UI all see the same contract. Because the
+// block lives in spec.yaml it is covered by the kit's signature — the
+// declaration and its defaults are signed, while a caller's substituted
+// values are not.
+//
+// Exactly one of Default or Required is declared: an argument either has a
+// fallback and is optional, or has none and must be supplied. The spec
+// library validates the declaration's well-formedness only; resolving a
+// value and rejecting one that fails Enum or Pattern lives in the consumer
+// that performs the substitution.
+type KitArg struct {
+	// Default is the value substituted when the caller supplies none. A nil
+	// default means the argument is required; an empty-string default is a
+	// real default and is honored as one.
+	Default *string `json:"default,omitempty" yaml:"default,omitempty"`
+
+	// Required marks an argument the caller must supply. It is the explicit
+	// spelling of "no default", and declaring it alongside Default is an
+	// error.
+	Required bool `json:"required,omitempty" yaml:"required,omitempty"`
+
+	// Description is the human-readable explanation shown wherever a kit's
+	// inputs are listed.
+	Description string `json:"description,omitempty" yaml:"description,omitempty"`
+
+	// Enum restricts the value to an exact set. Mutually exclusive with
+	// Pattern, which an exact set makes redundant.
+	Enum []string `json:"enum,omitempty" yaml:"enum,omitempty"`
+
+	// Pattern restricts the value to a Go (RE2) regexp matched against the
+	// whole value, not merely a substring of it. Mutually exclusive with
+	// Enum.
+	Pattern string `json:"pattern,omitempty" yaml:"pattern,omitempty"`
 }
 
 // EnvironmentPolicy defines environment variables to set in the container.
@@ -491,11 +624,40 @@ type ArtifactFile struct {
 	// Mode is the file permissions (default 0644).
 	Mode int64 `json:"mode"`
 
-	// Content holds the raw file bytes.
+	// Content holds the raw file bytes. Eager loaders (LoadFromDirectory,
+	// LoadFromFS) populate this field; streaming loaders
+	// (OpenFromDirectory, OpenFromFS) leave it nil and set ContentSource
+	// instead. Content is always non-nil (even for empty files) on the
+	// eager path. LoadArtifactFromBytes never populates Content (it has no notion
+	// of a file source; callers populate Files from their own source).
 	Content []byte `json:"content"`
 
 	// Size is the file size in bytes.
 	Size int64 `json:"size"`
+
+	// ContentSource streams this file's content on demand. Streaming loaders
+	// set it; eager loaders leave it nil. The tag json:"-" ensures that
+	// a function value — which is not JSON-serializable — is always omitted
+	// from marshaling. Call Open to obtain a reader regardless of which
+	// loading strategy was used.
+	ContentSource func() (io.ReadCloser, error) `json:"-"`
+}
+
+// Open returns a reader for this file's content. It follows this precedence:
+//   - If Content is non-nil (eager path), returns a reader backed by Content.
+//   - Otherwise, if ContentSource is non-nil (streaming path), calls it.
+//   - If neither is set, returns an error.
+//
+// Callers are responsible for closing the returned ReadCloser. Calling Open
+// multiple times on a streaming file yields independent readers.
+func (f *ArtifactFile) Open() (io.ReadCloser, error) {
+	if f.Content != nil {
+		return io.NopCloser(bytes.NewReader(f.Content)), nil
+	}
+	if f.ContentSource != nil {
+		return f.ContentSource()
+	}
+	return nil, fmt.Errorf("artifact file %q: no content or content source", f.RelativePath)
 }
 
 // Artifact represents a fully loaded and validated kit artifact.
@@ -506,11 +668,36 @@ type Artifact struct {
 	// Extends is the optional parent kit name for single-parent inheritance.
 	Extends string `json:"extends,omitempty"`
 
+	// Mixins lists horizontal-composition components applied after the
+	// extends chain resolves (RFC §362, P1). Forward-compat: accepted at
+	// decode time so kits and the published v2 docs can declare it, but
+	// mixin composition is not wired in this release — the field has no
+	// runtime effect yet (a load-time warning fires when it is used).
+	Mixins []string `json:"mixins,omitempty"`
+
+	// Requires declares composition preconditions — currently base-agent
+	// affinity (see Requires). The spec library validates well-formedness;
+	// enforcement lives in the consumer that performs composition.
+	Requires *Requires `json:"requires,omitempty"`
+
 	// Locked lists dotted YAML paths (e.g. "agent.image") on this artifact
 	// that child kits must not override during single-parent inheritance.
 	// The spec library only validates well-formedness; enforcement lives
 	// in the consumer that performs the merge.
 	Locked []string `json:"locked,omitempty"`
+
+	// Licenses lists SPDX license identifiers governing the kit (RFC §280,
+	// P2). The spec library only validates well-formedness; composition
+	// (union of parent/mixin licenses) lives in the consumer that performs
+	// the merge. Declarative metadata with no runtime effect.
+	Licenses []string `json:"licenses,omitempty"`
+
+	// Args declares the caller-supplied arguments the kit accepts, keyed by
+	// argument name (see KitArg). A map rather than a list because the name
+	// is the key a `${{ kit.args.<name> }}` placeholder selects. The spec
+	// library validates the declarations; substitution happens in the
+	// consumer, before the spec is decoded.
+	Args map[string]KitArg `json:"args,omitempty"`
 
 	// PublishedPorts lists in-container ports the kit wants the runtime to
 	// publish on the host when the sandbox starts. It is a top-level
@@ -572,7 +759,7 @@ type OAuthPolicy struct {
 // minus Service (the service identifier comes from the parent Credential),
 // and with Passthrough replacing PassthroughResponse (renamed; same
 // semantics — Passthrough = true opts out of sentinel masking, a security
-// downgrade flagged with a warning at load time).
+// downgrade).
 //
 // A `passthroughReason: ...` field is deliberately NOT included in this
 // release. Whether passthrough should require a documented justification is
@@ -671,18 +858,21 @@ func (p *OAuthPolicy) ResolvedResponseFields() OAuthResponseFields {
 	return fields
 }
 
-// specFile is the on-disk YAML schema for spec.yaml.
-type specFile struct {
+// SpecFile is the on-disk YAML schema for spec.yaml.
+type SpecFile struct {
 	Manifest `yaml:",inline"`
 	// Volumes is the polymorphic-decode wrapper for the `volumes:` YAML
 	// key, handling both the v1 mapping shape and the v2 sequence shape.
 	// Manifest.Volumes carries `yaml:"-"` so this field owns the decode;
 	// normalize folds Volumes.List + Volumes.LegacyMap into the canonical
 	// Manifest.Volumes slice.
-	Volumes volumesField  `yaml:"volumes,omitempty"`
-	Extends string        `yaml:"extends,omitempty"`
-	Locked  []string      `yaml:"locked,omitempty"`
-	Sandbox *sandboxBlock `yaml:"sandbox,omitempty"`
+	Volumes  volumesField  `yaml:"volumes,omitempty"`
+	Extends  string        `yaml:"extends,omitempty"`
+	Mixins   []string      `yaml:"mixins,omitempty"`
+	Requires *Requires     `yaml:"requires,omitempty"`
+	Locked   []string      `yaml:"locked,omitempty"`
+	Licenses []string      `yaml:"licenses,omitempty"`
+	Sandbox  *sandboxBlock `yaml:"sandbox,omitempty"`
 	// LegacyAgent holds the v1 `agent:` block. The normalize step
 	// migrates its contents to Sandbox with a deprecation warning. Drop
 	// in the Phase 6 schema-cutover commit.
@@ -695,7 +885,8 @@ type specFile struct {
 	// LegacyNetwork / LegacyOAuth / Environment.ProxyManaged
 	// shims into Artifact.Credentials.
 	Credentials credentialsField `yaml:"credentials,omitempty"`
-	// PublishedPorts is the v2 canonical top-level `publishedPorts:` list.
+	// PublishedPorts is the v1 top-level `publishedPorts:` list (the v2
+	// grammar spells this key `ports` in the separate specFileV2 decoder).
 	// Decoded directly from YAML; normalize also promotes the v1
 	// LegacyNetwork.PublishedPorts shim into this slice.
 	PublishedPorts []PublishedPort `yaml:"publishedPorts,omitempty"`
@@ -795,6 +986,16 @@ func (c *credentialsField) UnmarshalYAML(node *yaml.Node) error {
 	}
 }
 
+func (c credentialsField) MarshalYAML() (interface{}, error) {
+	if len(c.LegacySources) > 0 {
+		return map[string]any{"sources": c.LegacySources}, nil
+	}
+	if len(c.List) == 0 {
+		return nil, nil
+	}
+	return c.List, nil
+}
+
 // volumesField is the specFile-level polymorphic wrapper for the `volumes:`
 // YAML key. PR #37 replaced the v1 mapping shape
 // (`volumes: { /path: "size" }`) with the v2 sequence shape
@@ -831,11 +1032,22 @@ func (v *volumesField) UnmarshalYAML(node *yaml.Node) error {
 	}
 }
 
+func (v volumesField) MarshalYAML() (interface{}, error) {
+	if len(v.LegacyMap) > 0 {
+		return v.LegacyMap, nil
+	}
+	if len(v.List) == 0 {
+		return nil, nil
+	}
+	return v.List, nil
+}
+
 // sandboxBlock groups sandbox-specific configuration (formerly the
 // `agent:` block in v1). The Go type was renamed alongside the YAML
 // field rename to keep call sites legible.
 type sandboxBlock struct {
 	Image      string           `yaml:"image,omitempty"`
+	Build      *BuildConfig     `yaml:"build,omitempty"`
 	Entrypoint *entrypointBlock `yaml:"entrypoint,omitempty"`
 	AIFilename string           `yaml:"aiFilename,omitempty"`
 	Resources  *Resources       `yaml:"resources,omitempty"`

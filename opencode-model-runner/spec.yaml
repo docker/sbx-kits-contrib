@@ -1,20 +1,25 @@
-schemaVersion: "1"
-kind: agent
+schemaVersion: "2"
+kind: sandbox
 name: opencode-model-runner
 displayName: OpenCode (Docker Model Runner)
 description: OpenCode wired to a local Docker Model Runner instance via its OpenAI-compatible API, with automatic model discovery.
-
-agent:
-  image: "docker/sandbox-templates:opencode-docker"
-  aiFilename: AGENTS.md
+sandbox:
+  image: docker/sandbox-templates:opencode-docker
   entrypoint:
-    run: [opencode]
-
-commands:
-  initFiles:
+    - opencode
+agentInstructions:
+  filename: AGENTS.md
+permissions:
+  network:
+    allow:
+      # The provider baseURL every model request hits.
+      - host.docker.internal:12434
+      # OpenCode installs the opencode-models-discovery plugin from npm at
+      # startup; packument and tarball both come from this host.
+      - registry.npmjs.org
+setup:
+  files:
     - path: /home/agent/.config/opencode/opencode.json
-      mode: "0644"
-      description: Configure OpenCode to use the local Docker Model Runner
       content: |
         {
           "$schema": "https://opencode.ai/config.json",
@@ -36,3 +41,5 @@ commands:
             }
           }
         }
+      mode: "0644"
+      description: Configure OpenCode to use the local Docker Model Runner

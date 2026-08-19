@@ -1,33 +1,34 @@
-schemaVersion: "1"
+schemaVersion: "2"
 kind: mixin
 name: packages-through-sfw
 displayName: Packages through SFW
-description: "Installs Socket Firewall Free and routes npm, pip, pip3, and python3 -m pip commands through sfw when resolved through PATH."
-
-network:
-  allowedDomains:
-    - "github.com:443"
-    - "release-assets.githubusercontent.com:443"
-    - "api.socket.dev:443"
-    - "socket.dev:443"
-    - "registry.npmjs.org:443"
-    - "pypi.org:443"
-    - "files.pythonhosted.org:443"
-    # `apt-get update` (run by the first install hook) refreshes metadata
-    # for every configured apt source. The shell-docker base template
-    # ships three sources, all of which must succeed for the update to
-    # exit 0, regardless of which one our install actually fetches from.
-    # Ubuntu hosts amd64 packages on archive/security and arm64 packages
-    # on ports.ubuntu.com, so all three Ubuntu hosts are listed for
-    # cross-arch coverage.
-    - "archive.ubuntu.com:80"        # Ubuntu archive (amd64 main, HTTP)
-    - "security.ubuntu.com:80"       # Ubuntu security updates (amd64, HTTP)
-    - "ports.ubuntu.com:80"          # Ubuntu archive/security (arm64, HTTP)
-    - "download.docker.com:443"      # Docker's apt repo, pre-added by shell-docker
-
-commands:
+description: Installs Socket Firewall Free and routes npm, pip, pip3, and python3 -m pip commands through sfw when resolved through PATH.
+permissions:
+  network:
+    allow:
+      - "github.com:443"
+      # Confirmed by hand: github.com's release-download redirect target.
+      - "objects.githubusercontent.com:443"
+      - "release-assets.githubusercontent.com:443"
+      - "api.socket.dev:443"
+      - "socket.dev:443"
+      - "registry.npmjs.org:443"
+      - "pypi.org:443"
+      - "files.pythonhosted.org:443"
+      # `apt-get update` (run by the first install hook) refreshes metadata
+      # for every configured apt source. The shell-docker base template
+      # ships three sources, all of which must succeed for the update to
+      # exit 0, regardless of which one our install actually fetches from.
+      # Ubuntu hosts amd64 packages on archive/security and arm64 packages
+      # on ports.ubuntu.com, so all three Ubuntu hosts are listed for
+      # cross-arch coverage.
+      - "archive.ubuntu.com:80"        # Ubuntu archive (amd64 main, HTTP)
+      - "security.ubuntu.com:80"       # Ubuntu security updates (amd64, HTTP)
+      - "ports.ubuntu.com:80"          # Ubuntu archive/security (arm64, HTTP)
+      - "download.docker.com:443"      # Docker's apt repo, pre-added by shell-docker
+setup:
   install:
-    - command: "apt-get update && apt-get install -y --no-install-recommends ca-certificates curl nodejs npm python3-pip && rm -rf /var/lib/apt/lists/*"
+    - command: apt-get update && apt-get install -y --no-install-recommends ca-certificates curl nodejs npm python3-pip && rm -rf /var/lib/apt/lists/*
       user: "0"
       description: Install package-manager prerequisites
     - command: |
@@ -54,7 +55,7 @@ commands:
         rm -f /tmp/sfw
         sfw --version
       user: "0"
-      description: "Install Socket Firewall Free v1.10.0, version+digest pinned"
+      description: Install Socket Firewall Free v1.10.0, version+digest pinned
     - command: |
         set -euo pipefail
         mkdir -p /usr/local/lib/packages-through-sfw/shims

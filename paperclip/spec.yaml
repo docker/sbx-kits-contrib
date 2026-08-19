@@ -1,0 +1,56 @@
+schemaVersion: "2"
+kind: sandbox
+name: paperclip
+displayName: Paperclip
+description: Open-source app for managing AI agents at work — Node.js server + React UI orchestrating a team of agents. Uses a pre-baked image so sandboxes start in seconds.
+sandbox:
+  # Pre-baked image: Node 22 + paperclipai @ pinned version (server, built
+  # UI, embedded-postgres) on the claude-code template so the claude_local
+  # adapter has Claude Code available. Built and published by
+  # build-and-publish-kits.yml, the shared kit-image pipeline (see
+  # ../PUBLISHING.md) -- no bespoke workflow needed, same as kiro/copilot.
+  image: docker.io/sbx/paperclip-image:latest
+  entrypoint:
+    - /usr/local/bin/paperclip-start
+permissions:
+  network:
+    allow:
+      # Every domain the anthropic credential injects into -- required here
+      # too, not just below: this repo's e2e runs every kit under
+      # `sbx policy init deny-all`, so a domain absent from this list is
+      # unreachable regardless of what the credential block declares.
+      - api.anthropic.com
+      - claude.ai
+      - console.anthropic.com
+      - registry.npmjs.org
+      - '*.npmjs.org'
+      - github.com:443
+      - raw.githubusercontent.com:443
+      - objects.githubusercontent.com:443
+      - paperclip.ing:443
+ports:
+  - container: 3100
+    name: web
+credentials:
+  - service: anthropic
+    apiKey:
+      name: ANTHROPIC_API_KEY
+      proxyManaged: true
+      inject:
+        - domain: api.anthropic.com
+          header: x-api-key
+          format: '%s'
+        - domain: claude.ai
+          header: x-api-key
+          format: '%s'
+        - domain: console.anthropic.com
+          header: x-api-key
+          format: '%s'
+environment:
+  variables:
+    HOST: 0.0.0.0
+    PAPERCLIP_BIND: lan
+    PAPERCLIP_DEPLOYMENT_MODE: authenticated
+    PAPERCLIP_HOME: /home/agent/.paperclip
+    PAPERCLIP_TELEMETRY_DISABLED: "1"
+    SERVE_UI: "true"

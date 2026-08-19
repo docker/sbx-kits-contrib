@@ -8,14 +8,14 @@ import (
 )
 
 // TestClaudeOllamaSettingsLift verifies the Phase 4 Stage C lift of the
-// claude-ollama kit. Shared helpers (findSettingsStartup, runStartupScript)
+// claude-ollama kit. Shared helpers (findSettingsInstall, runSettingsInstallScript)
 // and the oracle constants live in kit_settings_lift_test.go.
 //
 // claude-ollama declares no credential service (Ollama is a local model; the
 // wrapper unsets ANTHROPIC_API_KEY and routes Claude Code at
 // host.docker.internal:11434), so SBX_CRED_ANTHROPIC_MODE is never set in the
-// real container. The lifted startup therefore always takes the unset -> none
-// path: settings.json without apiKeyHelper.
+// real container. The lifted install command therefore always takes the unset
+// -> none path: settings.json without apiKeyHelper.
 func TestClaudeOllamaSettingsLift(t *testing.T) {
 	a, err := LoadFromDirectory("../claude-ollama")
 	require.NoError(t, err)
@@ -25,17 +25,24 @@ func TestClaudeOllamaSettingsLift(t *testing.T) {
 	require.NotContains(t, strings.Join(a.Warnings, "\n"), "settings",
 		"claude-ollama settings block must be removed; got warnings %v", a.Warnings)
 
-	// (b) a commands.startup entry exists.
+	// (b) a commands.install entry exists.
 	require.NotNil(t, a.Commands)
-	require.NotEmpty(t, a.Commands.Startup, "claude-ollama must have commands.startup")
+	require.NotEmpty(t, a.Commands.Install, "claude-ollama must have commands.install")
 
-	sc := findSettingsStartup(t, a.Commands)
-	require.Contains(t, sc.Command[2], "SBX_CRED_ANTHROPIC_MODE")
+	ic := findSettingsInstall(t, a.Commands)
+	require.Contains(t, ic.Command, "SBX_CRED_ANTHROPIC_MODE")
 
 	// No credential service: both unset and explicit =none yield the none
 	// oracle (no apiKeyHelper).
 	require.Equal(t, claudeSettingsNone,
-		runStartupScript(t, sc.Command[2], "SBX_CRED_ANTHROPIC_MODE=none"))
+		runSettingsInstallScript(t, ic.Command, "SBX_CRED_ANTHROPIC_MODE=none"))
 	require.Equal(t, claudeSettingsNone,
-		runStartupScript(t, sc.Command[2], "SBX_CRED_ANTHROPIC_MODE="))
+		runSettingsInstallScript(t, ic.Command, "SBX_CRED_ANTHROPIC_MODE="))
+
+	// (c) apikey branch parity: the lifted script is copy-shared across the
+	// claude-family kits, so its apikey path must still produce the
+	// apiKeyHelper oracle even though this kit never sets the mode in a real
+	// container. This guards the shared script contract against drift.
+	require.Equal(t, claudeSettingsAPIKey,
+		runSettingsInstallScript(t, ic.Command, "SBX_CRED_ANTHROPIC_MODE=apikey"))
 }
