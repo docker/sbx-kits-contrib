@@ -55,7 +55,7 @@ setup:
     - command:
         - sh
         - -c
-        - CFG=$HOME/.zeroclaw/config.toml; [ -n "$ANTHROPIC_API_KEY" ] && grep -q __ANTHROPIC_API_KEY__ $CFG 2>/dev/null && sed -i "s/__ANTHROPIC_API_KEY__/$ANTHROPIC_API_KEY/" $CFG || true
+        - CFG=$HOME/.zeroclaw/config.toml; [ -n "$ANTHROPIC_API_KEY" ] && grep -q __ANTHROPIC_API_KEY__ "$CFG" 2>/dev/null && sed -i "s/__ANTHROPIC_API_KEY__/$ANTHROPIC_API_KEY/" "$CFG" || true
       user: "1000"
       description: Template the proxy-managed key into config.toml at sandbox start
   files:
