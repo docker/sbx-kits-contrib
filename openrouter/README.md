@@ -13,9 +13,10 @@ billing, and provider failover while still using Claude Code.
 ## Usage
 
 ```console
-$ export OPENROUTER_API_KEY=sk-or-...
-$ sbx run --kit "git+https://github.com/docker/sbx-kits-contrib.git#dir=openrouter" claude ~/my-project
-$ sbx run --kit ./openrouter/ claude ~/my-project
+export OPENROUTER_API_KEY=sk-or-...
+sbx run --kit "docker.io/sbx/openrouter-kit:latest" claude ~/my-project
+sbx run --kit "git+https://github.com/docker/sbx-kits-contrib.git#dir=openrouter" claude ~/my-project
+sbx run --kit ./openrouter/ claude ~/my-project
 ```
 
 The agent name passed to `sbx run` (`claude`) is the base agent the mixin
@@ -31,11 +32,11 @@ cheaper or non-Anthropic one), save `spec.yaml` to a local directory, edit the
 path:
 
 ```console
-$ mkdir openrouter
-$ curl -o openrouter/spec.yaml \
+mkdir openrouter
+curl -o openrouter/spec.yaml \
     https://raw.githubusercontent.com/docker/sbx-kits-contrib/main/openrouter/spec.yaml
-$ # edit the ANTHROPIC_DEFAULT_*_MODEL values in openrouter/spec.yaml
-$ sbx run --kit ./openrouter claude ~/my-project
+# edit the ANTHROPIC_DEFAULT_*_MODEL values in openrouter/spec.yaml
+sbx run --kit ./openrouter claude ~/my-project
 ```
 
 ## How it works
