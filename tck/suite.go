@@ -34,6 +34,12 @@ type Suite struct {
 	// Artifact is the loaded and validated kit artifact.
 	Artifact *spec.Artifact
 
+	// Dir is the kit directory the artifact was loaded from. Assertions that
+	// need kit-supplied expectations (rather than ones derived from the spec)
+	// read them from <Dir>/testdata/. Empty when the suite was built from an
+	// already-loaded artifact rather than a directory.
+	Dir string
+
 	// Image is the container image used for integration tests.
 	Image string
 
@@ -58,6 +64,7 @@ func (s *Suite) RunAll(t *testing.T) {
 		s.RunEnvironmentPolicyTests(t)
 		s.RunCommandsValidationTests(t)
 		s.RunOAuthPolicyTests(t)
+		s.RunMCPRegistrationTests(t)
 
 		// Container tests — single container for all assertions
 		s.RunContainerTests(t)
@@ -86,7 +93,13 @@ func (s *Suite) RunContainerTests(t *testing.T) {
 			require.NoError(t, err)
 			require.Equal(t, 0, code, "mkdir -p %s failed", parentDir)
 
-			err = container.CopyToContainer(ctx, f.Content, containerPath, f.Mode)
+			rc, err := f.Open()
+			require.NoError(t, err, "failed to open %s for container copy", containerPath)
+			fileBytes, readErr := io.ReadAll(rc)
+			closeErr := rc.Close()
+			require.NoError(t, readErr, "failed to read %s for container copy", containerPath)
+			require.NoError(t, closeErr, "failed to close %s after read", containerPath)
+			err = container.CopyToContainer(ctx, fileBytes, containerPath, f.Mode)
 			require.NoError(t, err, "failed to copy %s to container", containerPath)
 		}
 
@@ -246,7 +259,7 @@ func (s *Suite) RunValidationTests(t *testing.T) {
 
 		t.Run("required_fields", func(t *testing.T) {
 			require.NotEmpty(t, m.SchemaVersion, "schemaVersion is required")
-			require.Equal(t, spec.SchemaVersion, m.SchemaVersion, "schemaVersion must be %q", spec.SchemaVersion)
+			require.Contains(t, spec.SupportedSchemaVersions, m.SchemaVersion, "schemaVersion must be one of %v", spec.SupportedSchemaVersions)
 			require.NotEmpty(t, m.Kind, "kind is required")
 			require.NotEmpty(t, m.Name, "name is required")
 			require.NotEmpty(t, m.DisplayName, "displayName is required")
@@ -556,17 +569,37 @@ func readOutput(t *testing.T, r io.Reader) string {
 	return strings.TrimRight(buf.String(), "\n\r ")
 }
 
-// containerImage returns the image to use for container tests,
-// resolving well-known agent templates for mixins with extends.
+// containerImage returns the image to use for container tests, resolving a
+// well-known agent template for a mixin from either extends or its declared
+// base-agent affinity (requires.agent).
+//
+// After normalize, both v1 `kind: agent` and v2 `kind: sandbox` end up as
+// KindSandbox (spec/normalize.go migrates the v1 alias with a deprecation
+// warning), so this check matches every non-mixin kit — including v2-native
+// specs that never wrote `kind: agent`.
 func containerImage(a *spec.Artifact) (string, error) {
-	if a.Manifest.Kind == spec.KindAgent {
-		if a.Manifest.Template == "" {
-			return "", fmt.Errorf("agent artifact %q has no template", a.Manifest.Name)
+	if a.Manifest.Kind == spec.KindSandbox {
+		if a.Manifest.Template != "" {
+			return a.Manifest.Template, nil
 		}
-		return a.Manifest.Template, nil
+		// A sandbox may omit template when it inherits its image from an
+		// extends parent — ValidateArtifact allows this, and it is the
+		// recommended shape for a derived agent. Resolve a well-known extends
+		// parent's template; otherwise the author must supply WithImage.
+		if a.Extends != "" {
+			if tmpl, ok := wellKnownTemplates[a.Extends]; ok {
+				return tmpl, nil
+			}
+			return "", fmt.Errorf(
+				"sandbox %q extends unknown agent %q and sets no template; use WithImage to specify the container image",
+				a.Manifest.Name, a.Extends,
+			)
+		}
+		return "", fmt.Errorf("sandbox artifact %q has no template", a.Manifest.Name)
 	}
 
-	// kind=mixin: resolve from extends or default to shell
+	// kind=mixin: extends must resolve to a well-known agent template — an
+	// extends parent the TCK can't resolve is an authoring error.
 	if a.Extends != "" {
 		if tmpl, ok := wellKnownTemplates[a.Extends]; ok {
 			return tmpl, nil
@@ -575,6 +608,17 @@ func containerImage(a *spec.Artifact) (string, error) {
 			"mixin %q extends unknown agent %q; use WithImage to specify the container image",
 			a.Manifest.Name, a.Extends,
 		)
+	}
+
+	// requires.agent affinity: when the target is a well-known agent, run the
+	// container tests in its image so install/startup assertions exercise the
+	// base the mixin is designed for. Otherwise fall back to the shell default
+	// — affinity may name a custom agent whose template the TCK can't resolve,
+	// and the author can still override with WithImage.
+	if a.Requires != nil && a.Requires.Agent != "" {
+		if tmpl, ok := wellKnownTemplates[a.Requires.Agent]; ok {
+			return tmpl, nil
+		}
 	}
 
 	return DefaultShellImage, nil

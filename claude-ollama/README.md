@@ -16,6 +16,12 @@ offline development, cost-free experimentation, or testing with custom local mod
 ## Usage
 
 ```console
+$ sbx run --kit "docker.io/sbx/claude-ollama-kit:latest" claude-ollama ~/my-project
+```
+
+Or from a git URL or a local clone of this repo:
+
+```console
 $ sbx run --kit "git+https://github.com/docker/sbx-kits-contrib.git#dir=claude-ollama" claude-ollama ~/my-project
 $ sbx run --kit ./claude-ollama/ claude-ollama ~/my-project
 ```

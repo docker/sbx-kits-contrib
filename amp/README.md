@@ -43,7 +43,14 @@ the real secret on outbound requests to `ampcode.com`.
 
 ## Usage
 
-Run the kit. Pass the kit's name (`amp`) as the agent argument:
+Run the kit. Pass the kit's name (`amp`) as the agent argument. The primary
+form is its published OCI artifact on Docker Hub:
+
+```console
+$ sbx run --kit "docker.io/sbx/amp-kit:latest" amp
+```
+
+Or from a git URL targeting this repo:
 
 ```console
 $ sbx run --kit "git+https://github.com/docker/sbx-kits-contrib.git#dir=amp" amp

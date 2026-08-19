@@ -10,7 +10,7 @@
   },
   "providers": {
     "anthropic": {
-      "api_key": "proxy-managed"
+      "api_key": "${ANTHROPIC_API_KEY}"
     }
   },
   "tools": {

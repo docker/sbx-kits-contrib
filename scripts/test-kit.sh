@@ -44,4 +44,42 @@ if [ ! -f "$kit_abs/spec.yaml" ] && [ ! -f "$kit_abs/spec.yml" ]; then
 fi
 
 cd "$REPO_ROOT"
+
+# A kind:sandbox kit may build its own base image rather than consuming a
+# published one. The TCK's `container` subtest starts `sandbox.image`, so for
+# those kits it must test the image THIS working tree produces — not whatever
+# happens to be published under that tag.
+#
+# Without this the subtest would either pull a stale image (silently ignoring a
+# Dockerfile change in the branch) or fail outright with "pull access denied"
+# when the image has not been published yet, which is the normal state while a
+# kit is being introduced.
+#
+# Build failures are fatal: a kit that cannot build its own base image is broken.
+# Set SBX_KIT_SKIP_IMAGE_BUILD=1 to reuse an already-built local image instead.
+if [ -f "$kit_abs/Dockerfile" ] && [ -z "${SBX_KIT_SKIP_IMAGE_BUILD:-}" ]; then
+  spec_file="$kit_abs/spec.yaml"
+  [ -f "$spec_file" ] || spec_file="$kit_abs/spec.yml"
+
+  # Read sandbox.image with awk rather than a YAML parser to keep this script
+  # dependency-free (see scripts/README.md).
+  kit_image=$(awk '
+    /^sandbox:/      { in_sandbox = 1; next }
+    /^[^[:space:]#]/ { in_sandbox = 0 }
+    in_sandbox && $1 == "image:" {
+      gsub(/^[[:space:]]*image:[[:space:]]*/, "")
+      gsub(/^["'"'"']|["'"'"']$/, "")
+      print
+      exit
+    }
+  ' "$spec_file")
+
+  if [ -n "$kit_image" ]; then
+    echo "==> building $(basename "$kit_abs")/Dockerfile as ${kit_image}"
+    docker build -t "$kit_image" "$kit_abs"
+  else
+    echo "==> $(basename "$kit_abs") has a Dockerfile but no sandbox.image; skipping build" >&2
+  fi
+fi
+
 KIT="$kit_abs" exec go test -v -count=1 -timeout 10m -run TestKitTCK "$@" ./tck/...

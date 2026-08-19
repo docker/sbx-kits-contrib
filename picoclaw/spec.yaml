@@ -1,0 +1,116 @@
+schemaVersion: "2"
+kind: sandbox
+name: picoclaw
+displayName: PicoClaw
+description: Tiny, fast personal AI assistant (Go, single static binary) — agent CLI plus a channel gateway. Installs in seconds from the pinned upstream release; no custom image needed.
+sandbox:
+  image: docker/sandbox-templates:shell
+  entrypoint:
+    - /home/agent/.local/bin/picoclaw-start
+permissions:
+  network:
+    allow:
+      # Every domain the anthropic credential injects into -- required here
+      # too, not just below: this repo's e2e runs every kit under
+      # `sbx policy init deny-all`, so a domain absent from this list is
+      # unreachable regardless of what the credential block declares.
+      - api.anthropic.com
+      - claude.ai
+      - console.anthropic.com
+      # pinned release download at install time
+      - github.com:443
+      - objects.githubusercontent.com:443
+      - release-assets.githubusercontent.com:443
+      # chat platforms (enabled via config; tokens supplied by the user)
+      - '*.telegram.org'
+      - '*.discord.com'
+      - gateway.discord.gg
+      - '*.whatsapp.com'
+      - '*.whatsapp.net'
+      - '*.slack.com'
+ports:
+  - container: 18790
+    name: gateway
+  - container: 18791
+    name: webhook
+credentials:
+  - service: anthropic
+    apiKey:
+      name: ANTHROPIC_API_KEY
+      proxyManaged: true
+      inject:
+        - domain: api.anthropic.com
+          header: x-api-key
+          format: '%s'
+        - domain: claude.ai
+          header: x-api-key
+          format: '%s'
+        - domain: console.anthropic.com
+          header: x-api-key
+          format: '%s'
+environment:
+  variables:
+    PICOCLAW_GATEWAY_HOST: 0.0.0.0
+    PICOCLAW_HOME: /home/agent/.picoclaw
+setup:
+  install:
+    # Single static binary, ~10MB — a pinned release download is faster and
+    # lighter than maintaining a pre-baked image (see
+    # docs/recipe-prebaked-image-kit.md for when an image IS worth it).
+    - command: |
+        set -euo pipefail
+        v=v0.2.9
+        case "$(uname -m)" in
+          x86_64)
+            a=x86_64
+            SHA256=7e658f320e9d63779f4d1c32ea64bf474d903bc91d41afdc79c8f0572ab936b4
+            ;;
+          aarch64|arm64)
+            a=arm64
+            SHA256=a8989b1a409ec995cde454a17222d00eb5b0c9dbda08213e2f82d22526023c9f
+            ;;
+          *)
+            echo "unsupported sandbox arch: $(uname -m) (expected x86_64 or arm64)" >&2
+            exit 1
+            ;;
+        esac
+        curl --proto '=https' --tlsv1.2 -fsSL -o /tmp/picoclaw.tar.gz "https://github.com/sipeed/picoclaw/releases/download/$v/picoclaw_Linux_$a.tar.gz"
+        echo "${SHA256}  /tmp/picoclaw.tar.gz" | sha256sum -c -
+        tar -xzf /tmp/picoclaw.tar.gz -C /usr/local/bin picoclaw
+        rm /tmp/picoclaw.tar.gz
+        chmod 0755 /usr/local/bin/picoclaw
+      user: "0"
+      description: Install the pinned picoclaw release binary, SHA256-verified
+  startup:
+    - command:
+        - sh
+        - -c
+        - CFG=/home/agent/.picoclaw/config.json; [ -n "$ANTHROPIC_API_KEY" ] && grep -q __ANTHROPIC_API_KEY__ $CFG 2>/dev/null && sed -i "s/__ANTHROPIC_API_KEY__/$ANTHROPIC_API_KEY/" $CFG || true
+      user: "1000"
+      description: Template the proxy-managed key into config.json at sandbox start
+    # Absolute paths (startup commands run with a minimal env, no $HOME);
+    # health-endpoint guard (a pgrep -f guard would match its own shell's
+    # command line and never start the gateway).
+    - command:
+        - sh
+        - -c
+        - curl -fsS -m 2 http://127.0.0.1:18790/health >/dev/null 2>&1 || { mkdir -p /home/agent/.picoclaw; HOME=/home/agent setsid sh -c '/usr/local/bin/picoclaw gateway > /home/agent/.picoclaw/gateway.log 2>&1' & }
+      user: "1000"
+      description: Start the picoclaw gateway in the background (health at :18790/health)
+  files:
+    - path: /home/agent/.local/bin/picoclaw-start
+      content: |
+        #!/bin/sh
+        PCH="$HOME/.picoclaw"
+        if [ -n "$PICOCLAW_HOME" ]; then PCH="$PICOCLAW_HOME"; fi
+        CFG="$PCH/config.json"
+        if [ -n "$ANTHROPIC_API_KEY" ] && grep -q __ANTHROPIC_API_KEY__ "$CFG" 2>/dev/null; then
+            sed -i "s/__ANTHROPIC_API_KEY__/$ANTHROPIC_API_KEY/" "$CFG"
+        fi
+        if ! curl -fsS -m 2 http://127.0.0.1:18790/health >/dev/null 2>&1; then
+            mkdir -p "$PCH"
+            setsid sh -c "/usr/local/bin/picoclaw gateway > $PCH/gateway.log 2>&1" &
+        fi
+        exec /usr/local/bin/picoclaw agent
+      mode: "0755"
+      description: Entrypoint — template the proxy-managed key into config (picoclaw reads keys from config.json, not env), start the gateway, drop into the agent CLI
