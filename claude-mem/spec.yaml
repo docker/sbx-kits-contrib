@@ -103,8 +103,11 @@ setup:
               defaultMode: "bypassPermissions",
               bypassPermissionsModeAccepted: true,
             };
-            if (process.env.MODE !== "none") defaults.apiKeyHelper = "echo proxy-managed";
+            const SENTINEL = "echo proxy-managed";
+            if (process.env.MODE !== "none") defaults.apiKeyHelper = SENTINEL;
             for (const k of Object.keys(defaults)) if (!(k in s)) s[k] = defaults[k];
+            // Only clear our own sentinel, never a user-customized helper.
+            if (process.env.MODE === "none" && s.apiKeyHelper === SENTINEL) delete s.apiKeyHelper;
             s.enabledPlugins = s.enabledPlugins || {};
             if (!("claude-mem@thedotmack" in s.enabledPlugins)) s.enabledPlugins["claude-mem@thedotmack"] = true;
             fs.writeFileSync(p, JSON.stringify(s, null, 2));
