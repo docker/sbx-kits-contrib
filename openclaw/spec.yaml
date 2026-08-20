@@ -65,3 +65,15 @@ environment:
   variables:
     OPENCLAW_STATE_DIR: /home/agent/.openclaw
     PLAYWRIGHT_BROWSERS_PATH: /opt/ms-playwright
+setup:
+  startup:
+    # `sandbox.entrypoint` only runs on attach, so a created-but-never-attached
+    # sandbox had no gateway at all: the declared port 18789 answered nothing
+    # and `sbx exec <sandbox> -- openclaw ...` failed on a dead socket. Bring
+    # it up with the container instead. The script returns as soon as /readyz
+    # is green (~2s) and is a no-op when the gateway is already running, so
+    # the entrypoint still calls it after a stop/start.
+    - command:
+        - /usr/local/bin/openclaw-gateway-up
+      user: "1000"
+      description: Start the OpenClaw gateway so the published port and CLI work without attaching the TUI
