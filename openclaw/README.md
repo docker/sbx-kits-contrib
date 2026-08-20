@@ -73,8 +73,13 @@ headers, anything else as `x-api-key`. Anthropic rejects an OAuth token
 presented as `x-api-key`, so on an OAuth host the `apiKey` sentinel alone is
 not enough — OpenClaw has to be handed an OAuth-shaped token. That is what
 `openclaw-gateway-up.sh` does: when the OAuth credential file is present it
-exports `ANTHROPIC_OAUTH_TOKEN` (the declared sentinel) for the gateway, and
-the proxy swaps the real bearer in at egress, refreshing it host-side.
+exports `ANTHROPIC_OAUTH_TOKEN` (the declared sentinel), and the proxy swaps
+the real bearer in at egress, refreshing it host-side.
+
+The token reaches the gateway, the TUI, and `sbx exec` shells, via a small env
+file plus a `~/.profile` hook. Not gateway-only: the TUI runs the agent
+in-process, so a gateway-only export leaves it on the API-key path and fails
+with a rate-limit error that reads like a quota problem.
 
 The discriminator is that materialized credential file, not
 `SBX_CRED_ANTHROPIC_MODE` — the mode variable reports `none` even when this

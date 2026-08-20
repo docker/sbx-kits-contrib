@@ -1,21 +1,18 @@
 #!/bin/sh
 # OpenClaw sandbox entrypoint. The container's startup command already brought
 # the gateway up -- `setup.startup` runs on every container start, not just
-# create -- so this normally waits on the readiness sentinel and drops straight
-# into the interactive TUI.
+# create -- so this waits on the readiness sentinel and drops into the TUI.
 #
-# It waits rather than bootstrapping in parallel. Two concurrent
+# It waits rather than bootstrapping in parallel: two concurrent
 # openclaw-gateway-up runs both read "no token configured" and each write a
-# different one; last write wins, and a gateway that read config in between
-# then holds a token no later CLI call presents. `sbx run` creates and attaches
-# in one command, so that overlap is on the default path, not a corner case.
-#
-# The bounded fall-through keeps the safety net for a startup command that
-# failed: a non-zero setup.startup command neither fails `sbx create` nor
-# prints anything, so without it a silent failure would hang here forever.
+# different one, and `sbx run` creates and attaches in one command. The bounded
+# fall-through keeps the safety net for a startup command that failed silently,
+# since a non-zero setup.startup command neither fails `sbx create` nor prints
+# anything.
 set -e
 
-READY_FILE="${OPENCLAW_STATE_DIR:-/home/agent/.openclaw}/gateway-ready"
+STATE_DIR="${OPENCLAW_STATE_DIR:-/home/agent/.openclaw}"
+READY_FILE="$STATE_DIR/gateway-ready"
 BOOTSTRAP=/home/agent/.local/bin/openclaw-gateway-up.sh
 
 i=0
@@ -28,5 +25,12 @@ while [ ! -f "$READY_FILE" ]; do
     fi
     sleep 1
 done
+
+# The TUI runs the agent in-process rather than delegating every model call to
+# the gateway, so it needs the credential in its own environment. The bootstrap
+# writes this file only on an OAuth host.
+if [ -f "$STATE_DIR/anthropic-oauth.env" ]; then
+    . "$STATE_DIR/anthropic-oauth.env"
+fi
 
 exec openclaw chat

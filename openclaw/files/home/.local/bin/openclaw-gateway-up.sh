@@ -79,9 +79,20 @@ openclaw config get gateway.auth.token >/dev/null 2>&1 || \
 #
 # The sentinel must match spec.yaml credentials[].oauth.sentinels.accessToken.
 ANTHROPIC_OAUTH_SENTINEL=sk-ant-oat01-proxy-managed
+OAUTH_ENV_FILE="$STATE_DIR/anthropic-oauth.env"
 if grep -qF "$ANTHROPIC_OAUTH_SENTINEL" "$HOME/.claude/.credentials.json" 2>/dev/null; then
     ANTHROPIC_OAUTH_TOKEN="$ANTHROPIC_OAUTH_SENTINEL"
     export ANTHROPIC_OAUTH_TOKEN
+    # The token cannot live only in this process: the TUI runs the agent
+    # in-process and every `sbx exec` is a fresh shell, so both would fall back
+    # to the API-key sentinel and fail with a misleading rate-limit error.
+    printf "export ANTHROPIC_OAUTH_TOKEN=%s\\n" "$ANTHROPIC_OAUTH_SENTINEL" > "$OAUTH_ENV_FILE"
+    if ! grep -qF "$OAUTH_ENV_FILE" "$HOME/.profile" 2>/dev/null; then
+        printf "[ -f %s ] && . %s\\n" "$OAUTH_ENV_FILE" "$OAUTH_ENV_FILE" >> "$HOME/.profile"
+    fi
+else
+    # API-key host: never leave the OAuth var set, it outranks ANTHROPIC_API_KEY.
+    rm -f "$OAUTH_ENV_FILE"
 fi
 
 if ! gateway_ready; then
