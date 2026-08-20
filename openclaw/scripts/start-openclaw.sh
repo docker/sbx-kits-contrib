@@ -16,6 +16,18 @@ openclaw config get gateway.mode 2>/dev/null | grep -q local || \
 openclaw config get gateway.bind 2>/dev/null | grep -q lan || \
     openclaw config set gateway.bind lan
 
+# Any non-loopback bind is refused without a shared secret, so bind=lan
+# above makes gateway auth mandatory, not optional -- without a token the
+# gateway exits with EXIT_CONFIG_ERROR before it ever listens. Generate one
+# on first boot and persist it to config (not the environment): every later
+# `sbx exec` CLI call is a fresh process that resolves the token from
+# gateway.auth.token, so an exported variable would only authenticate this
+# process tree. auth.mode is left unset deliberately -- it defaults to
+# "token" whenever a token resolves.
+openclaw config get gateway.auth.token >/dev/null 2>&1 || \
+    openclaw config set gateway.auth.token \
+        "$(node -e 'process.stdout.write(require("crypto").randomBytes(32).toString("hex"))')"
+
 if ! curl -fsS "$GATEWAY_URL/readyz" >/dev/null 2>&1; then
     echo "Starting OpenClaw gateway..." >&2
     setsid sh -c "openclaw gateway run >> /home/agent/.openclaw/gateway.log 2>&1" &

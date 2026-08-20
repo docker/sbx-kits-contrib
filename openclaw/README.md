@@ -25,8 +25,9 @@ sbx run --kit "git+https://github.com/docker/sbx-kits-contrib.git#dir=openclaw" 
 
 On attach, the entrypoint starts the gateway in the background, waits for
 its `/readyz`, and drops you into `openclaw chat` (the interactive TUI).
-Loopback CLI connections are auto-approved for pairing, so there's no
-token handoff.
+The gateway token is generated on first boot and stored in
+`~/.openclaw/openclaw.json`, so every later `openclaw` call inside the
+sandbox authenticates itself with no token handoff on your side.
 
 ## Published ports
 
@@ -42,12 +43,32 @@ the declared ephemeral binding.
 
 ## How auth works
 
-The kit declares the Anthropic auth wiring in `credentials[].apiKey`
-(inject domains/header/format, `proxyManaged: true`); the sandbox proxy
-injects the real `ANTHROPIC_API_KEY` on egress, so the secret never
-enters the container. Other providers and channel tokens (Telegram,
-Discord, Slack, WhatsApp) are configured from inside the session via
-`openclaw onboard` / `openclaw configure`.
+Two unrelated credentials are in play: the model provider key, and the
+gateway's own shared secret.
+
+**Model provider.** The kit declares the Anthropic auth wiring in
+`credentials[].apiKey` (inject domains/header/format,
+`proxyManaged: true`); the sandbox proxy injects the real
+`ANTHROPIC_API_KEY` on egress, so the secret never enters the container.
+This is an API-key credential specifically — OpenClaw's native
+`anthropic` provider reads `ANTHROPIC_API_KEY` and its own auth profile
+store, and has no file-based OAuth path a kit could seed, so a host whose
+`anthropic` secret is an OAuth login (`sbx login`) rather than a stored
+API key leaves the proxy sentinel unswapped and every model call returns
+`401 invalid x-api-key`. Store a key with
+`sbx secret set --service anthropic` to drive the model. Other providers
+and channel tokens (Telegram, Discord, Slack, WhatsApp) are configured
+from inside the session via `openclaw onboard` / `openclaw configure`.
+
+**Gateway.** `gateway.bind` is `lan` (see the quirk below), and OpenClaw
+refuses any non-loopback bind that has no shared secret — it exits with a
+config error before it ever listens. So the token is mandatory here, not
+optional. The entrypoint generates one on first boot and persists it to
+`gateway.auth.token`; it deliberately does *not* export
+`OPENCLAW_GATEWAY_TOKEN`, because each `sbx exec` is a fresh process that
+would not inherit it, whereas config is read by every invocation.
+`gateway.auth.mode` is left unset — it defaults to `token` whenever a
+token resolves.
 
 ## Base image
 
@@ -70,9 +91,13 @@ kit is published separately as an OCI artifact at `docker.io/sbx/openclaw-kit`
 (see [Usage](#usage) above).
 
 One runtime quirk: the sandbox runtime seeds its own
-`~/.openclaw/openclaw.json` at create time, which lacks `gateway.mode` —
-the entrypoint idempotently runs `openclaw config set gateway.mode local`
-before starting the gateway.
+`~/.openclaw/openclaw.json` at create time, which lacks `gateway.mode`
+and `gateway.bind` — the entrypoint idempotently restores both before
+starting the gateway. `bind` must be `lan` (0.0.0.0) rather than the
+`loopback` default, because the port-forwarder targets the container's
+external interface like any other Docker port mapping; that in turn is
+what makes the gateway token mandatory (see
+[How auth works](#how-auth-works)).
 
 ### Building and publishing
 

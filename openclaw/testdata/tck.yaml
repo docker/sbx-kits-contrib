@@ -1,2 +1,7 @@
 binary: "openclaw"
-promptArgs: ["agent", "--message"]
+# `openclaw agent` requires an explicit target: without a selector it exits
+# with "No target session selected" before contacting the agent at all,
+# which still satisfies the prompt subtest's non-empty-output assertion
+# while proving nothing. `main` is the default agent id every fresh sandbox
+# ships with (`openclaw agents list`).
+promptArgs: ["agent", "--agent", "main", "--message"]
