@@ -1,0 +1,127 @@
+schemaVersion: "2"
+kind: mixin
+name: claude-mem
+displayName: claude-mem (persistent memory)
+description: 'Persistent context across Claude Code sessions: captures session activity into SQLite+FTS5, compresses with the Agent SDK, and injects relevant memory at session start. Tracks the latest claude-mem release.'
+requires:
+  agent: claude
+agentInstructions:
+  content: |
+    ## claude-mem
+
+    Persistent memory is active: session activity is captured into a local
+    SQLite database under `~/.claude-mem/` and relevant context is injected
+    at session start. Search past sessions with the mem-search skill or the
+    mcp-search MCP tools. The worker (viewer UI + live activity stream) runs
+    on port 37700 (publish with `sbx ports <sandbox> --publish 37700/tcp`
+    to browse from the host). Telemetry is disabled
+    (DO_NOT_TRACK=1).
+permissions:
+  network:
+    allow:
+      - registry.npmjs.org
+      - '*.npmjs.org'
+      - bun.sh:443
+      - astral.sh:443
+      - github.com:443
+      - api.github.com:443
+      - objects.githubusercontent.com:443
+      - release-assets.githubusercontent.com:443
+      - raw.githubusercontent.com:443
+      - pypi.org:443
+      - files.pythonhosted.org:443
+      - chroma-onnx-models.s3.amazonaws.com:443
+      # `requires.agent: claude` composes this mixin onto the built-in claude
+      # kit, which runs its own background `apt-get update` on every sandbox
+      # (best-effort, non-blocking). Ubuntu hosts amd64 packages on
+      # archive/security and arm64 on ports.ubuntu.com; all three are listed
+      # so the kit works cross-arch (CI runs amd64).
+      - archive.ubuntu.com
+      - security.ubuntu.com
+      - ports.ubuntu.com
+      - download.docker.com
+ports:
+  - container: 37700
+    name: memory-viewer
+environment:
+  variables:
+    CLAUDE_MEM_TELEMETRY: "0"
+    DO_NOT_TRACK: "1"
+    # Worker port otherwise defaults to 37700 + (uid % 100); pinned so it
+    # doesn't shift if the base image's agent uid ever changes.
+    CLAUDE_MEM_WORKER_PORT: "37700"
+    # Upstream default host is 127.0.0.1, unreachable via `sbx ports
+    # --publish` (must bind eth0/0.0.0.0 to be forwarded).
+    CLAUDE_MEM_WORKER_HOST: "0.0.0.0"
+setup:
+  install:
+    - command: npm config set proxy $HTTP_PROXY && npm config set https-proxy $HTTPS_PROXY || true
+      user: "1000"
+      description: Point npm at the sandbox egress proxy
+    # Without this, claude-mem's marketplace deps hit a real ERESOLVE peer-
+    # dependency conflict (tree-sitter@0.21.1 vs 0.22.4, pulled in by two
+    # dev deps of @derekstride/tree-sitter-sql and
+    # @tree-sitter-grammars/tree-sitter-lua). The installer's own internal
+    # "retry once with --legacy-peer-deps" fallback for that case hangs
+    # indefinitely rather than actually retrying -- confirmed by hand: a
+    # plain `npx claude-mem install` times out at that exact step, while
+    # this env var avoids the conflict (and the buggy retry path) entirely
+    # and installs cleanly. Scoped to this one command via the env var
+    # (rather than `npm config set`, which would persist to ~/.npmrc for
+    # the sandbox's whole lifetime) so it doesn't silently weaken conflict
+    # detection for any later npm install the agent or user runs.
+    - command: npm_config_legacy_peer_deps=true npx -y claude-mem@latest install
+      user: "1000"
+      description: Install latest claude-mem (plugin, marketplace registration, bun deps)
+  startup:
+    - command:
+        - sh
+        - -c
+        - |
+          set -e
+          exec > /tmp/claude-mem-reconcile.log 2>&1
+          # Run unconditionally (including on early failure below) so root
+          # never leaves /home/agent/.claude un-chowned.
+          trap 'chown -R agent:agent /home/agent/.claude' EXIT
+          S=/home/agent/.claude/settings.json
+          mkdir -p /home/agent/.claude
+          # Wait for the platform's own settings write to land first — at
+          # create time the engine seeds this file late in the sequence and
+          # overwrites whatever exists; merging before that loses our key.
+          i=0
+          found=0
+          while [ $i -lt 60 ]; do
+            if grep -q themeId "$S" 2>/dev/null; then found=1; break; fi
+            sleep 1; i=$((i+1))
+          done
+          if [ "$found" = "1" ]; then
+            echo "platform settings present after ${i}s"
+          else
+            echo "timed out after ${i}s waiting for platform settings; proceeding anyway"
+          fi
+          MODE="${SBX_CRED_ANTHROPIC_MODE:-none}" node -e '
+            const fs = require("fs");
+            const p = process.argv[1];
+            let s = {};
+            try { s = JSON.parse(fs.readFileSync(p, "utf8")); } catch {}
+            const defaults = {
+              themeId: 1,
+              alwaysThinkingEnabled: true,
+              defaultMode: "bypassPermissions",
+              bypassPermissionsModeAccepted: true,
+            };
+            const SENTINEL = "echo proxy-managed";
+            if (process.env.MODE !== "none") defaults.apiKeyHelper = SENTINEL;
+            for (const k of Object.keys(defaults)) if (!(k in s)) s[k] = defaults[k];
+            // Only clear our own sentinel, never a user-customized helper.
+            if (process.env.MODE === "none" && s.apiKeyHelper === SENTINEL) delete s.apiKeyHelper;
+            s.enabledPlugins = s.enabledPlugins || {};
+            if (!("claude-mem@thedotmack" in s.enabledPlugins)) s.enabledPlugins["claude-mem@thedotmack"] = true;
+            fs.writeFileSync(p, JSON.stringify(s, null, 2));
+            console.log("reconciled");
+          ' "$S"
+      # root + chown-on-exit: /home/agent/.claude ownership isn't guaranteed
+      # agent-owned on every base image (matches claude-sbx-statusline,
+      # claude-ollama).
+      user: "0"
+      description: Reconcile settings.json — ensure platform keys and claude-mem's enabledPlugins both present (ordering-immune, idempotent)
