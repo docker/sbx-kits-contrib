@@ -215,7 +215,7 @@ jobs:
       - name: Exchange GitHub OIDC token for Docker Hub access
         if: env.DRY_RUN == ''
         id: docker_oidc
-        uses: docker/oidc-action@b048fb089ace3e15a5fbdd784f4784d284ce5e8d # v1.1.0
+        uses: docker/oidc-action@96ba694c64860c7209bcd1ede7d698c71564ef78 # v1.2.0
         with:
           connection-id: ${{ env.OIDC_CONNECTION_ID }}
           expires-in: 3600
