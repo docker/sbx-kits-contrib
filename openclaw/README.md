@@ -66,11 +66,24 @@ only `apiKey` is a trap: an OAuth-only host then has no usable credential
 at all, the sentinel reaches Anthropic unswapped, and every model call
 returns `401 invalid x-api-key`.
 
-The `oauth` block is deliberately narrower than the one in `gstack` or the
-built-in `claude` kit: no `credentialFile`. Those agents read
-`~/.claude/.credentials.json` themselves; OpenClaw does not on this path,
-so writing the file would imply a coupling that is not there. Other
-providers and channel tokens (Telegram, Discord, Slack, WhatsApp) are
+An API key and an OAuth token are not interchangeable on the wire, and
+OpenClaw picks the request shape from the token itself: a value containing
+`sk-ant-oat` goes out as `Authorization: Bearer` with Anthropic's OAuth beta
+headers, anything else as `x-api-key`. Anthropic rejects an OAuth token
+presented as `x-api-key`, so on an OAuth host the `apiKey` sentinel alone is
+not enough — OpenClaw has to be handed an OAuth-shaped token. That is what
+`openclaw-gateway-up.sh` does: when the OAuth credential file is present it
+exports `ANTHROPIC_OAUTH_TOKEN` (the declared sentinel) for the gateway, and
+the proxy swaps the real bearer in at egress, refreshing it host-side.
+
+The discriminator is that materialized credential file, not
+`SBX_CRED_ANTHROPIC_MODE` — the mode variable reports `none` even when this
+OAuth credential resolves and injects correctly, so it cannot tell `oauth`
+from `apikey`. `ANTHROPIC_OAUTH_TOKEN` must stay unset on an API-key host,
+because OpenClaw prefers it over `ANTHROPIC_API_KEY` and would otherwise send
+a sentinel the proxy has nothing to swap.
+
+Other providers and channel tokens (Telegram, Discord, Slack, WhatsApp) are
 configured from inside the session via `openclaw onboard` /
 `openclaw configure`.
 

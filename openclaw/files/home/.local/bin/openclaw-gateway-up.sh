@@ -60,6 +60,30 @@ openclaw config get gateway.auth.token >/dev/null 2>&1 || \
     openclaw config set gateway.auth.token \
         "$(head -c 32 /dev/urandom | od -An -tx1 | tr -d ' \n')"
 
+# Anthropic sends the credential differently depending on its shape, and
+# OpenClaw picks the shape from the token itself: any value containing
+# "sk-ant-oat" goes out as `Authorization: Bearer` with the OAuth beta headers,
+# anything else as `x-api-key` (upstream extensions/anthropic/stream-wrappers.ts
+# isAnthropicOAuthApiKey, register.runtime.ts). Anthropic rejects an OAuth token
+# presented as `x-api-key`, so on an OAuth host the apiKey sentinel alone is not
+# enough -- OpenClaw has to be handed an OAuth-shaped token to emit the right
+# request, and the proxy swaps the real bearer in at egress.
+#
+# The discriminator is the materialized credential file, not
+# SBX_CRED_ANTHROPIC_MODE: that variable reports "none" even when this OAuth
+# credential resolves and injects fine, so it cannot tell oauth from apikey.
+# ANTHROPIC_OAUTH_TOKEN takes precedence over ANTHROPIC_API_KEY upstream
+# (src/secrets/provider-env-vars.ts), so it must stay unset on an API-key host
+# or OpenClaw would send a sentinel the proxy has nothing to swap. Exported for
+# the gateway process below, which is what performs model calls.
+#
+# The sentinel must match spec.yaml credentials[].oauth.sentinels.accessToken.
+ANTHROPIC_OAUTH_SENTINEL=sk-ant-oat01-proxy-managed
+if grep -qF "$ANTHROPIC_OAUTH_SENTINEL" "$HOME/.claude/.credentials.json" 2>/dev/null; then
+    ANTHROPIC_OAUTH_TOKEN="$ANTHROPIC_OAUTH_SENTINEL"
+    export ANTHROPIC_OAUTH_TOKEN
+fi
+
 if ! gateway_ready; then
     echo "Starting OpenClaw gateway..." >&2
     setsid sh -c "openclaw gateway run >> $STATE_DIR/gateway.log 2>&1" &

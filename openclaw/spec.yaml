@@ -70,11 +70,12 @@ credentials:
     # the one-time e2e setup -- has no usable credential here at all: the
     # apiKey sentinel reaches Anthropic unswapped and every model call is a
     # 401. Declaring oauth lets the proxy authenticate egress with it.
-    # Deliberately narrower than gstack's and the built-in claude kit's block:
-    # no credentialFile, because OpenClaw never reads ~/.claude/.credentials.json
-    # on this path -- verified by removing the file mid-session and seeing auth
-    # still succeed -- so writing one would only imply a coupling that is not
-    # there.
+    # credentialFile is what makes the OAuth path detectable from inside the
+    # sandbox. SBX_CRED_ANTHROPIC_MODE reports "none" even when this credential
+    # resolves, so it cannot discriminate oauth from apikey; the materialized
+    # file can. openclaw-gateway-up.sh keys off the sentinel in it to decide
+    # whether to hand OpenClaw an OAuth token instead of an API key. OpenClaw
+    # does not read this file itself on this path.
     oauth:
       tokenEndpoint:
         host: platform.claude.com
@@ -82,6 +83,14 @@ credentials:
       sentinels:
         accessToken: sk-ant-oat01-proxy-managed
         refreshToken: sk-ant-ort01-proxy-managed
+      credentialFile:
+        path: ~/.claude/.credentials.json
+        structure:
+          claudeAiOauth:
+            accessToken: "{{.AccessToken}}"
+            refreshToken: "{{.RefreshToken}}"
+            expiresAt: "{{.ExpiresAt}}"
+            scopes: "{{.Scopes}}"
 environment:
   variables:
     OPENCLAW_STATE_DIR: /home/agent/.openclaw
