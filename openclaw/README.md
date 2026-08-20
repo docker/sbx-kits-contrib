@@ -26,9 +26,11 @@ sbx run --kit "git+https://github.com/docker/sbx-kits-contrib.git#dir=openclaw" 
 The gateway comes up with the container, not on attach: `setup.startup`
 runs `openclaw-gateway-up.sh`, which returns once `/readyz` is green. So the
 published port answers and `sbx exec <sandbox> -- openclaw ...` works on a
-sandbox nobody has attached to. On attach, the entrypoint re-runs the same
-script (a no-op when the gateway is already up, which also covers a
-stop/start) and drops you into `openclaw chat` (the interactive TUI). The
+sandbox nobody has attached to. Startup commands re-run on
+every container start, so a stop/start is covered too. On attach, the
+entrypoint waits for the readiness sentinel rather than bootstrapping in
+parallel — two concurrent bootstraps would each mint a different gateway
+token — and drops you into `openclaw chat` (the interactive TUI). The
 gateway token is generated on first boot and stored in
 `~/.openclaw/openclaw.json`, so every later `openclaw` call inside the
 sandbox authenticates itself with no token handoff on your side.
@@ -55,19 +57,22 @@ the declared ephemeral binding.
 Two unrelated credentials are in play: the model provider key, and the
 gateway's own shared secret.
 
-**Model provider.** The kit declares the Anthropic auth wiring in
-`credentials[].apiKey` (inject domains/header/format,
-`proxyManaged: true`); the sandbox proxy injects the real
-`ANTHROPIC_API_KEY` on egress, so the secret never enters the container.
-This is an API-key credential specifically — OpenClaw's native
-`anthropic` provider reads `ANTHROPIC_API_KEY` and its own auth profile
-store, and has no file-based OAuth path a kit could seed, so a host whose
-`anthropic` secret is an OAuth login (`sbx login`) rather than a stored
-API key leaves the proxy sentinel unswapped and every model call returns
-`401 invalid x-api-key`. Store a key with
-`sbx secret set --service anthropic` to drive the model. Other providers
-and channel tokens (Telegram, Discord, Slack, WhatsApp) are configured
-from inside the session via `openclaw onboard` / `openclaw configure`.
+**Model provider.** The kit declares Anthropic auth twice, because a host
+may hold either credential shape. `credentials[].apiKey` covers a stored
+API key and `credentials[].oauth` covers an OAuth login (what `sbx login`
+produces); either way `proxyManaged: true` means the sandbox proxy
+authenticates egress and the secret never enters the container. Declaring
+only `apiKey` is a trap: an OAuth-only host then has no usable credential
+at all, the sentinel reaches Anthropic unswapped, and every model call
+returns `401 invalid x-api-key`.
+
+The `oauth` block is deliberately narrower than the one in `gstack` or the
+built-in `claude` kit: no `credentialFile`. Those agents read
+`~/.claude/.credentials.json` themselves; OpenClaw does not on this path,
+so writing the file would imply a coupling that is not there. Other
+providers and channel tokens (Telegram, Discord, Slack, WhatsApp) are
+configured from inside the session via `openclaw onboard` /
+`openclaw configure`.
 
 **Gateway.** `gateway.bind` is `lan` (see the quirk below), and OpenClaw
 refuses any non-loopback bind that has no shared secret — it exits with a
@@ -135,7 +140,7 @@ docker build -t docker.io/sbx/openclaw-image:latest openclaw
 
 ```console
 sbx exec <sandbox> -- tail -f /home/agent/.openclaw/gateway.log
-sbx exec <sandbox> -- /home/agent/.local/bin/openclaw-gateway-up.sh   # idempotent
+sbx exec <sandbox> -- sh /home/agent/.local/bin/openclaw-gateway-up.sh   # idempotent
 sbx exec <sandbox> -- curl -s http://127.0.0.1:18789/healthz
 sbx exec <sandbox> -- openclaw doctor
 ```

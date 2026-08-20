@@ -40,6 +40,10 @@ permissions:
       - '*.whatsapp.com'
       - '*.whatsapp.net'
       - '*.slack.com'
+      # The oauth credential's token endpoint, for the refresh the proxy performs
+      # once the access token expires. Not observed under deny-all because the
+      # injected token was still valid for the whole run.
+      - platform.claude.com:443
       # project domains (docs links, update notes)
       - openclaw.ai
       - docs.openclaw.ai
@@ -61,6 +65,23 @@ credentials:
         - domain: console.anthropic.com
           header: x-api-key
           format: '%s'
+    # Without this block a host whose stored anthropic credential is an OAuth
+    # login -- what `sbx login` produces, and what CONTRIBUTING documents as
+    # the one-time e2e setup -- has no usable credential here at all: the
+    # apiKey sentinel reaches Anthropic unswapped and every model call is a
+    # 401. Declaring oauth lets the proxy authenticate egress with it.
+    # Deliberately narrower than gstack's and the built-in claude kit's block:
+    # no credentialFile, because OpenClaw never reads ~/.claude/.credentials.json
+    # on this path -- verified by removing the file mid-session and seeing auth
+    # still succeed -- so writing one would only imply a coupling that is not
+    # there.
+    oauth:
+      tokenEndpoint:
+        host: platform.claude.com
+        path: /v1/oauth/token
+      sentinels:
+        accessToken: sk-ant-oat01-proxy-managed
+        refreshToken: sk-ant-ort01-proxy-managed
 environment:
   variables:
     OPENCLAW_STATE_DIR: /home/agent/.openclaw

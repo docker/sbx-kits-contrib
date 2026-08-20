@@ -28,6 +28,14 @@ gateway_ready() {
     curl -fsS -m 2 "$GATEWAY_URL/readyz" >/dev/null 2>&1
 }
 
+# `setup.startup` re-runs on every container start (SPEC-v2 5.6) and
+# $STATE_DIR survives a stop/start, so last boot's sentinel outlives the
+# gateway that wrote it. Clear it before the slow config work below: while
+# /readyz is not green the sentinel must read absent, or a consumer polling it
+# (README, tck.yaml readyFile) races into the very failure it exists to
+# prevent.
+gateway_ready || rm -f "$STATE_DIR/gateway-ready"
+
 # The sandbox runtime seeds its own openclaw.json at create time, which can
 # drop gateway.mode/gateway.bind -- ensure both before the gateway
 # (re)starts. bind must be "lan" (0.0.0.0), not the "loopback" default: the
