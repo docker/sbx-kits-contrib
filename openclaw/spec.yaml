@@ -73,7 +73,11 @@ setup:
     # it up with the container instead. The script returns as soon as /readyz
     # is green (~2s) and is a no-op when the gateway is already running, so
     # the entrypoint still calls it after a stop/start.
+    # Invoked through `sh` rather than executed: files under `files/home/` land
+    # 0644 -- the artifact loader does not carry the source exec bit -- so a
+    # direct exec fails with EACCES, silently, and the gateway never starts.
     - command:
-        - /usr/local/bin/openclaw-gateway-up
+        - sh
+        - /home/agent/.local/bin/openclaw-gateway-up.sh
       user: "1000"
       description: Start the OpenClaw gateway so the published port and CLI work without attaching the TUI

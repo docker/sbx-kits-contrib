@@ -1,6 +1,10 @@
 #!/bin/sh
 # Bring the OpenClaw gateway up, idempotently.
 #
+# Shipped as kit content (files/home/), not baked into the image, so a fix
+# here reaches an existing sandbox on its next create without republishing
+# docker.io/sbx/openclaw-image.
+#
 # Called from two places: `setup.startup` in spec.yaml, so a *created*
 # sandbox has a live gateway -- and therefore a live published port and a
 # working `sbx exec <sandbox> -- openclaw ...` -- without anyone attaching
@@ -48,19 +52,24 @@ openclaw config get gateway.auth.token >/dev/null 2>&1 || \
     openclaw config set gateway.auth.token \
         "$(head -c 32 /dev/urandom | od -An -tx1 | tr -d ' \n')"
 
-if gateway_ready; then
-    exit 0
+if ! gateway_ready; then
+    echo "Starting OpenClaw gateway..." >&2
+    setsid sh -c "openclaw gateway run >> $STATE_DIR/gateway.log 2>&1" &
+    i=0
+    until gateway_ready; do
+        sleep 1
+        i=$((i+1))
+        if [ $i -ge 60 ]; then
+            echo "Gateway not ready after 60s. Log follows:" >&2
+            tail -40 "$STATE_DIR/gateway.log" 2>/dev/null >&2
+            exit 1
+        fi
+    done
 fi
 
-echo "Starting OpenClaw gateway..." >&2
-setsid sh -c "openclaw gateway run >> $STATE_DIR/gateway.log 2>&1" &
-i=0
-until gateway_ready; do
-    sleep 1
-    i=$((i+1))
-    if [ $i -ge 60 ]; then
-        echo "Gateway not ready after 60s. Log follows:" >&2
-        tail -40 "$STATE_DIR/gateway.log" 2>/dev/null >&2
-        exit 1
-    fi
-done
+# Readiness sentinel for scripted consumers. A `setup.startup` command does
+# not block `sbx exec`, so a caller that runs `openclaw ...` immediately
+# after the container starts can beat the gateway to it and see
+# GatewayCredentialsRequiredError. testdata/tck.yaml polls this path as its
+# readyFile before the prompt subtest, for the same reason.
+: > "$STATE_DIR/gateway-ready"

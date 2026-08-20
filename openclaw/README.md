@@ -24,7 +24,7 @@ sbx run --kit "git+https://github.com/docker/sbx-kits-contrib.git#dir=openclaw" 
 ```
 
 The gateway comes up with the container, not on attach: `setup.startup`
-runs `openclaw-gateway-up`, which returns once `/readyz` is green. So the
+runs `openclaw-gateway-up.sh`, which returns once `/readyz` is green. So the
 published port answers and `sbx exec <sandbox> -- openclaw ...` works on a
 sandbox nobody has attached to. On attach, the entrypoint re-runs the same
 script (a no-op when the gateway is already up, which also covers a
@@ -32,6 +32,11 @@ stop/start) and drops you into `openclaw chat` (the interactive TUI). The
 gateway token is generated on first boot and stored in
 `~/.openclaw/openclaw.json`, so every later `openclaw` call inside the
 sandbox authenticates itself with no token handoff on your side.
+
+Startup commands do not block `sbx exec`, so a script that runs `openclaw`
+immediately after the sandbox starts can beat the gateway to it. Wait for
+`~/.openclaw/gateway-ready`, the sentinel the script writes once `/readyz`
+is green (this is what `testdata/tck.yaml` polls as its `readyFile`).
 
 ## Published ports
 
@@ -67,7 +72,7 @@ from inside the session via `openclaw onboard` / `openclaw configure`.
 **Gateway.** `gateway.bind` is `lan` (see the quirk below), and OpenClaw
 refuses any non-loopback bind that has no shared secret — it exits with a
 config error before it ever listens. So the token is mandatory here, not
-optional. `openclaw-gateway-up` generates one on first boot and persists it
+optional. `openclaw-gateway-up.sh` generates one on first boot and persists it
 to `gateway.auth.token`; it deliberately does *not* export
 `OPENCLAW_GATEWAY_TOKEN`, because each `sbx exec` is a fresh process that
 would not inherit it, whereas config is read by every invocation.
@@ -96,8 +101,10 @@ kit is published separately as an OCI artifact at `docker.io/sbx/openclaw-kit`
 
 One runtime quirk: the sandbox runtime seeds its own
 `~/.openclaw/openclaw.json` at create time, which lacks `gateway.mode`
-and `gateway.bind` — `openclaw-gateway-up` idempotently restores both
-before starting the gateway. `bind` must be `lan` (0.0.0.0) rather than the
+and `gateway.bind` — `openclaw-gateway-up.sh` idempotently restores both
+before starting the gateway. It ships under `files/home/` rather than in the
+image, so a change to the startup path reaches an existing sandbox on its
+next create without republishing the image. `bind` must be `lan` (0.0.0.0) rather than the
 `loopback` default, because the port-forwarder targets the container's
 external interface like any other Docker port mapping; that in turn is
 what makes the gateway token mandatory (see
@@ -128,7 +135,7 @@ docker build -t docker.io/sbx/openclaw-image:latest openclaw
 
 ```console
 sbx exec <sandbox> -- tail -f /home/agent/.openclaw/gateway.log
-sbx exec <sandbox> -- /usr/local/bin/openclaw-gateway-up   # idempotent
+sbx exec <sandbox> -- /home/agent/.local/bin/openclaw-gateway-up.sh   # idempotent
 sbx exec <sandbox> -- curl -s http://127.0.0.1:18789/healthz
 sbx exec <sandbox> -- openclaw doctor
 ```

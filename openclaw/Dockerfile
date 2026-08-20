@@ -45,7 +45,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends xvfb && \
 # global bin dir — pin the binary somewhere always on PATH.
 RUN ln -sf "$(npm prefix -g)/bin/openclaw" /usr/local/bin/openclaw
 
-COPY --chmod=0755 scripts/openclaw-gateway-up.sh /usr/local/bin/openclaw-gateway-up
 COPY --chmod=0755 scripts/start-openclaw.sh /usr/local/bin/openclaw-start
 
 USER agent

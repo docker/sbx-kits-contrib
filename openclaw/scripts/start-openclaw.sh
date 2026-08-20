@@ -7,6 +7,6 @@
 # token handoff on the operator's side.
 set -e
 
-/usr/local/bin/openclaw-gateway-up
+sh /home/agent/.local/bin/openclaw-gateway-up.sh
 
 exec openclaw chat
