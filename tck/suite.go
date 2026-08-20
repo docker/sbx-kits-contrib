@@ -34,6 +34,12 @@ type Suite struct {
 	// Artifact is the loaded and validated kit artifact.
 	Artifact *spec.Artifact
 
+	// Dir is the kit directory the artifact was loaded from. Assertions that
+	// need kit-supplied expectations (rather than ones derived from the spec)
+	// read them from <Dir>/testdata/. Empty when the suite was built from an
+	// already-loaded artifact rather than a directory.
+	Dir string
+
 	// Image is the container image used for integration tests.
 	Image string
 
@@ -58,6 +64,7 @@ func (s *Suite) RunAll(t *testing.T) {
 		s.RunEnvironmentPolicyTests(t)
 		s.RunCommandsValidationTests(t)
 		s.RunOAuthPolicyTests(t)
+		s.RunMCPRegistrationTests(t)
 
 		// Container tests — single container for all assertions
 		s.RunContainerTests(t)

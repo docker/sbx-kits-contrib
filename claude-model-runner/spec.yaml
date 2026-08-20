@@ -1,4 +1,4 @@
-schemaVersion: "1"
+schemaVersion: "2"
 kind: mixin
 name: claude-model-runner
 # Reroutes Claude Code's Anthropic API; only meaningful on the claude base
@@ -8,6 +8,13 @@ requires:
   agent: claude
 displayName: Claude Code (Docker Model Runner)
 description: Route Claude Code's Anthropic API calls to a local Docker Model Runner endpoint at host.docker.internal:12434.
+
+permissions:
+  network:
+    allow:
+      # Every request this mixin reroutes goes here; without the entry the
+      # kit only works when some other kit happens to allow the host.
+      - host.docker.internal:12434
 
 environment:
   variables:

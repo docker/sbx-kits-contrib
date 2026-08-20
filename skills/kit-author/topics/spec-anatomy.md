@@ -1,6 +1,6 @@
 # `spec.yaml` Anatomy
 
-Single source of truth: the Go types in [`github.com/docker/sbx-kits-contrib/spec`](../../spec/types.go). The `sbx` engine consumes these types via the spec library and delegates loading, normalization, and validation to it.
+Single source of truth: the Go types in [`github.com/docker/sbx-kits-contrib/spec`](../../../spec/types.go). The `sbx` engine consumes these types via the spec library and delegates loading, normalization, and validation to it.
 
 This page documents the **v2** form (`schemaVersion: "2"`). For the legacy v1 spelling and how it folds into v2, see [`v1-migration.md`](v1-migration.md).
 
@@ -37,6 +37,9 @@ requires:                   # optional, base-agent affinity (mixins)
 locked:                     # optional (P2), dotted paths child kits may not override
   - sandbox.image
   - credentials[service=anthropic]
+args:                       # optional, arguments the installer supplies
+  version:
+    default: "latest"
 ```
 
 `kind: sandbox` requires the `sandbox:` block. `kind: mixin` must not have a `sandbox:` block. Exactly one `sandbox` is allowed in a composition; mixins stack freely.
@@ -48,6 +51,27 @@ The `name` constraint is exactly: starts and ends with `[a-z0-9]`, may contain `
 ### `licenses`
 
 Optional SPDX license list. Non-empty list of strings if present. Implementations should warn on unrecognized SPDX identifiers. In composition, licenses union across the parent chain and declared mixins.
+
+### `args`
+
+Declares the arguments an installer supplies, referenced anywhere in `spec.yaml` or under `files/` as `${{ kit.args.<name> }}`. Substitution happens before the spec is decoded, so an argument can parameterize any value in the grammar. Every reference must be declared — that is what makes the block a complete list of the kit's inputs.
+
+```yaml
+args:
+  version:
+    default: "latest"                  # optional argument; used when nothing is supplied
+    description: "Tool version"
+    pattern: '^(latest|[0-9]+\.[0-9]+)$'
+  channel:
+    default: "stable"
+    enum: ["stable", "beta"]
+  token:
+    required: true                     # installer must supply a value
+```
+
+Each argument declares exactly one of `default` or `required: true`, and constrains its value with at most one of `enum` or `pattern` (a Go RE2 regexp matched against the whole value). Values are always strings: quote the placeholder in a string-valued field (`VERSION: "${{ kit.args.version }}"`), or a value like `1.20` is read as a float.
+
+`args` is v2-only, and unrelated to `sandbox.build.args` (Docker build arguments). Because the block lives in `spec.yaml`, a signature covers the declarations and defaults; the values an installer supplies do not.
 
 ### `mixins`
 
@@ -101,7 +125,7 @@ means the kit declares no affinity and layers onto any base agent.
 
 ## `sandbox:` (only for `kind: sandbox`)
 
-A sandbox kit MUST specify **exactly one** of `image` or `build` — they are mutually exclusive. Specifying both is a hard validation error. (The constraint is relaxed when the missing field is inherited via `extends:`.)
+A sandbox kit MUST specify `image` (unless it inherits one via `extends:`). `build` is an *additional*, forward-compatible block — not an alternative: because builds are not yet implemented, a kit that sets `build` must set `image` too, and a build-only kit is rejected at load. See [Use `build:` to build from a Dockerfile](#use-build-to-build-from-a-dockerfile) and [Image publishing](image-publishing.md).
 
 ### Use `image:` to layer onto a pre-built image
 
@@ -163,9 +187,14 @@ sandbox:
 
 Use `build:` when you need custom binaries, complex setup, or full control over the container contents. `sbx kit push` transforms a `build:` source spec into a distribution form: it runs the build, pins the resulting image by digest, and rewrites `sandbox.build` away. The source `spec.yaml` is never modified; the published kit consumers see only `sandbox.image: <ref>@sha256:<digest>`.
 
+> [!IMPORTANT]
+> **`build:` is not wired up in this release.** It decodes, and it emits a not-implemented warning; the runtime does not build from it. A kit that sets `build:` must **also** set `sandbox.image`, or it is rejected at load with `sandbox.build is accepted in the schema but not yet implemented — specify sandbox.image` (`spec/v2.go`, `spec/normalize.go`). The paragraph above therefore describes intent, not current behaviour.
+>
+> To ship a kit with its own image today, see [Image publishing](image-publishing.md): a `Dockerfile` at the kit root plus a literal `sandbox.image`, built and pushed by this repository's CI.
+
 ### Validation
 
-- `sandbox.image` and `sandbox.build` are mutually exclusive — exactly one MUST be present for `kind: sandbox` (unless inherited via `extends:`).
+- `sandbox.image` MUST be present for `kind: sandbox` (unless inherited via `extends:`) — including when `sandbox.build` is set, since builds are not yet implemented. A build-only kit is rejected at load.
 - `sandbox.resources.cpu` MUST be non-negative if specified.
 - `sandbox.resources.memory` MUST parse as a byte-size string (`units.RAMInBytes`, e.g. `4096m`, `8g`) if specified.
 - `sandbox.entrypoint` MUST be a flat string array; `entrypoint[0]` is the binary.
@@ -185,9 +214,8 @@ Per-entry fields:
 | `provider` | conditional | Explicit provider registry entry. Only needed when `service` doesn't match a known provider — sets the auth defaults the registry would otherwise derive from the name. |
 | `apiKey` | conditional | api-key shape (see below). |
 | `oauth` | conditional | OAuth shape (see below). |
-| `sshAgent` | no | SSH-agent forwarding (P2 — see below). |
 
-For custom services not in the provider registry, **at least one** of `apiKey.inject`, `oauth`, or `sshAgent` MUST be specified.
+For custom services not in the provider registry, **at least one** of `apiKey.inject` or `oauth` MUST be specified.
 
 ### api-key shape
 
@@ -226,7 +254,9 @@ credentials:
 
 `scheme` and a raw `format` are **mutually exclusive** — set one or the other, not both. On the normalized artifact `scheme` is expanded away, so consumers only ever read `header` / `format` / `username`. You can still write `header` + `format` directly when you need a header the sugar doesn't cover.
 
-**Validation:** every `apiKey.inject[].domain` MUST appear in `permissions.network.allow`. The spec library rejects a kit whose injection domain isn't allow-listed — there is no auto-derived egress from credentials.
+`bearer` supplies `header: Authorization` only when you left `header` empty, so writing an explicit `header:` alongside it still wins. `basic` is username-driven at the proxy rather than a header encoding, so it sets no `header` at all — write one yourself if the service needs a specific one.
+
+**Enforcement:** every `apiKey.inject[].domain` MUST appear in `permissions.network.allow`. There is no auto-derived egress from credentials. The spec validator does not cross-check the two lists; the engine enforces the rule, and a missing domain surfaces at load or sandbox-create time (SPEC-v2 §6).
 
 ### OAuth shape
 
@@ -252,39 +282,15 @@ credentials:
         expiresIn: "expires_in"
         scope: "scope"
       # passthrough: true                          # opt-out of sentinel masking — see below
-      # passthroughReason: "..."                   # REQUIRED when passthrough is set
 ```
 
 **`credentialFile.structure`** is a declarative JSON map with `{{.AccessToken}}` / `{{.RefreshToken}}` / `{{.ExpiresAt}}` / `{{.Scopes}}` placeholders. `ExpiresAt` is a Unix-millisecond timestamp. The engine encodes the map as JSON, then substitutes placeholders — output is guaranteed well-formed.
 
 **`responseFields`** maps logical OAuth token field names to the actual JSON field names returned by the token endpoint. Defaults match the OAuth 2.0 RFC (`access_token`, `refresh_token`, `expires_in`, `scope`); set explicit overrides for providers that use camelCase or vendor-specific names.
 
-**`passthrough: true`** bypasses sentinel masking — the proxy returns the real OAuth response to the container instead of swapping in sentinels. This is a security downgrade (the container sees the real token). Required companion: `passthroughReason` — a non-empty string explaining why passthrough is needed (typically: provider returns a JWT the agent must inspect locally). The spec library validates that `passthroughReason` is set whenever `passthrough: true`.
+**`passthrough: true`** bypasses sentinel masking: the proxy returns the real OAuth response to the container instead of swapping in sentinels. This is a security downgrade (the container sees the real token), so say why the kit needs it in the PR description; the typical reason is a provider that returns a JWT the agent must inspect locally. When `passthrough: true`, the validator stops requiring `sentinels`. There is no `passthroughReason` field in the schema.
 
 A credential entry can declare **both** `apiKey` and `oauth`. The precedence rule is: **api key wins when found**. If no API key value is present on the host, the user can authenticate via OAuth (e.g. `/login`). Setting both lets the kit support either auth method without the kit author choosing one.
-
-### SSH-agent shape (P2)
-
-For services that authenticate via SSH (e.g. `git push` over SSH). Keys remain on the host — the container can request SSH operations through the agent socket but cannot extract key material.
-
-```yaml
-credentials:
-  - service: github-ssh
-    sshAgent:
-      hosts:                                       # required — SSH destinations, format host:port
-        - github.com:22
-        - github.com:443                           # GitHub's HTTPS-over-SSH port
-      identities:                                  # optional — restrict to specific key fingerprints
-        - "SHA256:abc123..."
-
-permissions:
-  network:
-    allow:                                         # MUST include every host listed in sshAgent.hosts
-      - github.com:22
-      - github.com:443
-```
-
-Every `sshAgent.hosts` entry MUST also appear in `permissions.network.allow` — the spec validator rejects mismatches.
 
 ## `permissions` — capability grants
 
@@ -399,12 +405,13 @@ setup:
 |---|---|---|
 | `install[].command` | **`string` only** | Runs via `sh -c <string>`. Shell metachars (`&&`, `\|\|`, `;`, `\|`, redirects) work as written. A list form is a validation error. |
 | `startup[].command` | **`string` OR `list[string]`** | String form runs via `sh -c`; list form runs as `exec`-style argv with no shell processing. Use the list form when you need to avoid shell quoting issues; do **not** put shell metachars as bare argv tokens (e.g. `["apt-get", "update", "&&", "apt-get", "install", …]` will pass `&&` to `apt-get` literally). The canonical pattern for "list form but I need a shell" is `["sh", "-c", "<shell command>"]`. |
-| `files[].path` / `content` / `mode` / `onlyIfMissing` | strings / bool | No command runs — these are file writes. |
+| `files[].path` / `content` / `mode` / `onlyIfMissing` | strings / bool | Written via shell exec as uid `1000` (agent). |
 
 ### Other rules
 
 - Placeholders supported only in `files[].content`: **`${WORKDIR}`**. Anything else fails validation.
 - `install` user defaults to `"0"` (root); `startup` user defaults to `"1000"` (agent).
+- `files` paths must be writable by uid `1000`. To write to a root-owned path such as `/etc`, use an `install` command instead and set ownership appropriately if the agent must modify the file later.
 - `startup.background: true` detaches the command; the runtime moves on without waiting.
 
 Composition: all three lists **concatenate** in `--kit` order. `install` runs for every kit, built-in or user-supplied — use `command -v <binary>` guards or `setup.files` with `onlyIfMissing: true` to keep it idempotent.

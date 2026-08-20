@@ -35,7 +35,7 @@ The script loads your spec through the **same** spec-package normalize pass the 
 | `commands:` / `commands.initFiles` | `setup:` / `setup.files` |
 | `settings:` | dropped (move agent setup to `setup.files`) |
 
-Check [`scripts/README.md`](../../scripts/README.md) for current scope.
+Check [`scripts/README.md`](../../../scripts/README.md) for current scope.
 
 ## Manual migration — by surface
 
@@ -278,13 +278,13 @@ credentials:
             refreshToken: "{{.RefreshToken}}"
 ```
 
-> The v1 `oauth.skipIfEnv` list was a sandboxes-specific extension and is **not** part of the v2 unified spec. Implementations that still ship `skipIfEnv` accept it on the v1 path during load; the field does not exist in the v2 form. If you need conditional-OAuth behaviour ("skip OAuth setup when this env var is set"), use a `credentials[]` entry with both `apiKey` and `oauth` — api-key wins when found and OAuth is the fallback.
+> The v2 decoder accepts `oauth.skipIfEnv` so migrated specs load unchanged, but the field has no effect for a v2 kit: v2 credential resolution is binding-driven and never skips OAuth because of a host env var (SPEC-v2 §5.4.2). If you need conditional-OAuth behaviour ("use the API key when one is available"), use a `credentials[]` entry with both `apiKey` and `oauth`; the api-key wins when found and OAuth is the fallback.
 
 Normalize matches the v1 standalone `oauth:` block by `service:` to a `credentials[]` entry; if no entry exists yet for that service, normalize synthesizes one.
 
 The `credentialFile.template` (free-form Go `text/template`) is **deprecated** in favour of `credentialFile.structure` (a declarative JSON map with placeholders the engine substitutes deterministically). Both load; when both are set, `structure` wins and `template` emits a deprecation warning. Phase 6 removes `template`.
 
-The v1 `passthroughResponse` field renamed to `passthrough` in v2 — same semantic (opts out of sentinel masking, security downgrade flagged with a warning at load time).
+The v1 `passthroughResponse` field renamed to `passthrough` in v2, same semantic: opts out of sentinel masking, a security downgrade.
 
 ## The `Artifact.Warnings` channel
 

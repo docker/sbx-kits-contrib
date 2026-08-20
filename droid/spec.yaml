@@ -1,0 +1,128 @@
+schemaVersion: "2"
+kind: sandbox
+name: droid
+# The KIT's version, not Droid's. It covers this spec, the network policy and
+# the hooks — the agent inside the image floats, so a newer droid-cli does not
+# bump this and this does not track releases of droid-cli.
+#
+# Published as the vnd.docker.sandbox.kit.version OCI annotation at pack time,
+# and `scripts/check-release-tag.sh` refuses a `droid/vX.Y.Z` tag that
+# disagrees with it. Bump here first, then tag.
+version: "1.0.0"
+displayName: Droid
+description: Droid CLI by Factory, an agentic coding CLI.
+sandbox:
+  # Built from the Dockerfile beside this spec and published by
+  # .github/workflows/build-and-publish-kits.yml. Carries a Docker engine and
+  # requests Docker-in-Docker, matching the built-in agent this kit replaces.
+  #
+  # This value is the source of truth for what CI builds and publishes: the
+  # workflow reads it from here rather than deriving a name, because spec.yaml
+  # is consumed literally (no env interpolation) and so cannot follow a
+  # variable. scripts/check-image-ref.sh asserts it stays inside the namespace
+  # CI can actually push to.
+  #
+  # The `-image` suffix distinguishes the base image from the kit artifact:
+  # when the kit itself is published as an OCI artifact it will be
+  # `docker.io/sbx/droid-kit`.
+  image: "docker.io/sbx/droid-image:latest"
+  entrypoint: [droid]
+
+credentials:
+  - service: droid
+    # Droid cannot authenticate at all without this service — either the
+    # apiKey below or the OAuth block. Marked required so that `sbx create`
+    # says so up front when no credential is available: without it the
+    # sandbox starts clean and the first sign of trouble is the CLI failing
+    # with an opaque 401 once you are already inside.
+    required: true
+    apiKey:
+      name: FACTORY_API_KEY
+      # Most apiKey-based kits in this repo set this (pi, nanobot, crush,
+      # junie); copilot's own credentials notably don't, with no recorded
+      # reason. Following the majority here — but it has NOT been verified
+      # end-to-end whether Droid's OAuth device/token-exchange flow below
+      # still resolves correctly when FACTORY_API_KEY holds the proxy's
+      # sentinel value instead of a raw key the CLI reads directly. Needs a
+      # live `sbx run --kit ./droid droid` check; see the PR description.
+      proxyManaged: true
+      inject:
+        - domain: api.factory.ai
+          header: Authorization
+          format: Bearer %s
+        - domain: app.factory.ai
+          header: Authorization
+          format: Bearer %s
+        - domain: relay.factory.ai
+          header: Authorization
+          format: Bearer %s
+    # Ported close to verbatim from the built-in spec: the OAuth device/token
+    # flow itself is generic engine machinery on the consuming side, not
+    # something this kit implements differently. When both apiKey and oauth
+    # are declared on the same credential (as here), the apiKey takes
+    # precedence whenever it resolves, so a host with FACTORY_API_KEY bound
+    # never triggers the OAuth path.
+    #
+    # skipIfEnv below is carried over from the built-in spec for parity, but
+    # is a no-op for a schemaVersion "2" credential like this one — resolution
+    # here is binding-driven, not host-env-driven, so a host env var alone
+    # (as opposed to a bound credential) does not gate this. Kept rather than
+    # dropped so a future diff against the built-in spec stays minimal.
+    oauth:
+      tokenEndpoint:
+        host: api.workos.com
+        path: /user_management/authenticate
+      sentinels:
+        accessToken: droid-oat-proxy-managed
+        refreshToken: droid-ort-proxy-managed
+      skipIfEnv:
+        - FACTORY_API_KEY
+
+permissions:
+  network:
+    # Built-in agents ship no egress policy of their own: they inherit
+    # whatever the host policy is, which defaults to permissive. A community
+    # kit cannot rely on that — this repo's e2e runs every kit under
+    # `sbx policy init deny-all`, so the kit gets exactly the reachability it
+    # declares here and nothing more.
+    allow:
+      # Every domain either credential injects into — required here too, not
+      # just above: a domain absent from this list is unreachable regardless
+      # of what the credential block declares.
+      - api.factory.ai
+      - app.factory.ai
+      - relay.factory.ai
+      # The OAuth token endpoint.
+      - api.workos.com
+      # `apt-get update` (the startup hook below) refreshes metadata for every
+      # configured apt source and returns exit 100 if any one of them fails.
+      # The shell-docker base ships three sources, so all three must be
+      # reachable. Ubuntu serves amd64 from archive/security and arm64 from
+      # ports.ubuntu.com, so all three Ubuntu hosts are listed to keep the kit
+      # working cross-arch.
+      - archive.ubuntu.com        # Ubuntu archive (amd64 main)
+      - security.ubuntu.com       # Ubuntu security updates (amd64)
+      - ports.ubuntu.com          # Ubuntu archive/security (arm64)
+      - download.docker.com       # Docker's apt repo, pre-added by shell-docker
+      #
+      # TODO(droid-extraction): the domains above are the ones the
+      # credential block already declared; they have not been verified
+      # end-to-end under deny-all from this repo, and Droid CLI may reach
+      # further hosts (telemetry, self-update, extension registry). Confirm
+      # or widen from a live run:
+      #
+      #   sbx run --kit ./droid droid   # then attempt a prompt
+      #   sbx policy log                # lists every blocked host + reason
+
+setup:
+  install:
+    - command: mkdir -p /home/agent/.factory && chown agent:agent /home/agent/.factory
+      user: "0"
+      description: Ensure .factory is owned by agent before bind mounts run
+  startup:
+    - command: ["sh", "-c", "command -v apt-get > /dev/null 2>&1 && (apt-get update -qq -y > /dev/null 2>&1 || true) &"]
+      user: "root"
+      description: Update apt package cache in background
+
+agentInstructions:
+  filename: AGENTS.md

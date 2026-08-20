@@ -15,13 +15,13 @@ For non-interactive API-key auth, seed the Anthropic credential with `sbx`
 before creating the sandbox:
 
 ```console
-$ echo "$ANTHROPIC_API_KEY" | sbx secret set -g anthropic
+echo "$ANTHROPIC_API_KEY" | sbx secret set -g anthropic
 ```
 
 You can also import a detected host environment variable:
 
 ```console
-$ sbx secret import anthropic
+sbx secret import anthropic
 ```
 
 For Claude subscription or console login, the Claude ACP adapter advertises
@@ -37,16 +37,22 @@ the sandbox so the built-in `claude` kit can refresh its Claude settings.
 
 ## Usage
 
-Create a sandbox:
+Create a sandbox from its published OCI artifact on Docker Hub:
 
 ```console
-$ sbx create --kit "git+https://github.com/docker/sbx-kits-contrib.git#dir=claude-acp" --name my-task claude /path/to/task
+sbx create --kit "docker.io/sbx/claude-acp-kit:latest" --name my-task claude /path/to/task
+```
+
+Or from a git URL targeting this repo:
+
+```console
+sbx create --kit "git+https://github.com/docker/sbx-kits-contrib.git#dir=claude-acp" --name my-task claude /path/to/task
 ```
 
 Run the adapter over stdio:
 
 ```console
-$ sbx exec -i my-task /home/agent/.local/bin/claude-acp
+sbx exec -i my-task /home/agent/.local/bin/claude-acp
 ```
 
 Do not allocate a TTY for ACP sessions; the adapter expects newline-delimited

@@ -250,16 +250,41 @@ func TestValidateCommandsPolicy(t *testing.T) {
 		require.ErrorContains(t, ValidateCommandsPolicy(c), "must be absolute")
 	})
 
-	t.Run("unsupported_placeholder", func(t *testing.T) {
+	t.Run("non_workdir_dollar_brace_is_not_a_validation_error", func(t *testing.T) {
+		// initFiles[].content is opaque file content, most commonly a
+		// script. Only "${WORKDIR}" is a kit-spec placeholder (substituted
+		// by a literal string replace at kit-load time); any other
+		// "${...}" is the consuming shell/interpreter's own syntax and
+		// must pass through unexamined.
 		c := &CommandsPolicy{
 			InitFiles: []InitFile{{Path: "/tmp/f", Content: "${HOME}/data"}},
 		}
-		require.ErrorContains(t, ValidateCommandsPolicy(c), "unsupported placeholder")
+		require.NoError(t, ValidateCommandsPolicy(c))
 	})
 
 	t.Run("supported_placeholder", func(t *testing.T) {
 		c := &CommandsPolicy{
 			InitFiles: []InitFile{{Path: "/tmp/f", Content: "${WORKDIR}/data"}},
+		}
+		require.NoError(t, ValidateCommandsPolicy(c))
+	})
+
+	t.Run("bash_parameter_expansions_in_content_are_not_validation_errors", func(t *testing.T) {
+		c := &CommandsPolicy{
+			InitFiles: []InitFile{{
+				Path: "/home/agent/test.sh",
+				Mode: "0755",
+				Content: `#!/bin/bash
+NAME="World"
+COUNT=4
+TOTAL=10
+REMAINING=$((TOTAL - COUNT))
+printf -v FILL "%${COUNT}s" ""
+printf -v PAD  "%${REMAINING}s" ""
+BAR="${FILL// /#}${PAD// /-}"
+echo "Hello, ${NAME} [${BAR}]"
+`,
+			}},
 		}
 		require.NoError(t, ValidateCommandsPolicy(c))
 	})
@@ -459,14 +484,96 @@ func TestValidateOAuthPolicy(t *testing.T) {
 		require.ErrorContains(t, ValidateOAuthPolicy(p), "credentialFile.path is required")
 	})
 
-	t.Run("credential_file_missing_template", func(t *testing.T) {
+	t.Run("credential_file_missing_template_and_structure", func(t *testing.T) {
 		p := &OAuthPolicy{
 			Service:        "svc",
 			TokenEndpoint:  OAuthTokenEndpoint{Host: "h", Path: "/p"},
 			Sentinels:      OAuthSentinels{AccessToken: "at", RefreshToken: "rt"},
 			CredentialFile: &OAuthCredentialFile{Path: "/cred"},
 		}
-		require.ErrorContains(t, ValidateOAuthPolicy(p), "credentialFile.template is required")
+		require.ErrorContains(t, ValidateOAuthPolicy(p), "credentialFile requires either template or structure")
+	})
+
+	t.Run("credential_file_structure_only_valid", func(t *testing.T) {
+		p := &OAuthPolicy{
+			Service:       "svc",
+			TokenEndpoint: OAuthTokenEndpoint{Host: "h", Path: "/p"},
+			Sentinels:     OAuthSentinels{AccessToken: "at", RefreshToken: "rt"},
+			CredentialFile: &OAuthCredentialFile{
+				Path:      "/cred",
+				Structure: map[string]any{"accessToken": "{{.AccessToken}}"},
+			},
+		}
+		require.NoError(t, ValidateOAuthPolicy(p))
+	})
+}
+
+func TestValidateOAuth(t *testing.T) {
+	t.Run("nil_is_valid", func(t *testing.T) {
+		require.NoError(t, ValidateOAuth(nil))
+	})
+
+	t.Run("missing_token_endpoint_host", func(t *testing.T) {
+		o := &OAuth{TokenEndpoint: OAuthTokenEndpoint{Path: "/token"}}
+		require.ErrorContains(t, ValidateOAuth(o), "host is required")
+	})
+
+	t.Run("missing_token_endpoint_path", func(t *testing.T) {
+		o := &OAuth{TokenEndpoint: OAuthTokenEndpoint{Host: "auth.example.com"}}
+		require.ErrorContains(t, ValidateOAuth(o), "path is required")
+	})
+
+	t.Run("missing_sentinels", func(t *testing.T) {
+		o := &OAuth{TokenEndpoint: OAuthTokenEndpoint{Host: "h", Path: "/p"}}
+		require.ErrorContains(t, ValidateOAuth(o), "accessToken is required")
+	})
+
+	t.Run("valid_full", func(t *testing.T) {
+		o := &OAuth{
+			TokenEndpoint: OAuthTokenEndpoint{Host: "h", Path: "/p"},
+			Sentinels:     OAuthSentinels{AccessToken: "at", RefreshToken: "rt"},
+		}
+		require.NoError(t, ValidateOAuth(o))
+	})
+
+	t.Run("credential_file_missing_path", func(t *testing.T) {
+		o := &OAuth{
+			TokenEndpoint:  OAuthTokenEndpoint{Host: "h", Path: "/p"},
+			Sentinels:      OAuthSentinels{AccessToken: "at", RefreshToken: "rt"},
+			CredentialFile: &OAuthCredentialFile{Template: "tmpl"},
+		}
+		require.ErrorContains(t, ValidateOAuth(o), "credentialFile.path is required")
+	})
+
+	t.Run("credential_file_missing_template_and_structure", func(t *testing.T) {
+		o := &OAuth{
+			TokenEndpoint:  OAuthTokenEndpoint{Host: "h", Path: "/p"},
+			Sentinels:      OAuthSentinels{AccessToken: "at", RefreshToken: "rt"},
+			CredentialFile: &OAuthCredentialFile{Path: "/cred"},
+		}
+		require.ErrorContains(t, ValidateOAuth(o), "credentialFile requires either template or structure")
+	})
+
+	t.Run("credential_file_structure_only_valid", func(t *testing.T) {
+		o := &OAuth{
+			TokenEndpoint:  OAuthTokenEndpoint{Host: "h", Path: "/p"},
+			Sentinels:      OAuthSentinels{AccessToken: "at", RefreshToken: "rt"},
+			CredentialFile: &OAuthCredentialFile{Path: "/cred", Structure: map[string]interface{}{"k": "{{.AccessToken}}"}},
+		}
+		require.NoError(t, ValidateOAuth(o))
+	})
+
+	t.Run("passthrough_does_not_require_sentinels", func(t *testing.T) {
+		o := &OAuth{
+			TokenEndpoint: OAuthTokenEndpoint{Host: "h", Path: "/p"},
+			Passthrough:   true,
+		}
+		require.NoError(t, ValidateOAuth(o))
+	})
+
+	t.Run("passthrough_still_requires_token_endpoint", func(t *testing.T) {
+		o := &OAuth{Passthrough: true}
+		require.ErrorContains(t, ValidateOAuth(o), "host is required")
 	})
 }
 
@@ -551,6 +658,97 @@ func TestValidateArtifact(t *testing.T) {
 		a := &Artifact{
 			Manifest: Manifest{SchemaVersion: "2", Kind: KindSandbox, Name: "ok"},
 			Extends:  "claude",
+		}
+		require.NoError(t, ValidateArtifact(a))
+	})
+
+	// Regression coverage for https://github.com/docker/sandboxes/issues/4835:
+	// a credentials[].oauth block with neither credentialFile.template nor
+	// .structure, or with no sentinels block at all, used to load as VALID
+	// and only fail much later — at first `sbx create`, as an opaque engine
+	// error, or (for missing sentinels) not at all, silently leaving real
+	// OAuth tokens unmasked in the sandbox.
+	t.Run("oauth_credential_file_neither_template_nor_structure_rejected", func(t *testing.T) {
+		a := &Artifact{
+			Manifest: Manifest{SchemaVersion: SchemaVersion, Kind: KindMixin, Name: "ok"},
+			Credentials: []Credential{{
+				Service: "anthropic",
+				OAuth: &OAuth{
+					TokenEndpoint:  OAuthTokenEndpoint{Host: "h", Path: "/p"},
+					Sentinels:      OAuthSentinels{AccessToken: "at", RefreshToken: "rt"},
+					CredentialFile: &OAuthCredentialFile{Path: "/cred"},
+				},
+			}},
+		}
+		err := ValidateArtifact(a)
+		require.ErrorContains(t, err, "credentials[0]")
+		require.ErrorContains(t, err, `"anthropic"`)
+		require.ErrorContains(t, err, "credentialFile requires either template or structure")
+	})
+
+	t.Run("oauth_missing_sentinels_rejected", func(t *testing.T) {
+		a := &Artifact{
+			Manifest: Manifest{SchemaVersion: SchemaVersion, Kind: KindMixin, Name: "ok"},
+			Credentials: []Credential{{
+				Service: "anthropic",
+				OAuth:   &OAuth{TokenEndpoint: OAuthTokenEndpoint{Host: "h", Path: "/p"}},
+			}},
+		}
+		require.ErrorContains(t, ValidateArtifact(a), "accessToken is required")
+	})
+
+	// SPEC-v2 §5.4 makes service REQUIRED on every credential entry. For
+	// OAuth the engine additionally rejects an empty service at runtime in
+	// two places (NewOAuthInterceptorFromConfig, and the configure hook's
+	// "oauth service name cannot be empty"), so validate must catch it first.
+	t.Run("oauth_without_service_rejected", func(t *testing.T) {
+		a := &Artifact{
+			Manifest: Manifest{SchemaVersion: SchemaVersion, Kind: KindMixin, Name: "ok"},
+			Credentials: []Credential{{
+				OAuth: &OAuth{
+					TokenEndpoint: OAuthTokenEndpoint{Host: "h", Path: "/p"},
+					Sentinels:     OAuthSentinels{AccessToken: "at", RefreshToken: "rt"},
+				},
+			}},
+		}
+		require.ErrorContains(t, ValidateArtifact(a), "credentials[0]: service is required")
+	})
+
+	t.Run("apikey_without_service_rejected", func(t *testing.T) {
+		a := &Artifact{
+			Manifest: Manifest{SchemaVersion: SchemaVersion, Kind: KindMixin, Name: "ok"},
+			Credentials: []Credential{{
+				ApiKey: &ApiKey{Name: "SOME_TOKEN"},
+			}},
+		}
+		require.ErrorContains(t, ValidateArtifact(a), "credentials[0]: service is required")
+	})
+
+	// The v1 fold derives service keys from env-var names and keeps
+	// underscores, so §5.4's lowercase-kebab charset is not enforced on the
+	// canonical artifact — such kits must keep loading.
+	t.Run("non_kebab_service_accepted", func(t *testing.T) {
+		a := &Artifact{
+			Manifest:    Manifest{SchemaVersion: SchemaVersion, Kind: KindMixin, Name: "ok"},
+			Credentials: []Credential{{Service: "sample_proxy", ApiKey: &ApiKey{Name: "SAMPLE_PROXY_TOKEN"}}},
+		}
+		require.NoError(t, ValidateArtifact(a))
+	})
+
+	t.Run("oauth_credential_file_structure_only_accepted", func(t *testing.T) {
+		a := &Artifact{
+			Manifest: Manifest{SchemaVersion: SchemaVersion, Kind: KindMixin, Name: "ok"},
+			Credentials: []Credential{{
+				Service: "anthropic",
+				OAuth: &OAuth{
+					TokenEndpoint: OAuthTokenEndpoint{Host: "h", Path: "/p"},
+					Sentinels:     OAuthSentinels{AccessToken: "at", RefreshToken: "rt"},
+					CredentialFile: &OAuthCredentialFile{
+						Path:      "/cred",
+						Structure: map[string]interface{}{"accessToken": "{{.AccessToken}}"},
+					},
+				},
+			}},
 		}
 		require.NoError(t, ValidateArtifact(a))
 	})

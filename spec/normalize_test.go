@@ -374,4 +374,31 @@ displayName: Normalize Kit
 		require.Equal(t, fromBytes.Manifest.Name, sf.Name)
 		require.Equal(t, fromBytes.Manifest.Kind, sf.Kind)
 	})
+
+	// LoadFromBytes decodes the v1 grammar only. A v2 spec must fail with an
+	// error that says so and names the API that does handle v2, rather than a
+	// raw unknown-field error about an internal Go type.
+	t.Run("v2_input_is_actionable_error", func(t *testing.T) {
+		in := []byte(`schemaVersion: "2"
+kind: mixin
+name: cloudflare-dns
+permissions:
+  network:
+    allow:
+      - api.cloudflare.com
+`)
+		// The v2 artifact loader handles this input fine.
+		_, err := LoadArtifactFromBytes(in)
+		require.NoError(t, err)
+
+		sf, err := LoadFromBytes(in)
+		require.Nil(t, sf)
+		require.Error(t, err)
+		require.ErrorContains(t, err, `schemaVersion "2"`)
+		require.ErrorContains(t, err, "v1 grammar only")
+		require.ErrorContains(t, err, "LoadArtifactFromBytes")
+		require.ErrorContains(t, err, "NewV2View")
+		// The underlying decode error is still wrapped, not swallowed.
+		require.ErrorContains(t, err, "field permissions not found")
+	})
 }

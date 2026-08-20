@@ -1,3 +1,12 @@
-readyFile: "/home/agent/.openclaw-installed"
 binary: "openclaw"
-promptArgs: ["agent", "--message"]
+# `setup.startup` does not block `sbx exec`, so the prompt subtest can beat
+# the gateway's boot and get GatewayCredentialsRequiredError instead of a
+# real answer. Wait for the sentinel openclaw-gateway-up.sh writes once
+# /readyz is green.
+readyFile: /home/agent/.openclaw/gateway-ready
+# `openclaw agent` requires an explicit target: without a selector it exits
+# with "No target session selected" before contacting the agent at all,
+# which still satisfies the prompt subtest's non-empty-output assertion
+# while proving nothing. `main` is the default agent id every fresh sandbox
+# ships with (`openclaw agents list`).
+promptArgs: ["agent", "--agent", "main", "--message"]

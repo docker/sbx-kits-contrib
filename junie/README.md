@@ -1,6 +1,6 @@
 # junie
 
-A standalone agent kit (`kind: agent`) for [Junie](https://junie.jetbrains.com/), the AI coding agent by JetBrains. The
+A standalone sandbox kit for [Junie](https://junie.jetbrains.com/), the AI coding agent by JetBrains. The
 kit installs Junie into the sandbox at creation time, wires its API auth through the sandbox proxy, and runs `junie` as
 the entrypoint.
 
@@ -28,28 +28,35 @@ To use Junie with its primary API:
 
 ## Usage
 
-Run the kit. Pass the kit's name (`junie`) as the agent argument:
+Run the kit. Pass the kit's name (`junie`) as the agent argument. The primary
+form is its published OCI artifact on Docker Hub:
 
 ```console
-$ sbx run --kit "git+https://github.com/docker/sbx-kits-contrib.git#dir=junie" junie
+sbx run --kit "docker.io/sbx/junie-kit:latest" junie
+```
+
+Or from a git URL targeting this repo:
+
+```console
+sbx run --kit "git+https://github.com/docker/sbx-kits-contrib.git#dir=junie" junie
 ```
 
 Or with a local clone of this repo:
 
 ```console
-$ sbx run --kit ./junie/ junie
+sbx run --kit ./junie/ junie
 ```
 
 The first launch installs Junie via its official install script. Subsequent launches reuse the sandbox.
 
 ## How auth works
 
-The kit's `network` block declares `serviceDomains` and `serviceAuth` for `junie.jetbrains.com`, `api.anthropic.com`,
+The kit's `credentials` list declares an `apiKey` entry per provider, for `junie.jetbrains.com`, `api.anthropic.com`,
 `api.openai.com`, `generativelanguage.googleapis.com`, `api.x.ai`, and `openrouter.ai`. This tells the proxy to inject
 the correct authentication headers (e.g., `Authorization: Bearer %s`, `x-api-key: %s`, or `x-goog-api-key: %s`) on
 outbound requests.
 
-Managed secrets are listed in `environment.proxyManaged` to ensure they are handled securely by the proxy.
+Each credential sets `apiKey.proxyManaged: true` to ensure it's handled securely by the proxy.
 
 ## Customization
 

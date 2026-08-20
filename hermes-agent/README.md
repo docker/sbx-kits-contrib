@@ -24,7 +24,7 @@ in the host secret store and never enters the sandbox directly.
 ### Anthropic
 
 ```console
-$ sbx secret set-custom -g \
+sbx secret set-custom -g \
     --host api.anthropic.com \
     --env ANTHROPIC_API_KEY \
     --placeholder "sk-ant-{rand}" \
@@ -34,7 +34,7 @@ $ sbx secret set-custom -g \
 ### OpenAI
 
 ```console
-$ sbx secret set-custom -g \
+sbx secret set-custom -g \
     --host api.openai.com \
     --env OPENAI_API_KEY \
     --placeholder "sk-{rand}" \
@@ -44,7 +44,7 @@ $ sbx secret set-custom -g \
 ### OpenRouter (200+ models)
 
 ```console
-$ sbx secret set-custom -g \
+sbx secret set-custom -g \
     --host openrouter.ai \
     --env OPENROUTER_API_KEY \
     --placeholder "sk-or-{rand}" \
@@ -54,13 +54,19 @@ $ sbx secret set-custom -g \
 ## Usage
 
 ```console
-$ sbx run --kit "git+https://github.com/docker/sbx-kits-contrib.git#dir=hermes-agent" hermes-agent
+sbx run --kit "docker.io/sbx/hermes-agent-kit:latest" hermes-agent
+```
+
+Or from a git URL targeting this repo:
+
+```console
+sbx run --kit "git+https://github.com/docker/sbx-kits-contrib.git#dir=hermes-agent" hermes-agent
 ```
 
 Or with a local clone of this repo:
 
 ```console
-$ sbx run --kit ./hermes-agent/ hermes-agent
+sbx run --kit ./hermes-agent/ hermes-agent
 ```
 
 Once inside the agent, use `hermes model` to choose a provider and model, then
@@ -93,7 +99,7 @@ file `~/.hermes-installed` is written on success. The entrypoint at
 ## Removing stored secrets
 
 ```console
-$ sbx secret rm -g --host api.anthropic.com
-$ sbx secret rm -g --host api.openai.com
-$ sbx secret rm -g --host openrouter.ai
+sbx secret rm -g --host api.anthropic.com
+sbx secret rm -g --host api.openai.com
+sbx secret rm -g --host openrouter.ai
 ```

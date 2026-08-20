@@ -1,0 +1,139 @@
+name: Publish kit artifact
+
+# Reusable: pushes ONE kit as an OCI artifact to <registry>/<namespace>/<kit>-kit.
+#
+# Callers:
+#   * publish-one-kit.yml — the continuous path, one call per kit, tagged
+#                          <YYYYMMDD>-<sha> and moving the rolling tag.
+#   * release-kit.yml     — on a `<kit>/vX.Y.Z` tag, tagged with that version.
+#
+# The kit artifact is the spec plus files/, which is what `--kit oci://…`
+# consumes without going through git. It is NOT the image the sandbox boots
+# from; that is built by build-and-publish-kits.yml and published as `<kit>-image`.
+#
+# A released version describes THE KIT — its spec, files, network policy and
+# hooks — not the agent inside the image it references. The image floats
+# deliberately: the agent CLI moves on its own schedule, and encoding that in
+# the kit's version would mean either stale agents or a version that churns for
+# reasons the kit did not cause.
+#
+# The work lives in scripts/publish-artifact.sh so it can be run — and dry-run —
+# outside CI. This file is wiring: resolve inputs, install tools, call it.
+
+on:
+  workflow_call:
+    inputs:
+      kit:
+        description: Kit directory at the repo root, e.g. "kiro".
+        required: true
+        type: string
+      tag:
+        description: |
+          The tag to publish. Immutable by convention — never reused for
+          different content, so consumers can pin it.
+        required: true
+        type: string
+      move-latest:
+        description: |
+          Also re-point the rolling tag at the manifest just pushed. Callers
+          publishing a point-in-time build set this; a release does not, unless
+          releases are what the rolling tag should track.
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+  # Mints the GitHub OIDC token exchanged for a short-lived Hub token, and is
+  # also the Sigstore identity `sbx kit push --sign` signs with.
+  id-token: write
+
+env:
+  REGISTRY: ${{ vars.REGISTRY || 'docker.io' }}
+  IMAGE_NAMESPACE: ${{ vars.IMAGE_NAMESPACE || 'sbx' }}
+  IMAGE_TAG_LATEST: ${{ vars.IMAGE_TAG_LATEST || 'latest' }}
+  # Publish for real only from this repository, off a pull request, with the Hub
+  # connection configured. Otherwise the script resolves and reports without
+  # touching the registry, which is what makes the pull-request run meaningful.
+  # An expression rather than a shell `if`, so there is no script here to test.
+  DRY_RUN: >-
+    ${{ (github.event_name == 'pull_request'
+      || github.repository != 'docker/sbx-kits-contrib'
+      || secrets.DOCKERHUB_OIDC_CONNECTIONID == ''
+      || secrets.DOCKERPUBLICBOT_WRITE_PAT == ''
+      || vars.DOCKERPUBLICBOT_USERNAME == '') && '1' || '' }}
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install sbx
+        # `sbx kit` is daemon-free (only `kit add` needs sandboxd), so no VM and
+        # no KVM — a plain runner is enough.
+        #
+        # Pinned to nightly, not the latest tagged release: as of v0.38.0,
+        # `sbx kit push` has no `--sign` flag yet. Move this back to the
+        # default (latest) once a tagged release ships with it.
+        run: ./scripts/install-sbx.sh nightly >> "$GITHUB_PATH"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Exchange GitHub OIDC token for Docker Hub access
+        if: env.DRY_RUN == ''
+        id: docker_oidc
+        uses: docker/oidc-action@96ba694c64860c7209bcd1ede7d698c71564ef78 # v1.2.0
+        with:
+          connection-id: ${{ env.OIDC_CONNECTION_ID }}
+          expires-in: 3600
+        env:
+          OIDC_CONNECTION_ID: ${{ secrets.DOCKERHUB_OIDC_CONNECTIONID }}
+
+      - name: Log in to Docker Hub
+        if: env.DRY_RUN == ''
+        # Covers the plain push and oras's existence probe/digest read-back:
+        # both authenticate via the Docker credential store this populates.
+        # It does NOT cover `sbx kit push --sign` — see the sbx login step
+        # below.
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          username: sbx
+          password: ${{ steps.docker_oidc.outputs.token }}
+
+      # Needed whenever anything is published, not only when the rolling tag
+      # moves: the existence probe and the digest read-back both use oras.
+      - uses: oras-project/setup-oras@1d808f7d7f6995cc68b7bf507bfe5c5446e1dc9d # v2.0.1
+        if: env.DRY_RUN == ''
+        with:
+          version: "1.3.3"
+
+      - name: Sign in to Docker Hub with sbx
+        if: env.DRY_RUN == ''
+        # `--sign` attaches the signature (and the manifest read-back after
+        # push) as sbx's own session, which resolves credentials
+        # independently of the Docker credential store the login-action step
+        # above populates. Skipping this makes `sbx kit push --sign` fail
+        # with "user is not authenticated to Docker" — only after the
+        # (unsigned) manifest push has already landed, since the push itself
+        # doesn't need this login.
+        #
+        # This needs a real Hub password/PAT: the OIDC-exchanged token that
+        # satisfies `docker login` above is rejected by `sbx login` ("docker
+        # token is invalid") — the two authenticate differently. Hence the
+        # org bot's static credential here instead of the OIDC token, the
+        # only static secret in this job.
+        run: printf '%s' "$TOKEN" | sbx login --username "$USERNAME" --password-stdin
+        env:
+          USERNAME: ${{ vars.DOCKERPUBLICBOT_USERNAME }}
+          TOKEN: ${{ secrets.DOCKERPUBLICBOT_WRITE_PAT }}
+
+      - name: Publish
+        id: publish
+        run: ./scripts/publish-artifact.sh "${{ inputs.kit }}" "${{ inputs.tag }}" >> "$GITHUB_OUTPUT"
+        env:
+          MOVE_LATEST: ${{ inputs.move-latest }}
+
+      - name: Sign out of Docker Hub via sbx
+        if: always() && env.DRY_RUN == ''
+        run: sbx logout --yes || true
