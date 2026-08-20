@@ -405,12 +405,13 @@ setup:
 |---|---|---|
 | `install[].command` | **`string` only** | Runs via `sh -c <string>`. Shell metachars (`&&`, `\|\|`, `;`, `\|`, redirects) work as written. A list form is a validation error. |
 | `startup[].command` | **`string` OR `list[string]`** | String form runs via `sh -c`; list form runs as `exec`-style argv with no shell processing. Use the list form when you need to avoid shell quoting issues; do **not** put shell metachars as bare argv tokens (e.g. `["apt-get", "update", "&&", "apt-get", "install", …]` will pass `&&` to `apt-get` literally). The canonical pattern for "list form but I need a shell" is `["sh", "-c", "<shell command>"]`. |
-| `files[].path` / `content` / `mode` / `onlyIfMissing` | strings / bool | No command runs — these are file writes. |
+| `files[].path` / `content` / `mode` / `onlyIfMissing` | strings / bool | Written via shell exec as uid `1000` (agent). |
 
 ### Other rules
 
 - Placeholders supported only in `files[].content`: **`${WORKDIR}`**. Anything else fails validation.
 - `install` user defaults to `"0"` (root); `startup` user defaults to `"1000"` (agent).
+- `files` paths must be writable by uid `1000`. To write to a root-owned path such as `/etc`, use an `install` command instead and set ownership appropriately if the agent must modify the file later.
 - `startup.background: true` detaches the command; the runtime moves on without waiting.
 
 Composition: all three lists **concatenate** in `--kit` order. `install` runs for every kit, built-in or user-supplied — use `command -v <binary>` guards or `setup.files` with `onlyIfMissing: true` to keep it idempotent.

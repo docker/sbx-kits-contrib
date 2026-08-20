@@ -724,13 +724,16 @@ setup:
 |---|---|---|
 | `install[].command` | **string** (REQUIRED) | `sh -c <string>`; shell metacharacters work. A list is an error. |
 | `startup[].command` | **list<string>** (REQUIRED, non-empty) | Exec-style argv, no shell processing. For a shell, use `["sh", "-c", "<cmd>"]`. |
-| `files[]` | file write | `path` absolute; `mode` octal; only `${WORKDIR}` placeholder allowed in `content`. |
+| `files[]` | file write | Shell exec as uid `1000` (agent); `path` absolute; `mode` octal; only `${WORKDIR}` placeholder allowed in `content`. |
 
 - `install` runs **once** at sandbox creation, for every kit (built-in or
   user-supplied). Guard with `command -v <binary>` or use `files` with
   `onlyIfMissing: true` to stay idempotent.
 - `startup` runs on **every** container start (create, stop/start, daemon
   restart, host reboot). Author idempotent.
+- `files` paths MUST be writable by uid `1000`. A kit that needs to write to
+  a root-owned path such as `/etc` MUST use an `install` command instead and
+  set ownership appropriately if the agent needs to modify the file later.
 - Composition: all three lists concatenate in `--kit` order.
 - The environment these scripts run in (user model, write surface, tool
   floor, injected variables) is specified in [§9](#9-runtime-environment).
