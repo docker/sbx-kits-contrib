@@ -10,7 +10,11 @@ sandbox:
   # ../PUBLISHING.md) -- no bespoke workflow needed, same as kiro/copilot.
   image: docker.io/sbx/openclaw-image:latest
   entrypoint:
-    - /usr/local/bin/openclaw-start
+    # Kit content, not the image binary: the entrypoint has to source the
+    # OAuth env file the bootstrap writes, and an image-baked entrypoint only
+    # picks that up after a republish.
+    - sh
+    - /home/agent/.local/bin/openclaw-start.sh
 agentInstructions:
   filename: AGENTS.md
 permissions:
