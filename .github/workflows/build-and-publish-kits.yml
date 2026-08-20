@@ -158,7 +158,7 @@ jobs:
       - name: Filter kit changes
         id: filter-kits
         if: github.event_name == 'push' || github.event_name == 'pull_request'
-        uses: dorny/paths-filter@7b450fff21473bca461d4b92ce414b9d0420d706 # v4.0.2
+        uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4.0.3
         with:
           filters: ${{ steps.filter-setup.outputs.kit-filters }}
           # Local git diff rather than the API, so fork PRs work with a
@@ -192,7 +192,7 @@ jobs:
       - name: Filter shared changes
         id: filter-shared
         if: github.event_name == 'push' || github.event_name == 'pull_request'
-        uses: dorny/paths-filter@7b450fff21473bca461d4b92ce414b9d0420d706 # v4.0.2
+        uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4.0.3
         with:
           filters: ${{ steps.filter-setup.outputs.shared-filters }}
           # Local git diff rather than the API, so fork PRs work with a
