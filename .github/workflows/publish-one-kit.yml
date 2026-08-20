@@ -142,7 +142,7 @@ jobs:
         # cache, so it costs little, and gives a concrete image to assert
         # against. It runs on pull requests too — the point is to catch a broken
         # image before it is published, not after.
-        uses: docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83 # v6.18.0
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
         with:
           context: ${{ inputs.kit }}
           file: ${{ inputs.kit }}/Dockerfile
@@ -242,7 +242,7 @@ jobs:
         # Only the immutable <date>-<sha> tag is built and pushed here; the
         # rolling tag is re-pointed at this manifest in the next step rather than
         # built again.
-        uses: docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83 # v6.18.0
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
         with:
           context: ${{ inputs.kit }}
           file: ${{ inputs.kit }}/Dockerfile
