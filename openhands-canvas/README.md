@@ -1,4 +1,4 @@
-# openhands
+# openhands-canvas
 
 A standalone agent kit (`kind: agent`) for [OpenHands Agent Canvas](https://www.openhands.dev/) — an open-source AI agent that can write code, run commands, and browse the web using a rich web UI.
 
@@ -33,13 +33,13 @@ $ sbx secret set-custom -g \
 ## Usage
 
 ```console
-$ sbx run --kit "git+https://github.com/docker/sbx-kits-contrib.git#dir=openhands" openhands
+$ sbx run --kit "git+https://github.com/docker/sbx-kits-contrib.git#dir=openhands-canvas" openhands-canvas
 ```
 
 Or with a local clone of this repo:
 
 ```console
-$ sbx run --kit ./openhands openhands
+$ sbx run --kit ./openhands-canvas openhands-canvas
 ```
 
 ### Accessing the Web UI
@@ -47,7 +47,7 @@ $ sbx run --kit ./openhands openhands
 Because OpenHands provides a web-based Agent Canvas, you must expose its internal port (8000) to your host machine. Once the sandbox has started and Agent Canvas is listening on port 8000, open a **new terminal tab** and run:
 
 ```console
-$ sbx ports openhands-sbx-kits-contrib --publish 8000:8000
+$ sbx ports openhands-canvas-sbx-kits-contrib --publish 8000:8000
 ```
 
 You can then access the Agent Canvas at [http://localhost:8000](http://localhost:8000).
@@ -81,7 +81,7 @@ $ sbx secret rm -g --host api.openai.com
 If port 8000 is already occupied:
 
 ```console
-$ sbx ports openhands-sbx-kits-contrib --publish 8080:8000
+$ sbx ports openhands-canvas-sbx-kits-contrib --publish 8080:8000
 ```
 
 Then access:

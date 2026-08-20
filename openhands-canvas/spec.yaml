@@ -1,6 +1,6 @@
 schemaVersion: "1"
 kind: agent
-name: openhands
+name: openhands-canvas
 displayName: OpenHands Agent Canvas
 description: "OpenHands Agent Canvas running inside a Docker Sandbox"
 
