@@ -188,6 +188,7 @@ A sandbox kit is a complete agent. It **MUST** declare a `sandbox:` block and
 | [`environment`](#55-environment) | optional | Static environment variables. |
 | [`setup`](#56-setup) | optional | `install` / `startup` / `files`. |
 | [`volumes`](#57-volumes) | optional | Block and tmpfs mounts. |
+| `security` | optional | `security.privileged` only. Needs the host-kernel capability; see [§10](#10-runtime-support). |
 | `files/` tree | optional | Static files (see [§5.8](#58-files-directory)). |
 
 ### 3.2 The `sandbox:` block
@@ -267,6 +268,11 @@ The effective argv per mode:
 as-is. There is **no** `pipeMode` field in v2 (the v1 `entrypoint.pipeMode` was
 dropped).
 
+Precedence when the runtime caller also supplies a command: an explicit
+runtime command (a CLI flag, an API start command) beats `entrypoint` +
+`command`, and the kit beats the image's own entrypoint/CMD. This holds on
+every backend, including server-applied ones.
+
 #### 3.2.4 `resources`
 
 Optional container limits. Any unset field means "no constraint from the spec".
@@ -276,6 +282,12 @@ Optional container limits. Any unset field means "no constraint from the spec".
 | `cpu` | float | Cores. MUST be non-negative. |
 | `memory` | string | Byte-size string (`units.RAMInBytes`, e.g. `4096m`, `8g`, `2gib`). MUST parse. |
 | `gpu` | string | Consumer-defined selector (`"1"`, `"all"`, …). |
+
+Precedence: an explicit caller request (CLI flags, API resource fields) beats
+the kit's declared `resources`, and the declaration beats the platform
+default. `gpu` is refused on a runtime that does not declare the
+gpu-selector capability, rather than silently ignored (see
+[§10](#10-runtime-support)).
 
 ### 3.3 Agent instructions for a sandbox
 
@@ -764,6 +776,12 @@ volumes:
 Volumes are **creation-time only** — `sbx kit add` cannot attach volumes to a
 running container. Composition: union by `path`, last-wins.
 
+Identity: a kit volume is sandbox-scoped. It is auto-provisioned for the
+sandbox at create, one volume per (sandbox, kit, path), sized as declared,
+and reclaimed with the sandbox. A runtime without the kit-volumes
+capability surfaces the gap per [§10](#10-runtime-support) instead of
+dropping the declaration.
+
 ### 5.8 `files/` directory
 
 Static files packed alongside `spec.yaml` and copied into the container at
@@ -954,9 +972,69 @@ reading what the runtime sets.
 ### 9.6 Lifecycle
 
 - `setup.install` runs once, before the sandbox's entrypoint first runs.
-- `setup.startup` MAY run on every sandbox start (create, stop and start,
+- `setup.startup` runs on every sandbox start (create, stop and start,
   daemon restart, host reboot). Entries MUST be idempotent ([§5.6](#56-setup)).
+  Running once at apply time was considered and rejected: the field's
+  contract is start-time state, and a backend that does not yet re-run it
+  tracks the gap per [§10](#10-runtime-support).
 - A long-running background process started by kit content MUST be started as
   a process group leader (for example with `setsid`), with stdio redirected
   away from the launching script, so it outlives its setup command and can be
   signaled as a unit.
+
+## 10. Runtime support
+
+A kit authored and verified on one runtime must behave the same on any
+other, or fail loudly. The rule for every declared field: a runtime honours
+the field with the semantics this spec defines, or it refuses or visibly
+skips the application, naming the field. Silent dropping is not a permitted
+outcome. Silent reinterpretation is not one either: mapping a declared field
+onto a different mechanism the author did not declare is the same defect,
+and the correct move is a refusal whose message names the portable
+alternative.
+
+Some fields need a runtime capability beyond the core contract: a shared
+host kernel for `security.privileged`, a gpu selector, kit volume
+auto-provisioning, kit port publication, mixin agent-context delivery. A
+runtime declares the set it implements (`CapabilitySet`), and the
+machine-readable ledger, `EvaluateSupport` in the `spec` package
+(`spec/support.go`), returns the declared fields whose capability the
+runtime lacks, each with an action:
+
+| Action | Applier obligation |
+|---|---|
+| `refuse` | Fail the whole application, naming every refused field in one error. |
+| `warn` | Apply the rest, and surface the skipped field visibly (a warning, operation metadata). Never silently. |
+
+The action encodes the field's failure severity, so it holds for every
+runtime lacking the capability: running a workload unprivileged when it
+declared `privileged` is a security divergence and refuses, while an
+undelivered convenience degrades with a visible skip. A field with no
+ledger entry needs no capability beyond the core contract. A test in the
+package forces every grammar field to be classified, so a new field cannot
+ship unclassified. An undeclared capability reads as not implemented, so an
+applier that declares nothing fails closed.
+
+Three duties follow for appliers:
+
+1. Evaluate the ledger before applying: in the serving runtime where the
+   runtime applies the kit, in the client where the client projects it.
+2. Where a client projects a kit toward a serving runtime, the serving
+   runtime's evaluation governs when the two pin different releases of this
+   module. The client check is advisory preflight.
+3. A `warn`-tier gap is transitional for a runtime that can build the
+   capability, and the target state is a declared capability, not a
+   standing warning.
+
+A capability can also be permanently absent: the runtime's substrate does
+not have the thing the field names, and no roadmap closes it. A runtime
+whose sandboxes share no host kernel refuses `security.privileged`
+permanently. Authors carve runtime-specific intent out of an otherwise
+portable kit with mixins. There is no per-field conditionality mechanism,
+by design.
+
+Portability guidance for authors: kit content MUST NOT assume host
+filesystem paths. A runtime may give the sandbox no reachable host
+filesystem, and commands that reference host paths exit successfully having
+done nothing. Content that genuinely needs a host path belongs in a mixin
+applied only where that host exists.
