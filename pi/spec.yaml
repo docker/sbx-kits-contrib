@@ -4,7 +4,12 @@ name: pi
 displayName: Pi
 description: Minimal terminal coding agent with extensible tools, skills, and TUI
 sandbox:
-  image: docker/sandbox-templates:shell-docker
+  # Pre-baked image: pi at a pinned version, on the shell-docker template.
+  # Built and published by build-and-publish-kits.yml, the shared kit-image
+  # pipeline (see ../PUBLISHING.md) -- no bespoke workflow needed, same as
+  # openclaw/kiro/copilot. Creating a sandbox no longer waits on an npm
+  # install; bumping pi is a Dockerfile change.
+  image: docker.io/sbx/pi-image:latest
   entrypoint:
     - pi
 agentInstructions:
@@ -18,8 +23,11 @@ permissions:
       # `sbx policy init deny-all`, so a domain absent from this list is
       # unreachable regardless of what the credential declares.
       - api.anthropic.com
-      # The install below, and pi's runtime package installs
-      # (`pi install npm:...`, `pi update`).
+      # Kept after the install moved into the image: pi installs packages
+      # (extensions, skills, prompt templates, themes) from npm at runtime --
+      # `pi install npm:@scope/pkg`, `pi -e npm:...`, `pi update` -- and
+      # settings.json packages are fetched on startup. Without this they all
+      # fail under deny-all.
       - registry.npmjs.org
       # The oauth credential's token endpoint. pi POSTs the sentinel refresh
       # token here once the access token nears expiry; the proxy intercepts
@@ -77,18 +85,5 @@ credentials:
             # typed `number` (Unix ms), and pi refreshes once it is within
             # five minutes of it.
             expires: "{{.ExpiresAt}}"
-setup:
-  install:
-    # Pinned deliberately: upstream releases frequently, and an unpinned
-    # `npm install -g` means two sandboxes created a week apart run different
-    # agents.
-    #
-    # `until <install>; do ...; done` rather than the `while [ $i -lt 5 ]; do
-    # <install> && break; ...; done` shape: the latter leaves the loop cleanly
-    # once the counter runs out, so five consecutive failures still exit 0 and
-    # creation reports success with no `pi` binary in the sandbox. The
-    # trailing `command -v pi` is the outcome check that the install's exit
-    # code alone does not give us.
-    - command: npm config set proxy "$HTTP_PROXY" && npm config set https-proxy "$HTTP_PROXY" && i=0 && until npm install -g --maxsockets=1 --fetch-timeout=600000 @earendil-works/pi-coding-agent@0.84.2; do i=$((i+1)); [ $i -ge 5 ] && exit 1; echo "Retrying ($i/5)..."; done && command -v pi
-      user: "1000"
-      description: Configure npm proxy and install pi coding agent globally (with retries)
+# No setup.install: the Dockerfile bakes pi in. Re-declaring the npm install
+# here would run it again on every create and every recreate, for nothing.

@@ -3,8 +3,13 @@
 A standalone sandbox kit (`kind: sandbox`, the v2 spec naming) for the
 [`@earendil-works/pi-coding-agent`](https://www.npmjs.com/package/@earendil-works/pi-coding-agent)
 CLI — a minimal terminal coding agent with extensible tools, skills, and
-TUI. The kit installs `pi` via npm at sandbox creation time and runs
-it as the entrypoint when you attach.
+TUI.
+
+Unlike the previous version of this kit (which npm-installed pi at sandbox
+creation, minutes on first boot), this kit uses a **pre-baked sandbox
+image**: pi ships inside the image at a pinned version. The kit itself only
+applies policy and runs `pi` as the entrypoint, so a new sandbox is ready in
+seconds.
 
 ## Usage
 
@@ -24,10 +29,8 @@ Or with a local clone of this repo:
 sbx run --kit ./pi/ pi
 ```
 
-The first launch installs the agent via `npm install -g`, at the version
-pinned in `spec.yaml` — upstream releases frequently, so the pin is what
-keeps two sandboxes created a week apart running the same agent. Subsequent
-launches reuse the sandbox.
+Attaching drops you straight into pi's TUI; nothing is installed at create
+time.
 
 ## How auth works
 
@@ -74,8 +77,10 @@ Every domain the kit needs is declared in `permissions.network.allow`:
   implicitly, so the domain has to be listed here as well as in the
   credential block. This repo's e2e runs every kit under
   `sbx policy init deny-all`, where anything unlisted is simply unreachable.
-- `registry.npmjs.org` — the create-time install, plus pi's own runtime
-  package installs (`pi install npm:...`, `pi update`).
+- `registry.npmjs.org` — kept even though pi is baked into the image: pi
+  installs packages (extensions, skills, prompt templates, themes) from npm
+  at runtime, via `pi install npm:@scope/pkg`, `pi -e npm:...` and
+  `pi update`, and fetches any packages listed in settings on startup.
 - `platform.claude.com:443` — the OAuth token endpoint, for the refresh.
 
 ### Barebones sandbox: no credential yet
@@ -123,3 +128,50 @@ complete and write a *real* token into `~/.pi/agent/auth.json` in the
 container, which defeats `proxyManaged: true` — from there it is readable by
 the agent and by anything the agent runs, and the kit's allowlist includes
 hosts it could be sent to. Keep credentials host-side.
+
+## Base image
+
+Unlike most kits here — which are `kind: mixin` and layer onto an existing
+`docker/sandbox-templates` image — a `kind: sandbox` kit *is* the whole
+environment, so it names the image the sandbox boots from. This kit builds
+and publishes its own, from the `Dockerfile` in this directory:
+
+```
+docker.io/sbx/pi-image
+└── FROM docker/sandbox-templates:shell-docker
+    └── @earendil-works/pi-coding-agent @ pinned version
+        npm global install (+ /usr/local/bin symlink)
+```
+
+No Node layer: the template already ships Node 22.22.1 and pi requires
+`>= 22.19.0`. The npm global prefix is chowned back to `agent` after the
+root-user install, so `pi install` and `pi update --self` still work inside
+the sandbox.
+
+The `-image` suffix distinguishes the base image from the kit itself: the kit
+is published separately as an OCI artifact at `docker.io/sbx/pi-kit` (see
+[Usage](#usage) above).
+
+### Building and publishing
+
+How the image is named, tagged, verified and pushed is the same for every kit
+in this repo that builds its own image — see
+**[PUBLISHING.md](../PUBLISHING.md)** for the pipeline. There is no
+kit-specific build script or workflow; CI builds and publishes this image the
+same way it does for `openclaw`/`kiro`/`copilot`.
+
+Upstream releases frequently; bump `PI_VERSION` in the `Dockerfile`
+deliberately rather than tracking `latest`, so two sandboxes created a week
+apart run the same agent.
+
+### Building locally
+
+```console
+docker build -t docker.io/sbx/pi-image:latest pi
+./scripts/test-kit.sh pi
+```
+
+`scripts/test-kit.sh` builds the kit's own image before running the suite
+(`SBX_KIT_SKIP_IMAGE_BUILD=1` to skip and reuse what's already built). Until
+the image is first published — pull requests build it but never push it — the
+TCK's `container` subtest can only pull it locally, so build before you test.
