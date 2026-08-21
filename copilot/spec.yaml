@@ -94,6 +94,34 @@ setup:
     - command: ["sh", "-c", "command -v apt-get > /dev/null 2>&1 && (apt-get update -qq -y > /dev/null 2>&1 || true) &"]
       user: "root"
       description: Update apt package cache in background
+    # Gateway-first MCP registration. sandboxd injects MCP_GATEWAY_URL +
+    # MCP_SENTINEL_TOKEN_NAME into the container env when a gateway has been
+    # reserved. The sentinel name is not a credential — the proxy substitutes
+    # the real token at request time keyed by this name. No-op when MCP isn't
+    # enabled, which is what the guard is for.
+    - command:
+        - sh
+        - -c
+        - |
+          set -e
+          [ -n "$MCP_GATEWAY_URL" ] || exit 0
+          mkdir -p "$HOME/.copilot"
+          cat > "$HOME/.copilot/mcp-config.json" <<EOF
+          {
+            "mcpServers": {
+              "mcp-gateway": {
+                "type": "http",
+                "url": "$MCP_GATEWAY_URL",
+                "headers": {
+                  "Authorization": "Bearer $MCP_SENTINEL_TOKEN_NAME"
+                },
+                "tools": ["*"]
+              }
+            }
+          }
+          EOF
+      user: "agent"
+      description: Register the sandbox MCP gateway in ~/.copilot/mcp-config.json
   files:
     - path: /home/agent/.copilot/config.json
       content: '{"trusted_folders": ["${WORKDIR}"]}'
