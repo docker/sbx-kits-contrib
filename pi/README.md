@@ -9,7 +9,8 @@ Unlike the previous version of this kit (which npm-installed pi at sandbox
 creation, minutes on first boot), this kit uses a **pre-baked sandbox
 image**: pi ships inside the image, rebuilt nightly against the latest
 upstream release. The kit itself applies policy, points npm at the sandbox
-proxy, and runs `pi` as the entrypoint, so a new sandbox is ready in seconds.
+proxy, and runs `pi` as the entrypoint, so creating a sandbox no longer waits
+on an npm install.
 
 ## Usage
 
@@ -29,8 +30,9 @@ Or with a local clone of this repo:
 sbx run --kit ./pi/ pi
 ```
 
-Attaching drops you straight into pi's TUI; nothing is downloaded at create
-time — the only setup step is a one-line npm proxy config.
+Attaching drops you straight into pi's TUI; setup downloads and installs
+nothing — the only step is a one-line npm proxy config. The image itself still
+has to be pulled the first time, if it isn't cached locally.
 
 ## How auth works
 
