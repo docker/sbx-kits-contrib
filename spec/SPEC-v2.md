@@ -726,7 +726,7 @@ setup:
       description: "…"
   files:                                   # files written at startup via shell exec
     - path: /home/agent/.cfg/config.json   # REQUIRED, absolute
-      content: '{"workdir": "${WORKDIR}"}' # only ${WORKDIR} placeholder is allowed
+      content: '{"workdir": "${WORKDIR}"}' # ${WORKDIR} is substituted; other ${...} text passes through literally
       mode: "0644"                         # optional octal (default 0644)
       onlyIfMissing: true                  # optional; skip if the file exists
       description: "…"
@@ -736,7 +736,7 @@ setup:
 |---|---|---|
 | `install[].command` | **string** (REQUIRED) | `sh -c <string>`; shell metacharacters work. A list is an error. |
 | `startup[].command` | **list<string>** (REQUIRED, non-empty) | Exec-style argv, no shell processing. For a shell, use `["sh", "-c", "<cmd>"]`. |
-| `files[]` | file write | Shell exec as uid `1000` (agent); `path` absolute; `mode` octal; only `${WORKDIR}` placeholder allowed in `content`. |
+| `files[]` | file write | Shell exec as uid `1000` (agent). `path` absolute, `mode` octal. `${WORKDIR}` in `content` is substituted, and any other `${...}` text passes through literally (#200). |
 
 - `install` runs **once** at sandbox creation, for every kit (built-in or
   user-supplied). Guard with `command -v <binary>` or use `files` with
@@ -834,9 +834,10 @@ the per-field rules above:
   runtime guard, so a kit that validates here will not fail the interceptor
   later. Placeholder *correctness* inside `structure` is checked by the
   engine at render time, not here.
-- **setup**: `install[].command` non-empty; `startup[].command` non-empty;
-  `files[].path` absolute; `files[].mode` octal; only `${WORKDIR}` placeholder
-  in `files[].content`.
+- **setup**: `install[].command` and `startup[].command` non-empty,
+  `files[].path` absolute, `files[].mode` octal. `files[].content` is not
+  placeholder-checked. `${WORKDIR}` is substituted at write time, and any
+  other `${...}` text passes through literally (#200).
 - **locked**: each a well-formed dotted path; no duplicates.
 - **licenses**: each non-empty; no duplicates.
 - **args**: each name matches the argument-name pattern; exactly one of
