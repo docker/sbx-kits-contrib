@@ -1,0 +1,51 @@
+schemaVersion: "2"
+kind: mixin
+name: ecc
+displayName: ECC (Everything Claude Code)
+description: 'The agent-harness optimization content pack: skills, agents, rules, and commands for Claude Code, installed with the minimal profile (no hooks runtime). Pinned to v2.0.0.'
+requires:
+  agent: claude
+agentInstructions:
+  content: |
+    ## ECC (Everything Claude Code)
+
+    This sandbox has the ECC content pack (minimal profile) installed:
+    rules under `~/.claude/rules/ecc/`, skills under
+    `~/.claude/skills/ecc/`, plus agents and commands. Skills and rules
+    load automatically; ECC's continuous-learning hooks runtime is NOT
+    installed (minimal profile) — run ECC's installer with a different
+    profile from inside the session if you want it.
+permissions:
+  network:
+    allow:
+      - github.com:443
+      - objects.githubusercontent.com:443
+      - release-assets.githubusercontent.com:443
+      # Confirmed necessary via a real e2e run under deny-all.
+      - api.github.com:443
+      - raw.githubusercontent.com:443
+      # `requires.agent: claude` composes this mixin onto the built-in
+      # claude kit, which runs its own background `apt-get update` on
+      # every sandbox (best-effort, non-blocking) -- refreshing metadata
+      # for every configured apt source, which fails on any one of them
+      # even if the kit's own package would come from a different repo.
+      # claude's base image (claude-code-docker) ships three sources, so
+      # all three must be allowed under `deny-all`. Ubuntu hosts amd64
+      # packages on archive/security and arm64 packages on ports.ubuntu.com,
+      # so all three Ubuntu hosts are listed to keep the kit working
+      # cross-arch (CI runs amd64; a real e2e run on arm64 only exercised
+      # ports.ubuntu.com).
+      - archive.ubuntu.com        # Ubuntu archive (amd64 main)
+      - security.ubuntu.com       # Ubuntu security updates (amd64)
+      - ports.ubuntu.com          # Ubuntu archive/security (arm64)
+      - download.docker.com       # Docker's apt repo
+      - registry.npmjs.org
+      - '*.npmjs.org'
+setup:
+  install:
+    - command: npm config set proxy $HTTP_PROXY && npm config set https-proxy $HTTPS_PROXY || true
+      user: "1000"
+      description: Point npm at the sandbox egress proxy
+    - command: set -e; git clone --depth 1 --branch v2.0.0 https://github.com/affaan-m/ECC /tmp/ecc; cd /tmp/ecc; npm install --no-audit --no-fund --loglevel=error; ./install.sh --profile minimal --target claude; rm -rf /tmp/ecc
+      user: "1000"
+      description: Install ECC v2.0.0 with the minimal profile into ~/.claude
