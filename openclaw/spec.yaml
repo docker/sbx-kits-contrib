@@ -31,6 +31,15 @@ permissions:
       # openrouter/...`). Confirmed necessary via a real e2e run under
       # deny-all.
       - openrouter.ai
+      # Building the nested tool-call sandbox image: Docker Hub manifests, auth,
+      # and the CloudFront blob CDN, plus the Debian mirrors its base image
+      # installs from. Verified against a real build under deny-all; the blob
+      # host is cloudfront, not cloudflare.
+      - auth.docker.io
+      - deb.debian.org
+      - production.cloudfront.docker.com
+      - registry-1.docker.io
+      - security.debian.org
       # runtime plugin installs (/plugins install, externalized channels)
       - registry.npmjs.org
       - '*.npmjs.org'

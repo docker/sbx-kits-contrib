@@ -110,9 +110,51 @@ if ! gateway_ready; then
     done
 fi
 
+# Tool calls run in a nested Docker sandbox (agents.defaults.sandbox in the
+# shipped openclaw.json), which needs `openclaw-sandbox:bookworm-slim` in this
+# sandbox's own Docker daemon. OpenClaw will not substitute a base image when
+# it is missing, and the error it raises points at a source-checkout script
+# this image does not have, so build it here. Started in the background so the
+# gateway does not wait on a Docker Hub pull plus an apt install.
+SANDBOX_IMAGE_REF=openclaw-sandbox:bookworm-slim
+SANDBOX_IMAGE_WANTED=no
+if command -v docker >/dev/null 2>&1 && ! docker image inspect "$SANDBOX_IMAGE_REF" >/dev/null 2>&1; then
+    SANDBOX_IMAGE_WANTED=yes
+    setsid sh -c "docker build -t $SANDBOX_IMAGE_REF - <<SANDBOX_IMAGE
+FROM debian:bookworm-slim
+ENV DEBIAN_FRONTEND=noninteractive
+RUN apt-get update && apt-get install -y --no-install-recommends \\
+  bash ca-certificates curl git jq python3 ripgrep \\
+  && rm -rf /var/lib/apt/lists/*
+RUN useradd --create-home --shell /bin/bash sandbox
+USER sandbox
+WORKDIR /home/sandbox
+CMD [\"sleep\", \"infinity\"]
+SANDBOX_IMAGE
+" >> "$STATE_DIR/sandbox-image-build.log" 2>&1 &
+fi
+
+# Wait for that image before declaring readiness, bounded. The sentinel means
+# "openclaw calls work here", and with sandboxing on every tool call needs the
+# image -- without this wait a consumer polling the sentinel races the build and
+# gets a missing-image error. Bounded rather than blocking: a build that fails
+# or is slow degrades to a gateway that answers, not a sandbox that never
+# reports ready.
+if [ "$SANDBOX_IMAGE_WANTED" = yes ]; then
+    i=0
+    until docker image inspect "$SANDBOX_IMAGE_REF" >/dev/null 2>&1; do
+        sleep 2
+        i=$((i+1))
+        if [ $i -ge 90 ]; then
+            echo "Sandbox image not built after 180s; tool calls will fail until it is." >&2
+            tail -5 "$STATE_DIR/sandbox-image-build.log" 2>/dev/null >&2
+            break
+        fi
+    done
+fi
+
 # Readiness sentinel for scripted consumers. A `setup.startup` command does
 # not block `sbx exec`, so a caller that runs `openclaw ...` immediately
-# after the container starts can beat the gateway to it and see
-# GatewayCredentialsRequiredError. testdata/tck.yaml polls this path as its
-# readyFile before the prompt subtest, for the same reason.
+# after the container starts can beat the gateway to it. testdata/tck.yaml
+# polls this path as its readyFile before the prompt subtest.
 : > "$STATE_DIR/gateway-ready"
