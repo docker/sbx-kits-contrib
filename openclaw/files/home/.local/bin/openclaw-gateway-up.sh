@@ -119,6 +119,20 @@ if [ -f "$AUTH_ENV_FILE" ]; then
     fi
 fi
 
+# Tool calls run in a nested Docker container (agents.defaults.sandbox in the
+# shipped openclaw.json). OpenClaw only inspects the image and errors when it is
+# absent -- it never pulls -- and this sandbox has its own empty image store, so
+# pull it here. Backgrounded: the gateway should not wait on it, and a tool call
+# before it lands fails until it does.
+SANDBOX_TOOL_IMAGE=docker/sandbox-templates:shell-docker
+SANDBOX_TOOL_IMAGE_WANTED=no
+if command -v docker >/dev/null 2>&1 && ! docker image inspect "$SANDBOX_TOOL_IMAGE" >/dev/null 2>&1; then
+    SANDBOX_TOOL_IMAGE_WANTED=yes
+    # The pull writes the readiness sentinel itself, so a pull that outlives the
+    # bounded wait below still ends with an honest signal instead of none.
+    setsid sh -c "docker pull $SANDBOX_TOOL_IMAGE && : > \"$STATE_DIR/gateway-ready\"" >> "$STATE_DIR/sandbox-image-pull.log" 2>&1 &
+fi
+
 if ! gateway_ready; then
     echo "Starting OpenClaw gateway..." >&2
     setsid sh -c "openclaw gateway run >> $STATE_DIR/gateway.log 2>&1" &
@@ -134,9 +148,27 @@ if ! gateway_ready; then
     done
 fi
 
+# Wait for the tool-call image, bounded, so the sentinel does not promise a
+# working sandbox before the pull lands. Expiry means the pull is still running,
+# not that it failed, so the pull writes the sentinel when it finishes.
+if [ "$SANDBOX_TOOL_IMAGE_WANTED" = yes ]; then
+    i=0
+    until docker image inspect "$SANDBOX_TOOL_IMAGE" >/dev/null 2>&1; do
+        sleep 2
+        i=$((i+1))
+        if [ $i -ge 90 ]; then
+            echo "Tool-call sandbox image not pulled after 180s." >&2
+            tail -3 "$STATE_DIR/sandbox-image-pull.log" 2>/dev/null >&2
+            break
+        fi
+    done
+fi
+
 # Readiness sentinel for scripted consumers. A `setup.startup` command does
 # not block `sbx exec`, so a caller that runs `openclaw ...` immediately
 # after the container starts can beat the gateway to it and see
 # GatewayCredentialsRequiredError. testdata/tck.yaml polls this path as its
 # readyFile before the prompt subtest, for the same reason.
-: > "$STATE_DIR/gateway-ready"
+if [ "$SANDBOX_TOOL_IMAGE_WANTED" = no ] || docker image inspect "$SANDBOX_TOOL_IMAGE" >/dev/null 2>&1; then
+    : > "$STATE_DIR/gateway-ready"
+fi
