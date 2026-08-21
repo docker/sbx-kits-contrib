@@ -152,9 +152,8 @@ wait everywhere else. ripgrep needs no such layer: pi probes for `rg` the same
 way and the template already ships it.
 
 No Node layer: the template already ships Node 22.22.1 and pi requires
-`>= 22.19.0`. The npm global prefix is chowned back to `agent` after the
-root-user install, so `pi install` and `pi update --self` still work inside
-the sandbox.
+`>= 22.19.0`. The npm install runs as `agent` — the template's global prefix is
+agent-owned — so `pi install` and `pi update --self` work inside the sandbox.
 
 The `-image` suffix distinguishes the base image from the kit itself: the kit
 is published separately as an OCI artifact at `docker.io/sbx/pi-kit` (see
