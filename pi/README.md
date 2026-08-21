@@ -47,6 +47,8 @@ which one materializes:
 |---|---|---|
 | API key — `sbx secret set anthropic` | `ANTHROPIC_API_KEY` sentinel | `x-api-key` |
 | OAuth login (Claude Pro/Max) — `sbx login` | `~/.pi/agent/auth.json` with OAuth sentinels | `Bearer` |
+| `claude setup-token` — custom secret ([below](#barebones-sandbox-no-credential-yet)) | `ANTHROPIC_OAUTH_TOKEN` placeholder | `Bearer` |
+| none | `ANTHROPIC_API_KEY` sentinel, nothing to swap it for | 401 ([below](#barebones-sandbox-no-credential-yet)) |
 
 An API key wins when the host has one. Without the `oauth:` block a host whose
 only Anthropic credential is an OAuth login would get no usable credential at
@@ -75,3 +77,49 @@ Every domain the kit needs is declared in `permissions.network.allow`:
 - `registry.npmjs.org` — the create-time install, plus pi's own runtime
   package installs (`pi install npm:...`, `pi update`).
 - `platform.claude.com:443` — the OAuth token endpoint, for the refresh.
+
+### Barebones sandbox: no credential yet
+
+With no Anthropic credential on the host the sandbox still receives
+`ANTHROPIC_API_KEY=proxy-managed`, because the injection is declared by the
+kit rather than by whether a credential exists. pi has no way to tell that
+placeholder from a real key, so instead of "no API key found" you get an
+opaque `401` on the first model call. This kit is deliberately script-free —
+there is no wrapper entrypoint unsetting the placeholder for you — so treat a
+bare 401 as "no credential wired", not as "wrong key".
+
+To give it a Claude subscription credential, run `claude setup-token` on a
+machine with Claude Code, then, on the host:
+
+```console
+# Required: a service secret would collide, per the note below.
+sbx secret rm anthropic
+
+# Reads the token from stdin, so it stays out of shell history.
+sbx secret set-custom \
+  --host api.anthropic.com \
+  --env ANTHROPIC_OAUTH_TOKEN \
+  --placeholder 'sk-ant-oat01-{rand}'
+```
+
+`ANTHROPIC_OAUTH_TOKEN` is pi's own variable for this, and it is preferred
+over `ANTHROPIC_API_KEY` when both are set. `{rand}` is expanded when the
+secret is stored, so the sandbox receives an OAuth-shaped placeholder such as
+`sk-ant-oat01-c2kjiKGuE9Qcfibj` — the `oat` shape is what makes pi send it as
+a Bearer — and the proxy swaps it for the real token on egress to `--host`.
+For an API key instead, `echo "$ANTHROPIC_API_KEY" | sbx secret set anthropic`.
+
+**Only one binding at a time.** A bound `anthropic` service secret makes the
+proxy *set* `x-api-key` on `api.anthropic.com`. Combined with a Bearer request
+that is two auth headers, and Anthropic rejects it outright — so
+`API key is invalid` on the custom-secret path means a stale service secret is
+still bound. `sbx secret rm anthropic` first.
+
+Either way, **recreate the sandbox**: credentials and kit content are wired at
+create time, so a running sandbox never picks up a newly stored secret.
+
+Do not authenticate from inside the sandbox. pi's `/login` will happily
+complete and write a *real* token into `~/.pi/agent/auth.json` in the
+container, which defeats `proxyManaged: true` — from there it is readable by
+the agent and by anything the agent runs, and the kit's allowlist includes
+hosts it could be sent to. Keep credentials host-side.
