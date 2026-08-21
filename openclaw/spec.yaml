@@ -84,6 +84,10 @@ credentials:
       tokenEndpoint:
         host: platform.claude.com
         path: /v1/oauth/token
+      # Where the bearer is actually used, so the proxy intercepts and swaps the
+      # access-token sentinel on inference calls, not just on token refresh.
+      resourceHosts:
+        - api.anthropic.com
       sentinels:
         accessToken: sk-ant-oat01-proxy-managed
         refreshToken: sk-ant-ort01-proxy-managed

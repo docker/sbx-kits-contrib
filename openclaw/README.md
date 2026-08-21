@@ -54,45 +54,83 @@ the declared ephemeral binding.
 
 ## How auth works
 
-Two unrelated credentials are in play: the model provider key, and the
-gateway's own shared secret.
+Two unrelated credentials are in play: the model provider's, and the gateway's
+own shared secret.
 
-**Model provider.** The kit declares Anthropic auth twice, because a host
-may hold either credential shape. `credentials[].apiKey` covers a stored
-API key and `credentials[].oauth` covers an OAuth login (what `sbx login`
-produces); either way `proxyManaged: true` means the sandbox proxy
-authenticates egress and the secret never enters the container. Declaring
-only `apiKey` is a trap: an OAuth-only host then has no usable credential
-at all, the sentinel reaches Anthropic unswapped, and every model call
-returns `401 invalid x-api-key`.
+### Model provider
 
-An API key and an OAuth token are not interchangeable on the wire, and
-OpenClaw picks the request shape from the token itself: a value containing
+OpenClaw picks the wire format from the token it holds — a value containing
 `sk-ant-oat` goes out as `Authorization: Bearer` with Anthropic's OAuth beta
-headers, anything else as `x-api-key`. Anthropic rejects an OAuth token
-presented as `x-api-key`, so on an OAuth host the `apiKey` sentinel alone is
-not enough — OpenClaw has to be handed an OAuth-shaped token. That is what
-`openclaw-gateway-up.sh` does: when the OAuth credential file is present it
-exports `ANTHROPIC_OAUTH_TOKEN` (the declared sentinel), and the proxy swaps
-the real bearer in at egress, refreshing it host-side.
+headers, anything else as `x-api-key` — and Anthropic rejects either shape sent
+in the wrong header. So the kit's job is to hand it the shape that matches the
+credential the host actually holds. `openclaw-gateway-up.sh` works that out and
+writes it to an env file that the gateway, the TUI (which runs the agent
+in-process, not through the gateway) and `sbx exec` shells all read.
 
-The token reaches the gateway, the TUI, and `sbx exec` shells, via a small env
-file plus a `~/.profile` hook. Not gateway-only: the TUI runs the agent
-in-process, so a gateway-only export leaves it on the API-key path and fails
-with a rate-limit error that reads like a quota problem.
+| host credential | sandbox receives | wire format |
+|---|---|---|
+| API key — `sbx secret set anthropic` | `ANTHROPIC_API_KEY` sentinel | `x-api-key` |
+| OAuth login — sign in from a `claude` sandbox | OAuth credential file | `Bearer` |
+| `claude setup-token` — custom secret ([below](#barebones-sandbox-no-credential-yet)) | `ANTHROPIC_OAUTH_TOKEN` placeholder | `Bearer` |
+| none | placeholder unset | reports itself unconfigured |
 
-The discriminator is that materialized credential file, not
-`SBX_CRED_ANTHROPIC_MODE` — the mode variable reports `none` even when this
-OAuth credential resolves and injects correctly, so it cannot tell `oauth`
-from `apikey`. `ANTHROPIC_OAUTH_TOKEN` must stay unset on an API-key host,
-because OpenClaw prefers it over `ANTHROPIC_API_KEY` and would otherwise send
-a sentinel the proxy has nothing to swap.
+`SBX_CRED_ANTHROPIC_MODE` cannot make this decision on its own: it reports
+`none` for an OAuth login as well as for no credential at all, so the OAuth
+case is detected from the materialized credential file instead.
+
+**Only one binding at a time.** A service secret makes the proxy *set*
+`x-api-key` on `api.anthropic.com` ([SPEC-v2 §5.4.1][spec-cred]). Combined with
+a bearer request that is two auth headers, and Anthropic rejects it outright —
+so `API key is invalid` on the custom-secret path means a stale service secret
+is still bound.
+
+[spec-cred]: ../spec/SPEC-v2.md#54-credentials
+
+### Barebones sandbox: no credential yet
+
+With no `anthropic` secret the sandbox still receives the
+`ANTHROPIC_API_KEY=proxy-managed` placeholder, because the injection is
+declared by the kit rather than by whether a credential exists. The bootstrap
+unsets it, so OpenClaw reports `No API key found for provider "anthropic"`
+instead of treating the placeholder as a real key and telling you to re-run an
+`/auth` flow that cannot succeed — it needs a TTY the TUI's subprocess does not
+get.
+
+To give it a Claude subscription credential, run `claude setup-token` on a
+machine with Claude Code, then:
+
+```console
+# Required: a service secret would collide, per the note above.
+sbx secret rm anthropic
+
+# Reads the token from stdin, so it stays out of shell history.
+sbx secret set-custom \
+  --host api.anthropic.com \
+  --env ANTHROPIC_OAUTH_TOKEN \
+  --placeholder 'sk-ant-oat01-{rand}'
+```
+
+`{rand}` is expanded when the secret is stored, so the sandbox receives an
+OAuth-shaped `ANTHROPIC_OAUTH_TOKEN` such as `sk-ant-oat01-c2kjiKGuE9Qcfibj`,
+and the proxy swaps the placeholder for the real token on egress to `--host`.
+For an API key instead, `echo "$ANTHROPIC_API_KEY" | sbx secret set anthropic`.
+
+Either way, **recreate the sandbox** — credentials and kit content are wired at
+create time, so a running sandbox never picks up a newly stored secret.
+
+Do not authenticate from inside the sandbox. OpenClaw's own auth commands will
+accept a real credential and write it to the agent's auth store in the
+container, which defeats `proxyManaged: true`: from there it is readable by the
+agent and by anything the agent runs, and this kit's `allowedDomains` includes
+hosts it could be sent to.
 
 Other providers and channel tokens (Telegram, Discord, Slack, WhatsApp) are
 configured from inside the session via `openclaw onboard` /
 `openclaw configure`.
 
-**Gateway.** `gateway.bind` is `lan` (see the quirk below), and OpenClaw
+### Gateway
+
+`gateway.bind` is `lan` (see the quirk below), and OpenClaw
 refuses any non-loopback bind that has no shared secret — it exits with a
 config error before it ever listens. So the token is mandatory here, not
 optional. `openclaw-gateway-up.sh` generates one on first boot and persists it
