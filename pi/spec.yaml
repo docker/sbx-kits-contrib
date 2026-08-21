@@ -4,11 +4,12 @@ name: pi
 displayName: Pi
 description: Minimal terminal coding agent with extensible tools, skills, and TUI
 sandbox:
-  # Pre-baked image: pi at a pinned version, on the shell-docker template.
-  # Built and published by build-and-publish-kits.yml, the shared kit-image
-  # pipeline (see ../PUBLISHING.md) -- no bespoke workflow needed, same as
-  # openclaw/kiro/copilot. Creating a sandbox no longer waits on an npm
-  # install; bumping pi is a Dockerfile change.
+  # Pre-baked image: pi at the latest upstream release, on the shell-docker
+  # template. Built and published by build-and-publish-kits.yml, the shared
+  # kit-image pipeline (see ../PUBLISHING.md) -- no bespoke workflow needed,
+  # same as openclaw/kiro/copilot. Creating a sandbox no longer waits on an
+  # npm install; the pipeline's nightly rebuild keeps pi current (rolling
+  # updates, no deliberate version bump -- see the Dockerfile).
   image: docker.io/sbx/pi-image:latest
   entrypoint:
     - pi
@@ -17,21 +18,13 @@ agentInstructions:
 permissions:
   network:
     allow:
-      # Every domain the anthropic credential injects into -- required here
-      # too, not just in the credential block: there is no auto-derived egress
-      # from `credentials`, and this repo's e2e runs every kit under
-      # `sbx policy init deny-all`, so a domain absent from this list is
-      # unreachable regardless of what the credential declares.
+      # A credential's inject domains are not allowed implicitly, and e2e runs
+      # every kit under deny-all -- see README, "How auth works".
       - api.anthropic.com
-      # Kept after the install moved into the image: pi installs packages
-      # (extensions, skills, prompt templates, themes) from npm at runtime --
-      # `pi install npm:@scope/pkg`, `pi -e npm:...`, `pi update` -- and
-      # settings.json packages are fetched on startup. Without this they all
-      # fail under deny-all.
+      # pi's runtime package installs (extensions, skills, prompt templates,
+      # themes) and the packages named in settings, fetched on startup.
       - registry.npmjs.org
-      # The oauth credential's token endpoint. pi POSTs the sentinel refresh
-      # token here once the access token nears expiry; the proxy intercepts
-      # the call, refreshes with the real token, and re-masks the response.
+      # The oauth block's token-refresh endpoint.
       - platform.claude.com:443
 credentials:
   - service: anthropic
@@ -39,51 +32,54 @@ credentials:
       name: ANTHROPIC_API_KEY
       proxyManaged: true
       inject:
-        # The only host pi ever sends an Anthropic API key to. claude.ai and
-        # console.anthropic.com are boilerplate copied between kits; pi never
-        # calls them, so listing them would be credential-exposure surface
-        # bought for nothing.
+        # pi only sends x-api-key to api.anthropic.com; no other host needs
+        # the key, so no other host gets it.
         - domain: api.anthropic.com
           header: x-api-key
           format: '%s'
-    # Without this block a host whose stored anthropic credential is an OAuth
-    # login -- what `sbx login` produces, and what CONTRIBUTING documents as
-    # the one-time e2e setup -- has no usable credential here at all: the
-    # apiKey sentinel reaches Anthropic unswapped and every model call is a
-    # 401. Declaring oauth lets the proxy authenticate egress with it, while
-    # "api key wins when found" keeps the API-key path above untouched.
-    #
-    # Unlike openclaw, pi needs no bootstrap script to pick this up:
-    # credentialFile *is* pi's native auth store, and pi resolves credentials
-    # `--api-key` > auth.json > env > models.json -- so the materialized file
-    # outranks the apiKey sentinel in the environment, which is exactly the
-    # precedence this needs.
+    # For a host whose stored anthropic credential is an OAuth login -- signed
+    # in from a `claude` sandbox. Without this block such a host has no usable
+    # credential here: the apiKey sentinel reaches Anthropic unswapped and
+    # every model call is a 401. An API key still wins when the host has one.
     oauth:
       tokenEndpoint:
         host: platform.claude.com
         path: /v1/oauth/token
-      # Where the bearer is actually used, so the proxy swaps the access-token
-      # sentinel on inference calls and not only on token refresh. pi picks
-      # the wire format from the token value -- anything containing
-      # `sk-ant-oat` goes out as `Authorization: Bearer`, everything else as
-      # `x-api-key` -- so the sentinel below is what selects Bearer here.
+      # Where the bearer is used, so the access-token sentinel is swapped on
+      # inference calls and not only on refresh. pi sends a value containing
+      # `sk-ant-oat` as `Authorization: Bearer`, so the sentinel below is what
+      # selects that format -- see README, "How auth works".
       resourceHosts:
         - api.anthropic.com
       sentinels:
         accessToken: sk-ant-oat01-proxy-managed
         refreshToken: sk-ant-ort01-proxy-managed
       credentialFile:
-        # pi reads this file itself; nothing in the kit has to translate it.
+        # pi's native auth store, which pi prefers over the environment, so
+        # nothing in the kit has to translate it.
         path: ~/.pi/agent/auth.json
         structure:
           anthropic:
             type: oauth
             access: "{{.AccessToken}}"
             refresh: "{{.RefreshToken}}"
-            # A standalone {{.ExpiresAt}} is rendered as a JSON number rather
-            # than a string, which is what pi's store wants here: `expires` is
-            # typed `number` (Unix ms), and pi refreshes once it is within
-            # five minutes of it.
+            # A standalone {{.ExpiresAt}} (SPEC-v2 §5.4.2, Unix ms) materializes
+            # as a JSON number in practice -- the type pi's store wants. Observed
+            # behavior, not something the spec text promises.
             expires: "{{.ExpiresAt}}"
-# No setup.install: the Dockerfile bakes pi in. Re-declaring the npm install
-# here would run it again on every create and every recreate, for nothing.
+setup:
+  # Config only -- pi itself is baked into the image, so nothing is installed
+  # here. This is the re-export pattern of SPEC-v2 §9.5, and it is idempotent,
+  # so re-running it on recreate is fine.
+  #
+  # Guarded on HTTP_PROXY being non-empty: npm rejects an empty value for a
+  # url-typed config key, so an unset or empty variable would fail the step and
+  # take sandbox creation down with it -- a proxy-less runtime is something
+  # every sibling kit tolerates, and this one should too. HTTPS_PROXY is
+  # preferred for https-proxy when the runtime provides a dedicated one, with
+  # HTTP_PROXY as the fallback. Both keys go in a single `npm config set` so
+  # sandbox creation pays for one Node startup rather than two.
+  install:
+    - command: 'if [ -n "${HTTP_PROXY:-}" ]; then npm config set proxy="$HTTP_PROXY" https-proxy="${HTTPS_PROXY:-$HTTP_PROXY}"; fi'
+      user: "1000"
+      description: Point npm at the sandbox proxy in ~/.npmrc so pi's runtime npm use (`pi install npm:...`, `pi update`, startup package fetches) works in exec contexts that do not inherit the proxy environment variables

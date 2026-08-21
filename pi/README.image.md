@@ -5,10 +5,13 @@ Base image for the pi agent kit for
 
 ## Contents
 
-Built on `docker/sandbox-templates:shell-docker`. On top of that:
+Built on `docker/sandbox-templates:shell-docker`: the standard sandbox tool
+chain plus a Docker engine, requesting Docker-in-Docker via
+`com.docker.sandboxes.start-docker=true`. On top of that:
 
 - [`@earendil-works/pi-coding-agent`](https://www.npmjs.com/package/@earendil-works/pi-coding-agent),
-  installed globally at a pinned version, plus a `/usr/local/bin/pi` symlink
+  installed globally at the latest upstream release (rebuilt nightly),
+  plus a `/usr/local/bin/pi` symlink
 - no Node layer — the template already ships Node 22.22.1, and pi requires
   `>= 22.19.0`
 

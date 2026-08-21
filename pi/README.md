@@ -7,9 +7,9 @@ TUI.
 
 Unlike the previous version of this kit (which npm-installed pi at sandbox
 creation, minutes on first boot), this kit uses a **pre-baked sandbox
-image**: pi ships inside the image at a pinned version. The kit itself only
-applies policy and runs `pi` as the entrypoint, so a new sandbox is ready in
-seconds.
+image**: pi ships inside the image, rebuilt nightly against the latest
+upstream release. The kit itself applies policy, points npm at the sandbox
+proxy, and runs `pi` as the entrypoint, so a new sandbox is ready in seconds.
 
 ## Usage
 
@@ -29,8 +29,8 @@ Or with a local clone of this repo:
 sbx run --kit ./pi/ pi
 ```
 
-Attaching drops you straight into pi's TUI; nothing is installed at create
-time.
+Attaching drops you straight into pi's TUI; nothing is downloaded at create
+time — the only setup step is a one-line npm proxy config.
 
 ## How auth works
 
@@ -49,7 +49,7 @@ which one materializes:
 | host credential | sandbox receives | wire format |
 |---|---|---|
 | API key — `sbx secret set anthropic` | `ANTHROPIC_API_KEY` sentinel | `x-api-key` |
-| OAuth login (Claude Pro/Max) — `sbx login` | `~/.pi/agent/auth.json` with OAuth sentinels | `Bearer` |
+| OAuth login — sign in from a `claude` sandbox | `~/.pi/agent/auth.json` with OAuth sentinels | `Bearer` |
 | `claude setup-token` — custom secret ([below](#barebones-sandbox-no-credential-yet)) | `ANTHROPIC_OAUTH_TOKEN` placeholder | `Bearer` |
 | none | `ANTHROPIC_API_KEY` sentinel, nothing to swap it for | 401 ([below](#barebones-sandbox-no-credential-yet)) |
 
@@ -89,9 +89,10 @@ With no Anthropic credential on the host the sandbox still receives
 `ANTHROPIC_API_KEY=proxy-managed`, because the injection is declared by the
 kit rather than by whether a credential exists. pi has no way to tell that
 placeholder from a real key, so instead of "no API key found" you get an
-opaque `401` on the first model call. This kit is deliberately script-free —
-there is no wrapper entrypoint unsetting the placeholder for you — so treat a
-bare 401 as "no credential wired", not as "wrong key".
+opaque `401` on the first model call. The kit runs no scripts beyond a
+one-line npm proxy config — there is no wrapper entrypoint unsetting the
+placeholder for you — so treat a bare 401 as "no credential wired", not as
+"wrong key".
 
 To give it a Claude subscription credential, run `claude setup-token` on a
 machine with Claude Code, then, on the host:
@@ -139,7 +140,7 @@ and publishes its own, from the `Dockerfile` in this directory:
 ```
 docker.io/sbx/pi-image
 └── FROM docker/sandbox-templates:shell-docker
-    └── @earendil-works/pi-coding-agent @ pinned version
+    └── @earendil-works/pi-coding-agent @ latest
         npm global install (+ /usr/local/bin symlink)
 ```
 
@@ -160,9 +161,11 @@ in this repo that builds its own image — see
 kit-specific build script or workflow; CI builds and publishes this image the
 same way it does for `openclaw`/`kiro`/`copilot`.
 
-Upstream releases frequently; bump `PI_VERSION` in the `Dockerfile`
-deliberately rather than tracking `latest`, so two sandboxes created a week
-apart run the same agent.
+Coding agents move fast, so this image rolls: it tracks the npm `latest`
+dist-tag, and the pipeline's nightly scheduled rebuild picks up new releases
+within a day of publish. On days with no release the install layer is a cache
+hit (the Dockerfile comment explains the mechanics). To reproduce a specific
+version, build with `--build-arg PI_VERSION=<version>`.
 
 ### Building locally
 
