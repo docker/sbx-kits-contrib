@@ -18,6 +18,32 @@ FROM ${BASE_IMAGE}
 # expand to an empty string.
 ARG BASE_IMAGE
 
+# pi's `find` tool is fd underneath. On first use pi probes the system for `fd`
+# or `fdfind` and, finding neither, downloads a release binary from GitHub
+# (sharkdp/fd) into its own bin dir. This repo's e2e runs every kit under
+# `sbx policy init deny-all` and the kit's allowlist names no GitHub release
+# host, so that download cannot succeed and `find` is simply broken; even where
+# egress is permissive, every fresh sandbox pays the probe and then the download
+# the first time the agent looks for a file. Baking the package settles it for
+# every sandbox at build time.
+#
+# Ubuntu's package is `fd-find` and it installs the binary as `fdfind`. pi's
+# probe accepts that name as-is; the symlink is for humans at the shell, who
+# expect `fd`.
+#
+# ripgrep needs no equivalent layer -- pi probes the system for `rg` exactly the
+# same way, and the template already ships /usr/bin/rg. Nothing to add here.
+#
+# Deliberately placed above the ARG PI_VERSION / ADD section below: every layer
+# after that ADD re-runs whenever upstream publishes a release, and this one has
+# nothing to do with which pi version is installed. Kept up here it stays a
+# cache hit across the nightly rebuilds.
+USER root
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends fd-find && \
+    rm -rf /var/lib/apt/lists/* && \
+    ln -sf "$(command -v fdfind)" /usr/local/bin/fd
+
 # Rolling updates by design: pi tracks the `latest` dist-tag, and the nightly
 # scheduled run of build-and-publish-kits.yml rebuilds this image against it.
 # The ADD below is what makes that work under CI's layer cache: BuildKit

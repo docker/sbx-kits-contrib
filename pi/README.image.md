@@ -12,6 +12,11 @@ chain plus a Docker engine, requesting Docker-in-Docker via
 - [`@earendil-works/pi-coding-agent`](https://www.npmjs.com/package/@earendil-works/pi-coding-agent),
   installed globally at the latest upstream release (rebuilt nightly),
   plus a `/usr/local/bin/pi` symlink
+- `fd-find` (apt), which backs pi's `find` tool, plus a `/usr/local/bin/fd`
+  symlink for the canonical name — without it pi downloads a binary from
+  GitHub releases on first use, which a locked-down sandbox blocks
+- no ripgrep layer — pi probes the system for `rg` just as it does for `fd`,
+  and the template already ships it
 - no Node layer — the template already ships Node 22.22.1, and pi requires
   `>= 22.19.0`
 

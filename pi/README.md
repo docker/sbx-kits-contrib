@@ -140,9 +140,16 @@ and publishes its own, from the `Dockerfile` in this directory:
 ```
 docker.io/sbx/pi-image
 └── FROM docker/sandbox-templates:shell-docker
+    ├── fd-find (apt, + /usr/local/bin/fd symlink)
     └── @earendil-works/pi-coding-agent @ latest
         npm global install (+ /usr/local/bin symlink)
 ```
+
+fd is what pi's `find` tool runs. Without it in the image pi probes for
+`fd`/`fdfind` on first use and then downloads a binary from GitHub releases —
+unreachable under this repo's deny-all e2e policy, and a needless first-use
+wait everywhere else. ripgrep needs no such layer: pi probes for `rg` the same
+way and the template already ships it.
 
 No Node layer: the template already ships Node 22.22.1 and pi requires
 `>= 22.19.0`. The npm global prefix is chowned back to `agent` after the
