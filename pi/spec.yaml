@@ -12,6 +12,14 @@ agentInstructions:
 permissions:
   network:
     allow:
+      # Every domain the anthropic credential injects into -- required here
+      # too, not just in the credential block: there is no auto-derived egress
+      # from `credentials`, and this repo's e2e runs every kit under
+      # `sbx policy init deny-all`, so a domain absent from this list is
+      # unreachable regardless of what the credential declares.
+      - api.anthropic.com
+      # The install below, and pi's runtime package installs
+      # (`pi install npm:...`, `pi update`).
       - registry.npmjs.org
 credentials:
   - service: anthropic
@@ -19,17 +27,25 @@ credentials:
       name: ANTHROPIC_API_KEY
       proxyManaged: true
       inject:
+        # The only host pi ever sends an Anthropic API key to. claude.ai and
+        # console.anthropic.com are boilerplate copied between kits; pi never
+        # calls them, so listing them would be credential-exposure surface
+        # bought for nothing.
         - domain: api.anthropic.com
-          header: x-api-key
-          format: '%s'
-        - domain: claude.ai
-          header: x-api-key
-          format: '%s'
-        - domain: console.anthropic.com
           header: x-api-key
           format: '%s'
 setup:
   install:
-    - command: npm config set proxy $HTTP_PROXY && npm config set https-proxy $HTTP_PROXY && i=0; while [ $i -lt 5 ]; do npm install -g --maxsockets=1 --fetch-timeout=600000 @earendil-works/pi-coding-agent && break; i=$((i+1)); echo "Retrying ($i/5)..."; done
+    # Pinned deliberately: upstream releases frequently, and an unpinned
+    # `npm install -g` means two sandboxes created a week apart run different
+    # agents.
+    #
+    # `until <install>; do ...; done` rather than the `while [ $i -lt 5 ]; do
+    # <install> && break; ...; done` shape: the latter leaves the loop cleanly
+    # once the counter runs out, so five consecutive failures still exit 0 and
+    # creation reports success with no `pi` binary in the sandbox. The
+    # trailing `command -v pi` is the outcome check that the install's exit
+    # code alone does not give us.
+    - command: npm config set proxy "$HTTP_PROXY" && npm config set https-proxy "$HTTP_PROXY" && i=0 && until npm install -g --maxsockets=1 --fetch-timeout=600000 @earendil-works/pi-coding-agent@0.84.2; do i=$((i+1)); [ $i -ge 5 ] && exit 1; echo "Retrying ($i/5)..."; done && command -v pi
       user: "1000"
       description: Configure npm proxy and install pi coding agent globally (with retries)

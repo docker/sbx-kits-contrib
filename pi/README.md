@@ -1,6 +1,6 @@
 # pi
 
-A standalone agent kit (`kind: agent`) for the
+A standalone sandbox kit (`kind: sandbox`, the v2 spec naming) for the
 [`@earendil-works/pi-coding-agent`](https://www.npmjs.com/package/@earendil-works/pi-coding-agent)
 CLI — a minimal terminal coding agent with extensible tools, skills, and
 TUI. The kit installs `pi` via npm at sandbox creation time and runs
@@ -24,18 +24,24 @@ Or with a local clone of this repo:
 sbx run --kit ./pi/ pi
 ```
 
-The first launch installs the agent via `npm install -g`. Subsequent
+The first launch installs the agent via `npm install -g`, at the version
+pinned in `spec.yaml` — upstream releases frequently, so the pin is what
+keeps two sandboxes created a week apart running the same agent. Subsequent
 launches reuse the sandbox.
 
 ## How auth works
 
-Anthropic SDK calls inside the sandbox flow through the sandbox proxy
-automatically: `NODE_USE_ENV_PROXY=1` (set globally by sbx) makes
-Node.js honor `HTTP_PROXY`/`HTTPS_PROXY`, and the proxy substitutes
-the real Anthropic credentials in place of the `proxy-managed`
-sentinel that's already in the default sandbox environment. The agent
-never sees the real key.
+Anthropic calls inside the sandbox flow through the sandbox proxy
+automatically: `NODE_USE_ENV_PROXY=1` (set globally by sbx) makes Node.js
+honor `HTTP_PROXY`/`HTTPS_PROXY`, and the proxy substitutes the real
+Anthropic API key for the `proxy-managed` sentinel pi finds in
+`ANTHROPIC_API_KEY`. The agent never sees the real key.
 
-`registry.npmjs.org` is the only domain the kit adds to
-`allowedDomains` — it's needed for the install. `api.anthropic.com`
-is reached via default sandbox policy, not a kit allowlist entry.
+Both domains the kit needs are declared in `permissions.network.allow`:
+
+- `api.anthropic.com` — a credential's inject domains are **not** allowed
+  implicitly, so the domain has to be listed here as well as in the
+  credential block. This repo's e2e runs every kit under
+  `sbx policy init deny-all`, where anything unlisted is simply unreachable.
+- `registry.npmjs.org` — the create-time install, plus pi's own runtime
+  package installs (`pi install npm:...`, `pi update`).
