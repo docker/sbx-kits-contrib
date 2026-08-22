@@ -26,11 +26,11 @@ while [ ! -f "$READY_FILE" ]; do
     sleep 1
 done
 
-# The TUI runs the agent in-process rather than delegating every model call to
-# the gateway, so it needs the credential in its own environment. The bootstrap
-# writes this file only on an OAuth host.
-if [ -f "$STATE_DIR/anthropic-oauth.env" ]; then
-    . "$STATE_DIR/anthropic-oauth.env"
+# The TUI runs the agent in-process, so it needs the credential state too --
+# an OAuth token when the host has one, or ANTHROPIC_API_KEY unset when the
+# host has no credential at all.
+if [ -f "$STATE_DIR/anthropic-auth.env" ]; then
+    . "$STATE_DIR/anthropic-auth.env"
 fi
 
 exec openclaw chat

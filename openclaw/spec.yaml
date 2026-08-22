@@ -31,6 +31,13 @@ permissions:
       # openrouter/...`). Confirmed necessary via a real e2e run under
       # deny-all.
       - openrouter.ai
+      # Docker Hub, so `docker pull` works inside the sandbox: the image ships a
+      # Docker client and an empty image store. Manifests, token auth, and the
+      # blob CDN -- cloudfront, not cloudflare, which 403s on the blob fetch
+      # after the manifest succeeds. Taken from a real pull under deny-all.
+      - auth.docker.io
+      - production.cloudfront.docker.com
+      - registry-1.docker.io
       # runtime plugin installs (/plugins install, externalized channels)
       - registry.npmjs.org
       - '*.npmjs.org'
@@ -84,6 +91,10 @@ credentials:
       tokenEndpoint:
         host: platform.claude.com
         path: /v1/oauth/token
+      # Where the bearer is actually used, so the proxy intercepts and swaps the
+      # access-token sentinel on inference calls, not just on token refresh.
+      resourceHosts:
+        - api.anthropic.com
       sentinels:
         accessToken: sk-ant-oat01-proxy-managed
         refreshToken: sk-ant-ort01-proxy-managed
