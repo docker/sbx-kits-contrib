@@ -53,7 +53,7 @@
 set -euo pipefail
 
 APP_NAME=${APP_NAME:-sbx-kits-contrib-tck}
-POLICY=${POLICY-deny-all}
+POLICY=
 
 # Locate the repo root from the script's own location so the command works
 # regardless of where it's invoked from.
