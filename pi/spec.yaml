@@ -4,7 +4,13 @@ name: pi
 displayName: Pi
 description: Minimal terminal coding agent with extensible tools, skills, and TUI
 sandbox:
-  image: docker/sandbox-templates:shell-docker
+  # Pre-baked image: pi at the latest upstream release, on the shell-docker
+  # template. Built and published by build-and-publish-kits.yml, the shared
+  # kit-image pipeline (see ../PUBLISHING.md) -- no bespoke workflow needed,
+  # same as openclaw/kiro/copilot. Creating a sandbox no longer waits on an
+  # npm install; the pipeline's nightly rebuild keeps pi current (rolling
+  # updates, no deliberate version bump -- see the Dockerfile).
+  image: docker.io/sbx/pi-image:latest
   entrypoint:
     - pi
 agentInstructions:
@@ -12,24 +18,68 @@ agentInstructions:
 permissions:
   network:
     allow:
+      # A credential's inject domains are not allowed implicitly, and e2e runs
+      # every kit under deny-all -- see README, "How auth works".
+      - api.anthropic.com
+      # pi's runtime package installs (extensions, skills, prompt templates,
+      # themes) and the packages named in settings, fetched on startup.
       - registry.npmjs.org
+      # The oauth block's token-refresh endpoint.
+      - platform.claude.com:443
 credentials:
   - service: anthropic
     apiKey:
       name: ANTHROPIC_API_KEY
       proxyManaged: true
       inject:
+        # pi only sends x-api-key to api.anthropic.com; no other host needs
+        # the key, so no other host gets it.
         - domain: api.anthropic.com
           header: x-api-key
           format: '%s'
-        - domain: claude.ai
-          header: x-api-key
-          format: '%s'
-        - domain: console.anthropic.com
-          header: x-api-key
-          format: '%s'
+    # For a host whose stored anthropic credential is an OAuth login -- signed
+    # in from a `claude` sandbox. Without this block such a host has no usable
+    # credential here: the apiKey sentinel reaches Anthropic unswapped and
+    # every model call is a 401. An API key still wins when the host has one.
+    oauth:
+      tokenEndpoint:
+        host: platform.claude.com
+        path: /v1/oauth/token
+      # Where the bearer is used, so the access-token sentinel is swapped on
+      # inference calls and not only on refresh. pi sends a value containing
+      # `sk-ant-oat` as `Authorization: Bearer`, so the sentinel below is what
+      # selects that format -- see README, "How auth works".
+      resourceHosts:
+        - api.anthropic.com
+      sentinels:
+        accessToken: sk-ant-oat01-proxy-managed
+        refreshToken: sk-ant-ort01-proxy-managed
+      credentialFile:
+        # pi's native auth store, which pi prefers over the environment, so
+        # nothing in the kit has to translate it.
+        path: ~/.pi/agent/auth.json
+        structure:
+          anthropic:
+            type: oauth
+            access: "{{.AccessToken}}"
+            refresh: "{{.RefreshToken}}"
+            # A standalone {{.ExpiresAt}} (SPEC-v2 §5.4.2, Unix ms) materializes
+            # as a JSON number in practice -- the type pi's store wants. Observed
+            # behavior, not something the spec text promises.
+            expires: "{{.ExpiresAt}}"
 setup:
+  # Config only -- pi itself is baked into the image, so nothing is installed
+  # here. This is the re-export pattern of SPEC-v2 §9.5, and it is idempotent,
+  # so re-running it on recreate is fine.
+  #
+  # Guarded on HTTP_PROXY being non-empty: npm rejects an empty value for a
+  # url-typed config key, so an unset or empty variable would fail the step and
+  # take sandbox creation down with it -- a proxy-less runtime is something
+  # every sibling kit tolerates, and this one should too. HTTPS_PROXY is
+  # preferred for https-proxy when the runtime provides a dedicated one, with
+  # HTTP_PROXY as the fallback. Both keys go in a single `npm config set` so
+  # sandbox creation pays for one Node startup rather than two.
   install:
-    - command: npm config set proxy $HTTP_PROXY && npm config set https-proxy $HTTP_PROXY && i=0; while [ $i -lt 5 ]; do npm install -g --maxsockets=1 --fetch-timeout=600000 @earendil-works/pi-coding-agent && break; i=$((i+1)); echo "Retrying ($i/5)..."; done
+    - command: 'if [ -n "${HTTP_PROXY:-}" ]; then npm config set proxy="$HTTP_PROXY" https-proxy="${HTTPS_PROXY:-$HTTP_PROXY}"; fi'
       user: "1000"
-      description: Configure npm proxy and install pi coding agent globally (with retries)
+      description: Point npm at the sandbox proxy in ~/.npmrc so pi's runtime npm use (`pi install npm:...`, `pi update`, startup package fetches) works in exec contexts that do not inherit the proxy environment variables
