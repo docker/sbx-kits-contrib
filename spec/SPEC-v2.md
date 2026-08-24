@@ -978,6 +978,11 @@ reading what the runtime sets.
   Running once at apply time was considered and rejected: the field's
   contract is start-time state, and a backend that does not yet re-run it
   tracks the gap per [§10](#10-runtime-support).
+  A start counts for this rule only when processes boot fresh. A runtime
+  whose stop and start is a memory resume, where the sandbox's processes
+  survive a snapshot and continue, MUST NOT re-run startup on that resume:
+  the started state the rule protects never went away, and a re-run into a
+  surviving process tree would duplicate it.
 - A long-running background process started by kit content MUST be started as
   a process group leader (for example with `setsid`), with stdio redirected
   away from the launching script, so it outlives its setup command and can be
