@@ -1,0 +1,250 @@
+schemaVersion: "2"
+kind: sandbox
+name: devin
+# The KIT's version, not Devin's. It covers this spec, the files/ tree, the
+# network policy and the hooks — the CLI inside the image floats, so a newer
+# devin release does not bump this and this does not track releases of the CLI.
+#
+# Published as the vnd.docker.sandbox.kit.version OCI annotation at pack time,
+# and `scripts/check-release-tag.sh` refuses a `devin/vX.Y.Z` tag that
+# disagrees with it. Bump here first, then tag.
+version: "1.0.0"
+displayName: Devin
+description: Devin CLI by Cognition, an agentic coding CLI.
+
+sandbox:
+  # Built from the Dockerfile beside this spec and published by
+  # .github/workflows/build-and-publish-kits.yml.
+  #
+  # This value is the source of truth for what CI builds and publishes: the
+  # workflow reads it from here rather than deriving a name, because spec.yaml
+  # is consumed literally (no env interpolation) and so cannot follow a
+  # variable. scripts/check-image-ref.sh asserts it stays inside the namespace
+  # CI can actually push to.
+  #
+  # The `-image` suffix distinguishes the base image from the kit artifact:
+  # when the kit itself is published as an OCI artifact it will be
+  # `docker.io/sbx/devin-kit`.
+  image: "docker.io/sbx/devin-image:latest"
+  # `devin` here is the auth wrapper the Dockerfile installs, not the CLI
+  # itself — the real binary is `devin-cli`. See start.sh for why the wrapper
+  # takes the friendly name. Everything after it is forwarded verbatim.
+  #
+  # --permission-mode dangerous auto-approves every tool call, which is the
+  # point of running inside a sandbox. The CLI's own rejection message is the
+  # authority on the accepted values (`--help` prose disagrees with it):
+  #
+  #   Valid options: normal (auto), accept-edits, dangerous (yolo, bypass),
+  #                  autonomous (requires --sandbox)
+  #
+  # So `bypass` — the spelling in the published docs — is an alias of
+  # `dangerous`, and `autonomous` is unusable here because it additionally
+  # demands the CLI's own process sandbox inside the container. An unknown
+  # value is rejected at parse time rather than ignored, so a typo here fails
+  # loudly instead of silently degrading to prompting.
+  #
+  # --respect-workspace-trust defaults to true in every mode, which stops to
+  # ask before the agent touches an unfamiliar directory. The workspace is the
+  # whole reason the sandbox exists, so the check is turned off. Spelled with
+  # `=` deliberately: the flag takes an OPTIONAL value, so the space form
+  # (`--respect-workspace-trust false`) leaves `false` free to be swallowed as
+  # the positional PROMPT argument instead.
+  entrypoint: [devin, "--permission-mode", "dangerous", "--respect-workspace-trust=false"]
+
+credentials:
+  - service: devin
+    description: Devin account credential captured during in-sandbox login
+    # Devin's login is a PKCE browser flow, but the credential the CLI actually
+    # authenticates with is not what that exchange returns. Three spec-only
+    # routes were tried against the live service:
+    #
+    #   * api.devin.ai/auth/cli/token with responseFields.accessToken=api_key
+    #     — the response has no such field (the proxy reported its keys as
+    #     ['token']; the PkceAuthorizationCodeResponse struct in the binary
+    #     belongs to a different exchange).
+    #   * the same endpoint with accessToken=token — captures cleanly, but
+    #     `token` is an intermediate the CLI immediately spends on a second
+    #     call to mint the account's primary API key. Seeding it yields
+    #     "Failed to load team settings: ... invalid api key".
+    #   * server.codeium.com/exa.seat_management_pb.SeatManagementService/
+    #     GetCliTeamSettings — the response contains settings, not the key.
+    #
+    # After OAuth, the CLI presents the durable key on its authenticated
+    # service requests. For one minute, the engine recognizes the Devin key
+    # shape, lets that candidate reach a Devin-owned host, and stores it as the
+    # primary API key only after the host accepts it with a successful response.
+    #
+    # The CLI reads the key from credentials.toml rather than an environment
+    # variable. This block still owns its outbound injection contract.
+    apiKey:
+      name: ""
+      inject:
+        - domain: server.codeium.com
+          header: Authorization
+          format: Bearer %s
+        - domain: api.devin.ai
+          header: Authorization
+          format: Bearer %s
+    # Captured automatically: signing in inside the sandbox is what puts the
+    # credential in the host store under this service name, with no
+    # provisioning step. Declaring apiKey AND oauth on one credential is the
+    # droid pattern — the api key wins whenever it resolves, so a host with a
+    # stored key never triggers this path.
+    oauth:
+      # PKCE code exchange. Confirmed live: an unauthenticated POST returns 422
+      # naming `code`/`code_verifier`, where the same path on app.devin.ai
+      # returns 403. app.devin.ai serves the sign-in page; api.devin.ai takes
+      # the exchange.
+      tokenEndpoint:
+        host: api.devin.ai
+        path: /auth/cli/token
+      resourceHosts:
+        - server.codeium.com
+        - api.devin.ai
+      # The exchange returns exactly one field: {"token": "..."}. Read off the
+      # wire — the proxy reported the body's keys as ['token'] while looking
+      # for something else. Do NOT "fix" this to `api_key` because the binary
+      # carries a PkceAuthorizationCodeResponse{api_key, ...} struct: that
+      # belongs to a different exchange and captures nothing here.
+      #
+      # Both fields name it deliberately. The interceptor reads an access AND a
+      # refresh token and forwards the response unpersisted if either is empty
+      # — a guard against storing half a credential — so pointing both at one
+      # field is what makes a single-key provider capturable.
+      responseFields:
+        accessToken: token
+        refreshToken: token
+      # No `sentinels:`. Devin must receive the real intermediate token so it
+      # can complete the exchange that mints the durable key.
+      #
+      # Masking cannot work here: the token is immediately embedded in a
+      # subsequent Connect request that mints the account's primary API key.
+      # OAuth header substitution cannot replace a sentinel inside that
+      # protobuf payload, so login fails with "failed to get primary API key
+      # ... Invalid token" unless the real intermediate token passes through.
+      #
+      # On later runs the credential-file hook renders the captured durable
+      # key, so the new sandbox starts authenticated without another login.
+      passthrough: true
+      credentialFile:
+        path: "~/.local/share/devin/credentials.toml"
+        template: |
+          api_server_url = "https://server.codeium.com"
+          devin_webapp_host = "app.devin.ai"
+          devin_api_url = "https://api.devin.ai"
+          windsurf_api_key = "{{.PrimaryApiKey}}"
+
+permissions:
+  network:
+    # Built-in agents ship no egress policy of their own: they inherit
+    # whatever the host policy is, which defaults to permissive. A community
+    # kit cannot rely on that — this repo's e2e runs every kit under
+    # `sbx policy init deny-all`, so the kit gets exactly the reachability it
+    # declares here and nothing more.
+    allow:
+      # Devin's own hosts. api.devin.ai is the API the CLI talks to (the
+      # DEVIN_API_URL default); app.devin.ai serves the login flow that
+      # start.sh drops into.
+      - api.devin.ai
+      - app.devin.ai
+      # Alternate login host. With unleash.codeium.com unreachable the CLI
+      # printed a windsurf.com/devin/account/login URL instead of the
+      # app.devin.ai one — the Windsurf lineage showing through. Which host a
+      # given account gets appears to be flag-driven, so both are allowed
+      # rather than betting on one; drop this if a live login never uses it.
+      - windsurf.com
+      # The install happens at image build time, but both hosts are also
+      # reachable at runtime for `devin update` and version checks:
+      # cli.devin.ai serves install.sh, which reads a manifest from
+      # static.devin.ai and pulls the versioned bundle from there.
+      # files/home/.config/devin/config.json turns background self-update off,
+      # so nothing reaches these unless the user asks for it.
+      - cli.devin.ai
+      - static.devin.ai
+      # Devin CLI is built on the Windsurf/Codeium codebase (Cognition
+      # acquired Windsurf), and the model backend still lives on the Codeium
+      # host — WINDSURF_API_SERVER_URL in the binary. Without this the CLI
+      # authenticates and then cannot answer a prompt. unleash.codeium.com is
+      # its feature-flag service.
+      - server.codeium.com
+      - unleash.codeium.com
+      # `apt-get update` (the startup hook below) refreshes metadata for every
+      # configured apt source and returns exit 100 if any one of them fails.
+      # The shell-docker base ships three sources, so all three must be
+      # reachable. Ubuntu serves amd64 from archive/security and arm64 from
+      # ports.ubuntu.com, so all three Ubuntu hosts are listed to keep the kit
+      # working cross-arch.
+      - archive.ubuntu.com        # Ubuntu archive (amd64 main)
+      - security.ubuntu.com       # Ubuntu security updates (amd64)
+      - ports.ubuntu.com          # Ubuntu archive/security (arm64)
+      - download.docker.com       # Docker's apt repo, pre-added by shell-docker
+      #
+      # app.devin.ai, server.codeium.com, unleash.codeium.com and
+      # static.devin.ai were each observed being contacted by `devin auth
+      # login` (captured via an HTTPS_PROXY CONNECT log), so those four are
+      # evidence, not inference. api.devin.ai and cli.devin.ai are still
+      # inferred — the first is the documented API base, the second only serves
+      # install/update.
+      #
+      # Deliberately excluded: the crash-reporting ingest host the same capture
+      # showed (o4507463137361920.ingest.us.sentry.io) and server-beta.codeium.com.
+      # A sandbox has no reason to report crashes to a third party, and the
+      # beta backend is not the default. If login or a prompt stalls, these are
+      # the first candidates to add:
+      #
+      #   sbx run --kit ./devin devin      # then log in and send a prompt
+      #   sbx policy log <sandbox>         # lists every blocked host + reason
+
+setup:
+  startup:
+    - command: ["sh", "-c", "command -v apt-get > /dev/null 2>&1 && (apt-get update -qq -y > /dev/null 2>&1 || true) &"]
+      user: "root"
+      description: Update apt package cache in background
+    # Gateway-first MCP registration. sandboxd injects MCP_GATEWAY_URL +
+    # MCP_SENTINEL_TOKEN_NAME into the container env when a gateway has been
+    # reserved. The sentinel is not a credential — the proxy substitutes the
+    # real token at request time, keyed by this name. No-op when MCP isn't
+    # enabled.
+    #
+    # Devin owns mcp_config.json exclusively (its other settings live in the
+    # sibling config.json, which this kit ships and never mixes with server
+    # entries), so the file is written fresh rather than merged.
+    #
+    # Shape: `devin mcp add <name> <url> --transport http --scope user
+    # --header ...` writes exactly this JSON to exactly this path — the
+    # heredoc mirrors the CLI's own output rather than guessing at a schema.
+    # It is written directly instead of shelling out to `devin mcp add` so the
+    # TCK's mcp_registration subtest can pin the key names; the expected shape
+    # lives in testdata/tck.yaml. Note `transport`, not `type` (Codex's
+    # spelling) and not `httpUrl` (Gemini's) — both are the wrong answers
+    # nearest to hand when editing this.
+    - command:
+        - sh
+        - -c
+        - |
+          set -e
+          [ -n "$MCP_GATEWAY_URL" ] || exit 0
+          mkdir -p "$HOME/.config/devin"
+          cat > "$HOME/.config/devin/mcp_config.json" <<EOF
+          {
+            "mcpServers": {
+              "mcp-gateway": {
+                "url": "$MCP_GATEWAY_URL",
+                "transport": "http",
+                "headers": {
+                  "Authorization": "Bearer $MCP_SENTINEL_TOKEN_NAME"
+                }
+              }
+            }
+          }
+          EOF
+      user: "agent"
+      description: Register the sandbox MCP gateway in ~/.config/devin/mcp_config.json
+
+agentInstructions:
+  # Devin reads AGENTS.md (plus agents.md and AGENTS.local.md) from the
+  # workspace root. It has no product-specific profile filename of its own —
+  # its `rules` command covers .windsurf/rules and .cursor/rules directories,
+  # which are a different mechanism from the single profile file this field
+  # names.
+  filename: AGENTS.md

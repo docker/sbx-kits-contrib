@@ -1,0 +1,36 @@
+# TCK configuration for the devin kit.
+#
+# `extractedFromBuiltin` is deliberately absent: devin has never been a built-in
+# sbx agent, so there is no name collision for `sbx create` to trip over and the
+# full e2e is expected to run.
+#
+# `promptArgs` is deliberately omitted, which skips the e2e `prompt` subtest.
+# That is the documented opt-out "for agents with no non-interactive mode"
+# (tck/e2e_test.go). Devin CLI does have one — `devin -p "<prompt>"` — but the
+# TCK has no Devin account credential. The entrypoint therefore waits for a
+# human to complete `devin auth login --force-manual-token-flow` instead of
+# answering the prompt.
+#
+# The remaining subtests (env, files, tmpfs, agentContext, mcp_registration)
+# still run and are what actually gate this kit.
+#
+# If a Devin token is ever available to CI, set `binary: devin-cli` to bypass the
+# auth wrapper and add `promptArgs: ["-p"]` here.
+
+# Shape of the MCP-gateway registration written by the startup hook in
+# spec.yaml, checked by the TCK's mcp_registration subtest. The
+# format-independent parts (no-op guard, env-var indirection, no literal token,
+# non-root user) are asserted for every kit and need no configuration here.
+#
+# Devin keys an HTTP MCP server by `url`, alongside `transport` and a `headers`
+# object, in a file of its own (mcp_config.json) separate from config.json.
+# `type` is Codex's spelling of the transport and `httpUrl` is Gemini's — the two
+# wrong answers nearest to hand when editing this. Confirmed by running
+# `devin mcp add mcp-gateway <url> --transport http --scope user --header ...`
+# in the built image and reading back what it wrote.
+mcp:
+  configPath: $HOME/.config/devin/mcp_config.json
+  transportKey: url
+  forbiddenKeys:
+    - httpUrl
+    - type
