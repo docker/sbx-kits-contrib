@@ -44,14 +44,17 @@ runs under; the commands above are the equivalent for a manual `sbx run`.
 
 The first sandbox runs Devin's manual browser login. The proxy stores the
 intermediate browser token, then recognizes the durable `windsurf_api_key` on
-Devin's first authenticated request. It lets that one key reach Devin and
-stores it only after Devin accepts it. `sbx secret ls` then shows the resulting
-`devin` credential.
+Devin's authenticated user-status request. sbx lets the candidate reach Devin
+and stores it only after Devin accepts it. The launcher then replaces the key in
+the first sandbox's credential file with `devin-proxy-managed` before starting
+the agent. `sbx secret ls` shows the host credential as
+`(token handled by proxy)`.
 
-On later runs, sbx renders a proxy-managed placeholder into
-`~/.local/share/devin/credentials.toml` before the agent starts. The proxy
-replaces that placeholder with the host-held durable key only on Devin egress,
-so a new sandbox begins authenticated without receiving the reusable secret.
+On later runs, sbx renders the same placeholder into the credential file before
+the agent starts. The proxy replaces it with the host-held durable key only on
+Devin egress, preserving the Bearer or Basic shape expected by each request and
+rewriting Devin's protobuf request metadata. No running sandbox retains the
+reusable secret after login completes.
 
 `passthrough: true` is required for the initial exchange: Devin must spend the
 real intermediate token to mint the durable key. That exception does not apply

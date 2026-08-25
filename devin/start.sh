@@ -8,6 +8,33 @@
 
 set -uo pipefail
 
+secure_credentials() {
+    local credentials_file="${HOME}/.local/share/devin/credentials.toml"
+    if [[ ! -f "${credentials_file}" ]] ||
+        ! grep -Eq '^[[:space:]]*windsurf_api_key[[:space:]]*=' "${credentials_file}"; then
+        return
+    fi
+    if ! sed -i 's/^[[:space:]]*windsurf_api_key[[:space:]]*=.*$/windsurf_api_key = "devin-proxy-managed"/' "${credentials_file}" ||
+        ! grep -Fqx 'windsurf_api_key = "devin-proxy-managed"' "${credentials_file}"; then
+        echo "Failed to secure Devin credentials." >&2
+        return 1
+    fi
+}
+
+credential_state() {
+    local credentials_file="${HOME}/.local/share/devin/credentials.toml"
+    if [[ ! -f "${credentials_file}" ]] ||
+        ! grep -Eq '^[[:space:]]*windsurf_api_key[[:space:]]*=' "${credentials_file}"; then
+        echo absent
+    elif grep -Eq '^[[:space:]]*windsurf_api_key[[:space:]]*=[[:space:]]*""[[:space:]]*$' "${credentials_file}"; then
+        echo empty
+    elif grep -Fqx 'windsurf_api_key = "devin-proxy-managed"' "${credentials_file}"; then
+        echo sentinel
+    else
+        echo credential
+    fi
+}
+
 # `devin auth status` exits 0 whether or not a session exists, so its exit code
 # cannot gate the login flow — the message it prints is the only signal.
 #
@@ -15,14 +42,26 @@ set -uo pipefail
 # exits as soon as it matches, which can leave devin-cli killed by SIGPIPE, and
 # under `pipefail` that failure becomes the pipeline's status and would mask a
 # successful match.
-if ! status=$(devin-cli auth status 2>&1); then
-    echo "Failed to read Devin authentication status." >&2
-    exit 1
+state=$(credential_state)
+login_required=false
+if [[ "${state}" == absent || "${state}" == empty ]]; then
+    login_required=true
+elif [[ "${state}" != sentinel ]]; then
+    if ! status=$(devin-cli auth status 2>&1); then
+        echo "Failed to read Devin authentication status." >&2
+        exit 1
+    fi
+    case "${status,,}" in
+    *"not logged in"*) login_required=true ;;
+    esac
 fi
 
-case "${status,,}" in
-*"not logged in"*)
+if [[ "${login_required}" == true ]]; then
     echo "Not authenticated. Starting Devin login..."
+    if [[ "${state}" == empty ]] && ! devin-cli auth logout > /dev/null 2>&1; then
+        echo "Failed to clear empty Devin credentials." >&2
+        exit 1
+    fi
     # No browser runs in the sandbox, so the default localhost redirect never
     # comes back. --force-manual-token-flow is Devin's own answer for that
     # case (documented for remote and SSH sessions): it prints a URL to open
@@ -31,8 +70,21 @@ case "${status,,}" in
         echo "Login failed." >&2
         exit 1
     fi
-    ;;
-esac
+
+    # Login returns after writing the durable key. Status validates that key
+    # through GetUserStatus, which lets sandboxd persist it before the local
+    # copy is replaced below.
+    if ! status=$(devin-cli auth status 2>&1) ||
+        [[ "${status,,}" == *"failed to fetch"* ]] ||
+        [[ "${status,,}" == *"not logged in"* ]]; then
+        echo "Failed to validate Devin login." >&2
+        exit 1
+    fi
+fi
+
+if ! secure_credentials; then
+    exit 1
+fi
 
 # exec so devin-cli replaces this wrapper rather than running underneath it:
 # Ctrl-C and SIGTERM then reach the CLI directly instead of a shell that would

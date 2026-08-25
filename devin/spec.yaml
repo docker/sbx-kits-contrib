@@ -123,10 +123,11 @@ credentials:
       # protobuf payload, so login fails with "failed to get primary API key
       # ... Invalid token" unless the real intermediate token passes through.
       #
-      # On later runs the credential-file hook renders a proxy-managed
-      # placeholder. The proxy replaces it with the host-held durable key only
-      # on Devin egress, so the new sandbox starts authenticated without
-      # receiving the reusable credential or requiring another login.
+      # The credential-file hook renders a proxy-managed placeholder whenever
+      # the host already has the durable key. On first login, Devin validates
+      # the key on its user-status request; start.sh then replaces the local
+      # copy before starting the agent. The proxy substitutes the host-held key
+      # only on Devin egress.
       passthrough: true
       credentialFile:
         path: "~/.local/share/devin/credentials.toml"
