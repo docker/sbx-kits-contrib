@@ -288,6 +288,19 @@ func TestRunOAuthPolicyTests(t *testing.T) {
 					TokenEndpoint: spec.OAuthTokenEndpoint{Host: "auth.example.com", Path: "/token"},
 					Sentinels:     spec.OAuthSentinels{AccessToken: "at", RefreshToken: "rt"},
 				},
+			}, {
+				Service: "passthrough-without-sentinels",
+				OAuth: &spec.OAuth{
+					TokenEndpoint: spec.OAuthTokenEndpoint{Host: "auth.example.com", Path: "/token"},
+					Passthrough:   true,
+				},
+			}, {
+				Service: "passthrough-with-sentinels",
+				OAuth: &spec.OAuth{
+					TokenEndpoint: spec.OAuthTokenEndpoint{Host: "auth.example.com", Path: "/token"},
+					Sentinels:     spec.OAuthSentinels{AccessToken: "at", RefreshToken: "rt"},
+					Passthrough:   true,
+				},
 			}},
 		},
 	}
