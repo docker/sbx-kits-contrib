@@ -1,0 +1,6 @@
+mcp:
+  configPath: $HOME/.config/devin/mcp_config.json
+  transportKey: url
+  forbiddenKeys:
+    - httpUrl
+    - type

@@ -1,0 +1,49 @@
+schemaVersion: "2"
+kind: sandbox
+name: devin
+version: "1.0.0"
+displayName: Devin
+description: Devin CLI by Cognition, an agentic coding CLI.
+
+sandbox:
+  image: docker.io/sbx/devin-image:latest
+  entrypoint: [devin, "--permission-mode", dangerous, "--respect-workspace-trust=false"]
+
+permissions:
+  network:
+    allow:
+      - api.devin.ai
+      - app.devin.ai
+      - windsurf.com
+      - server.codeium.com
+      - unleash.codeium.com
+      - cli.devin.ai
+      - static.devin.ai
+
+setup:
+  startup:
+    - command:
+        - sh
+        - -c
+        - |
+          set -e
+          [ -n "$MCP_GATEWAY_URL" ] || exit 0
+          mkdir -p "$HOME/.config/devin"
+          cat > "$HOME/.config/devin/mcp_config.json" <<EOF
+          {
+            "mcpServers": {
+              "mcp-gateway": {
+                "url": "$MCP_GATEWAY_URL",
+                "transport": "http",
+                "headers": {
+                  "Authorization": "Bearer $MCP_SENTINEL_TOKEN_NAME"
+                }
+              }
+            }
+          }
+          EOF
+      user: agent
+      description: Register the sandbox MCP gateway
+
+agentInstructions:
+  filename: AGENTS.md

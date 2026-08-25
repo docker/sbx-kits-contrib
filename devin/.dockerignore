@@ -1,0 +1,6 @@
+README.md
+README.image.md
+spec.yaml
+testdata/
+files/
+.dockerignore
