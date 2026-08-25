@@ -99,6 +99,16 @@ configured source is unreachable).
 >
 > then add the reported hosts to `permissions.network.allow` in `spec.yaml`.
 
+## MCP
+
+When a gateway is reserved, sandboxd injects `MCP_GATEWAY_URL` and
+`MCP_SENTINEL_TOKEN_NAME`, and the kit's startup hook writes
+`~/.copilot/mcp-config.json` pointing at the gateway, so servers registered
+with `sbx mcp add` / `sbx mcp load` show up in `copilot mcp list` (and under
+`/mcp`) with no manual configuration. The sentinel is not a credential — the
+proxy substitutes the real token per request, keyed by name. The hook is a
+no-op when MCP is not enabled.
+
 ## Base image
 
 Unlike most kits here — which are `kind: mixin` or `kind: agent` and layer onto
