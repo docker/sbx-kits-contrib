@@ -48,13 +48,15 @@ Devin's first authenticated request. It lets that one key reach Devin and
 stores it only after Devin accepts it. `sbx secret ls` then shows the resulting
 `devin` credential.
 
-On later runs, sbx renders that durable key into
-`~/.local/share/devin/credentials.toml` before the agent starts. A new sandbox
-therefore begins authenticated without another browser login.
+On later runs, sbx renders a proxy-managed placeholder into
+`~/.local/share/devin/credentials.toml` before the agent starts. The proxy
+replaces that placeholder with the host-held durable key only on Devin egress,
+so a new sandbox begins authenticated without receiving the reusable secret.
 
 `passthrough: true` is required for the initial exchange: Devin must spend the
-real intermediate token to mint the durable key. The durable key remains in the
-host credential store after the first sandbox is removed.
+real intermediate token to mint the durable key. That exception does not apply
+to the durable key, which remains in the host credential store after the first
+sandbox is removed.
 
 ## Permission mode and workspace trust
 
