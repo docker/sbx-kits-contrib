@@ -1,6 +1,6 @@
 # grok
 
-A standalone agent kit (`kind: agent`) for [Grok Build](https://github.com/xai-org/grok-build)
+A standalone agent kit (`kind: sandbox`) for [Grok Build](https://github.com/xai-org/grok-build)
 (`grok`), xAI's terminal-based coding agent. The kit installs Grok Build into
 the sandbox at creation time, wires its API auth through the sandbox proxy,
 and runs `grok --yolo --no-auto-update` as the entrypoint when you attach.
@@ -30,12 +30,11 @@ Subsequent launches reuse the sandbox.
 
 ## How auth works
 
-`network.serviceDomains` maps `api.x.ai` (the xAI chat-completions API) to
-the `xai` service, and `network.serviceAuth.xai` tells the proxy to inject
-`Authorization: Bearer <key>` on outbound requests to that host. The key
-comes from `XAI_API_KEY`, sourced via `credentials.sources.xai.env` and
-marked `environment.proxyManaged` so it's substituted by the proxy rather
-than baked into the container.
+`credentials[].apiKey.inject` tells the proxy to inject
+`Authorization: Bearer <key>` on outbound requests to `api.x.ai` (the xAI
+chat-completions API). The key comes from `XAI_API_KEY` on the host and is
+represented by a proxy-managed sentinel rather than baked into the container.
+`permissions.network.allow` grants the corresponding outbound access.
 
 `grok`'s browser-based OAuth login (`grok login`, the interactive default)
 isn't wired up by this kit — there's no browser inside the sandbox to
@@ -52,7 +51,7 @@ existing, writable `PATH` directory — either `~/.local/bin` or
 via the `shell-docker` base image, but the image never creates the
 directory itself, so on a fresh container the installer would silently fall
 back to appending `~/.bashrc`, which a non-interactive kit entrypoint never
-sources. `commands.install` works around this by `mkdir -p ~/.local/bin`
+sources. `setup.install` works around this by `mkdir -p ~/.local/bin`
 before running the installer, so `grok` is on `PATH` immediately.
 
 ## Customization
