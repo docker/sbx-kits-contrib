@@ -1,0 +1,79 @@
+schemaVersion: "2"
+kind: mixin
+name: aidlc-claude
+displayName: AI-DLC Quick Start
+description: Starter Kit for AWS AI-DLC — installs Bun, clones aidlc-workflows at v2, and copies its Claude harness into the workspace.
+
+# This kit installs the *Claude* harness from dist/claude and its agent
+# instructions describe Claude Code slash commands, so layering it onto a codex
+# or copilot sandbox would produce a valid-but-nonsensical result. Affinity
+# turns that into a composition error instead (SPEC-v2 §4.3).
+requires:
+  agent: claude-bedrock
+
+agentInstructions:
+  content: |
+    ## AI-DLC
+
+    `bun` is on PATH and the Claude harness is installed in this workspace —
+    `.claude/` and its `aidlc/` sibling are copied in at startup from
+    `/home/agent/aidlc-workflows/dist/claude`. Run `/aidlc --doctor` to verify,
+    then `/aidlc <description>` to start a workflow.
+
+    The clone at `/home/agent/aidlc-workflows` (branch `v2`) is the source tree
+    those files came from; it stays outside the workspace. The shipped
+    `.claude/settings.json` targets AWS Bedrock and needs AWS credentials.
+
+permissions:
+  network:
+    allow:
+      - bun.sh
+      - github.com
+      - objects.githubusercontent.com
+      - release-assets.githubusercontent.com
+      - archive.ubuntu.com
+      - security.ubuntu.com
+      - ports.ubuntu.com
+      - download.docker.com
+
+setup:
+  install:
+    # BUN_INSTALL is the whole fix: unset, the installer targets $HOME/.bun, and
+    # since install[] runs as uid 0 that means /root/.bun — invisible to the
+    # agent. /usr/local/bin is already on PATH for every user and shell type.
+    - command: |
+        set -euo pipefail
+        export BUN_INSTALL=/usr/local
+        curl -fsSL https://bun.sh/install | bash
+        bun --version
+      user: "0"
+      description: Install Bun into /usr/local/bin
+
+    # `--branch v2` is clone + cd + checkout in one step; each install[] entry is
+    # its own `sh -c`, so a `cd` would not carry to the next. Cloned outside the
+    # workspace (it's the source you copy from, not the project) as uid 1000 so
+    # the agent owns it.
+    - command: git clone --branch v2 https://github.com/awslabs/aidlc-workflows.git /home/agent/aidlc-workflows
+      user: "1000"
+      description: Clone aidlc-workflows on the v2 branch into ~/aidlc-workflows
+
+  startup:
+    # $WORKSPACE_DIR is the real mount point, injected by the runtime at create
+    # (it is not baked into the image, and is not the template's default
+    # `WORKDIR /home/agent/workspace` whenever a workspace is actually mounted).
+    # `set -u` is load-bearing here: unset, the variable would expand to empty
+    # and this would write to /.claude, so it aborts instead.
+    #
+    # `src/.` rather than `src/`: copying the directory itself nests it as
+    # .claude/.claude once the destination exists, and this runs on every boot.
+    # --update=none leaves any file the project already owns alone.
+    - command:
+        - sh
+        - -c
+        - |
+          set -eu
+          SRC=/home/agent/aidlc-workflows/dist/claude
+          cp -R --update=none "$SRC/.claude/." "$WORKSPACE_DIR/.claude/"
+          cp -R --update=none "$SRC/aidlc/."   "$WORKSPACE_DIR/aidlc/"
+      user: "1000"
+      description: Copy the Claude harness into $WORKSPACE_DIR
