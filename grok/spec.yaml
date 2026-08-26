@@ -23,6 +23,10 @@ permissions:
       # here, confirmed against a real deny-all sandbox (403 Forbidden
       # without this line).
       - "api.x.ai:443"
+      # Grok login discovers its OAuth configuration from auth.x.ai, then
+      # uses the Grok chat proxy for authenticated inference and settings.
+      - "auth.x.ai:443"
+      - "cli-chat-proxy.grok.com:443"
 
 credentials:
   - service: xai

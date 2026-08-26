@@ -7,15 +7,17 @@ and runs `grok --yolo --no-auto-update` as the entrypoint when you attach.
 
 ## Prerequisites
 
-- An [xAI](https://console.x.ai) account and API key.
-- Store the API key in the sandbox credential store:
+- An [xAI](https://console.x.ai) account.
+- Optional: store an API key in the sandbox credential store to skip login:
 
   ```console
   $ sbx secret set xai
   ```
 
   The command prompts for the key securely. The sandbox proxy manages it, so
-  the key itself never enters the sandbox.
+  the key itself never enters the sandbox. Without an API key, select
+  **Login with Grok** when the agent starts. For a headless login, run
+  `grok login --device-code` inside the sandbox.
 
 ## Usage
 
@@ -43,12 +45,13 @@ represented in `XAI_API_KEY` by a proxy-managed sentinel rather than baked
 into the container. `permissions.network.allow` grants the corresponding
 outbound access.
 
-`grok`'s browser-based OAuth login (`grok login`, the interactive default)
-isn't wired up by this kit — there's no browser inside the sandbox to
-complete it. Setting the `xai` secret sidesteps that entirely: per Grok's own
+Grok's OAuth flow uses `auth.x.ai` for login and
+`cli-chat-proxy.grok.com` for authenticated inference and settings. Both are
+allowed by the kit. In a headless environment, run
+`grok login --device-code`; otherwise select **Login with Grok** in the TUI.
+Per Grok's own
 [auth precedence](https://github.com/xai-org/grok-build/blob/main/crates/codegen/xai-grok-pager/docs/user-guide/02-authentication.md#auth-precedence),
-the API key is used whenever no session token is already active, which is
-always true for a fresh sandbox.
+a stored session takes precedence over the optional API key.
 
 ## How the install works
 
