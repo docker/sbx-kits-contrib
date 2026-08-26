@@ -8,8 +8,14 @@ and runs `grok --yolo --no-auto-update` as the entrypoint when you attach.
 ## Prerequisites
 
 - An [xAI](https://console.x.ai) account and API key.
-- `$XAI_API_KEY` exported on your host. The sandbox proxy manages it — the
-  key itself never enters the sandbox.
+- Store the API key in the sandbox credential store:
+
+  ```console
+  $ sbx secret set xai
+  ```
+
+  The command prompts for the key securely. The sandbox proxy manages it, so
+  the key itself never enters the sandbox.
 
 ## Usage
 
@@ -32,13 +38,14 @@ Subsequent launches reuse the sandbox.
 
 `credentials[].apiKey.inject` tells the proxy to inject
 `Authorization: Bearer <key>` on outbound requests to `api.x.ai` (the xAI
-chat-completions API). The key comes from `XAI_API_KEY` on the host and is
-represented by a proxy-managed sentinel rather than baked into the container.
-`permissions.network.allow` grants the corresponding outbound access.
+chat-completions API). The key comes from the host credential store and is
+represented in `XAI_API_KEY` by a proxy-managed sentinel rather than baked
+into the container. `permissions.network.allow` grants the corresponding
+outbound access.
 
 `grok`'s browser-based OAuth login (`grok login`, the interactive default)
 isn't wired up by this kit — there's no browser inside the sandbox to
-complete it. Setting `XAI_API_KEY` sidesteps that entirely: per Grok's own
+complete it. Setting the `xai` secret sidesteps that entirely: per Grok's own
 [auth precedence](https://github.com/xai-org/grok-build/blob/main/crates/codegen/xai-grok-pager/docs/user-guide/02-authentication.md#auth-precedence),
 the API key is used whenever no session token is already active, which is
 always true for a fresh sandbox.
