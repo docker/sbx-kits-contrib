@@ -1,0 +1,59 @@
+schemaVersion: "2"
+kind: mixin
+name: t3code
+displayName: T3 Code
+description: Build toolchain and the t3 npm package that T3 Code's SSH integration needs to run inside a sandbox — node-pty, a t3 dependency, has no Linux prebuilt binaries and must compile from source.
+agentInstructions:
+  content: |
+    ## T3 Code
+
+    This sandbox has the build toolchain (`g++`, `make`, `python3`) and the
+    `t3` npm package pre-installed so T3 Code's SSH integration can connect
+    without compiling anything on first connect.
+
+    - `t3` is on PATH. T3 Code's remote bootstrap finds it directly instead
+      of falling back to `npx --package t3@latest`, so the first connection
+      does not depend on npm registry access or a slow from-source build.
+    - The toolchain exists only to satisfy `node-pty`, a t3 dependency that
+      ships prebuilt binaries for macOS and Windows but not Linux. Removing
+      `g++`, `make`, or `python3` breaks any future `npm install` or
+      `npm rebuild` that touches `node-pty`.
+permissions:
+  network:
+    allow:
+      # npm package (install time): the t3 tarball and its dependencies,
+      # including node-pty, which compiles from source on Linux.
+      - registry.npmjs.org:443
+      # apt-get update refreshes every configured source, so all template
+      # apt sources must be reachable even though we only install from
+      # Ubuntu's main archive. amd64 uses archive/security, arm64 uses
+      # ports.ubuntu.com. download.docker.com is pre-added to apt sources on
+      # shell-docker / *-docker templates.
+      - archive.ubuntu.com:80
+      - security.ubuntu.com:80
+      - ports.ubuntu.com:80
+      - download.docker.com:443
+setup:
+  install:
+    - command: |
+        set -euo pipefail
+        export DEBIAN_FRONTEND=noninteractive
+        apt-get update
+        apt-get install -y g++ make python3
+        rm -rf /var/lib/apt/lists/*
+      user: "0"
+      description: Install the build toolchain node-pty needs to compile from source on Linux
+    - command: |
+        set -euo pipefail
+        command -v npm >/dev/null || { echo "npm not found: this mixin needs a base image with Node.js >= 18 (all standard agent templates ship it)" >&2; exit 1; }
+        if [ -n "${HTTP_PROXY:-}" ]; then
+          npm config set proxy "$HTTP_PROXY"
+        fi
+        if [ -n "${HTTPS_PROXY:-${HTTP_PROXY:-}}" ]; then
+          npm config set https-proxy "${HTTPS_PROXY:-$HTTP_PROXY}"
+        fi
+        npm install -g t3@latest
+        ln -sf "$(command -v t3)" /usr/local/bin/t3
+        t3 --version
+      user: "0"
+      description: Install the t3 npm package globally

@@ -10,7 +10,11 @@ sandbox:
   # ../PUBLISHING.md) -- no bespoke workflow needed, same as kiro/copilot.
   image: docker.io/sbx/openclaw-image:latest
   entrypoint:
-    - /usr/local/bin/openclaw-start
+    # Kit content, not the image binary: the entrypoint has to source the
+    # OAuth env file the bootstrap writes, and an image-baked entrypoint only
+    # picks that up after a republish.
+    - sh
+    - /home/agent/.local/bin/openclaw-start.sh
 agentInstructions:
   filename: AGENTS.md
 permissions:
@@ -27,6 +31,13 @@ permissions:
       # openrouter/...`). Confirmed necessary via a real e2e run under
       # deny-all.
       - openrouter.ai
+      # Docker Hub, so `docker pull` works inside the sandbox: the image ships a
+      # Docker client and an empty image store. Manifests, token auth, and the
+      # blob CDN -- cloudfront, not cloudflare, which 403s on the blob fetch
+      # after the manifest succeeds. Taken from a real pull under deny-all.
+      - auth.docker.io
+      - production.cloudfront.docker.com
+      - registry-1.docker.io
       # runtime plugin installs (/plugins install, externalized channels)
       - registry.npmjs.org
       - '*.npmjs.org'
@@ -40,6 +51,10 @@ permissions:
       - '*.whatsapp.com'
       - '*.whatsapp.net'
       - '*.slack.com'
+      # The oauth credential's token endpoint, for the refresh the proxy performs
+      # once the access token expires. Not observed under deny-all because the
+      # injected token was still valid for the whole run.
+      - platform.claude.com:443
       # project domains (docs links, update notes)
       - openclaw.ai
       - docs.openclaw.ai
@@ -61,7 +76,53 @@ credentials:
         - domain: console.anthropic.com
           header: x-api-key
           format: '%s'
+    # Without this block a host whose stored anthropic credential is an OAuth
+    # login -- what `sbx login` produces, and what CONTRIBUTING documents as
+    # the one-time e2e setup -- has no usable credential here at all: the
+    # apiKey sentinel reaches Anthropic unswapped and every model call is a
+    # 401. Declaring oauth lets the proxy authenticate egress with it.
+    # credentialFile is what makes the OAuth path detectable from inside the
+    # sandbox. SBX_CRED_ANTHROPIC_MODE reports "none" even when this credential
+    # resolves, so it cannot discriminate oauth from apikey; the materialized
+    # file can. openclaw-gateway-up.sh keys off the sentinel in it to decide
+    # whether to hand OpenClaw an OAuth token instead of an API key. OpenClaw
+    # does not read this file itself on this path.
+    oauth:
+      tokenEndpoint:
+        host: platform.claude.com
+        path: /v1/oauth/token
+      # Where the bearer is actually used, so the proxy intercepts and swaps the
+      # access-token sentinel on inference calls, not just on token refresh.
+      resourceHosts:
+        - api.anthropic.com
+      sentinels:
+        accessToken: sk-ant-oat01-proxy-managed
+        refreshToken: sk-ant-ort01-proxy-managed
+      credentialFile:
+        path: ~/.claude/.credentials.json
+        structure:
+          claudeAiOauth:
+            accessToken: "{{.AccessToken}}"
+            refreshToken: "{{.RefreshToken}}"
+            expiresAt: "{{.ExpiresAt}}"
+            scopes: "{{.Scopes}}"
 environment:
   variables:
     OPENCLAW_STATE_DIR: /home/agent/.openclaw
     PLAYWRIGHT_BROWSERS_PATH: /opt/ms-playwright
+setup:
+  startup:
+    # `sandbox.entrypoint` only runs on attach, so a created-but-never-attached
+    # sandbox had no gateway at all: the declared port 18789 answered nothing
+    # and `sbx exec <sandbox> -- openclaw ...` failed on a dead socket. Bring
+    # it up with the container instead. The script returns as soon as /readyz
+    # is green (~2s) and is a no-op when the gateway is already running, so
+    # the entrypoint still calls it after a stop/start.
+    # Invoked through `sh` rather than executed: files under `files/home/` land
+    # 0644 -- the artifact loader does not carry the source exec bit -- so a
+    # direct exec fails with EACCES, silently, and the gateway never starts.
+    - command:
+        - sh
+        - /home/agent/.local/bin/openclaw-gateway-up.sh
+      user: "1000"
+      description: Start the OpenClaw gateway so the published port and CLI work without attaching the TUI

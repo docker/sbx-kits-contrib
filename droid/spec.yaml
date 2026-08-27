@@ -30,6 +30,12 @@ sandbox:
 
 credentials:
   - service: droid
+    # Droid cannot authenticate at all without this service — either the
+    # apiKey below or the OAuth block. Marked required so that `sbx create`
+    # says so up front when no credential is available: without it the
+    # sandbox starts clean and the first sign of trouble is the CLI failing
+    # with an opaque 401 once you are already inside.
+    required: true
     apiKey:
       name: FACTORY_API_KEY
       # Most apiKey-based kits in this repo set this (pi, nanobot, crush,

@@ -23,5 +23,22 @@ extractedFromBuiltin: true
 # The remaining subtests (env, files, tmpfs, agentContext) still run and are
 # what actually gate this kit.
 
-# Copilot's startup hook does no MCP-gateway registration (unlike kiro's), so
-# no `mcp:` block is needed here.
+# Shape of the MCP-gateway registration written by the startup hook in
+# spec.yaml, checked by the TCK's mcp_registration subtest. The
+# format-independent parts (no-op guard, env-var indirection, no literal token,
+# non-root user) are asserted for every kit and need no configuration here.
+#
+# Copilot keys an HTTP MCP server by `url`, alongside `type: "http"`, a
+# `headers` object and `tools: ["*"]` — the shape
+# `copilot mcp add --transport http` writes and the one documented at
+# https://docs.github.com/en/copilot/how-tos/copilot-cli/customize-copilot/add-mcp-servers
+#
+# The forbidden keys are the two wrong answers nearest to hand: `httpUrl` is
+# Gemini's spelling of `url`, and `transport` is the name of the `copilot mcp
+# add` flag rather than a key in the config file (the file spells it `type`).
+mcp:
+  configPath: $HOME/.copilot/mcp-config.json
+  transportKey: url
+  forbiddenKeys:
+    - httpUrl
+    - transport

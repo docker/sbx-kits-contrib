@@ -94,7 +94,7 @@ Every row under `Blocked requests` is a host your kit reached for under `deny-al
 
 If the scoped daemon ever gets wedged: `sbx --app-name sbx-kits-contrib-tck reset --force` wipes only that daemon's state.
 
-Prerequisites for e2e (`/dev/kvm`, Secret Service on Linux, etc.) are in [End-to-end (e2e) Tests](./README.md#end-to-end-e2e-tests) in the README.
+Prerequisites for e2e (`/dev/kvm`, etc.) are in [End-to-end (e2e) Tests](./README.md#end-to-end-e2e-tests) in the README.
 
 ## Sign-off and signing
 

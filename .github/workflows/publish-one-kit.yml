@@ -134,7 +134,7 @@ jobs:
 
       - uses: docker/setup-qemu-action@96fe6ef7f33517b61c61be40b68a1882f3264fb8 # v4.2.0
 
-      - uses: docker/setup-buildx-action@e468171a9de216ec08956ac3ada2f0791b6bd435 # v3.11.1
+      - uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4.3.0
 
       - name: Build for verification (single platform, loaded locally)
         # The multi-arch build below produces a manifest list, which cannot be
@@ -142,7 +142,7 @@ jobs:
         # cache, so it costs little, and gives a concrete image to assert
         # against. It runs on pull requests too — the point is to catch a broken
         # image before it is published, not after.
-        uses: docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83 # v6.18.0
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
         with:
           context: ${{ inputs.kit }}
           file: ${{ inputs.kit }}/Dockerfile
@@ -215,7 +215,7 @@ jobs:
       - name: Exchange GitHub OIDC token for Docker Hub access
         if: env.DRY_RUN == ''
         id: docker_oidc
-        uses: docker/oidc-action@b048fb089ace3e15a5fbdd784f4784d284ce5e8d # v1.1.0
+        uses: docker/oidc-action@96ba694c64860c7209bcd1ede7d698c71564ef78 # v1.2.0
         with:
           connection-id: ${{ env.OIDC_CONNECTION_ID }}
           expires-in: 3600
@@ -242,7 +242,7 @@ jobs:
         # Only the immutable <date>-<sha> tag is built and pushed here; the
         # rolling tag is re-pointed at this manifest in the next step rather than
         # built again.
-        uses: docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83 # v6.18.0
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
         with:
           context: ${{ inputs.kit }}
           file: ${{ inputs.kit }}/Dockerfile

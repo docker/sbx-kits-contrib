@@ -1,0 +1,105 @@
+schemaVersion: "2"
+kind: mixin
+name: qemu
+displayName: QEMU (multi-arch binfmt)
+description: >-
+  Registers QEMU user-mode emulators with the kernel's binfmt_misc via Docker
+  (tonistiigi/binfmt) so the sandbox can run and build container images for
+  other CPU architectures. Requires a Docker-in-Docker base template.
+
+permissions:
+  network:
+    allow:
+      # Docker Hub: the in-sandbox docker daemon pulls tonistiigi/binfmt for the
+      # startup step. registry-1.docker.io serves the manifest, auth.docker.io
+      # issues the pull token, and layer blobs come from Cloudflare. index.docker.io
+      # is the legacy index some client flows still touch.
+      - registry-1.docker.io:443
+      - auth.docker.io:443
+      - production.cloudflare.docker.com:443
+      - index.docker.io:443
+      # apt: install the `mount` prerequisite if the base image lacks it.
+      # `apt-get update` refreshes every configured source, so all of the
+      # *-docker template's Ubuntu + Docker apt hosts must be reachable. Ubuntu
+      # serves amd64 from archive/security and arm64 from ports.ubuntu.com.
+      - archive.ubuntu.com:80
+      - security.ubuntu.com:80
+      - ports.ubuntu.com:80
+      - download.docker.com:443
+setup:
+  # `mount` is required to mount the binfmt_misc filesystem in the startup step.
+  # install hooks run once, as root, before the entrypoint — the right place for
+  # apt (the in-sandbox docker daemon is not up yet). command is a string,
+  # executed via `sh -c`.
+  install:
+    - command: |
+        set -eu
+        if ! command -v mount >/dev/null 2>&1; then
+          export DEBIAN_FRONTEND=noninteractive
+          apt-get update
+          apt-get install -y --no-install-recommends mount
+          rm -rf /var/lib/apt/lists/*
+        fi
+      user: "0"
+      description: Ensure `mount` is installed (prerequisite for binfmt_misc)
+  # Registering QEMU emulators needs the in-sandbox docker daemon (DinD), which
+  # only comes up once the container is running — so this is a startup hook, and
+  # startup always runs after install, so the `mount` prerequisite is present.
+  # startup runs on EVERY start, so the body is idempotent: it mounts
+  # binfmt_misc only if needed and skips the docker install when the emulators
+  # are already registered. startup commands are exec-style argv, so wrap the
+  # script in ["sh", "-c", …].
+  startup:
+    - command:
+        - sh
+        - -c
+        - |
+          set -eu
+          # This kit needs a Docker-in-Docker base. Fail loudly (like the
+          # playwright kit does for npm) if it was composed onto a template
+          # without docker.
+          if ! command -v docker >/dev/null 2>&1; then
+            echo "docker not found: the qemu kit needs a Docker-in-Docker base (compose it onto a *-docker template, e.g. docker/sandbox-templates:shell-docker)" >&2
+            exit 1
+          fi
+          # Mount binfmt_misc so emulator registrations are visible and writable.
+          # The `register` control file only exists once binfmt_misc is mounted,
+          # so use it as the idempotency guard. This hook runs as root, so no
+          # sudo is needed.
+          if [ ! -e /proc/sys/fs/binfmt_misc/register ]; then
+            mount -t binfmt_misc binfmt_misc /proc/sys/fs/binfmt_misc
+          fi
+          # binfmt_misc registrations are kernel-global and survive sandbox
+          # restarts, so skip the network-heavy docker install when the QEMU
+          # emulators are already registered.
+          if ls /proc/sys/fs/binfmt_misc/qemu-* >/dev/null 2>&1; then
+            echo "QEMU binfmt emulators already registered; skipping install."
+            exit 0
+          fi
+          # Wait for the in-sandbox docker daemon (DinD) to accept connections.
+          i=0
+          while [ "$i" -lt 60 ]; do
+            if docker info >/dev/null 2>&1; then
+              break
+            fi
+            i=$((i + 1))
+            sleep 1
+          done
+          docker run --privileged --rm tonistiigi/binfmt --install all
+      user: "0"
+      description: Mount binfmt_misc and install QEMU emulators via Docker
+
+agentInstructions:
+  content: |
+    ## Multi-architecture emulation (QEMU / binfmt)
+
+    QEMU user-mode emulators are registered with the kernel's binfmt_misc, so
+    this sandbox can run and build container images for non-native CPU
+    architectures (e.g. linux/arm64 on an amd64 host and vice versa).
+
+    - Run a foreign-arch image directly:
+      `docker run --rm --platform linux/arm64 alpine uname -m`
+    - Build multi-arch images with buildx:
+      `docker buildx build --platform linux/amd64,linux/arm64 .`
+    - Inspect the registered emulators under
+      `/proc/sys/fs/binfmt_misc` (`ls /proc/sys/fs/binfmt_misc/qemu-*`).
