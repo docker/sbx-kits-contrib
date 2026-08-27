@@ -9,17 +9,19 @@ Pairs with the built-in `claude-bedrock` agent — the kit declares `requires.ag
 
 ## Usage
 
-Run it with the `claude-bedrock` agent, from its published OCI artifact on Docker Hub:
+Run it with the `claude-bedrock` agent, from a git URL targeting this repo:
 
 ```console
-sbx run --kit "docker.io/sbx/aidlc-quickstart-kit:latest" claude-bedrock
+sbx run --kit "git+https://github.com/docker/sbx-kits-contrib.git#dir=aidlc-claude" claude-bedrock
 ```
 
-Or from a git URL targeting this repo:
+Or from its published OCI artifact on Docker Hub:
 
 ```console
-sbx run --kit "git+https://github.com/docker/sbx-kits-contrib.git#dir=aidlc-quickstart" claude-bedrock
+sbx run --kit "docker.io/sbx/aidlc-claude-kit:latest" claude-bedrock
 ```
+Requires sbx version newer than v0.39.0.
+
 
 After the sandbox starts, the harness is already in the workspace:
 
@@ -30,9 +32,13 @@ bun --version
 ```
 
 The shipped `.claude/settings.json` targets **AWS Bedrock** and pins Fable /
-Opus / Sonnet / Haiku in `us-east-1`. You need Anthropic model access enabled in
-your AWS account and credentials on the SDK credential chain before the first
-run — see upstream's [Getting Started](https://github.com/awslabs/aidlc-workflows/blob/v2/docs/guide/01-getting-started.md#aws-bedrock-setup).
+Opus / Sonnet / Haiku in `us-east-1`. You need Anthropic model access enabled
+in your AWS account, and the `claude-bedrock` agent needs its own credentials
+set up on the host *before* you run the kit — it does not pick up an
+`AWS_PROFILE` from your shell, since the sandbox runtime deliberately does not
+import that automatically. With AWS CLI v2 installed on the host and a
+profile configured there, store that profile for the agent with
+`sbx secret set bedrock`.
 
 ## How the Bun install works
 
@@ -88,11 +94,6 @@ hand.
 The kit leaves no state on the host *except* in the workspace: `.claude/` and
 `aidlc/` are written into `$WORKSPACE_DIR`, which for a bind-mounted workspace
 is your real project directory on the host. They persist after `sbx rm <name>`.
-Remove them with:
-
-```console
-rm -rf .claude aidlc
-```
 
 Everything else — Bun and the `aidlc-workflows` clone — lives inside the
 sandbox and goes away with it.
