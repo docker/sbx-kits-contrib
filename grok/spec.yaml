@@ -1,0 +1,72 @@
+schemaVersion: "2"
+kind: sandbox
+name: grok
+displayName: Grok Build
+description: xAI's terminal-based coding agent, powered by Grok models.
+
+sandbox:
+  image: "docker/sandbox-templates:shell-docker"
+  entrypoint: [grok, "--yolo", "--no-auto-update"]
+
+permissions:
+  network:
+    allow:
+      # Installer + binary download (BASE_URL_PRIMARY in
+      # https://x.ai/cli/install.sh). The script falls back to
+      # storage.googleapis.com if x.ai is unreachable; that fallback is
+      # intentionally not allowed here, so the primary path is the only one
+      # that works under deny-all.
+      - "x.ai:443"
+      # The xAI chat-completions API. Declaring it in credentials[].apiKey.inject
+      # (below) wires header injection but does NOT implicitly allow the
+      # domain through the network policy — it still needs an explicit entry
+      # here, confirmed against a real deny-all sandbox (403 Forbidden
+      # without this line).
+      - "api.x.ai:443"
+      # Grok login discovers its OAuth configuration from auth.x.ai, then
+      # uses the Grok chat proxy for authenticated inference and settings.
+      - "auth.x.ai:443"
+      - "cli-chat-proxy.grok.com:443"
+
+credentials:
+  - service: xai
+    apiKey:
+      name: XAI_API_KEY
+      inject:
+        - domain: api.x.ai
+          header: Authorization
+          format: Bearer %s
+
+setup:
+  install:
+    # The installer only symlinks `grok` onto an existing, writable PATH
+    # directory (~/.local/bin or /usr/local/bin); it does not create either.
+    # ~/.local/bin is on PATH already (shell-docker template), but the base
+    # image never creates it, so on a fresh container the installer would
+    # silently fall through to rewriting .bashrc/.zshrc instead — which a
+    # non-interactive kit entrypoint never sources. Pre-creating the
+    # directory here makes the installer's own PATH-symlink step succeed.
+    - command: |
+        set -e
+        mkdir -p "$HOME/.local/bin"
+        curl -fsSL https://x.ai/cli/install.sh | bash
+      user: "1000"
+      description: Install Grok Build (grok)
+
+agentInstructions:
+  filename: AGENTS.md
+  content: |
+    ## Grok Build
+
+    Grok Build (`grok`) is xAI's terminal-based coding agent. It is installed
+    as `grok` on `PATH` and started with `--yolo`, which auto-approves tool
+    calls (file edits, shell commands, etc.) without prompting — the sandbox
+    itself is the safety boundary. `--no-auto-update` disables the CLI's
+    background update check, since the sandbox is recreated from the kit
+    rather than self-updated in place.
+
+    Set `XAI_API_KEY` on your host (get one from https://console.x.ai) and the
+    sandbox proxy injects it as `Authorization: Bearer <key>` on outbound
+    requests to `api.x.ai`. Project rules go in `AGENTS.md`. See
+    <https://github.com/xai-org/grok-build> and
+    <https://docs.x.ai/build/overview> for usage.
