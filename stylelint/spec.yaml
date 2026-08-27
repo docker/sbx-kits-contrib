@@ -1,0 +1,77 @@
+schemaVersion: "2"
+kind: mixin
+name: stylelint
+displayName: Stylelint
+description: Stylelint CSS linter with stylelint-config-standard — agents can lint CSS, SCSS-adjacent, and CSS-in-JS files in the workspace.
+agentInstructions:
+  content: |
+    ## Stylelint
+
+    `stylelint` v16.26.1 is on PATH, with stylelint-config-standard
+    39.0.0 as the fallback config. If the workspace already has a
+    Stylelint config (stylelint.config.* or .stylelintrc*), that
+    file wins. Otherwise the wrapper passes
+    --config /usr/local/share/stylelint/config.mjs.
+
+    - Lint CSS: `stylelint "**/*.css"`
+    - Autofix: `stylelint "**/*.css" --fix`
+    - Confirm: `stylelint --version`
+
+    Stylelint 17.x needs Node >= 20.19; standard agent templates
+    only guarantee Node >= 18. This kit stays on the last 16.x line
+    (Node >= 18.12). Do not pass a Stylelint 17-only config.
+permissions:
+  network:
+    allow:
+      # npm packages (install time): stylelint + stylelint-config-standard
+      # and their dependency trees.
+      - registry.npmjs.org:443
+environment:
+  variables:
+    NODE_PATH: /usr/local/share/npm-global/lib/node_modules
+setup:
+  install:
+    # Stylelint 17.x requires Node >= 20.19. 16.26.1 is the last 16.x
+    # and accepts Node >= 18.12. Pair with stylelint-config-standard
+    # 39.0.0 (peer stylelint ^16.23). npm verifies tarballs against
+    # registry sha512 integrity. To bump: change both versions here
+    # and in agentInstructions / README. Do not jump to 17.x until
+    # templates ship Node 20.19.
+    - command: |
+        set -euo pipefail
+        command -v npm >/dev/null || { echo "npm not found: this mixin needs a base image with Node.js >= 18 (all standard agent templates ship it)" >&2; exit 1; }
+        if [ -n "${HTTP_PROXY:-}" ]; then
+          npm config set proxy "$HTTP_PROXY"
+          npm config set https-proxy "$HTTP_PROXY"
+        fi
+        STYLELINT_VERSION=16.26.1
+        CONFIG_VERSION=39.0.0
+        npm install -g "stylelint@${STYLELINT_VERSION}" "stylelint-config-standard@${CONFIG_VERSION}"
+        PREFIX="$(npm prefix -g)"
+        SL_JS="${PREFIX}/lib/node_modules/stylelint/bin/stylelint.mjs"
+        test -f "$SL_JS" || { echo "stylelint CLI entry not found at $SL_JS" >&2; exit 1; }
+        mkdir -p /usr/local/share/stylelint
+        printf '%s\n' 'export default { extends: ["stylelint-config-standard"] };' > /usr/local/share/stylelint/config.mjs
+        {
+          printf '%s\n' '#!/bin/sh' 'set -eu' 'has_config=0'
+          printf '%s\n' 'for arg in "$@"; do'
+          printf '%s\n' '  case "$arg" in' '    --config|--config=*) has_config=1 ;;' '  esac'
+          printf '%s\n' 'done'
+          printf '%s\n' 'if [ "$has_config" -eq 0 ]; then'
+          printf '%s\n' '  for f in stylelint.config.js stylelint.config.mjs stylelint.config.cjs stylelint.config.ts .stylelintrc .stylelintrc.json .stylelintrc.yaml .stylelintrc.yml .stylelintrc.js; do'
+          printf '%s\n' '    [ -e "$f" ] && has_config=1 && break'
+          printf '%s\n' '  done'
+          printf '%s\n' 'fi'
+          printf '%s\n' 'if [ "$has_config" -eq 0 ]; then'
+          printf '%s\n' '  set -- --config /usr/local/share/stylelint/config.mjs "$@"'
+          printf '%s\n' 'fi'
+          printf '%s\n' "exec node \"${SL_JS}\" \"\$@\""
+        } > /usr/local/bin/stylelint
+        chmod 0755 /usr/local/bin/stylelint
+        NPM_SL="${PREFIX}/bin/stylelint"
+        if [ -e "$NPM_SL" ] && [ "$NPM_SL" != /usr/local/bin/stylelint ]; then
+          ln -sfn /usr/local/bin/stylelint "$NPM_SL"
+        fi
+        stylelint --version
+      user: "0"
+      description: Install stylelint v16.26.1 + stylelint-config-standard v39.0.0, version pinned, with a default-config wrapper
