@@ -15,6 +15,9 @@ import (
 // must start and end with alphanumeric, 1-64 characters.
 var namePattern = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]{0,62}[a-z0-9])?$`)
 
+// aiFilenamePattern restricts the AI profile name to one portable path component.
+var aiFilenamePattern = regexp.MustCompile(`^[A-Za-z0-9._-]+$`)
+
 // shellIdentifierPattern matches valid shell variable names.
 var shellIdentifierPattern = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 
@@ -68,6 +71,10 @@ func validateManifest(m *Manifest, inheritsImage bool) error {
 	}
 	if !namePattern.MatchString(m.Name) {
 		return fmt.Errorf("manifest: invalid name %q (must be lowercase alphanumeric with hyphens, 1-64 chars)", m.Name)
+	}
+
+	if m.AIFilename != "" && (m.AIFilename == "." || m.AIFilename == ".." || !aiFilenamePattern.MatchString(m.AIFilename)) {
+		return fmt.Errorf("manifest: invalid aiFilename %q (must be a filename containing only letters, numbers, dots, underscores, or hyphens)", m.AIFilename)
 	}
 
 	if (m.Kind == KindSandbox || m.Kind == KindAgent) && !inheritsImage {
