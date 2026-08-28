@@ -150,7 +150,7 @@ directory:
 
 ```
 docker.io/sbx/openclaw-image
-└── FROM docker/sandbox-templates:shell-docker
+└── FROM ${BASE_IMAGE}  (defaults to docker/sandbox-templates:shell-docker)
     ├── Node 22 (openclaw requires >= 22.19)
     ├── openclaw @ pinned version   npm global install (+ /usr/local/bin symlink)
     └── /opt/ms-playwright          Chromium + xvfb for the browser tool
