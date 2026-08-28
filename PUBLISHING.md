@@ -310,9 +310,9 @@ the image itself:
   Docker-in-Docker — since the base is a build arg, this check is what stops an
   image asking for an engine it does not have.
 - `com.docker.sandboxes.flavor` names the kit itself. `sbx` reads that label as
-  the image's agent, and an image that does not declare one inherits the base
-  image's value — so a Dockerfile that forgets it does not report a missing
-  agent, it reports the base's.
+  the image's agent, and an image that does not declare one inherits whatever
+  its base sets — today's bases all carry their own flavor, so a Dockerfile
+  that forgets it does not report a missing agent, it reports the base's.
 
 ## Adding an image-publishing kit
 

@@ -204,11 +204,12 @@ jobs:
         #   3. Sandboxes do not run as root.
         #   4. `com.docker.sandboxes.flavor` names this kit. sbx reads that
         #      label as the image's agent, and an image that does not declare
-        #      one inherits the base image's value — so a Dockerfile that
-        #      forgets it does not produce a missing agent, it produces a
-        #      confidently wrong one. Nothing derives the label from the kit
-        #      directory, so this is the only thing standing between a new kit
-        #      and shipping under someone else's name.
+        #      one inherits whatever its base sets — today's bases all carry
+        #      their own flavor, so a Dockerfile that forgets it does not
+        #      produce a missing agent, it produces a confidently wrong one.
+        #      Nothing derives the label from the kit directory, so this is the
+        #      only thing standing between a new kit and shipping under someone
+        #      else's name.
         run: |
           set -euo pipefail
           img="${{ steps.coords.outputs.image }}:ci-verify"
