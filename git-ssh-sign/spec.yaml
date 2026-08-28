@@ -7,48 +7,159 @@ agentInstructions:
   content: |
     ## Git commit signing
 
-    This sandbox is configured to sign git commits with your host's SSH key.
-    Commits and tags are signed automatically. Use `git log --show-signature`
-    to verify signatures on existing commits.
+    This sandbox signs git commits with your host's SSH key, forwarded over
+    the sandbox's SSH agent relay. Use `git log --show-signature` to verify
+    signatures on existing commits.
+
+    Automatic signing is scoped to repositories that **have at least one
+    remote**. A repository is exempt only for as long as it has no remote:
+    a test fixture that runs `git init` and stops there commits unsigned,
+    but one that goes on to `git remote add` is signed like any other
+    repository. `git commit -S` still signs anywhere.
+
+    The scoping needs git >= 2.36. On an older git the install falls back
+    to signing machine-wide and says so on stderr, and then nothing is
+    exempt — if `git init` fixtures are failing to commit, check
+    `git config --system --get commit.gpgSign` before believing the
+    paragraph above.
+
+    ### When signing fails
+
+    The key is resolved at signing time from the forwarded agent, so a
+    signing failure almost always means the agent is unreachable or holds
+    no usable key, not that a config value is missing. Git reports it as:
+
+        warning: gpg.ssh.defaultKeyCommand failed: [git-ssh-sign] ...
+        error: user.signingKey needs to be set for ssh signing
+
+    **Ignore the `user.signingKey` line** — this kit deliberately leaves
+    `user.signingKey` unset. Read the `[git-ssh-sign]` lines above it; they
+    name the actual state and the recovery.
+
+    Diagnose in this order:
+
+    ```console
+    echo "$SSH_AUTH_SOCK"      # always set inside a sandbox; proves nothing
+    test -S "$SSH_AUTH_SOCK"   # the real check — is the relay socket there?
+    ssh-add -l                 # 0 = keys; 1 = connected, no usable key; 2 = no connection
+    ```
+
+    Recovery, all of it **on the host**, not in the sandbox:
+
+    1. Check that forwarding is switched on at all:
+
+       ```console
+       sbx settings get ssh.agentForwardingEnabled   # must be true
+       sbx settings set ssh.agentForwardingEnabled true
+       ```
+
+       Do this first. While it is `false` the forwarded agent is never
+       wired up, so `ssh-add` inside the sandbox reports a broken agent
+       (exit 1 or 2, depending on how far the connection gets) rather than
+       a disabled feature — and no amount of reloading keys or restarting
+       the sandbox changes it. The setting defaults to `true`, so a
+       `false` means it was turned off explicitly, e.g. by declining agent
+       forwarding during `sbx setup`.
+
+    2. Make sure the host agent actually holds the key:
+       `ssh-add -l`, and `ssh-add ~/.ssh/id_ed25519` if it does not.
+    3. If step 1 changed the setting, restart the daemon:
+       `sbx daemon restart`. Changes to `ssh.agentForwardingEnabled` and
+       `ssh.agentSocketPath` only reach sandboxes that already exist once
+       the daemon has restarted.
+    4. From that same shell — the daemon adopts the requesting client's
+       `SSH_AUTH_SOCK` — restart this sandbox's container so the relay
+       comes back:
+
+       ```console
+       sbx stop <sandbox-name>
+       sbx run --name <sandbox-name>
+       ```
+
+       Stop-then-run is the supported restart cycle; there is no
+       `sbx start`. Substitute the sandbox's own name: `hostname` prints
+       it *inside* the sandbox, but `$SANDBOX_NAME` does not exist in a
+       host shell, so type the literal name there.
+
+    To make one commit without a signature while you sort that out:
+
+    ```console
+    git -c commit.gpgsign=false commit -m "..."
+    ```
 setup:
   install:
     - command: |
+        set -e
+
+        # Signing *machinery* stays machine-wide: it is inert unless something
+        # asks for a signature, and keeping it here means `git commit -S` works
+        # in any repository in the sandbox.
         git config --system gpg.format ssh
-        git config --system --unset-all user.signingKey || true
-        git config --system commit.gpgSign true
-        git config --system tag.gpgSign true
-        git config --system gpg.ssh.defaultKeyCommand /home/agent/.config/git/ssh-signing-key-command
+        # The key command is invoked through /bin/sh rather than executed
+        # directly. Files shipped under a kit's files/home/ tree land mode
+        # 0644 when the kit is installed from its OCI artifact -- per-file
+        # executable bits are not representable in a v2 layer (spec/OCI-v2.md)
+        # -- and git execs this value itself, so a bare path would die with
+        # "cannot exec: Permission denied" before a single one of the script's
+        # own diagnostics could run.
+        git config --system gpg.ssh.defaultKeyCommand '/bin/sh /home/agent/.config/git/ssh-signing-key-command'
         git config --system gpg.ssh.allowedSignersFile /home/agent/.config/git/allowed_signers
+
+        # user.signingKey MUST stay unset: git only runs
+        # gpg.ssh.defaultKeyCommand when it is empty. Setting it to any value
+        # (even a placeholder) disables dynamic key resolution entirely.
+        git config --system --unset-all user.signingKey || true
+
+        # Signing *policy* is scoped, not machine-wide. Setting
+        # commit.gpgSign=true in /etc/gitconfig makes every `git commit` in the
+        # sandbox depend on a live SSH agent — including throwaway repositories
+        # created by test suites that have nothing to do with the user's work.
+        # When the forwarded agent goes away, those all fail too.
+        mkdir -p /etc/git
+        cat > /etc/git/signing-enabled.inc <<'INC'
+        # Included by /etc/gitconfig for repositories with a remote.
+        # See the git-ssh-sign kit.
+        [commit]
+        	gpgSign = true
+        [tag]
+        	gpgSign = true
+        INC
+        chmod 0644 /etc/git/signing-enabled.inc
+
+        # Clear anything an older version of this kit left machine-wide, so a
+        # re-install converges rather than layering.
+        git config --system --unset-all commit.gpgSign || true
+        git config --system --unset-all tag.gpgSign || true
+        git config --system --unset-all 'includeIf.hasconfig:remote.*.url:**.path' || true
+
+        # `includeIf "hasconfig:remote.*.url:**"` needs git >= 2.36. Probe for
+        # it rather than parsing a version string: build a throwaway repo with
+        # a remote and see whether the include actually fires. Note that `**`
+        # is only a cross-slash wildcard when it is a whole path component --
+        # `git@github.com:**` does NOT match `git@github.com:org/repo.git`, so
+        # a bare `**` ("has any remote at all") is the pattern to use here.
+        probe=$(mktemp -d)
+        git init -q "$probe"
+        git -C "$probe" remote add origin https://example.invalid/probe.git
+        printf '[commit]\n\tgpgSign = true\n' > "$probe/inc"
+        printf '[includeIf "hasconfig:remote.*.url:**"]\n\tpath = %s/inc\n' "$probe" > "$probe/sys"
+        supported=$(GIT_CONFIG_SYSTEM="$probe/sys" GIT_CONFIG_GLOBAL=/dev/null \
+            git -C "$probe" config --get commit.gpgSign 2>/dev/null || true)
+        rm -rf "$probe"
+
+        if [ "$supported" = "true" ]; then
+            git config --system 'includeIf.hasconfig:remote.*.url:**.path' /etc/git/signing-enabled.inc
+        else
+            # Old git: an unrecognised includeIf keyword evaluates false, which
+            # would silently disable signing. Fail closed (sign everywhere)
+            # rather than fail open (sign nothing).
+            echo "[git-ssh-sign] git $(git --version | awk '{print $3}') lacks includeIf hasconfig; enabling signing machine-wide" >&2
+            git config --system commit.gpgSign true
+            git config --system tag.gpgSign true
+        fi
+
         if [ "$(git config --system --get core.hooksPath || true)" = "/home/agent/.config/git/hooks" ]; then
             git config --system --unset-all core.hooksPath
         fi
       user: "0"
-      description: Configure SSH commit signing with a dynamic key command
-  files:
-    - path: /home/agent/.config/git/ssh-signing-key-command
-      content: |
-        #!/bin/sh
-        set -e
-
-        if [ -z "$SSH_AUTH_SOCK" ]; then
-            echo "[git-ssh-sign] no SSH agent - cannot sign commits" >&2
-            exit 1
-        fi
-
-        key=$(ssh-add -L 2>/dev/null | head -n 1)
-        if [ -z "$key" ]; then
-            echo "[git-ssh-sign] no keys in SSH agent - cannot sign commits" >&2
-            exit 1
-        fi
-
-        config_dir="$GIT_SSH_SIGN_CONFIG_DIR"
-        if [ -z "$config_dir" ]; then
-            config_dir="/home/agent/.config/git"
-        fi
-        mkdir -p "$config_dir"
-
-        email=$(git config user.email 2>/dev/null || printf '%s' "agent@sandbox.local")
-        printf '%s %s\n' "$email" "$key" > "$config_dir/allowed_signers"
-        printf 'key::%s\n' "$key"
-      mode: "0755"
-      description: Resolve the forwarded SSH agent key for Git SSH signing
+      description: Configure SSH commit signing, scoped to repositories with a remote
