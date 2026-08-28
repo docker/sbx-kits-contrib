@@ -28,6 +28,8 @@ setup:
         tmp=$(mktemp -p /home/agent/.claude)
         jq '.statusLine = {type: "command", command: "~/.claude/statusline.sh"}' "$f" > "$tmp"
         mv "$tmp" "$f"
+        # Shipped files arrive 0644; unexecutable, it renders nothing and no error.
+        chmod +x /home/agent/.claude/statusline.sh
         chown -R agent:agent /home/agent/.claude
       user: "0"
-      description: Set the statusLine key in ~/.claude/settings.json to ~/.claude/statusline.sh (jq merge, so all other keys are preserved; any existing statusLine is replaced by design)
+      description: Set the statusLine key in ~/.claude/settings.json to ~/.claude/statusline.sh (jq merge, so all other keys are preserved; any existing statusLine is replaced by design) and make the script executable
