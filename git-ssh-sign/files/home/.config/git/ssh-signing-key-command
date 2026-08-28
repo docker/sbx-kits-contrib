@@ -23,6 +23,17 @@ fail() {
     exit 1
 }
 
+# The recovery steps below run on the HOST, where $SANDBOX_NAME does not
+# exist -- it is a sandbox-only variable. Resolve the name here and print its
+# value, so the user can paste the command instead of substituting by hand.
+name=${SANDBOX_NAME:-$(hostname 2>/dev/null || true)}
+[ -n "$name" ] || name="<sandbox-name>"
+
+# Same recovery preamble for every "the agent is not answering" state: the
+# forwarding setting first (it is the one cause that survives every restart),
+# then the host agent's keys, then the container restart.
+recover="On the HOST: 1) 'sbx settings get ssh.agentForwardingEnabled' must print true -- if it does not, 'sbx settings set ssh.agentForwardingEnabled true' and then 'sbx daemon restart', because a changed setting only reaches sandboxes that already exist once the daemon has restarted; 2) 'ssh-add -l' must list your key, else 'ssh-add ~/.ssh/id_ed25519'; 3) from that same shell, restart this sandbox: 'sbx stop $name' then 'sbx run --name $name'."
+
 sock=${SSH_AUTH_SOCK:-}
 
 if [ -z "$sock" ]; then
@@ -30,22 +41,37 @@ if [ -z "$sock" ]; then
          "Sandboxes export it unconditionally, so something in this shell unset it."
 fi
 
-# SSH_AUTH_SOCK is baked into every sandbox whether or not forwarding
-# was wired, so its presence proves nothing. The socket's existence is
-# the real check, and it distinguishes "relay is down" from "agent is
-# reachable but has no key" -- two states with different recoveries.
+# SSH_AUTH_SOCK is baked into every sandbox whether or not forwarding was
+# wired, so its presence proves nothing. The socket's existence is the real
+# check, and it separates "no relay at all" from "something is listening but
+# not answering" -- states that read very differently in the error message.
 if [ ! -S "$sock" ]; then
     fail "the forwarded agent socket $sock does not exist" \
-         "The in-sandbox relay is not running. On the HOST, from a shell where 'ssh-add -l' lists your key: 'sbx start \$SANDBOX_NAME'; if the socket still does not appear, 'sbx daemon restart'."
+         "The in-sandbox relay is not running. $recover"
 fi
 
 out=$(ssh-add -L 2>&1)
-case $? in
+rc=$?
+
+# ssh-add exit 2 is "could not connect at all"; exit 1 is "connected, but
+# the exchange failed or the agent is empty". Forwarding being switched off
+# can land in either one depending on how far the connection gets, so only
+# the genuinely-empty agent gets a recovery of its own -- every other state
+# runs the same host-side checks, the forwarding setting first.
+case $rc in
     0) ;;
-    2) fail "nothing answered on $sock (ssh-add: $out)" \
-            "The relay socket is stale. On the HOST: 'sbx start \$SANDBOX_NAME'." ;;
-    *) fail "the agent returned no usable key (ssh-add: $out)" \
-            "'no identities' means the HOST agent is empty: run 'ssh-add ~/.ssh/id_ed25519' there. 'communication with agent failed' means the relay reached the host but the host's agent is gone: restore it, then 'sbx daemon restart'." ;;
+    1)
+        case "$out" in
+            *"no identities"*)
+                fail "the forwarded agent holds no keys (ssh-add: $out)" \
+                     "The HOST agent is empty: run 'ssh-add ~/.ssh/id_ed25519' there, then 'sbx stop $name' and 'sbx run --name $name' from that same shell." ;;
+            *)
+                fail "the agent did not answer usably (ssh-add: $out)" \
+                     "Something accepted the connection but the exchange failed. $recover" ;;
+        esac ;;
+    *)
+        fail "nothing is accepting connections on $sock (ssh-add: $out, exit $rc)" \
+             "The socket is there but no forwarder is answering on it. $recover" ;;
 esac
 
 key=$(printf '%s\n' "$out" | head -n 1)

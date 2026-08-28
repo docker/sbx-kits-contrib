@@ -68,7 +68,7 @@ Inside the sandbox, confirm which state you are in:
 ```console
 echo "$SSH_AUTH_SOCK"      # always set in a sandbox — proves nothing on its own
 test -S "$SSH_AUTH_SOCK"   # the real check: is the relay socket present?
-ssh-add -l                 # 0 = keys loaded; 1 = reachable but no usable key; 2 = no agent
+ssh-add -l                 # 0 = keys loaded; 1 = connected but no usable key; 2 = no connection
 ```
 
 `SSH_AUTH_SOCK` is exported into every sandbox whether or not agent
@@ -84,23 +84,31 @@ Recovery happens **on the host**:
    sbx settings set ssh.agentForwardingEnabled true
    ```
 
-   Check this before anything else. While it is `false` the daemon never
-   records a socket for the sandbox, so the relay closes every connection
-   without writing a byte — which surfaces in the sandbox as a broken
-   agent rather than a disabled feature, and survives any number of key
-   reloads and sandbox restarts. It defaults to `true`, so `false` means
-   something turned it off, e.g. declining agent forwarding in `sbx setup`.
+   Check this before anything else. While it is `false` the forwarded
+   agent is never wired up, so `ssh-add` in the sandbox reports a broken
+   agent (exit 1 or 2, depending on how far the connection gets) rather
+   than a disabled feature, and it survives any number of key reloads and
+   sandbox restarts. It defaults to `true`, so `false` means something
+   turned it off, e.g. declining agent forwarding in `sbx setup`.
 2. Check the host agent holds the key: `ssh-add -l`, then
    `ssh-add ~/.ssh/id_ed25519` if it does not.
-3. From that same shell, restart the sandbox: `sbx start <sandbox-name>`.
-   The daemon adopts the requesting client's `SSH_AUTH_SOCK`, and the
-   sandbox restart relaunches the in-container relay. `<sandbox-name>` is
-   `$SANDBOX_NAME` inside the sandbox.
-4. If the socket still does not appear, restart the daemon:
-   `sbx daemon restart`. The gateway listener is created when the daemon
-   builds the sandbox's runtime, and changes to `ssh.agentForwardingEnabled`
-   or `ssh.agentSocketPath` only reach existing forwarders after a daemon
-   restart.
+3. If step 1 changed the setting, restart the daemon:
+   `sbx daemon restart`. Changes to `ssh.agentForwardingEnabled` and
+   `ssh.agentSocketPath` only reach sandboxes that already exist once the
+   daemon has restarted.
+4. From that same shell — the daemon adopts the requesting client's
+   `SSH_AUTH_SOCK` — restart the sandbox's container so the in-container
+   relay is relaunched:
+
+   ```console
+   sbx stop <sandbox-name>
+   sbx run --name <sandbox-name>
+   ```
+
+   Stop-then-run is the supported restart cycle; there is no `sbx start`.
+   Substitute the sandbox's own name — `hostname` prints it *inside* the
+   sandbox, but `$SANDBOX_NAME` is not set in a host shell, so type the
+   literal name there.
 
 To get one commit through unsigned while you sort that out:
 
