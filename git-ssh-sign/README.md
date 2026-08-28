@@ -166,12 +166,21 @@ fails closed (signs too much) rather than open (signs nothing).
 
 **Key material — resolved at signing time**
 
-`gpg.ssh.defaultKeyCommand` points to
-`/home/agent/.config/git/ssh-signing-key-command`. When Git needs a
-signing key, it runs that command. The command reads the first public key
-from `ssh-add -L`, writes `/home/agent/.config/git/allowed_signers` for
-signature verification, and prints the key in Git's inline `key::...`
-format.
+`gpg.ssh.defaultKeyCommand` runs
+`/home/agent/.config/git/ssh-signing-key-command`, a static script shipped
+under the kit's
+[`files/home/`](files/home/.config/git/ssh-signing-key-command) tree. It is
+configured as `/bin/sh <path>`, not as a bare path: files delivered from a
+kit's OCI artifact land mode `0644` (per-file executable bits are not
+representable in a v2 layer, see [`spec/OCI-v2.md`](../spec/OCI-v2.md)) and
+Git execs the key command itself, so a bare path would fail with `cannot
+exec: Permission denied` before any of the script's own diagnostics could
+run.
+
+When Git needs a signing key, it runs that command. The command reads the
+first public key from `ssh-add -L`, writes
+`/home/agent/.config/git/allowed_signers` for signature verification, and
+prints the key in Git's inline `key::...` format.
 
 This avoids writing key material at install or startup time, when the
 forwarded SSH agent may not be connected yet. It also avoids relying on
