@@ -10,6 +10,17 @@ agentInstructions:
     This sandbox is configured to sign git commits with your host's SSH key.
     Commits and tags are signed automatically. Use `git log --show-signature`
     to verify signatures on existing commits.
+
+    If a repo's remote is on github.com and the `gh` CLI is authenticated,
+    the signing key is cross-checked against the keys registered on the
+    committer's GitHub account (https://github.com/settings/keys), so the
+    commit also shows as Verified there — not just locally. On any other
+    host, or without `gh`, the first key the SSH agent offers is used, same
+    as before.
+permissions:
+  network:
+    allow:
+      - api.github.com
 setup:
   install:
     - command: |
@@ -35,8 +46,8 @@ setup:
             exit 1
         fi
 
-        key=$(ssh-add -L 2>/dev/null | head -n 1)
-        if [ -z "$key" ]; then
+        agent_keys=$(ssh-add -L 2>/dev/null)
+        if [ -z "$agent_keys" ]; then
             echo "[git-ssh-sign] no keys in SSH agent - cannot sign commits" >&2
             exit 1
         fi
@@ -46,6 +57,67 @@ setup:
             config_dir="/home/agent/.config/git"
         fi
         mkdir -p "$config_dir"
+
+        # Default: the first key the agent offers, same as always. Refined
+        # below when the repo's remote is GitHub and one of the agent's keys
+        # is confirmed to be registered there for signing - otherwise the
+        # signature only ever verifies locally and shows Unverified once
+        # pushed, because the agent may forward keys (e.g. a host password
+        # manager's own key) that were never added to the committer's GitHub
+        # account at all.
+        key=$(printf '%s\n' "$agent_keys" | head -n 1)
+
+        is_github=0
+        for remote_url in $(git config --get-regexp '^remote\..*\.url$' 2>/dev/null | cut -d' ' -f2- || true); do
+            case "$remote_url" in
+                *github.com*) is_github=1 ;;
+            esac
+        done
+
+        if [ "$is_github" = "1" ] && command -v gh >/dev/null 2>&1; then
+            # GitHub's SSH signing keys are a separate list from the
+            # authentication keys behind github.com/<user>.keys, and there is
+            # no bulk unauthenticated lookup by key - only by username. This
+            # cache keeps a commit-signing hook from making a network call
+            # (and burning unauthenticated rate limit) on every single commit.
+            cache_file="$config_dir/github-signing-keys.cache"
+            cache_ttl=300
+            now=$(date +%s 2>/dev/null || echo 0)
+            cache_age=$cache_ttl
+            if [ -f "$cache_file" ]; then
+                cache_ts=$(head -n 1 "$cache_file" 2>/dev/null || echo 0)
+                case "$cache_ts" in
+                    ''|*[!0-9]*) cache_ts=0 ;;
+                esac
+                cache_age=$((now - cache_ts))
+            fi
+
+            if [ -f "$cache_file" ] && [ "$cache_age" -lt "$cache_ttl" ]; then
+                github_keys=$(tail -n +2 "$cache_file")
+            else
+                login=$(gh api user --jq .login 2>/dev/null) || login=""
+                github_keys=""
+                if [ -n "$login" ]; then
+                    github_keys=$(gh api "users/$login/ssh_signing_keys" --jq '.[].key' 2>/dev/null) || github_keys=""
+                fi
+                {
+                    printf '%s\n' "$now"
+                    printf '%s\n' "$github_keys"
+                } > "$cache_file"
+            fi
+
+            if [ -n "$github_keys" ]; then
+                matched=$(printf '%s\n' "$agent_keys" | awk -v gh="$github_keys" '
+                    BEGIN { n = split(gh, ghlines, "\n"); for (i = 1; i <= n; i++) seen[ghlines[i]] = 1 }
+                    { fp = $1 " " $2; if (fp in seen) { print; exit } }
+                ')
+                if [ -n "$matched" ]; then
+                    key="$matched"
+                else
+                    echo "[git-ssh-sign] none of the SSH agent's keys are registered on GitHub as a signing key - commits will sign but show Unverified there. Add one at https://github.com/settings/ssh/new?type=signing" >&2
+                fi
+            fi
+        fi
 
         email=$(git config user.email 2>/dev/null || printf '%s' "agent@sandbox.local")
         printf '%s %s\n' "$email" "$key" > "$config_dir/allowed_signers"

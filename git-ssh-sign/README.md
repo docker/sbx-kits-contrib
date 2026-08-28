@@ -70,14 +70,44 @@ sandbox infrastructure, so the config is always present when
 
 `gpg.ssh.defaultKeyCommand` points to
 `/home/agent/.config/git/ssh-signing-key-command`. When Git needs a
-signing key, it runs that command. The command reads the first public key
-from `ssh-add -L`, writes `/home/agent/.config/git/allowed_signers` for
-signature verification, and prints the key in Git's inline `key::...`
+signing key, it runs that command, writes
+`/home/agent/.config/git/allowed_signers` for local signature
+verification, and prints the chosen key in Git's inline `key::...`
 format.
 
 This avoids writing key material at install or startup time, when the
 forwarded SSH agent may not be connected yet. It also avoids relying on
 Git hooks for signing.
+
+**Picking which forwarded key to sign with**
+
+A host's SSH agent often forwards more than one key — e.g. a password
+manager's own key alongside the key you actually use with GitHub — and
+nothing about `ssh-add -L`'s ordering says which one is registered
+anywhere. Signing with the wrong one still produces a valid signature,
+but it shows **Unverified** on GitHub because that key was never added
+to the committer's account.
+
+When the repo's remote is on `github.com` and the `gh` CLI is
+authenticated (`gh auth status`), the command instead:
+
+1. Resolves the committer's GitHub login (`gh api user`).
+2. Fetches their registered signing keys from the public,
+   unauthenticated `GET /users/{username}/ssh_signing_keys` endpoint —
+   deliberately not `github.com/{username}.keys`, which only lists
+   **authentication** keys and can diverge from the signing-key list.
+3. Uses whichever of the agent's keys matches one of those, falling back
+   to the first agent key (with a stderr warning) if none do.
+
+The GitHub response is cached for 5 minutes in
+`/home/agent/.config/git/github-signing-keys.cache`, since this command
+runs on every single commit and signature and unauthenticated GitHub API
+requests are capped at 60/hour per source IP.
+
+On any other remote host, or without `gh`, this step is skipped
+entirely — no network call is made, and behavior is unchanged from
+before: the first key the agent offers. GitHub Enterprise Server and
+other forges aren't cross-checked yet.
 
 **Composing with repo-local hooks**
 
