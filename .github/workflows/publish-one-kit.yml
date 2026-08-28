@@ -256,7 +256,7 @@ jobs:
           # that declares the wrong name reads back as that. Every kit declaring
           # the label today uses exactly its own directory name.
           if [ "$flavor" != "${{ inputs.kit }}" ]; then
-            echo "::error::${{ inputs.kit }}: image reports flavor '${flavor:-(unset)}', expected '${{ inputs.kit }}'. Add: LABEL com.docker.sandboxes.flavor=\"${{ inputs.kit }}\" to ${{ inputs.kit }}/Dockerfile — undeclared, the label is inherited from the base image and sbx reports that base's agent for this kit."
+            echo "::error::${{ inputs.kit }}: image reports flavor '${flavor:-(unset)}', expected '${{ inputs.kit }}'. Set LABEL com.docker.sandboxes.flavor=\"${{ inputs.kit }}\" in ${{ inputs.kit }}/Dockerfile — add it if the Dockerfile declares none, correct it if it declares another name. sbx reports this label as the kit's agent, and a Dockerfile that declares none inherits whatever its base image sets."
             exit 1
           fi
 

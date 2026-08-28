@@ -318,8 +318,10 @@ the image itself:
 
 1. Put a `Dockerfile` at the kit root; the kit directory is the build context.
 2. Set `LABEL com.docker.sandboxes.flavor="<kit>"` in it. Nothing derives this
-   from the directory name, and leaving it out inherits the base image's value
-   rather than none, so CI rejects an image that omits it.
+   from the directory name, and leaving it out inherits whatever the base sets —
+   with today's bases that is the base's own flavor, so the kit ships under
+   another agent's name; on a base that carries no such label it is left unset.
+   CI rejects the image either way.
 3. Set `sandbox.image` to `docker.io/sbx/<kit>-image:latest` in `spec.yaml`.
 4. Run `./scripts/check-image-ref.sh docker.io/sbx latest` before pushing.
 5. Build locally to check it works — `docker build -t docker.io/sbx/<kit>-image:latest <kit>`.
