@@ -154,6 +154,19 @@ setup:
         #     error: user.signingKey needs to be set for ssh signing
         # Git's line cannot be suppressed, so the message below has to carry the
         # whole diagnosis and explicitly pre-empt it.
+        #
+        # Braced parameter expansion is banned throughout this file. Released
+        # engines validate initFiles content against a placeholder allowlist
+        # holding WORKDIR alone, and reject every other brace-delimited dollar
+        # form -- it cannot tell shell syntax from a kit-spec placeholder, so
+        # a plain default-value expansion fails the kit at "sbx create" time.
+        # Unbraced "$VAR" is the portable spelling; "set +u" below makes it
+        # behave exactly like the default-value forms it replaces, expanding an
+        # unset variable to the empty string instead of aborting, whatever
+        # options the caller's shell had set. Every variable read here is
+        # either assigned first or explicitly tested for emptiness, so nounset
+        # buys this script nothing.
+        set +u
 
         fail() {
             # A leading newline keeps the body off git's "warning: ...failed: "
@@ -169,7 +182,7 @@ setup:
             exit 1
         }
 
-        sock="${SSH_AUTH_SOCK:-}"
+        sock=$SSH_AUTH_SOCK
 
         if [ -z "$sock" ]; then
             fail "SSH_AUTH_SOCK is not set" \
@@ -200,7 +213,10 @@ setup:
                  "Unexpected state; please report it against the git-ssh-sign kit."
         fi
 
-        config_dir="${GIT_SSH_SIGN_CONFIG_DIR:-/home/agent/.config/git}"
+        config_dir=$GIT_SSH_SIGN_CONFIG_DIR
+        if [ -z "$config_dir" ]; then
+            config_dir=/home/agent/.config/git
+        fi
         mkdir -p "$config_dir"
 
         email=$(git config user.email 2>/dev/null || printf '%s' "agent@sandbox.local")
