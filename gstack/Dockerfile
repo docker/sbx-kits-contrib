@@ -11,8 +11,15 @@
 # Built and published by build-and-publish-kits.yml, the shared kit-image
 # pipeline (see ../PUBLISHING.md) -- no bespoke workflow needed, same as
 # kiro/copilot.
+#
+# The base is a floating tag, which is why CI also rebuilds on a schedule.
+ARG BASE_IMAGE=docker/sandbox-templates:claude-code
+FROM ${BASE_IMAGE}
 
-FROM docker/sandbox-templates:claude-code
+# Re-declared inside the stage: an ARG defined before the first FROM is a
+# global build arg, visible only to FROM lines. Without this, the LABEL near
+# the end of this file would expand to an empty string.
+ARG BASE_IMAGE
 
 # gstack has no release tags; pin a commit SHA (VERSION 1.57.10.0).
 ARG GSTACK_REF=a5833c413f98b13f105beac96262e8098b628461
@@ -55,5 +62,20 @@ RUN git clone https://github.com/garrytan/gstack.git /home/agent/.claude/skills/
 # baseline (users can enable later with `./setup`).
 RUN cd /home/agent/.claude/skills/gstack && \
     GSTACK_SKIP_FONTS=1 GSTACK_PLAN_TUNE_HOOKS=no ./setup --no-prefix
+
+# This OVERRIDES the value inherited from the base image, which describes the
+# base rather than this image. Overriding is not optional: left inherited it
+# would read "claude-code", and sbx would report this image's agent as
+# "claude-code" instead of "gstack".
+#
+# sbx reads `flavor` and treats it as an agent identifier — it surfaces the
+# value as an image's `Agent` in the API. So it must be the kit's own name:
+# `gstack`.
+LABEL com.docker.sandboxes.flavor="gstack"
+
+# Informational only — nothing in sbx reads this. Worth setting because the
+# base is a floating tag rebuilt nightly, so this is the one place the
+# produced image records what it was actually built on.
+LABEL com.docker.sandboxes.base="${BASE_IMAGE}"
 
 CMD ["claude"]
