@@ -17,7 +17,7 @@ fail() {
         printf '[git-ssh-sign] cannot sign: %s\n' "$1"
         printf '[git-ssh-sign] %s\n' "$2"
         printf '[git-ssh-sign] The "user.signingKey needs to be set" error below is a red herring:\n'
-        printf '[git-ssh-sign] this kit resolves the key from the forwarded SSH agent, and the agent is what is unavailable.\n'
+        printf '[git-ssh-sign] this kit resolves the key from the forwarded SSH agent, so the two lines above are the ones that name what is actually wrong.\n'
         printf '[git-ssh-sign] To make this one commit unsigned: git -c commit.gpgsign=false commit ...\n'
     } >&2
     exit 1

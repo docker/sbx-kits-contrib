@@ -153,8 +153,10 @@ sandbox depend on a live SSH agent — including throwaway repositories that
 test suites create with `git init` and that have nothing to do with your
 commits. When the forwarded agent goes away, those all start failing too,
 with an error that points at `user.signingKey`. Scoping by "has a remote"
-keeps automatic signing on everywhere a commit can actually leave the
-machine, and off in local scratch repositories.
+keeps automatic signing on in the repositories you push from, and off in
+local scratch repositories. It is a proxy, not a guarantee: commits made
+in a fresh `git init` *before* the first `git remote add` stay unsigned
+and are pushed that way.
 
 Two things this deliberately does *not* do:
 

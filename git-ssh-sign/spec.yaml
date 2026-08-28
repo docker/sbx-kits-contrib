@@ -12,16 +12,22 @@ agentInstructions:
     signatures on existing commits.
 
     Automatic signing is scoped to repositories that **have at least one
-    remote**. A throwaway repository created by a test fixture
-    (`git init` with no remote) commits unsigned, so an unrelated test
-    suite is never blocked by signing. `git commit -S` still signs
-    anywhere.
+    remote**. A repository is exempt only for as long as it has no remote:
+    a test fixture that runs `git init` and stops there commits unsigned,
+    but one that goes on to `git remote add` is signed like any other
+    repository. `git commit -S` still signs anywhere.
+
+    The scoping needs git >= 2.36. On an older git the install falls back
+    to signing machine-wide and says so on stderr, and then nothing is
+    exempt — if `git init` fixtures are failing to commit, check
+    `git config --system --get commit.gpgSign` before believing the
+    paragraph above.
 
     ### When signing fails
 
     The key is resolved at signing time from the forwarded agent, so a
-    signing failure almost always means the agent is unreachable, not that
-    a config value is missing. Git reports it as:
+    signing failure almost always means the agent is unreachable or holds
+    no usable key, not that a config value is missing. Git reports it as:
 
         warning: gpg.ssh.defaultKeyCommand failed: [git-ssh-sign] ...
         error: user.signingKey needs to be set for ssh signing
