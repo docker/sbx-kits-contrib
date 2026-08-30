@@ -2,7 +2,7 @@ schemaVersion: "2"
 kind: mixin
 name: aidlc-claude
 displayName: AI-DLC Quick Start
-description: Starter Kit for AWS AI-DLC — installs Bun, clones aidlc-workflows at v2, and copies its Claude harness into the workspace.
+description: Starter Kit for AWS AI-DLC — installs Bun, clones aidlc-workflows at v2, and copies its Claude harness into the workspace, merging its settings.json keys and .gitignore rules into the files a project already has.
 
 # This kit installs the *Claude* harness from dist/claude and its agent
 # instructions describe Claude Code slash commands, so layering it onto a codex
@@ -21,8 +21,23 @@ agentInstructions:
     then `/aidlc <description>` to start a workflow.
 
     The clone at `/home/agent/aidlc-workflows` (branch `v2`) is the source tree
-    those files came from; it stays outside the workspace. The shipped
-    `.claude/settings.json` targets AWS Bedrock and needs AWS credentials.
+    those files came from; it stays outside the workspace.
+
+    Two files are the exception to the copy: they are *merged*, so anything the
+    project already had is kept.
+
+    `.claude/settings.json` keeps every value it set and only gains the AI-DLC
+    keys it was missing (the `aidlc-*.ts` hook wiring, the Bedrock `env` block,
+    the model pins, the status line). It targets AWS Bedrock and needs AWS
+    credentials. If the project pinned its own `model` or `AWS_REGION`, those
+    stand — the merge never overwrites.
+
+    `.gitignore` keeps every project rule and gains the AI-DLC commit/ignore
+    section in a marked block, so the per-user cursors and machine-local runtime
+    state under `aidlc/` stay untracked while the shared records — method
+    memory, state, audit shards, artifacts — are committed as intended. Rules
+    inside the `# >>> AI-DLC (managed by the aidlc-claude sbx kit) >>>` markers
+    are kit-managed and refreshed on restart; put project rules outside them.
 
 permissions:
   network:
@@ -64,16 +79,44 @@ setup:
     # `set -u` is load-bearing here: unset, the variable would expand to empty
     # and this would write to /.claude, so it aborts instead.
     #
+    # settings.json is reconciled FIRST, and separately from the copy, for two
+    # reasons. It is the one file --update=none must not skip — it wires the
+    # aidlc-*.ts hooks that enforce the stage protocol, selects Bedrock, and pins
+    # the model tiers, so a project that already owns a settings.json would
+    # otherwise get every hook script on disk with nothing invoking them (an
+    # install `/aidlc --doctor` rejects: "settings.json wires no aidlc-*.ts
+    # hooks"). And going first means an unparseable project settings.json aborts
+    # the whole hook with nothing yet written, rather than half-installing.
+    # The merge is project-wins and idempotent; see the script's header.
+    #
+    # .gitignore is the third thing dist/claude ships, and --update=none would
+    # skip it for exactly the projects that have one. It carries the workspace's
+    # commit/ignore split: without it the per-user cursors, this clone's audit
+    # shard id, runtime graphs, sensor caches, and a knowledge alias map holding
+    # MACHINE-ABSOLUTE paths all become Git changes in the user's repo — which
+    # for a bind-mounted workspace is their real project, and outlives `sbx rm`.
+    # Reconciled before the copy so the rules are in place from the first boot,
+    # and after settings.json so a project file that aborts the hook does so
+    # before anything has been written. Follows upstream's documented procedure:
+    # the whole starter file when the project has none, otherwise only the
+    # section from `# AI-DLC` to EOF, in a marked block; see the script's header.
+    #
     # `src/.` rather than `src/`: copying the directory itself nests it as
     # .claude/.claude once the destination exists, and this runs on every boot.
-    # --update=none leaves any file the project already owns alone.
+    # --update=none leaves any file the project already owns alone — including
+    # the settings.json the lines above just reconciled (.gitignore is a sibling
+    # of the two copied trees, so the copy never reaches it either way).
     - command:
         - sh
         - -c
         - |
           set -eu
           SRC=/home/agent/aidlc-workflows/dist/claude
+          bun /home/agent/.local/lib/aidlc-merge-settings.ts \
+            "$SRC/.claude/settings.json" "$WORKSPACE_DIR/.claude/settings.json"
+          bun /home/agent/.local/lib/aidlc-merge-gitignore.ts \
+            "$SRC/.gitignore" "$WORKSPACE_DIR/.gitignore"
           cp -R --update=none "$SRC/.claude/." "$WORKSPACE_DIR/.claude/"
           cp -R --update=none "$SRC/aidlc/."   "$WORKSPACE_DIR/aidlc/"
       user: "1000"
-      description: Copy the Claude harness into $WORKSPACE_DIR
+      description: Reconcile .claude/settings.json (merging the AI-DLC hooks, env, and models into any file the project already has) and .gitignore (merging the AI-DLC commit/ignore rules into any file the project already has), then copy the rest of the Claude harness into $WORKSPACE_DIR

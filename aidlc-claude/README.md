@@ -2,26 +2,33 @@
 
 A mixin that makes a sandbox ready for [AWS AI-DLC](https://github.com/awslabs/aidlc-workflows):
 it installs the [Bun](https://bun.sh) runtime, clones `awslabs/aidlc-workflows`
-at the `v2` branch, and copies that repo's Claude harness into the workspace so
-`/aidlc` works in the first session.
+at the `v2` branch, and copies that repo's Claude harness into the workspace, so
+the harness is in place before your first Claude Code session starts.
 
 Pairs with the built-in `claude-bedrock` agent — the kit declares `requires.agent: claude-bedrock`.
 
 ## Usage
 
-Run it with the `claude-bedrock` agent, from a git URL targeting this repo:
+Run it with the `claude-bedrock` agent, from its published OCI artifact on
+Docker Hub:
+
+```console
+sbx run --kit "docker.io/sbx/aidlc-claude-kit:latest" claude-bedrock
+```
+
+Or from a git URL targeting this repo:
 
 ```console
 sbx run --kit "git+https://github.com/docker/sbx-kits-contrib.git#dir=aidlc-claude" claude-bedrock
 ```
 
-Or from its published OCI artifact on Docker Hub:
+Or with a local clone of this repo:
 
 ```console
-sbx run --kit "docker.io/sbx/aidlc-claude-kit:latest" claude-bedrock
+sbx run --kit ./aidlc-claude/ claude-bedrock
 ```
-Requires sbx version newer than v0.39.0.
 
+> Requires `sbx` newer than v0.39.0.
 
 After the sandbox starts, the harness is already in the workspace:
 
@@ -69,12 +76,128 @@ Upstream documents this same hazard in its own troubleshooting notes.
   level deeper each time. Copying the contents merges correctly either way.
 - **`--update=none`.** Never overwrites a file the project already owns, which
   makes the hook idempotent across restarts and honours upstream's "the
-  installer refuses project-owned file collisions" rule. A project that already
-  has its own `.claude/settings.json` keeps it — and therefore does *not* pick
-  up the Bedrock model pinning.
+  installer refuses project-owned file collisions" rule.
 
-`dist/claude/.mcp.json` is not copied; upstream's instructions do not copy it
-either.
+`dist/claude/` ships two more files beside those trees. `.mcp.json` is not
+copied; upstream's instructions do not copy it either. `.gitignore` *is*
+installed, but like `settings.json` it is reconciled rather than copied — see
+below.
+
+## Why `settings.json` is merged, not copied
+
+`settings.json` is the one file `--update=none` must **not** skip, so the
+startup hook reconciles it separately, before the copy, via
+`~/.local/lib/aidlc-merge-settings.ts`.
+
+Skipping it would produce a sandbox that looks installed and is not.
+Upstream's `settings.json` is what *wires* the harness:
+
+| Key | Carries |
+|---|---|
+| `hooks` | eight event blocks wiring 18 `aidlc-*.ts` hook invocations — state-transition guard, plan-approval guard, review freeze, reviewer scope, human-turn recording, usage folding, session start/end, stop, compaction |
+| `env` | `CLAUDE_CODE_USE_BEDROCK`, `AWS_REGION`, the four model pins, `AWS_AIDLC_DEFAULT_SCOPE` |
+| `statusLine` | `aidlc-statusline.ts` |
+| `model`, `effortLevel`, `permissions.allow` | session baseline and the `Bash(bun ".../.claude/tools/"*)` grant |
+
+Keep the project's file and every hook script still lands on disk with nothing
+invoking them: `/aidlc` starts, the stage guards never fire, and upstream's
+doctor fails loudly — `core/tools/aidlc-utility.ts` sources its expected-hook
+roster *from* `settings.json` and reports **"Hook contract: settings.json wires
+no aidlc-\*.ts hooks"**. That is the very `/aidlc --doctor` this README tells
+you to run first.
+
+The merge is **project-wins** and idempotent:
+
+- **`hooks`** — unioned per event, deduplicated at the *command* level. The
+  project's own hooks are kept; a shipped matcher group whose commands are
+  already wired is not appended again, so restarts don't grow the file and no
+  hook gets registered twice.
+- **`env`** — filled per key. A project that set its own `AWS_REGION` or
+  `AWS_AIDLC_DEFAULT_SCOPE` keeps it.
+- **`permissions.allow`, `companyAnnouncements`** — array union, project order
+  first, structural dedup.
+- **`model`, `effortLevel`, `statusLine`** — set only when absent. A project
+  that pinned a model or already has a status line stays in charge of it.
+- Anything else upstream adds to `settings.json` later is filled in by the same
+  generic rule, so the kit does not need a hardcoded key list.
+
+Two guards make the failure modes loud rather than silent:
+
+- An **unparseable** project `settings.json` aborts the hook with a non-zero
+  exit *before* the first `cp`, so the workspace is left untouched instead of
+  half-installed. (Claude Code settings are strict JSON — no comments, no
+  trailing commas.)
+- After merging, the script re-runs the doctor's own contract check and refuses
+  to write a file that wires no `aidlc-*.ts` hooks.
+
+It also warns — without failing, since a higher-precedence settings layer can
+still override it — when the resulting file sets `"disableAllHooks": true`,
+which is the silent breakage upstream's `t324-doctor-hooks-disabled` regression
+test exists for.
+
+Writes are atomic: a temp file in the same directory, then `rename`, so a
+concurrent Claude Code read never sees a partial file.
+
+This matches how the other Claude mixins in this repo treat shared settings —
+`claude-sbx-statusline` merges with `jq`, `claude-mem` reconciles with a node
+pass — rather than clobbering or skipping.
+
+## Why `.gitignore` is merged too
+
+`dist/claude/` ships a `.gitignore` next to the two trees, and it is part of the
+install, not decoration. `aidlc/` is *meant* to be committed — that is how a team
+shares method memory, state, audit shards, and artifacts — but the same tree
+also accumulates per-user and per-machine files as you work. The `.gitignore` is
+what draws that line (upstream's vision §5.1 split). Without it, every one of
+these turns up as a Git change in the project:
+
+| Ignored | Why committing it is wrong |
+|---|---|
+| `aidlc/active-space`, `aidlc/spaces/*/intents/active-intent` | per-user cursors. Two teammates legitimately point at different spaces and intents at once; committing them turns per-user navigation into shared state and conflicts on every intent create and cursor switch |
+| `aidlc/.aidlc-clone-id` | names *this clone's* audit shard. Shared, every clone from that commit appends to one shard and git-conflicts — the exact failure per-clone sharding exists to prevent |
+| `aidlc/spaces/*/intents/*/runtime-graph.json`, `**/.aidlc-sensors/` | regenerated execution telemetry and per-machine sensor caches |
+| `aidlc/spaces/*/knowledge/.sources.local.json` | alias → a machine-specific **absolute** root. Committed, it hands every clone one developer's directory layout |
+| `aidlc/.aidlc-sessions/`, `.../documentkb/.journal/`, `aidlc/diagnostics/`, the `.aidlc-*` claim and unit files | per-clone runtime state, transaction scratch, and derived output |
+
+The shared work stays tracked: `memory/**`, `codekb/**`, `intents.json`,
+`aidlc-state.md`, the per-clone `audit/*.md` shards, and the stage artifacts.
+
+This bites harder here than in a hand install. `$WORKSPACE_DIR` for a
+bind-mounted workspace is your real project directory on the host, and what the
+kit writes there outlives `sbx rm` — so the noise would land in a real repo,
+permanently.
+
+And `--update=none` cannot do it: it would skip `.gitignore` for exactly the
+projects that already have one. So the startup hook reconciles it too, via
+`~/.local/lib/aidlc-merge-gitignore.ts`, following upstream's own guarded
+procedure:
+
+- **No project `.gitignore`** — installs the shipped starter byte-for-byte,
+  generic `node_modules` / editor rules included, as upstream's guarded `cp`
+  does.
+- **Existing `.gitignore`** — keeps every project-owned rule and appends *only*
+  the section from `# AI-DLC` to the end of the shipped file, wrapped in
+  `# >>> AI-DLC (managed by the aidlc-claude sbx kit) >>>` … `<<<` markers.
+  Upstream's generic starter rules are never pushed into a file the project
+  already owns.
+- **On restart** — the marked block is refreshed in place, not appended again,
+  so the file does not grow across boots and an upstream rule change lands on
+  the next sandbox. Text inside the markers is kit-managed and overwritten;
+  project rules belong outside it.
+- **Already hand-merged** — a file carrying its own `# AI-DLC` section without
+  the markers is left completely alone. Same project-wins rule as the settings
+  merge.
+
+Two guards, matching the settings script: a shipped `.gitignore` with no
+`# AI-DLC` section (or a section carrying no `aidlc` rules) fails loudly rather
+than guessing which rules to merge, and a half-written block — one marker
+without its pair — aborts before writing. Writes are atomic (temp file in the
+same directory, then `rename`), so a concurrent `git status` never sees a
+partial file.
+
+One placement consequence worth knowing: `.gitignore` is last-match-wins, so an
+appended block overrides a project `!negation` above it for these paths. That is
+upstream's documented placement, and re-negating below the block still works.
 
 ## Why the clone lives outside the workspace
 
@@ -91,9 +214,10 @@ hand.
 
 ## Cleanup
 
-The kit leaves no state on the host *except* in the workspace: `.claude/` and
-`aidlc/` are written into `$WORKSPACE_DIR`, which for a bind-mounted workspace
-is your real project directory on the host. They persist after `sbx rm <name>`.
+The kit leaves no state on the host *except* in the workspace: `.claude/`,
+`aidlc/`, and the AI-DLC block in `.gitignore` are written into
+`$WORKSPACE_DIR`, which for a bind-mounted workspace is your real project
+directory on the host. They persist after `sbx rm <name>`.
 
 Everything else — Bun and the `aidlc-workflows` clone — lives inside the
 sandbox and goes away with it.
