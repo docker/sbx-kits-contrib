@@ -103,7 +103,11 @@ kit_sandbox_prefix="e2e-$(basename "$kit_abs" | tr '[:upper:]_' '[:lower:]-')-"
 # fails ~minutes into the test), but the same probe also catches a dead
 # daemon, KVM access issues, etc. `sbx ls` exercises the runtime and is
 # a no-op when everything is fine, making it safe to run unconditionally.
-probe_err=$(sbx --app-name "$APP_NAME" ls 2>&1 >/dev/null) || {
+# stdin comes from /dev/null so an interactive sbx prompt (e.g. "Docker
+# Sandboxes has been updated and needs to restart. Restart now? (y/N)" after
+# a CLI upgrade) fails the probe with its message instead of waiting on a
+# terminal behind the suppressed output, which looks like a silent hang.
+probe_err=$(sbx --app-name "$APP_NAME" ls 2>&1 >/dev/null </dev/null) || {
   cat >&2 <<EOF
 ERROR: smoke test failed — sbx --app-name $APP_NAME is not usable.
 
@@ -156,10 +160,11 @@ done
 
 # Configure the scoped daemon's global network policy. `policy init` is
 # one-time per daemon (sbx errors with "already initialized" on the second
-# call), so to stay idempotent we try `init` first and fall back to
-# `reset --force` + `init` when a policy is already set — that lands the
-# scoped daemon on the desired baseline regardless of prior state. The
-# `--force` skips the confirmation prompt about stopping running sandboxes
+# call), so to stay idempotent we try `init` first and fall back to a reset
+# when a policy is already set — that lands the scoped daemon on the desired
+# baseline regardless of prior state (a reused local daemon is the normal
+# case; CI runners are always fresh, so the first `init` succeeds there).
+# The `--force` skips the confirmation prompt about stopping running sandboxes
 # (a stale one from a previous failed run was just removed above; a
 # currently-running sandbox here would mean a concurrent invocation, which
 # isn't a supported use of this script). Skipped when POLICY is explicitly
@@ -167,7 +172,25 @@ done
 if [ -n "$POLICY" ]; then
   echo "Initializing --app-name=$APP_NAME global policy to $POLICY"
   if ! sbx --app-name "$APP_NAME" policy init "$POLICY" >/dev/null 2>&1; then
-    sbx --app-name "$APP_NAME" policy init "$POLICY"
+    # `policy reset` wipes the store, restarts the daemon, and then — when its
+    # stdin is a terminal — opens the interactive policy chooser ITSELF, which
+    # is how a reused daemon ended up on allow-all/balanced behind this
+    # script's back. With stdin from /dev/null it skips the chooser and may
+    # exit non-zero complaining the policy is not initialized: that is exactly
+    # the state we want, so its exit code is ignored and the `init` below is
+    # the real check.
+    reset_out=$(sbx --app-name "$APP_NAME" policy reset --force </dev/null 2>&1) || true
+    printf '%s\n' "$reset_out"
+    # `init` sets the preset and prints 'Global network policy initialized to
+    # "<preset>"'. If anything else initialized the policy first, `init` fails
+    # as already initialized, which aborts the run instead of testing under a
+    # baseline we did not ask for.
+    init_out=$(sbx --app-name "$APP_NAME" policy init "$POLICY" </dev/null 2>&1) || {
+      printf '%s\n' "$init_out" >&2
+      echo "ERROR: could not re-initialize the --app-name=$APP_NAME global policy to $POLICY after reset" >&2
+      exit 1
+    }
+    printf '%s\n' "$init_out"
   fi
 fi
 
