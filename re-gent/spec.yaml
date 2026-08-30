@@ -1,0 +1,327 @@
+schemaVersion: "2"
+kind: mixin
+name: re-gent
+displayName: re_gent
+description: >-
+  Installs the re_gent CLI (`rgt`), content-addressed version control for AI
+  agent activity, from a pinned GitHub release. Optionally creates the
+  `.regent/` store in the workspace and wires Claude Code capture hooks, both
+  controlled by kit arguments.
+sourceURL: https://github.com/regent-vcs/re_gent
+licenses:
+  - Apache-2.0
+
+# The kit name is `re-gent`, not `re_gent`: kit names are constrained to
+# ^[a-z0-9]([a-z0-9-]{0,62}[a-z0-9])?$, which admits hyphens but not
+# underscores. The upstream project's own spelling is preserved in
+# displayName and throughout the docs.
+
+args:
+  init:
+    default: "true"
+    enum: ["true", "false"]
+    description: >-
+      Create the .regent/ store in the workspace on container start when it is
+      absent, and exclude it from git locally. Local-only and no network, so it
+      is on by default.
+  hooks:
+    default: "none"
+    enum: ["none", "claude"]
+    description: >-
+      Wire re_gent capture hooks into the workspace agent config. Off by
+      default because it edits a file that is normally committed to the user's
+      repository and changes agent behaviour on every turn. Set to `claude` to
+      capture Claude Code sessions. Requires a store, so `claude` together with
+      `init: "false"` wires nothing unless a .regent/ already exists.
+
+# No `requires.agent` affinity is declared, for two reasons. The `rgt` CLI is
+# agent-agnostic — log/blame/show work regardless of which agent produced the
+# history — so an affinity would block legitimate use. And a
+# `${{ kit.args.* }}` placeholder cannot be used there anyway: argument
+# substitution happens in the consumer, while `requires.agent` is pattern-
+# validated against the raw spec.yaml, so the placeholder itself fails
+# validation. The agent-specific part of this kit is hook wiring, and the
+# `hooks` argument is what selects it.
+
+agentInstructions:
+  content: |
+    ## re_gent — version control for agent activity
+
+    The `rgt` CLI is installed and on `PATH`. re_gent records *your* activity
+    as a chain of content-addressed steps in `.regent/`, alongside git rather
+    than instead of it: git tracks human intent, re_gent tracks agent actions.
+
+    Query it with:
+
+    | Command | Purpose |
+    | --- | --- |
+    | `rgt log` | Step history. `--session`, `-n`, `--json`, `--graph` |
+    | `rgt blame <path>[:<line>]` | Which prompt and step produced a line |
+    | `rgt show <step-hash>` | Full step: diff, tool call, conversation |
+    | `rgt sessions` | List sessions (`--format json`) |
+    | `rgt status` | Current repository state |
+
+    Three things worth knowing before you use it:
+
+    - **Capture only happens if hooks are wired.** They are wired only when
+      this kit was created with `--kit-arg re-gent.hooks=claude`. Without
+      that, `.regent/` exists but stays empty and `rgt log` shows nothing —
+      that is expected, not a bug. Check with `rgt status`.
+    - **On a `--clone` sandbox, nothing is set up on the first start.** This
+      kit's setup runs before the clone populates the workspace, so it skips
+      that round and takes effect on the next container start. If there is no
+      `.regent/` at all, that is why — ask the user to restart the sandbox
+      (`sbx stop <name>` then `sbx run --name <name>`) rather than trying to
+      run `rgt init` yourself.
+    - **`rgt init` needs a TTY and will not work from a tool call.** Its hook
+      configuration step always opens an interactive multi-select, even with
+      `--agent` given, and it exits 0 after printing a warning when there is
+      no TTY. So running it non-interactively appears to succeed while
+      configuring nothing. If hooks need setting up, ask the user to run
+      `rgt init` in a terminal, or recreate the sandbox with
+      `--kit-arg re-gent.hooks=claude`.
+
+    `.regent/` holds your prompts and the assistant's replies in plain form on
+    disk. re_gent does **not** gitignore it — the `.gitignore` it writes lives
+    *inside* `.regent/` and only covers `*.backup` and `log/` — so this kit
+    adds `.regent/` to the repository's `.git/info/exclude` instead. That is
+    local to the clone and is never committed. If you copy the working tree
+    somewhere that exclude file doesn't follow, treat `.regent/` as session
+    data and don't commit it.
+
+permissions:
+  network:
+    allow:
+      # Release tarball download (install time, one-shot).
+      # github.com 302-redirects to objects.githubusercontent.com for binary
+      # downloads; release-assets.githubusercontent.com is kept alongside it
+      # since that isn't guaranteed to be the same host for every repo/asset.
+      - github.com
+      - objects.githubusercontent.com
+      - release-assets.githubusercontent.com
+      # Reached only by the conditional jq install above, and only on an image
+      # that does not already ship jq — which the sandbox templates this kit
+      # targets do, so in practice these stay unused. Ubuntu serves
+      # amd64 from archive/security and arm64 from ports, and `apt-get update`
+      # refreshes every configured source, so download.docker.com (added by the
+      # *-docker templates) has to be here too or the update exits non-zero.
+      - archive.ubuntu.com
+      - security.ubuntu.com
+      - ports.ubuntu.com
+      - download.docker.com
+      # No runtime egress. re_gent is fully offline: the CLI imports no HTTP
+      # client at all and never contacts a server. `rgt init` can shell out to
+      # npm (OpenCode plugin) or git (Pi extension), but this kit never selects
+      # those agents, so neither host is declared here.
+
+setup:
+  install:
+    # Install `rgt` from a pinned, SHA256-verified GitHub release. We
+    # deliberately do NOT query api.github.com for `releases/latest`:
+    # unauthenticated API calls from shared CI runner IPs hit the 60-req/hr
+    # rate limit and 403, making installs flaky. Pinning by version + SHA256
+    # (in the kit, in git) is also the safer supply chain. To bump: change
+    # RGT_VERSION plus the per-arch SHA256 below, sourced from the release's
+    # checksums.txt.
+    #
+    # The guard is presence-only rather than version-aware because the shipped
+    # v1.1.0 binary reports `re_gent version dev (commit: unknown)` — the
+    # ldflags fix landed after the tag was cut, so the binary cannot report
+    # which release it came from. The pinned tarball digest is what actually
+    # establishes the version; the `rgt version` call at the end is a liveness
+    # check, since "Install commands completed" only means exit 0.
+    - command: |
+        set -euo pipefail
+        if command -v rgt >/dev/null 2>&1; then
+          echo "rgt already present at $(command -v rgt); skipping install"
+          exit 0
+        fi
+        RGT_VERSION=1.1.0
+        ARCH=$(dpkg --print-architecture)
+        case "$ARCH" in
+          amd64)
+            TARBALL="re_gent_${RGT_VERSION}_linux_amd64.tar.gz"
+            SHA256="88a44730756db0055617dacdce47922e06aadfb768d599868938eb6b6df0b254"
+            ;;
+          arm64)
+            TARBALL="re_gent_${RGT_VERSION}_linux_arm64.tar.gz"
+            SHA256="2dd718d85dc7934824f3a5496e259cb84a0fb53a66def28ecd507728ae658def"
+            ;;
+          *)
+            echo "unsupported sandbox arch: $ARCH (expected amd64 or arm64)" >&2
+            exit 1
+            ;;
+        esac
+        URL="https://github.com/regent-vcs/re_gent/releases/download/v${RGT_VERSION}/${TARBALL}"
+        curl --proto '=https' --tlsv1.2 -fsSL -o /tmp/rgt.tgz "$URL"
+        echo "${SHA256}  /tmp/rgt.tgz" | sha256sum -c -
+        tar -C /usr/local/bin -xzf /tmp/rgt.tgz rgt
+        rm /tmp/rgt.tgz
+        rgt version
+      user: "0"
+      description: Install re_gent CLI v1.1.0, version+digest pinned
+
+    # SPEC-v2 §9.3: jq is not part of the tool floor, so a kit that needs it
+    # must install it. The hook merge needs it; nothing else here does. On the
+    # sandbox templates this kit targets jq is already present, so the guard
+    # makes the common path perform no package I/O at all.
+    #
+    # Deliberately NOT also gated on `hooks != none`: a `${{ kit.args.* }}`
+    # placeholder is substituted by the consumer, not by the spec library, so
+    # in any context that runs the raw spec.yaml — the TCK, which gates CI —
+    # the literal `${{ ... }}` reaches `sh -c` and dies with "Bad
+    # substitution". Placeholders belong in setup.files content, which is
+    # written rather than executed. The cost is installing jq on a jq-less
+    # image even when hooks=none, which is cheap and harmless.
+    #
+    # git is also outside the floor and deliberately NOT installed: it is used
+    # only to add .regent/ to the repository's exclude file, and a workspace
+    # with no git is a workspace with no repository to keep the store out of.
+    - command: |
+        set -euo pipefail
+        if command -v jq >/dev/null 2>&1; then
+          exit 0
+        fi
+        echo "jq is required to merge Claude Code hooks and is missing; installing"
+        apt-get update -qq
+        apt-get install -y --no-install-recommends jq
+        jq --version
+      user: "0"
+      description: Ensure jq is available for hook merging (no-op when jq is already present)
+
+  files:
+    # The workspace path is only available as ${WORKDIR} inside setup.files
+    # content — it is not substituted in `path`, and not available to startup
+    # commands at all. So the argument values and the workspace path are baked
+    # into a wrapper script here (under the agent home, never under the
+    # workspace, which setup.files may not target), and the startup command
+    # below just runs it.
+    - path: /home/agent/.local/bin/re-gent-setup.sh
+      mode: "0755"
+      content: |
+        #!/bin/sh
+        # Runs on EVERY container start, so every step below is idempotent.
+        # Fails soft: a broken re_gent setup must never stop the sandbox from
+        # starting, so problems are reported and the script still exits 0.
+        set -u
+
+        WORKSPACE="${WORKDIR}"
+        DO_INIT="${{ kit.args.init }}"
+        HOOKS="${{ kit.args.hooks }}"
+        JQ_FILTER=/home/agent/.local/share/re-gent/claude-hooks.jq
+
+        note() { echo "re_gent: $1"; }
+
+        # Append a pattern to the repository's exclude file, once. Uses
+        # --git-common-dir, not --absolute-git-dir: in a linked worktree the
+        # latter points at .git/worktrees/<name>/, which git does NOT read
+        # excludes from, so the pattern would have no effect while the grep
+        # guard kept matching the wrong file and never self-corrected.
+        git_exclude() {
+          command -v git >/dev/null 2>&1 || return 0
+          gitdir=$(cd "$WORKSPACE" && git rev-parse --path-format=absolute --git-common-dir 2>/dev/null) || return 0
+          [ -n "$gitdir" ] || return 0
+          exclude="$gitdir/info/exclude"
+          if [ -f "$exclude" ] && grep -qxF "$1" "$exclude"; then
+            return 0
+          fi
+          mkdir -p "$gitdir/info"
+          # An exclude file not ending in a newline would otherwise splice our
+          # entry onto the user's last rule ("*.log" + ".regent/" becomes
+          # "*.log.regent/"), breaking both.
+          if [ -s "$exclude" ] && [ -n "$(tail -c 1 "$exclude")" ]; then
+            printf '\n' >> "$exclude"
+          fi
+          printf '%s\n' "$1" >> "$exclude"
+          note "excluded $1 from git via $exclude"
+        }
+
+        [ "$DO_INIT" = "true" ] || [ "$HOOKS" != "none" ] || exit 0
+
+        if ! command -v rgt >/dev/null 2>&1; then
+          note "rgt is not on PATH; skipping setup"
+          exit 0
+        fi
+
+        # Startup commands run BEFORE the workspace is populated in --clone
+        # mode (the git clone is a later, system-level startup command). An
+        # empty workspace therefore means "clone still pending", and writing
+        # .regent/ into it now would leave git clone a non-empty target and
+        # abort the start. Skip; the next container start finds it populated.
+        if [ ! -d "$WORKSPACE" ] || [ -z "$(ls -A "$WORKSPACE" 2>/dev/null)" ]; then
+          # Also reached by a genuinely empty direct-mount workspace, where
+          # there is simply nothing to record yet — same handling, and the next
+          # start picks it up once the directory has content.
+          note "workspace is empty (clone pending, or nothing there yet); skipping until next start"
+          exit 0
+        fi
+
+        if [ "$DO_INIT" = "true" ] && [ ! -d "$WORKSPACE/.regent" ]; then
+          # --skip-hook --skip-skills is what makes this non-interactive:
+          # both of the steps it skips prompt on a TTY that does not exist
+          # here. Hook wiring is done below instead.
+          if (cd "$WORKSPACE" && rgt init --skip-hook --skip-skills) >/dev/null 2>&1; then
+            note "initialized $WORKSPACE/.regent"
+          else
+            note "rgt init failed; run it yourself in a terminal"
+            exit 0
+          fi
+        fi
+
+        # rgt writes a .gitignore INSIDE .regent/ that only covers *.backup
+        # and log/ — it does not ignore .regent/ itself, so `git add -A` would
+        # commit the prompt and conversation history. Exclude it through
+        # .git/info/exclude, which is per-clone and never committed, rather
+        # than editing the repository's tracked .gitignore.
+        if [ -d "$WORKSPACE/.regent" ]; then
+          git_exclude '.regent/'
+        fi
+
+        [ "$HOOKS" = "claude" ] || exit 0
+
+        # Wiring hooks without a store would make every agent turn invoke rgt
+        # against a repository that does not exist.
+        if [ ! -d "$WORKSPACE/.regent" ]; then
+          note "no .regent store; not wiring hooks (re-create with re-gent.init=true)"
+          exit 0
+        fi
+
+        if ! command -v jq >/dev/null 2>&1 || [ ! -f "$JQ_FILTER" ]; then
+          note "jq or the hook filter is unavailable; not wiring hooks"
+          exit 0
+        fi
+
+        SETTINGS="$WORKSPACE/.claude/settings.json"
+        mkdir -p "$WORKSPACE/.claude"
+
+        # An absent or blank settings file is just an empty object, not a
+        # parse failure — upstream treats it the same way and makes no backup.
+        if [ ! -s "$SETTINGS" ] || [ -z "$(tr -d '[:space:]' < "$SETTINGS")" ]; then
+          echo '{}' > "$SETTINGS"
+        # `jq empty` reports whether the input PARSES. `jq -e .` would report
+        # the truthiness of the parsed value instead, so a settings file
+        # holding `null` or `false` would be misfiled as corrupt and needlessly
+        # backed up.
+        elif ! jq empty "$SETTINGS" >/dev/null 2>&1; then
+          cp "$SETTINGS" "$SETTINGS.re-gent-backup"
+          # The backup lands in the user's repository, so keep it out of git
+          # for the same reason .regent/ is kept out.
+          git_exclude '.claude/settings.json.re-gent-backup'
+          note "existing settings.json was invalid JSON; backed up to $SETTINGS.re-gent-backup"
+          echo '{}' > "$SETTINGS"
+        fi
+
+        TMP="$SETTINGS.re-gent-tmp"
+        if jq -f "$JQ_FILTER" "$SETTINGS" > "$TMP" 2>/dev/null && [ -s "$TMP" ]; then
+          mv "$TMP" "$SETTINGS"
+          note "Claude Code capture hooks wired in $SETTINGS"
+        else
+          rm -f "$TMP"
+          note "failed to merge hooks into $SETTINGS; left unchanged"
+        fi
+      description: re_gent setup wrapper, with the workspace path and kit arguments baked in at sandbox start
+
+  startup:
+    - command: ["/home/agent/.local/bin/re-gent-setup.sh"]
+      user: "1000"
+      description: Initialize the .regent store and wire capture hooks, per the kit's arguments
