@@ -34,6 +34,102 @@ Attaching drops you straight into pi's TUI; setup downloads and installs
 nothing — the only step is a one-line npm proxy config. The image itself still
 has to be pulled the first time, if it isn't cached locally.
 
+## Step by step
+
+A first run, end to end. The reasoning behind each step is in
+[How auth works](#how-auth-works).
+
+**1. Store the credential before creating the sandbox.** Credential *bindings*
+are wired at create time, so a first one stored later has no effect until a new
+sandbox exists. For an Anthropic API key:
+
+```console
+sbx secret set anthropic
+```
+
+For a Claude subscription token from `claude setup-token`, use the `set-custom`
+form under [Barebones sandbox](#barebones-sandbox-no-credential-yet) instead.
+The two are not interchangeable on the wire, and binding both at once puts two
+auth headers on the request.
+
+If the host already holds an anthropic OAuth login — signed in from a `claude`
+sandbox — there is nothing to store: skip to step 2 rather than overwriting it
+with `sbx secret set anthropic`.
+
+**2. Start it.**
+
+```console
+sbx run --kit "docker.io/sbx/pi-kit:latest" pi
+```
+
+You land in pi's TUI. `pi` is the entrypoint and there is no gateway or daemon
+behind it, so there is no split between what the TUI is authenticated for and
+what anything else is — a reply in the TUI means the credential is wired, for
+every step below too.
+
+The remaining steps are host-side `sbx` commands, so run them from a second
+terminal while the TUI holds this one. `<sandbox-name>` below is the name
+`sbx run` reports at start, also listed by `sbx ls`.
+
+**3. Drive it without attaching.** `-p`/`--print` is pi's non-interactive mode:
+process one prompt, print, exit.
+
+```console
+sbx exec <sandbox-name> -- pi -p "what version are you running"
+```
+
+That is the same binary the TUI runs, reaching the credential the same way —
+the injected sentinel, or `~/.pi/agent/auth.json` — with no gateway in between
+and no wrapper script or env file to source first.
+
+**4. Change the credential, or pick up a newer pi release.** What is fixed at
+create time is the *binding*: going from none to bound, switching shape, or
+re-running `set-custom`, whose `{rand}` placeholder is minted afresh so the
+running sandbox holds a stale one. Kit content is fixed at create time too.
+
+Switching shape means removing the old binding first, or both stay bound and
+the request carries two auth headers — `sbx secret rm anthropic` for the
+service secret, `sbx secret rm --host api.anthropic.com` for the custom one.
+Check what `anthropic` holds before removing it: if it is the host's OAuth
+login, that entry is the one every sandbox using it reads, not just this kit's.
+
+Then recreate:
+
+```console
+sbx rm -f <sandbox-name>
+sbx run --kit "docker.io/sbx/pi-kit:latest" pi
+```
+
+Recreating also picks up a newer pi, with no action from anyone: this image
+rolls. It tracks npm's `latest` dist-tag and is rebuilt nightly (see
+[Building and publishing](#building-and-publishing)), so a fresh sandbox boots
+whatever pi release `docker.io/sbx/pi-image:latest` holds that day. Nothing in
+the kit is bumped deliberately to make that happen. pi's own `pi update --self`
+works inside a running sandbox, but it leaves it diverged from the image it
+booted from.
+
+### Pinning a kit revision
+
+`latest` follows `main`, so it moves. Every build also publishes an immutable
+`<YYYYMMDD>-<sha>` tag resolving to the same digest — pin that to hold a
+sandbox on a known revision of this kit:
+
+```console
+sbx run --kit "docker.io/sbx/pi-kit:20260828-2121f50cbf929602a6f0305feed51acb3f872980" pi
+```
+
+That pins **kit content**: the spec, the egress policy, the npm proxy config
+step. It does not pin pi. `sandbox.image` in a pinned revision's spec is still
+`docker.io/sbx/pi-image:latest`, and that image rolls, so a sandbox created from
+a pinned kit tag boots whatever pi release was current the day it was created —
+pinning the kit does not pin the pi version. There is no deliberately bumped
+version in the `Dockerfile` to pin to instead: `ARG PI_VERSION=latest` *is* the
+rolling default, and `--build-arg PI_VERSION=<version>` pins it only for a local
+build ([Building locally](#building-locally)); `sbx run` exposes no equivalent.
+
+[PUBLISHING.md](../PUBLISHING.md#tags) has the scheme, and why there is no bare
+`<sha>` tag.
+
 ## How auth works
 
 Anthropic calls inside the sandbox flow through the sandbox proxy
@@ -186,3 +282,24 @@ docker build -t docker.io/sbx/pi-image:latest pi
 (`SBX_KIT_SKIP_IMAGE_BUILD=1` to skip and reuse what's already built). Until
 the image is first published — pull requests build it but never push it — the
 TCK's `container` subtest can only pull it locally, so build before you test.
+
+## Troubleshooting
+
+| Symptom | Cause |
+|---|---|
+| An opaque `401` on every model call | No credential is bound, so the `ANTHROPIC_API_KEY=proxy-managed` sentinel reached Anthropic unswapped. pi cannot tell that placeholder from a real key — see [Barebones sandbox](#barebones-sandbox-no-credential-yet). |
+| `API key is invalid` | The credential reached Anthropic in the wrong shape: a subscription token bound as a service secret, or a stale service secret still setting `x-api-key` alongside a Bearer request. |
+| An OAuth/Bearer request rejected | The bearer placeholder went out unswapped — the host login behind it has expired or been revoked, or `set-custom` was re-run and minted a fresh `{rand}` the running sandbox never saw. |
+| pi appears to ignore `ANTHROPIC_API_KEY` | An OAuth credential file exists at `~/.pi/agent/auth.json`, and a credential found there outranks the environment in pi's resolution order (`--api-key` > `auth.json` > env > `models.json`). It wins even when it is not the one you meant to use. |
+| A newly bound secret changes nothing | Bindings are wired at create time. Create a fresh sandbox. |
+
+## Debugging
+
+```console
+pi auth check --provider anthropic                                                   # inside the sandbox
+sbx exec <sandbox-name> -- pi auth check --provider anthropic --credentials --json   # from the host
+```
+
+`pi auth check` reports `not_ready` and exits 1 when no credential is wired for
+the provider; `--credentials --json` adds the resolved detail. It takes a
+`--model` too, to check a specific one.
