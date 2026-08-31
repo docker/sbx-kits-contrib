@@ -93,19 +93,19 @@ jobs:
 
       - name: Sign in to Docker Hub via sbx
         env:
-          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
-          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+          USERNAME: ${{ vars.DOCKERPUBLICBOT_USERNAME }}
+          TOKEN: ${{ secrets.DOCKERPUBLICBOT_WRITE_PAT }}
         run: |
-          if [ -z "${DOCKERHUB_USERNAME}" ] || [ -z "${DOCKERHUB_TOKEN}" ]; then
-            echo "DOCKERHUB_USERNAME / DOCKERHUB_TOKEN not configured; cannot run e2e."
+          if [ -z "${USERNAME}" ] || [ -z "${TOKEN}" ]; then
+            echo "DOCKERPUBLICBOT_USERNAME / DOCKERPUBLICBOT_WRITE_PAT not configured; cannot run e2e."
             exit 1
           fi
           # Defensive trim: GH preserves any whitespace pasted into the
           # secret editor, and sbx's readPasswordStdin only strips trailing
           # \r\n. Hub usernames and PATs are alphanumeric + hyphens, so
           # stripping all whitespace can't corrupt a legitimate value.
-          USER_CLEAN=$(printf '%s' "$DOCKERHUB_USERNAME" | tr -d '[:space:]')
-          TOKEN_CLEAN=$(printf '%s' "$DOCKERHUB_TOKEN"    | tr -d '[:space:]')
+          USER_CLEAN=$(printf '%s' "$USERNAME" | tr -d '[:space:]')
+          TOKEN_CLEAN=$(printf '%s' "$TOKEN" | tr -d '[:space:]')
           printf '%s' "$TOKEN_CLEAN" | sbx --app-name "$APP_NAME" login --username "$USER_CLEAN" --password-stdin
 
       - name: Run e2e TCK for ${{ matrix.kit }}
