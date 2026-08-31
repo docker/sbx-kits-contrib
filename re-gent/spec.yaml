@@ -4,9 +4,8 @@ name: re-gent
 displayName: re_gent
 description: >-
   Installs the re_gent CLI (`rgt`), content-addressed version control for AI
-  agent activity, from a pinned GitHub release. Optionally creates the
-  `.regent/` store in the workspace and wires Claude Code capture hooks, both
-  controlled by kit arguments.
+  agent activity, from a pinned GitHub release. Creates the `.regent/` store
+  in the workspace and wires Claude Code capture hooks unconditionally.
 sourceURL: https://github.com/regent-vcs/re_gent
 licenses:
   - Apache-2.0
@@ -16,32 +15,24 @@ licenses:
 # underscores. The upstream project's own spelling is preserved in
 # displayName and throughout the docs.
 
-args:
-  init:
-    default: "true"
-    enum: ["true", "false"]
-    description: >-
-      Create the .regent/ store in the workspace on container start when it is
-      absent, and exclude it from git locally. Local-only and no network, so it
-      is on by default.
-  hooks:
-    default: "none"
-    enum: ["none", "claude"]
-    description: >-
-      Wire re_gent capture hooks into the workspace agent config. Off by
-      default because it edits a file that is normally committed to the user's
-      repository and changes agent behaviour on every turn. Set to `claude` to
-      capture Claude Code sessions. Requires a store, so `claude` together with
-      `init: "false"` wires nothing unless a .regent/ already exists.
+# This kit is deliberately opinionated rather than configurable: installing
+# it means you get init + Claude hook wiring, no flags. An earlier revision
+# offered both as `args:`-gated options, but v2's `args:` block is not
+# supported by any shipped `sbx` release yet (confirmed: `sbx` v0.39.0 rejects
+# a spec.yaml with `args:` at load with "field args not found in type
+# spec.specFileV2"; only the rolling nightly build parses it) — an args-based
+# design is unusable today regardless of preference. Revisit once a stable
+# release supports `args:`.
 
-# No `requires.agent` affinity is declared, for two reasons. The `rgt` CLI is
-# agent-agnostic — log/blame/show work regardless of which agent produced the
-# history — so an affinity would block legitimate use. And a
-# `${{ kit.args.* }}` placeholder cannot be used there anyway: argument
-# substitution happens in the consumer, while `requires.agent` is pattern-
-# validated against the raw spec.yaml, so the placeholder itself fails
-# validation. The agent-specific part of this kit is hook wiring, and the
-# `hooks` argument is what selects it.
+requires:
+  agent: claude
+
+# The `rgt` CLI itself is agent-agnostic — log/blame/show work regardless of
+# which agent produced the history — but hook wiring below is Claude-specific
+# (it writes .claude/settings.json) and, with no args to gate it, now always
+# runs. Composing this onto a non-Claude sandbox would silently create a
+# stray .claude/ directory there, so the affinity turns that into a
+# composition error instead.
 
 agentInstructions:
   content: |
@@ -61,25 +52,21 @@ agentInstructions:
     | `rgt sessions` | List sessions (`--format json`) |
     | `rgt status` | Current repository state |
 
-    Three things worth knowing before you use it:
+    Two things worth knowing before you use it:
 
-    - **Capture only happens if hooks are wired.** They are wired only when
-      this kit was created with `--kit-arg re-gent.hooks=claude`. Without
-      that, `.regent/` exists but stays empty and `rgt log` shows nothing —
-      that is expected, not a bug. Check with `rgt status`.
     - **On a `--clone` sandbox, nothing is set up on the first start.** This
       kit's setup runs before the clone populates the workspace, so it skips
       that round and takes effect on the next container start. If there is no
-      `.regent/` at all, that is why — ask the user to restart the sandbox
-      (`sbx stop <name>` then `sbx run --name <name>`) rather than trying to
-      run `rgt init` yourself.
+      `.regent/` at all, and no hooks in `.claude/settings.json`, that is why
+      — ask the user to restart the sandbox (`sbx stop <name>` then
+      `sbx run --name <name>`) rather than trying to run `rgt init` yourself.
     - **`rgt init` needs a TTY and will not work from a tool call.** Its hook
-      configuration step always opens an interactive multi-select, even with
-      `--agent` given, and it exits 0 after printing a warning when there is
-      no TTY. So running it non-interactively appears to succeed while
-      configuring nothing. If hooks need setting up, ask the user to run
-      `rgt init` in a terminal, or recreate the sandbox with
-      `--kit-arg re-gent.hooks=claude`.
+      configuration step always opens an interactive multi-select and exits 0
+      after printing a warning when there is no TTY, without configuring
+      anything. This kit already wires hooks another way, so you should never
+      need to run `rgt init` yourself — if `.regent/` or the hooks are ever
+      missing outside the `--clone` case above, that is a bug in this kit, not
+      something to fix by running `rgt init`.
 
     `.regent/` holds your prompts and the assistant's replies in plain form on
     disk. re_gent does **not** gitignore it — the `.gitignore` it writes lives
@@ -166,14 +153,6 @@ setup:
     # sandbox templates this kit targets jq is already present, so the guard
     # makes the common path perform no package I/O at all.
     #
-    # Deliberately NOT also gated on `hooks != none`: a `${{ kit.args.* }}`
-    # placeholder is substituted by the consumer, not by the spec library, so
-    # in any context that runs the raw spec.yaml — the TCK, which gates CI —
-    # the literal `${{ ... }}` reaches `sh -c` and dies with "Bad
-    # substitution". Placeholders belong in setup.files content, which is
-    # written rather than executed. The cost is installing jq on a jq-less
-    # image even when hooks=none, which is cheap and harmless.
-    #
     # git is also outside the floor and deliberately NOT installed: it is used
     # only to add .regent/ to the repository's exclude file, and a workspace
     # with no git is a workspace with no repository to keep the store out of.
@@ -192,10 +171,9 @@ setup:
   files:
     # The workspace path is only available as ${WORKDIR} inside setup.files
     # content — it is not substituted in `path`, and not available to startup
-    # commands at all. So the argument values and the workspace path are baked
-    # into a wrapper script here (under the agent home, never under the
-    # workspace, which setup.files may not target), and the startup command
-    # below just runs it.
+    # commands at all. So it is baked into a wrapper script here (under the
+    # agent home, never under the workspace, which setup.files may not
+    # target), and the startup command below just runs it.
     - path: /home/agent/.local/bin/re-gent-setup.sh
       mode: "0755"
       content: |
@@ -206,8 +184,6 @@ setup:
         set -u
 
         WORKSPACE="${WORKDIR}"
-        DO_INIT="${{ kit.args.init }}"
-        HOOKS="${{ kit.args.hooks }}"
         JQ_FILTER=/home/agent/.local/share/re-gent/claude-hooks.jq
 
         note() { echo "re_gent: $1"; }
@@ -236,8 +212,6 @@ setup:
           note "excluded $1 from git via $exclude"
         }
 
-        [ "$DO_INIT" = "true" ] || [ "$HOOKS" != "none" ] || exit 0
-
         if ! command -v rgt >/dev/null 2>&1; then
           note "rgt is not on PATH; skipping setup"
           exit 0
@@ -256,7 +230,7 @@ setup:
           exit 0
         fi
 
-        if [ "$DO_INIT" = "true" ] && [ ! -d "$WORKSPACE/.regent" ]; then
+        if [ ! -d "$WORKSPACE/.regent" ]; then
           # --skip-hook --skip-skills is what makes this non-interactive:
           # both of the steps it skips prompt on a TTY that does not exist
           # here. Hook wiring is done below instead.
@@ -277,12 +251,12 @@ setup:
           git_exclude '.regent/'
         fi
 
-        [ "$HOOKS" = "claude" ] || exit 0
-
         # Wiring hooks without a store would make every agent turn invoke rgt
-        # against a repository that does not exist.
+        # against a repository that does not exist. Reachable only if the
+        # `rgt init` call above failed after creating the directory partway,
+        # or was interrupted — the normal path always has a store here.
         if [ ! -d "$WORKSPACE/.regent" ]; then
-          note "no .regent store; not wiring hooks (re-create with re-gent.init=true)"
+          note "no .regent store; not wiring hooks"
           exit 0
         fi
 
@@ -319,9 +293,9 @@ setup:
           rm -f "$TMP"
           note "failed to merge hooks into $SETTINGS; left unchanged"
         fi
-      description: re_gent setup wrapper, with the workspace path and kit arguments baked in at sandbox start
+      description: re_gent setup wrapper, with the workspace path baked in at sandbox start
 
   startup:
     - command: ["/home/agent/.local/bin/re-gent-setup.sh"]
       user: "1000"
-      description: Initialize the .regent store and wire capture hooks, per the kit's arguments
+      description: Initialize the .regent store and wire Claude Code capture hooks

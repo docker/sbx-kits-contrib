@@ -24,68 +24,39 @@ ship `jq`.
 
 ## Usage
 
-The kit installs the CLI by default and does nothing else. Pass
-`re-gent.hooks=claude` to also wire the capture hooks, which is what makes
-`rgt log` actually fill up:
+The kit is opinionated: installing it gets you the CLI, an initialized
+`.regent/` store, and Claude Code capture hooks, all unconditionally — no
+flags to set.
 
 ```console
-sbx run claude --kit "docker.io/sbx/re-gent-kit:latest" --kit-arg re-gent.hooks=claude .
+sbx run claude --kit "docker.io/sbx/re-gent-kit:latest" .
 ```
 
 Or target this repo over git:
 
 ```console
-sbx run claude --kit "git+https://github.com/docker/sbx-kits-contrib.git#dir=re-gent" --kit-arg re-gent.hooks=claude .
+sbx run claude --kit "git+https://github.com/docker/sbx-kits-contrib.git#dir=re-gent" .
 ```
 
 For local development:
 
 ```console
-sbx run claude --kit ./re-gent/ --kit-arg re-gent.hooks=claude .
+sbx run claude --kit ./re-gent/ .
 ```
 
-Install-only, leaving your repository untouched:
-
-```console
-sbx run claude --kit "docker.io/sbx/re-gent-kit:latest" --kit-arg re-gent.init=false .
-```
-
-`hooks` needs a store to capture into, so `hooks=claude` with `init=false`
-wires nothing unless the workspace already has a `.regent/` from an earlier
-run. Pair `init=false` with the default `hooks=none`.
-
-`--kit-arg` and `--kit-args-file` are experimental flags. A `--kit-arg` no kit
-declares is rejected, so a typo fails loudly instead of silently installing the
-default.
-
-## Arguments
-
-| Argument | Values | Default | Effect |
-| --- | --- | --- | --- |
-| `init` | `true`, `false` | `true` | Create the `.regent/` store in the workspace when it is absent, and add it to `.git/info/exclude`. |
-| `hooks` | `none`, `claude` | `none` | Wire re_gent capture hooks into `<workspace>/.claude/settings.json`. |
-
-Both accept the unscoped form too (`--kit-arg hooks=claude`), which applies to
-every kit that declares an argument of that name.
-
-### Why the defaults differ
-
-`init` defaults to **on**: creating `.regent/` is local, needs no network, and
-`rm -rf .regent` fully reverses it.
+There is no way to opt out of init or hook wiring short of not using the kit.
+An earlier revision offered both as kit arguments, but v2's `args:` block
+isn't supported by any shipped `sbx` release yet — `sbx` v0.39.0 rejects a
+spec.yaml that declares one outright at load, with `field args not found in
+type spec.specFileV2`. Configurability is off the table until that ships.
 
 One thing worth knowing, because it is easy to misread: `rgt` *does* write a
-`.gitignore`, but it lives **inside** `.regent/` and only covers `*.backup` and
-`log/`. It does not ignore `.regent/` itself — a fresh `rgt init` leaves
+`.gitignore`, but it lives **inside** `.regent/` and only covers `*.backup`
+and `log/`. It does not ignore `.regent/` itself — a fresh `rgt init` leaves
 `?? .regent/` in `git status`, so a `git add -A` would commit your prompt and
 conversation history. The kit therefore adds `.regent/` to the repository's
 `.git/info/exclude`, which is per-clone and never committed, in preference to
 editing a tracked `.gitignore`.
-
-`hooks` defaults to **off**: wiring hooks edits `.claude/settings.json`, a file
-that is normally committed, and changes what happens on every agent turn. Under
-a direct-mount workspace (the default) that file is the real one in your
-repository on the host, not a copy. Opting in should be a decision you make,
-not a side effect of adding a kit.
 
 ## How the install works
 
@@ -171,20 +142,24 @@ genuinely empty, which takes the same path for the same reason.
 
 ## Agent support
 
-No `requires.agent` affinity is declared. The `rgt` CLI is agent-agnostic —
-`log`, `blame`, and `show` work regardless of which agent produced the history —
-so pinning the mixin to one agent would block legitimate use. Only hook wiring
-is agent-specific, and the `hooks` argument selects that.
+The kit declares `requires.agent: claude` — composing it onto a different base
+agent is a composition error rather than a silently useless sandbox. That
+affinity exists because hook wiring is unconditional and Claude-specific (it
+writes `.claude/settings.json`); composed onto, say, a `codex` sandbox it would
+create a stray `.claude/` directory nothing reads. The `rgt` CLI itself is
+agent-agnostic — `log`, `blame`, and `show` work regardless of which agent
+produced the history — the affinity is purely about the hook-wiring half.
 
 Upstream also supports Codex (`.codex/config.toml`), OpenCode (an npm plugin),
 and Pi (a git-sourced extension). This kit implements Claude Code only: the
 other two pull from `registry.npmjs.org` and `github.com` at wiring time, which
-would widen the kit's network contract for agents it isn't otherwise set up
-for. `hooks` is an enum so those can be added later without changing its shape.
+would widen the kit's network contract, and — now that behavior can't be
+gated by an argument — there'd be no way to install `rgt` for one of those
+agents without also taking on that egress.
 
 ## What lands in your repository
 
-With the defaults plus `hooks=claude`, inside the workspace:
+Inside the workspace:
 
 - `.regent/` — the object store, SQLite index, and refs. Added to
   `.git/info/exclude` by the kit, so it stays out of `git status` and out of
@@ -211,13 +186,11 @@ then remove the three `rgt` entries from `.claude/settings.json` (or restore
 `.claude/settings.json.re-gent-backup` if the kit made one), and drop the
 `.regent/` line from `.git/info/exclude`.
 
-**Removing the hooks is a manual step on purpose.** The kit never unwires
-hooks, not even when `hooks=none` — and since `none` is the default, doing so
-would mean every sandbox that merely installs the CLI strips hooks a user
-deliberately configured with `rgt init`. The cost of that choice is that hooks
-left in a committed `.claude/settings.json` will fail on any machine where
-`rgt` isn't installed, including your host. Remove them when you're done, or
-keep them out of the commit.
+**Removing the hooks is a manual step.** The kit never unwires them itself —
+there's no code path for it, since wiring is unconditional. Hooks left in a
+committed `.claude/settings.json` will fail on any machine where `rgt` isn't
+installed, including your host. Remove them when you're done, or keep them out
+of the commit.
 
 ## Upstream status
 
