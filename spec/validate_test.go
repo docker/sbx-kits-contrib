@@ -85,6 +85,32 @@ func TestValidateManifest(t *testing.T) {
 		require.ErrorContains(t, ValidateManifest(&m), "invalid name")
 	})
 
+	t.Run("valid_ai_filename", func(t *testing.T) {
+		for _, name := range []string{"AGENTS.md", "agent_profile-1.md", ".agent.md"} {
+			m := valid
+			m.AIFilename = name
+			require.NoError(t, ValidateManifest(&m))
+		}
+	})
+
+	for _, tc := range []struct {
+		name     string
+		filename string
+	}{
+		{name: "current_directory", filename: "."},
+		{name: "parent_directory", filename: ".."},
+		{name: "absolute_path", filename: "/tmp/AGENTS.md"},
+		{name: "relative_path", filename: "../AGENTS.md"},
+		{name: "windows_separator", filename: `dir\AGENTS.md`},
+		{name: "shell_metacharacters", filename: "AGENTS.md; touch /tmp/pwned"},
+	} {
+		t.Run("invalid_ai_filename_"+tc.name, func(t *testing.T) {
+			m := valid
+			m.AIFilename = tc.filename
+			require.ErrorContains(t, ValidateManifest(&m), "invalid aiFilename")
+		})
+	}
+
 	t.Run("agent_missing_template", func(t *testing.T) {
 		m := Manifest{
 			SchemaVersion: SchemaVersion,

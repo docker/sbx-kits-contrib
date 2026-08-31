@@ -1,0 +1,97 @@
+#!/bin/sh
+# Resolve a signing key from the forwarded SSH agent.
+#
+# Git runs this only when user.signingKey is unset, and echoes whatever
+# this script writes to stderr verbatim as
+#     warning: gpg.ssh.defaultKeyCommand failed: <stderr>
+# immediately before its own, misleading
+#     error: user.signingKey needs to be set for ssh signing
+# Git's line cannot be suppressed, so the message below has to carry the
+# whole diagnosis and explicitly pre-empt it.
+
+fail() {
+    # A leading newline keeps the body off git's "warning: ...failed: "
+    # prefix line, which would otherwise swallow the first sentence.
+    {
+        printf '\n'
+        printf '[git-ssh-sign] cannot sign: %s\n' "$1"
+        printf '[git-ssh-sign] %s\n' "$2"
+        printf '[git-ssh-sign] The "user.signingKey needs to be set" error below is a red herring:\n'
+        printf '[git-ssh-sign] this kit resolves the key from the forwarded SSH agent, so the two lines above are the ones that name what is actually wrong.\n'
+        printf '[git-ssh-sign] To make this one commit unsigned: git -c commit.gpgsign=false commit ...\n'
+    } >&2
+    exit 1
+}
+
+# The recovery steps below run on the HOST, where $SANDBOX_NAME does not
+# exist -- it is a sandbox-only variable. Resolve the name here and print its
+# value, so the user can paste the command instead of substituting by hand.
+name=${SANDBOX_NAME:-$(hostname 2>/dev/null || true)}
+[ -n "$name" ] || name="<sandbox-name>"
+
+# Same recovery preamble for every "the agent is not answering" state: the
+# forwarding setting first (it is the one cause that survives every restart),
+# then the host agent's keys, then the container restart.
+recover="On the HOST: 1) 'sbx settings get ssh.agentForwardingEnabled' must print true -- if it does not, 'sbx settings set ssh.agentForwardingEnabled true' and then 'sbx daemon restart', because a changed setting only reaches sandboxes that already exist once the daemon has restarted; 2) 'ssh-add -l' must list your key, else 'ssh-add ~/.ssh/id_ed25519'; 3) from that same shell, restart this sandbox: 'sbx stop $name' then 'sbx run --name $name'."
+
+sock=${SSH_AUTH_SOCK:-}
+
+if [ -z "$sock" ]; then
+    fail "SSH_AUTH_SOCK is not set" \
+         "Sandboxes export it unconditionally, so something in this shell unset it."
+fi
+
+# SSH_AUTH_SOCK is baked into every sandbox whether or not forwarding was
+# wired, so its presence proves nothing. The socket's existence is the real
+# check, and it separates "no relay at all" from "something is listening but
+# not answering" -- states that read very differently in the error message.
+if [ ! -S "$sock" ]; then
+    fail "the forwarded agent socket $sock does not exist" \
+         "The in-sandbox relay is not running. $recover"
+fi
+
+out=$(ssh-add -L 2>&1)
+rc=$?
+
+# ssh-add exit 2 is "could not connect at all"; exit 1 is "connected, but
+# the exchange failed or the agent is empty". Forwarding being switched off
+# can land in either one depending on how far the connection gets, so only
+# the genuinely-empty agent gets a recovery of its own -- every other state
+# runs the same host-side checks, the forwarding setting first.
+case $rc in
+    0) ;;
+    1)
+        case "$out" in
+            *"no identities"*)
+                fail "the forwarded agent holds no keys (ssh-add: $out)" \
+                     "The HOST agent is empty: run 'ssh-add ~/.ssh/id_ed25519' there, then 'sbx stop $name' and 'sbx run --name $name' from that same shell." ;;
+            *)
+                fail "the agent did not answer usably (ssh-add: $out)" \
+                     "Something accepted the connection but the exchange failed. $recover" ;;
+        esac ;;
+    *)
+        fail "nothing is accepting connections on $sock (ssh-add: $out, exit $rc)" \
+             "The socket is there but no forwarder is answering on it. $recover" ;;
+esac
+
+key=$(printf '%s\n' "$out" | head -n 1)
+if [ -z "$key" ]; then
+    fail "ssh-add -L succeeded but printed nothing" \
+         "Unexpected state; please report it against the git-ssh-sign kit."
+fi
+
+config_dir=${GIT_SSH_SIGN_CONFIG_DIR:-/home/agent/.config/git}
+
+# Guarded explicitly rather than with "set -e": this script reads ssh-add's
+# exit status by hand, and errexit would abort at the "out=$(ssh-add -L)"
+# assignment before the diagnosis below ever runs. Without these guards a
+# failed write leaves a stale allowed_signers while the commit still signs,
+# so verification later fails with git's opaque "No principal matched".
+mkdir -p "$config_dir" || fail "cannot create $config_dir" \
+    "Check the ownership and permissions of that directory inside the sandbox."
+
+email=$(git config user.email 2>/dev/null || printf '%s' "agent@sandbox.local")
+printf '%s %s\n' "$email" "$key" > "$config_dir/allowed_signers" || \
+    fail "cannot write $config_dir/allowed_signers" \
+         "Signing would succeed but 'git log --show-signature' would report 'No principal matched'."
+printf 'key::%s\n' "$key"

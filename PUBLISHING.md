@@ -309,13 +309,22 @@ the image itself:
   `dockerd`, `docker` and `containerd`. That label only *requests*
   Docker-in-Docker — since the base is a build arg, this check is what stops an
   image asking for an engine it does not have.
+- `com.docker.sandboxes.flavor` names the kit itself. `sbx` reads that label as
+  the image's agent, and an image that does not declare one inherits whatever
+  its base sets — today's bases all carry their own flavor, so a Dockerfile
+  that forgets it does not report a missing agent, it reports the base's.
 
 ## Adding an image-publishing kit
 
 1. Put a `Dockerfile` at the kit root; the kit directory is the build context.
-2. Set `sandbox.image` to `docker.io/sbx/<kit>-image:latest` in `spec.yaml`.
-3. Run `./scripts/check-image-ref.sh docker.io/sbx latest` before pushing.
-4. Build locally to check it works — `docker build -t docker.io/sbx/<kit>-image:latest <kit>`.
+2. Set `LABEL com.docker.sandboxes.flavor="<kit>"` in it. Nothing derives this
+   from the directory name, and leaving it out inherits whatever the base sets —
+   with today's bases that is the base's own flavor, so the kit ships under
+   another agent's name; on a base that carries no such label it is left unset.
+   CI rejects the image either way.
+3. Set `sandbox.image` to `docker.io/sbx/<kit>-image:latest` in `spec.yaml`.
+4. Run `./scripts/check-image-ref.sh docker.io/sbx latest` before pushing.
+5. Build locally to check it works — `docker build -t docker.io/sbx/<kit>-image:latest <kit>`.
 
 No workflow edit is needed; discovery picks the kit up. Note that
 `sandbox.image` must reference a tag CI actually publishes, so the first

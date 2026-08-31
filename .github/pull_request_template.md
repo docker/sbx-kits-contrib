@@ -2,7 +2,7 @@
 Thanks for contributing to sbx-kits-contrib!
 
 PRs from forks have CI's `test-kit-e2e` job SKIPPED because GitHub does not
-expose `DOCKERHUB_USERNAME` / `DOCKERHUB_TOKEN` to fork-triggered workflows.
+expose `DOCKERPUBLICBOT_USERNAME` / `DOCKERPUBLICBOT_WRITE_PAT` to fork-triggered workflows.
 The e2e assertions will not run on your PR — your laptop is the only place
 they run before merge. See the checklist below.
 -->

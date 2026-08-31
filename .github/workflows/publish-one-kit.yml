@@ -67,7 +67,15 @@ jobs:
   image:
     if: inputs.has-image
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    # Generous because the nightly builds every layer from scratch (see the
+    # `no-cache` note below) and does it twice: once for the amd64 verification
+    # image and once for the multi-arch push. The slowest kit's first-ever
+    # build — cold cache, emulated arm64 leg included — took 19 minutes, so
+    # what the nightly adds on top of that is one more NATIVE amd64 pass, not
+    # another emulated one. 90 is therefore a wide margin rather than a tight
+    # estimate; the failure mode if the cap is hit is a rolling tag that
+    # quietly stops moving, which is worth more headroom than headroom costs.
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
@@ -142,6 +150,34 @@ jobs:
         # cache, so it costs little, and gives a concrete image to assert
         # against. It runs on pull requests too — the point is to catch a broken
         # image before it is published, not after.
+        #
+        # The nightly run bypasses that cache, here and on the push build below.
+        # These Dockerfiles install their agent from a `latest` channel with a
+        # fixed `RUN ... curl ... | sh` line, so with the cache on, the
+        # instruction text and the build context are identical every night and
+        # the install layer is always a hit — three consecutive nightly builds
+        # of one commit published byte-identical rootfs diff IDs under three
+        # different manifest digests. The only thing that ever busts that layer
+        # is the base image moving, which happens on the BASE's cadence, not the
+        # agent's; until then the nightly just re-tags yesterday's bytes with
+        # today's date. That defeats the reason the schedule exists (see
+        # build-and-publish-kits.yml's `schedule:` comment), so on `schedule`
+        # the cache is written but not read.
+        #
+        # Both builds need it. Busting the cache only here and letting the push
+        # build reuse what this one just wrote looks cheaper but is wrong: this
+        # build is linux/amd64 only and the push build is multi-arch, so arm64
+        # would still be served from the stale cache.
+        #
+        # Two consequences, both deliberate. The nightly's verified image and
+        # its published amd64 image become two independent builds rather than
+        # the same cached layers, so on the one run where upstream content can
+        # move under us, "verified" means "a build of this Dockerfile minutes
+        # earlier passed" — the alternative buys that back by publishing a
+        # stale arm64, which is worse. And `workflow_dispatch` keeps the cache
+        # even though the caller lumps it with `schedule`: a manual run is also
+        # how a publish that failed on something other than the image gets
+        # retried, and that should not cost an uncached multi-arch rebuild.
         uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
         with:
           context: ${{ inputs.kit }}
@@ -149,6 +185,7 @@ jobs:
           platforms: linux/amd64
           load: true
           tags: ${{ steps.coords.outputs.image }}:ci-verify
+          no-cache: ${{ github.event_name == 'schedule' }}
           cache-from: type=gha,scope=${{ inputs.kit }}
           cache-to: type=gha,mode=max,scope=${{ inputs.kit }}
 
@@ -165,6 +202,14 @@ jobs:
         #      started in Docker mode with nothing to run, so the claim is
         #      checked against reality.
         #   3. Sandboxes do not run as root.
+        #   4. `com.docker.sandboxes.flavor` names this kit. sbx reads that
+        #      label as the image's agent, and an image that does not declare
+        #      one inherits whatever its base sets — today's bases all carry
+        #      their own flavor, so a Dockerfile that forgets it does not
+        #      produce a missing agent, it produces a confidently wrong one.
+        #      Nothing derives the label from the kit directory, so this is the
+        #      only thing standing between a new kit and shipping under someone
+        #      else's name.
         run: |
           set -euo pipefail
           img="${{ steps.coords.outputs.image }}:ci-verify"
@@ -177,7 +222,9 @@ jobs:
           user=$(docker inspect --format '{{ .Config.User }}' "$img")
           label=$(docker inspect --format \
             '{{ if .Config.Labels }}{{ index .Config.Labels "com.docker.sandboxes.start-docker" }}{{ end }}' "$img")
-          echo "kit=${{ inputs.kit }} cmd=${cmd} user=${user} start-docker=${label}"
+          flavor=$(docker inspect --format \
+            '{{ if .Config.Labels }}{{ index .Config.Labels "com.docker.sandboxes.flavor" }}{{ end }}' "$img")
+          echo "kit=${{ inputs.kit }} cmd=${cmd} user=${user} start-docker=${label} flavor=${flavor}"
 
           if [ -z "$cmd" ]; then
             echo "::error::${{ inputs.kit }}: image sets no CMD, so the sandbox entrypoint cannot be verified"
@@ -204,6 +251,15 @@ jobs:
               exit 1
               ;;
           esac
+
+          # One comparison covers both failure modes: a Dockerfile that declares
+          # no flavor reads back as the base image's value (or empty), and one
+          # that declares the wrong name reads back as that. Every kit declaring
+          # the label today uses exactly its own directory name.
+          if [ "$flavor" != "${{ inputs.kit }}" ]; then
+            echo "::error::${{ inputs.kit }}: image reports flavor '${flavor:-(unset)}', expected '${{ inputs.kit }}'. Set LABEL com.docker.sandboxes.flavor=\"${{ inputs.kit }}\" in ${{ inputs.kit }}/Dockerfile — add it if the Dockerfile declares none, correct it if it declares another name. sbx reports this label as the kit's agent, and a Dockerfile that declares none inherits whatever its base image sets."
+            exit 1
+          fi
 
           echo "${{ inputs.kit }} verified."
 
@@ -242,6 +298,11 @@ jobs:
         # Only the immutable <date>-<sha> tag is built and pushed here; the
         # rolling tag is re-pointed at this manifest in the next step rather than
         # built again.
+        #
+        # `no-cache` on the nightly for the reason spelled out on the
+        # verification build above — and it is repeated here rather than relying
+        # on that build having refreshed the cache, because that one is amd64
+        # only while this one is multi-arch.
         uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
         with:
           context: ${{ inputs.kit }}
@@ -249,6 +310,7 @@ jobs:
           platforms: ${{ env.PLATFORMS }}
           push: ${{ env.DRY_RUN == '' }}
           tags: ${{ steps.coords.outputs.image }}:${{ inputs.dated }}
+          no-cache: ${{ github.event_name == 'schedule' }}
           cache-from: type=gha,scope=${{ inputs.kit }}
           cache-to: type=gha,mode=max,scope=${{ inputs.kit }}
 
