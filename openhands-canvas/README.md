@@ -33,6 +33,12 @@ $ sbx secret set-custom -g \
 ## Usage
 
 ```console
+$ sbx run --kit "docker.io/sbx/openhands-canvas-kit:latest" openhands-canvas
+```
+
+Or from a git URL targeting this repo:
+
+```console
 $ sbx run --kit "git+https://github.com/docker/sbx-kits-contrib.git#dir=openhands-canvas" openhands-canvas
 ```
 
