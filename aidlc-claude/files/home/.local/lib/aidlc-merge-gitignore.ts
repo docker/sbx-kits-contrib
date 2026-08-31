@@ -149,7 +149,8 @@ if (begin !== -1 && end !== -1 && end > begin) {
 } else if (begin !== -1 || end !== -1) {
   die(
     `${destPath} has a half-written AI-DLC block (one marker without its pair). ` +
-      `Remove the stray marker line and restart the sandbox; nothing has been written.`,
+      `Remove the stray marker line and restart the sandbox; .gitignore has not ` +
+      `been changed and the harness copy has not started.`,
   );
 } else {
   // Append. Last matching pattern wins in .gitignore, so appending is also what

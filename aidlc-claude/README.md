@@ -1,9 +1,10 @@
 # AI-DLC Quick Start
 
 A mixin that makes a sandbox ready for [AWS AI-DLC](https://github.com/awslabs/aidlc-workflows):
-it installs the [Bun](https://bun.sh) runtime, clones `awslabs/aidlc-workflows`
-at the `v2` branch, and copies that repo's Claude harness into the workspace, so
-the harness is in place before your first Claude Code session starts.
+it installs a pinned [Bun](https://bun.sh) version, clones the latest
+`awslabs/aidlc-workflows` `v2` commit for a fresh project (or the commit an
+existing project already pinned), and copies that repo's Claude harness into the
+workspace.
 
 Pairs with the built-in `claude-bedrock` agent — the kit declares `requires.agent: claude-bedrock`.
 
@@ -30,7 +31,20 @@ sbx run --kit ./aidlc-claude/ claude-bedrock
 
 > Requires `sbx` newer than v0.39.0.
 
-After the sandbox starts, the harness is already in the workspace:
+On the first run for a fresh workspace, AI-DLC is installed by a post-start
+hook. If `/aidlc` is not available in that initial Claude session, exit the
+session after installation finishes and reattach using the sandbox name printed
+by `sbx` (or the name supplied with `--name`):
+
+```console
+sbx run --name <sandbox-name>
+```
+
+The new Claude process reloads the `/aidlc` skill, settings, and hooks. This is
+a one-time step for a fresh workspace; subsequent sessions do not require an
+extra reattach.
+
+After reattaching when necessary:
 
 ```console
 bun --version
@@ -59,6 +73,11 @@ so it would not help even if the install ran as the agent.
 Setting `BUN_INSTALL=/usr/local` puts `bun` and `bunx` in `/usr/local/bin`,
 already on `PATH` for every user and every shell type, with no rc file involved.
 Upstream documents this same hazard in its own troubleshooting notes.
+
+The install is also pinned to a release tag (`bash -s "bun-vX.Y.Z"`, the
+installer's own version argument) rather than plain `| bash`, so every sandbox
+gets the exact Bun version this kit is tested against instead of whatever
+upstream ships on the day it's created.
 
 ## How the harness copy works
 
@@ -124,9 +143,9 @@ The merge is **project-wins** and idempotent:
 Two guards make the failure modes loud rather than silent:
 
 - An **unparseable** project `settings.json` aborts the hook with a non-zero
-  exit *before* the first `cp`, so the workspace is left untouched instead of
-  half-installed. (Claude Code settings are strict JSON — no comments, no
-  trailing commas.)
+  exit before that file is changed or any harness files are copied. On a fresh
+  project, the immutable version-lock file may already have been created.
+  (Claude Code settings are strict JSON — no comments, no trailing commas.)
 - After merging, the script re-runs the doctor's own contract check and refuses
   to write a file that wires no `aidlc-*.ts` hooks.
 
@@ -191,9 +210,10 @@ procedure:
 Two guards, matching the settings script: a shipped `.gitignore` with no
 `# AI-DLC` section (or a section carrying no `aidlc` rules) fails loudly rather
 than guessing which rules to merge, and a half-written block — one marker
-without its pair — aborts before writing. Writes are atomic (temp file in the
-same directory, then `rename`), so a concurrent `git status` never sees a
-partial file.
+without its pair — aborts without changing `.gitignore` or starting the harness
+copy. Settings reconciliation may already have completed. Writes are atomic
+(temp file in the same directory, then `rename`), so a concurrent `git status`
+never sees a partial file.
 
 One placement consequence worth knowing: `.gitignore` is last-match-wins, so an
 appended block overrides a project `!negation` above it for these paths. That is
@@ -207,10 +227,37 @@ unrelated files to the repo you are actually editing, and leaves the other
 `dist/<harness>/` trees available if you want to install a different harness by
 hand.
 
-`git clone --branch v2` is the single-step equivalent of upstream's `clone` +
-`cd` + `git checkout v2`; each `setup.install` entry is its own `sh -c`, so a
-`cd` in one command would not carry into the next. `v2` is a branch
-(`refs/heads/v2`) and no tag of that name exists, so the ref is unambiguous.
+The network-heavy clone runs in `setup.install`, which completes synchronously
+before Claude launches. It cannot select the project pin there because the
+workspace is not guaranteed ready yet. Instead, `setup.startup` reads the pin
+from the ready workspace, performs the fast checkout, and copies the harness.
+This split keeps a fresh clone from racing Claude's initial scan of project
+slash commands.
+
+The install clone is guarded with `git rev-parse --git-dir`, not just a directory
+check. A valid clone is reused if install is replayed; a partial clone left by
+an interrupted run is removed and cloned again.
+
+## Why the clone is pinned to a commit, not the `v2` branch tip
+
+`v2` is active enough — double-digit commits in a handful of days — that an
+unpinned `git clone --branch v2` can hand two sandboxes created hours apart
+different code under the same published kit digest. Worse, the two merge
+scripts described above depend on the internal shape of the shipped
+`settings.json` and `.gitignore`, so an upstream restructure of either file can
+break them outright with no warning.
+
+So the clone always checks out a specific commit. `aidlc/.aidlc-workflows-version`
+in the project records which one:
+
+- **No file yet** (a fresh project) — the first startup records the full SHA of
+  the latest `v2` commit cloned during install, so every later sandbox for
+  the same project — this one recreated, or a teammate's once the file is
+  committed to the project's Git repo — reproduces that exact commit instead
+  of whatever `v2` has moved to since.
+- **File present** — the recorded commit is checked out instead of the moving
+  `v2` tip. The file is an automatically managed, immutable project lock after
+  its initial creation; editing or deleting it manually is unsupported.
 
 ## Cleanup
 

@@ -54,12 +54,14 @@ function parseObject(raw: string, path: string, label: string): Json {
   try {
     value = JSON.parse(raw);
   } catch (e: any) {
-    // Deliberately fatal, and deliberately before the harness copy runs: a
-    // half-installed workspace is worse than a start that stops and says why.
+    // Deliberately fatal, and deliberately before this script changes settings
+    // or the later harness copy runs. The fresh-project version lock may already
+    // exist; it records selection, not installation success.
     die(
       `${label} (${path}) is not valid JSON: ${e.message}\n` +
         `  Claude Code settings must be strict JSON — no comments, no trailing commas.\n` +
-        `  Fix or move that file and restart the sandbox; nothing has been written.`,
+        `  Fix or move that file and restart the sandbox; settings.json has not ` +
+        `been changed and the harness copy has not started.`,
     );
   }
   if (!isPlainObject(value)) die(`${label} (${path}) is not a JSON object`);
@@ -161,8 +163,8 @@ if (!srcPath || !destPath) {
 const shippedRaw = readText(srcPath, "shipped AI-DLC settings");
 const shipped = parseObject(shippedRaw, srcPath, "shipped AI-DLC settings");
 
-// Read and validate the project's file BEFORE writing or copying anything, so an
-// unparseable one aborts with the workspace untouched.
+// Read and validate the project's file before this script changes settings or
+// the later harness copy begins. A fresh-project version lock may already exist.
 const before = existsSync(destPath) ? readText(destPath, "project settings") : null;
 
 // Nothing to merge into: install upstream's file byte-for-byte rather than
