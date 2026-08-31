@@ -228,7 +228,7 @@ The default TCK runs every kit assertion against a fabricated `testcontainers-go
   ```bash
   sbx --app-name sbx-kits-contrib-tck login
   ```
-  Non-interactive (matches CI):
+  Non-interactive (using your own Docker Hub username and access token):
   ```bash
   printf '%s' "$DOCKERHUB_TOKEN" | sbx --app-name sbx-kits-contrib-tck login --username "$DOCKERHUB_USERNAME" --password-stdin
   ```
@@ -270,7 +270,7 @@ Each subtest (`env`, `files/<path>`, `tmpfs/<path>`, `memory`) reports independe
 
 ### Running in CI
 
-The e2e legs in [`.github/workflows/tck.yml`](.github/workflows/tck.yml) run alongside the default `test-kit` job, via the reusable [`.github/workflows/e2e.yml`](.github/workflows/e2e.yml). Each signs in to Docker Hub using `DOCKERHUB_USERNAME` / `DOCKERHUB_TOKEN` repo secrets, then runs the e2e test once per detected kit — against two `sbx` channels:
+The e2e legs in [`.github/workflows/tck.yml`](.github/workflows/tck.yml) run alongside the default `test-kit` job, via the reusable [`.github/workflows/e2e.yml`](.github/workflows/e2e.yml). Each signs in to Docker Hub using `DOCKERPUBLICBOT_USERNAME` / `DOCKERPUBLICBOT_WRITE_PAT` repo secrets, then runs the e2e test once per detected kit — against two `sbx` channels:
 
 - **`e2e-release`** downloads the latest tagged `sbx` release. This is the channel users have today, so it **gates the PR** through the stable `e2e` job (the required status check).
 - **`e2e-nightly`** downloads the rolling `nightly` build, so kits are also exercised against what `sbx` will ship next. It is **informational only** — a broken nightly shows a red check but never blocks merge. The `e2e-nightly-report` job echoes its outcome to the run log and the job summary.

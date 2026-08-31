@@ -57,7 +57,7 @@ cd my-kit && ../scripts/test-kit.sh
 sbx run --kit . <agent>              # quick manual smoke
 ```
 
-The first two are what CI runs on every PR. **The third is not run on CI for PRs opened from a fork** — the CI e2e legs (`e2e-release`, which gates the PR, and the informational `e2e-nightly`) need `DOCKERHUB_USERNAME`/`DOCKERHUB_TOKEN`, and GitHub doesn't expose secrets to fork-triggered workflows, so they are skipped silently and the reviewer sees a green check that does **not** include the e2e assertions. If you're contributing from a fork (the common case), your laptop is the only place those assertions ever run before merge.
+The first two are what CI runs on every PR. **The third is not run on CI for PRs opened from a fork** — the CI e2e legs (`e2e-release`, which gates the PR, and the informational `e2e-nightly`) need `DOCKERPUBLICBOT_USERNAME`/`DOCKERPUBLICBOT_WRITE_PAT`, and GitHub doesn't expose secrets to fork-triggered workflows, so they are skipped silently and the reviewer sees a green check that does **not** include the e2e assertions. If you're contributing from a fork (the common case), your laptop is the only place those assertions ever run before merge.
 
 `scripts/test-kit.sh` resolves the kit directory (default: `$PWD`), sets `KIT` to its absolute path, and runs `go test -run TestKitTCK ./tck/...` against the repo-root `tck` package. Forwards extra flags to `go test`, so `../scripts/test-kit.sh -v -run TestKitTCK/my-kit/validation` works.
 
