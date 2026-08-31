@@ -28,15 +28,30 @@ extractedFromBuiltin: true
 # format-independent parts (no-op guard, env-var indirection, no literal token,
 # non-root user) are asserted for every kit and need no configuration here.
 #
-# `transportKey` is deliberately NOT set. Codex's config file is TOML, where the
-# gateway URL is written as a bare `url = "…"` key, but the TCK asserts
-# `transportKey` as a *quoted JSON* key (`"url":`) — every other kit that
-# registers a gateway writes JSON. Declaring `url` here would fail against a
-# correct script. The URL still gets its coverage from the format-independent
-# assertion that $MCP_GATEWAY_URL appears outside the guard.
+# `configFormat: toml` is what makes the two key assertions below mean
+# anything. Codex is the first kit here whose MCP config is TOML rather than
+# JSON, so it is the first to need it: a TOML key is a bare word followed by
+# `=`, or the last segment of a `[table.header]`, and the TCK matches keys
+# accordingly. Kits that omit the field get JSON, which is what every kit
+# written before it expected.
 #
-# `forbiddenKeys` is likewise left out: those assertions are quoted-JSON-key
-# searches too, so against a TOML script they can only ever trivially pass, and
-# a check that cannot fail is worse than no check — it reads as coverage.
+# `forbiddenKeys` are the plausible-but-wrong spellings, and the first one is
+# not hypothetical:
+#
+#   * `headers` — the spelling every JSON-configured agent in this repo uses
+#     for the same concept, and the one this kit was originally ported with.
+#     Codex spells it `http_headers` and ignores unknown keys without
+#     complaining, so a `headers` table registers a gateway that looks healthy
+#     in `codex mcp get` and sends no Authorization header at all. That is a
+#     silent auth failure, which is exactly the class of bug this subtest is
+#     for. Note the check is segment-anchored, so the correct
+#     `[mcp_servers.mcp-gateway.http_headers]` does not read as the wrong one.
+#   * `httpUrl` — Gemini's spelling of `url`, the wrong answer nearest to hand
+#     when transliterating an MCP config from another agent.
 mcp:
   configPath: $HOME/.codex/config.toml
+  configFormat: toml
+  transportKey: url
+  forbiddenKeys:
+    - headers
+    - httpUrl
