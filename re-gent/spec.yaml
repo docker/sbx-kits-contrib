@@ -252,9 +252,10 @@ setup:
         fi
 
         # Wiring hooks without a store would make every agent turn invoke rgt
-        # against a repository that does not exist. Reachable only if the
-        # `rgt init` call above failed after creating the directory partway,
-        # or was interrupted — the normal path always has a store here.
+        # against a repository that does not exist. Every path above either
+        # already exits (rgt init failed) or leaves .regent/ in place, so this
+        # never actually trips today — kept as a guard against that invariant
+        # breaking under a future edit, not because it's reachable now.
         if [ ! -d "$WORKSPACE/.regent" ]; then
           note "no .regent store; not wiring hooks"
           exit 0
