@@ -1,0 +1,42 @@
+# TCK configuration for the codex kit.
+#
+# codex is still a built-in agent in released sbx builds, and sbx refuses to
+# load a kit whose name collides with a built-in ("built-in agents cannot be
+# overridden by a kit"). This flag turns that one specific `sbx create` failure
+# into a skip, so the kit can land and be reviewed here before the built-in is
+# removed from sbx.
+#
+# Nothing needs re-enabling later: once a released sbx no longer registers the
+# built-in, `sbx create` succeeds, the full e2e runs, and the test logs a notice
+# that this line is obsolete and can be deleted.
+extractedFromBuiltin: true
+#
+# `promptArgs` is deliberately omitted for now, which skips the e2e `prompt`
+# subtest. Codex does have a non-interactive mode — `codex exec <prompt>` — so
+# unlike kiro this is not a permanent opt-out. What is missing is a credential:
+# every auth path this kit configures needs a real OpenAI credential on the
+# runner, and none is wired up here. The built-in agent's own e2e test does not
+# exercise a non-interactive prompt either, so there is no known-working recipe
+# to carry over. Wire `promptArgs: [exec]` once a credential exists on the
+# runner, rather than landing an invocation that can only fail or hang.
+#
+# The remaining subtests (env, files, tmpfs, agentContext) still run and are
+# what actually gate this kit.
+
+# Shape of the MCP-gateway registration written by the startup hook in
+# spec.yaml, checked by the TCK's mcp_registration subtest. The
+# format-independent parts (no-op guard, env-var indirection, no literal token,
+# non-root user) are asserted for every kit and need no configuration here.
+#
+# `transportKey` is deliberately NOT set. Codex's config file is TOML, where the
+# gateway URL is written as a bare `url = "…"` key, but the TCK asserts
+# `transportKey` as a *quoted JSON* key (`"url":`) — every other kit that
+# registers a gateway writes JSON. Declaring `url` here would fail against a
+# correct script. The URL still gets its coverage from the format-independent
+# assertion that $MCP_GATEWAY_URL appears outside the guard.
+#
+# `forbiddenKeys` is likewise left out: those assertions are quoted-JSON-key
+# searches too, so against a TOML script they can only ever trivially pass, and
+# a check that cannot fail is worse than no check — it reads as coverage.
+mcp:
+  configPath: $HOME/.codex/config.toml

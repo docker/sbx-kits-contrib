@@ -1,0 +1,296 @@
+schemaVersion: "2"
+kind: sandbox
+name: codex
+# The KIT's version, not Codex's. It covers this spec, the network policy and
+# the hooks — the agent inside the image floats, so a newer Codex CLI does not
+# bump this and this does not track releases of the CLI.
+#
+# Published as the vnd.docker.sandbox.kit.version OCI annotation at pack time,
+# and `scripts/check-release-tag.sh` refuses a `codex/vX.Y.Z` tag that
+# disagrees with it. Bump here first, then tag.
+version: "1.0.0"
+displayName: Codex
+description: OpenAI Codex CLI, OpenAI's agentic coding CLI.
+sandbox:
+  # Built from the Dockerfile beside this spec and published by
+  # .github/workflows/build-and-publish-kits.yml. Carries a Docker engine and
+  # requests Docker-in-Docker, matching the built-in agent this kit replaces.
+  #
+  # This value is the source of truth for what CI builds and publishes: the
+  # workflow reads it from here rather than deriving a name, because spec.yaml
+  # is consumed literally (no env interpolation) and so cannot follow a
+  # variable. scripts/check-image-ref.sh asserts it stays inside the namespace
+  # CI can actually push to.
+  #
+  # The `-image` suffix distinguishes the base image from the kit artifact:
+  # when the kit itself is published as an OCI artifact it is
+  # `docker.io/sbx/codex-kit`.
+  image: "docker.io/sbx/codex-image:latest"
+  # Codex's own sandboxing and approval prompts are redundant here — the
+  # container *is* the sandbox, and an approval prompt nobody can answer just
+  # deadlocks a non-interactive session. The two config keys written by
+  # setup.install below say the same thing in config form; both are kept so
+  # neither surface has to be the only line of defence.
+  entrypoint: [codex, "--dangerously-bypass-approvals-and-sandbox"]
+
+credentials:
+  - service: openai
+    apiKey:
+      name: OPENAI_API_KEY
+      # NOTE: deliberately NOT `proxyManaged: true`, unlike most apiKey-based
+      # kits in this repo. Codex does not read this variable for model calls
+      # on the paths this kit configures — setup.install writes the literal
+      # `proxy-managed` sentinel into ~/.codex/auth.json instead, and the
+      # proxy swaps it on the domains below. Flipping this on would put a
+      # sentinel in the env var too, which is arguably tidier, but it has NOT
+      # been verified that Codex's own key-discovery order stays happy with
+      # a sentinel in both places. See the PR description.
+      inject:
+        - domain: api.openai.com
+          header: Authorization
+          format: Bearer %s
+        # TODO(codex-extraction): drop this entry once someone can rule out
+        # the last request path. The apex serves OpenAI's website, not the API:
+        # everything observed from a live 0.151.0 CLI goes to api.openai.com,
+        # chatgpt.com, auth.openai.com or files.openai.com. While it stands,
+        # any process in the sandbox that fetches openai.com gets the user's
+        # real key attached by the proxy, which is avoidable exposure.
+        # Carried over unchanged rather than narrowed unilaterally, because a
+        # missing header is a silent 401 on whatever path did need it and
+        # "no path needs it" is a negative this port cannot prove.
+        - domain: openai.com
+          header: Authorization
+          format: Bearer %s
+    # For a host whose stored openai credential is a ChatGPT login rather than
+    # an API key. The block is entirely declarative: the token endpoint, the
+    # hosts the bearer is actually spent on, and the sentinel values the proxy
+    # substitutes at request time. Nothing in the container implements any of
+    # it.
+    oauth:
+      tokenEndpoint:
+        host: auth.openai.com
+        path: /oauth/token
+      # In oauth mode setup.install points Codex at a ChatGPT-backed model
+      # provider, so the sentinel bearer travels on inference calls to
+      # chatgpt.com — not only on the token exchange. resourceHosts is what
+      # tells the proxy to substitute the real token there too.
+      resourceHosts:
+        - chatgpt.com
+      sentinels:
+        accessToken: oai-oat01-proxy-managed
+        refreshToken: oai-ort01-proxy-managed
+      # Carried over from the built-in spec for parity, but a no-op for a
+      # schemaVersion "2" credential like this one: resolution here is
+      # binding-driven, not host-env-driven, so a host env var alone (as
+      # opposed to a bound credential) does not gate this. Kept rather than
+      # dropped so a future diff against the built-in spec stays minimal.
+      skipIfEnv:
+        - OPENAI_API_KEY
+
+permissions:
+  network:
+    # Built-in agents ship no egress policy of their own: they inherit
+    # whatever the host policy is, which defaults to permissive. A community
+    # kit cannot rely on that — this repo's e2e runs every kit under
+    # `sbx policy init deny-all`, so the kit gets exactly the reachability it
+    # declares here and nothing more.
+    #
+    # Hosts are listed without a port qualifier, matching the other kits in
+    # this repo. Pinning `:80` on the apt mirrors in particular would break
+    # `apt-get update` outright the day the base image's sources switch to
+    # https, and which scheme those sources use is a base-image detail this
+    # kit does not own.
+    allow:
+      # Every domain the credential injects into or authenticates against —
+      # required here too, not just above: a domain absent from this list is
+      # unreachable regardless of what the credential block declares.
+      - api.openai.com
+      - openai.com
+      # The OAuth token endpoint.
+      - auth.openai.com
+      # Where the OAuth access token is spent in oauth mode — the model
+      # provider setup.install configures, and the credential's resourceHosts.
+      - chatgpt.com
+      # Hit during a session for attachments and uploads.
+      - files.openai.com
+      # `codex update` reinstalls the CLI from npm, and `codex plugin add`
+      # pulls from a marketplace snapshot. Same registry the image build uses,
+      # but these are the runtime paths, not the build one.
+      - registry.npmjs.org
+      # Codex's native binary checks GitHub releases for updates and pulls
+      # skills and plugins from repository archives. A distinct concern from
+      # the npm upgrade path above, which is why both are listed.
+      - api.github.com
+      - github.com
+      - codeload.github.com
+      # `apt-get update` (the startup hook below) refreshes metadata for every
+      # configured apt source and returns exit 100 if any one of them fails.
+      # The shell-docker base ships three sources, so all three must be
+      # reachable. Ubuntu serves amd64 from archive/security and arm64 from
+      # ports.ubuntu.com, so all three Ubuntu hosts are listed to keep the kit
+      # working cross-arch.
+      - archive.ubuntu.com        # Ubuntu archive (amd64 main)
+      - security.ubuntu.com       # Ubuntu security updates (amd64)
+      - ports.ubuntu.com          # Ubuntu archive/security (arm64)
+      - download.docker.com       # Docker's apt repo, pre-added by shell-docker
+      #
+      # TODO(codex-extraction): the domains above are the ones the built-in
+      # agent already declared; they have not been verified end-to-end under
+      # deny-all from this repo, and Codex may reach further hosts. The known
+      # suspect is the update flow: if it ever fetches a compiled release
+      # asset rather than the repository archive codeload.github.com serves,
+      # GitHub redirects asset downloads to a *.githubusercontent.com host
+      # that is not declared here. Deliberately not added on speculation —
+      # confirm or widen from a live run:
+      #
+      #   sbx run --kit ./codex codex   # then attempt a prompt
+      #   sbx policy log                # lists every blocked host + reason
+
+environment:
+  variables:
+    # Carried over from the built-in spec. Nothing in this sandbox can open a
+    # browser and the base image does not ship xdg-utils, so the practical
+    # effect is that Codex's "open this URL for me" attempt fails fast and it
+    # falls back to printing the URL. Kept for parity; see the PR description.
+    BROWSER: xdg-open
+    CODEX_HOME: /home/agent/.codex
+    # git must never block on an interactive credential prompt in a headless
+    # sandbox. Without this, a 401 from the credentials proxy (e.g. a bad or
+    # expired github secret) makes git open /dev/tty to ask for a username and
+    # hang, which freezes Codex's TUI. "0" makes git fail fast instead.
+    GIT_TERMINAL_PROMPT: "0"
+
+setup:
+  install:
+    # Seed ~/.codex/config.toml + ~/.codex/auth.json, branching on the auth
+    # mode the engine surfaces as SBX_CRED_OPENAI_MODE. Only three values
+    # reach a kit — oauth, apikey, none (a host with both collapses to
+    # oauth) — and the branches are:
+    #
+    #   oauth  -> config.toml WITH forced API-key login AND the ChatGPT-backed
+    #             model_provider block; auth.json holds the proxy-managed
+    #             placeholder.
+    #   apikey -> config.toml WITH forced API-key login, WITHOUT the provider
+    #             block; auth.json holds the proxy-managed placeholder.
+    #   none   -> config.toml WITHOUT either; auth.json REMOVED, so Codex
+    #             prompts for login on first use. Leaving a stale placeholder
+    #             behind would send the literal string to OpenAI and 401.
+    #
+    # Both files are kit-managed and rewritten unconditionally on every
+    # (re)create, so a mode change on recreate is picked up. The content is a
+    # pure function of the mode, which is what makes the unconditional rewrite
+    # idempotent — install hooks run again on every recreate.
+    #
+    # The MCP block is deliberately NOT written here. The runtime-gated
+    # registration in setup.startup is the single writer of it, and its grep
+    # guard supplies its own idempotency.
+    #
+    # Heredoc bodies sit at the outer indentation on purpose, including inside
+    # the case arms: an unquoted terminator has to start at column 0.
+    - command: |
+        set -e
+        # ~/.codex is CODEX_HOME; ~/.agents is where Codex looks for the
+        # cross-agent skills tree (~/.agents/skills). Both are created up
+        # front so nothing later has to create them as root.
+        mkdir -p /home/agent/.codex /home/agent/.agents
+        MODE="${SBX_CRED_OPENAI_MODE:-none}"
+        cat > /home/agent/.codex/config.toml << 'EOF'
+        # Codex configuration for a Docker sandbox.
+        # The container is the sandbox, so Codex's own approval gate and
+        # filesystem sandbox are turned off: there is nobody to answer a
+        # prompt, and the isolation is already provided from the outside.
+
+        approval_policy = "never"
+        sandbox_mode = "danger-full-access"
+        mcp_oauth_credentials_store = "file"
+        EOF
+        # In a managed mode the placeholder in auth.json is the whole auth
+        # story, so a remote client must not be able to replace it with a
+        # sandbox-local ChatGPT login. `none` mode deliberately permits that
+        # login — it is the only way to authenticate at all there.
+        case "$MODE" in
+          oauth|apikey)
+            cat >> /home/agent/.codex/config.toml << 'EOF'
+        forced_login_method = "api"
+        EOF
+            ;;
+        esac
+        if [ "$MODE" = oauth ]; then
+          cat >> /home/agent/.codex/config.toml << 'EOF'
+
+        model_provider = "sandboxd"
+
+        [model_providers.sandboxd]
+        name = "Sandbox Proxy"
+        base_url = "https://chatgpt.com/backend-api/codex"
+        experimental_bearer_token = "oai-oat01-proxy-managed"
+        requires_openai_auth = false
+        EOF
+        fi
+        case "$MODE" in
+          oauth|apikey)
+            cat > /home/agent/.codex/auth.json << 'EOF'
+        {
+          "OPENAI_API_KEY": "proxy-managed"
+        }
+        EOF
+            ;;
+          *)
+            rm -f /home/agent/.codex/auth.json
+            ;;
+        esac
+      user: "agent"
+      description: Seed Codex config/auth from SBX_CRED_OPENAI_MODE
+  startup:
+    # CODEX_HOME (~/.codex) is created agent-owned by the Dockerfile and
+    # re-ensured by the install hook above, which runs pre-launch as the agent
+    # user — so no root-owned mkdir/chown step is needed here.
+    - command: ["sh", "-c", "command -v apt-get > /dev/null 2>&1 && (apt-get update -qq -y > /dev/null 2>&1 || true) &"]
+      user: "root"
+      description: Update apt package cache in background
+    # Gateway-first MCP registration. The runtime injects MCP_GATEWAY_URL and
+    # MCP_SENTINEL_TOKEN_NAME into the container env when a gateway has been
+    # reserved. The sentinel name is not a credential — the proxy substitutes
+    # the real token at request time, keyed by that name. No-op when MCP is
+    # not enabled, which is what the guard is for.
+    #
+    # config.toml is shared territory: the install hook writes the yolo-mode
+    # and provider keys pre-launch, and Codex itself appends per-project and
+    # TUI state during a session. Append a new table rather than rewriting the
+    # file so none of that is clobbered, and grep first so re-running on every
+    # container start (which startup hooks do) stays a no-op.
+    #
+    # The header table is `http_headers`, NOT `headers`. This is the one place
+    # the port diverges from the built-in spec for correctness rather than
+    # policy: Codex spells the key `http_headers`, ignores unknown keys without
+    # complaint, and so accepts a `headers` table while sending no
+    # Authorization at all. That fails open — the gateway registers, looks
+    # healthy in `codex mcp get`, and every tool call through it is
+    # unauthenticated. Confirmed against 0.151.0: with `headers`,
+    # `codex mcp get mcp-gateway` reports `http_headers: -`; with
+    # `http_headers` it reports the header. The `headers` spelling is correct
+    # for the JSON-configured agents (copilot, kiro) and does not transliterate
+    # to Codex's TOML.
+    - command:
+        - sh
+        - -c
+        - |
+          set -e
+          [ -n "$MCP_GATEWAY_URL" ] || exit 0
+          mkdir -p "$HOME/.codex"
+          cfg="$HOME/.codex/config.toml"
+          touch "$cfg"
+          grep -q "^\[mcp_servers.mcp-gateway\]" "$cfg" && exit 0
+          cat >> "$cfg" <<EOF
+
+          [mcp_servers.mcp-gateway]
+          type = "http"
+          url = "$MCP_GATEWAY_URL"
+          [mcp_servers.mcp-gateway.http_headers]
+          Authorization = "Bearer $MCP_SENTINEL_TOKEN_NAME"
+          EOF
+      user: "agent"
+      description: Register the sandbox MCP gateway in ~/.codex/config.toml
+
+agentInstructions:
+  filename: AGENTS.md
