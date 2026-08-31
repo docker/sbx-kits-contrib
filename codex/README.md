@@ -58,6 +58,19 @@ The same intent is written into `~/.codex/config.toml` as
 behaviour survives a session started by something other than the entrypoint —
 `sbx exec`, or one of the mixins below.
 
+## Opening links
+
+`BROWSER` is set to `xdg-open`, and the image installs `xdg-utils` so that
+program is really there. A kit that builds its own image has no excuse for
+pointing `BROWSER` at something it never shipped, and the package costs
+roughly 400 KB with no dependencies once its X11 recommends are skipped.
+
+The sandbox still has no browser and no display, so a link does not literally
+open: `xdg-open` answers `no method available for opening ...`, exits non-zero,
+and Codex prints the URL for you to follow on your own machine. What changes is
+that the failure is a real answer from a real tool rather than a
+command-not-found from the kit's own configuration.
+
 ## How auth works
 
 The kit declares one credential, `openai`, carrying both an `apiKey` and an

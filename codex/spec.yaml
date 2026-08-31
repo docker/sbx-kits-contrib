@@ -148,10 +148,16 @@ permissions:
 
 environment:
   variables:
-    # Carried over from the built-in spec. Nothing in this sandbox can open a
-    # browser and the base image does not ship xdg-utils, so the practical
-    # effect is that Codex's "open this URL for me" attempt fails fast and it
-    # falls back to printing the URL. Kept for parity; see the PR description.
+    # xdg-open is the conventional "open this for me" hook on Linux. The kit's
+    # Dockerfile installs xdg-utils, so this names a program that is really
+    # there rather than one the kit forgot to ship: a command-not-found from
+    # the kit's own configuration is not a failure mode worth documenting when
+    # the kit builds the image and can just install the package.
+    #
+    # There is still no browser and no display inside the sandbox, so a link
+    # does not literally open. xdg-open says so ("no method available for
+    # opening ...") and exits non-zero, which is a diagnosable answer, and
+    # Codex prints the URL for you to open on your own machine.
     BROWSER: xdg-open
     CODEX_HOME: /home/agent/.codex
     # git must never block on an interactive credential prompt in a headless

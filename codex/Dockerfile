@@ -23,6 +23,35 @@ ARG BASE_IMAGE
 # braces rather than the only guarantee.
 RUN mkdir -p /home/agent/.codex
 
+# xdg-utils, for the `xdg-open` that this kit's BROWSER variable names.
+#
+# The base image ships neither xdg-open nor xdg-settings, so without this layer
+# BROWSER points at a binary that does not exist and every "open this link for
+# you" attempt dies with a command-not-found. This kit builds its own image
+# precisely so it can install what the agent needs, so it installs it.
+#
+# --no-install-recommends is load-bearing rather than habitual here: the
+# recommends are the desktop-integration half of the package
+# (libfile-mimeinfo-perl, libnet-dbus-perl, libx11-protocol-perl, x11-utils,
+# x11-xserver-utils) and pull in an X11 dependency tree a headless sandbox has
+# no use for. Skipping them leaves xdg-utils with no dependencies at all: one
+# architecture-independent package of shell scripts, well under a megabyte.
+#
+# BROWSER=xdg-open does not make xdg-open re-invoke itself: Debian and Ubuntu
+# patch the script to strip its own name out of $BROWSER before consulting it,
+# so it falls through to the browser list instead of recursing.
+#
+# Deliberately placed above the npm layer below. That layer floats on
+# `@openai/codex@latest` and re-runs on every nightly rebuild; this one has
+# nothing to do with which Codex version is installed, and above it stays a
+# cache hit.
+USER root
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends xdg-utils && \
+    rm -rf /var/lib/apt/lists/* && \
+    command -v xdg-open
+USER agent
+
 # Codex's npm package is ~370 MB, so the default fetch timeout is not enough on
 # a slow or proxied network: raise it and retry rather than failing the whole
 # image build on one stalled request.
