@@ -119,7 +119,7 @@ rotation, recreate rather than debug it.
 
 Switching shape means removing the old binding first, or both stay bound and
 the request carries two auth headers — `sbx secret rm anthropic` for the
-service secret, `sbx secret rm -g --host api.anthropic.com` for the custom one.
+service secret, `sbx secret rm --host api.anthropic.com` for the custom one.
 Check what `anthropic` holds before removing it: if it is the host's OAuth
 login, that entry is shared with every other sandbox, not just this kit.
 
