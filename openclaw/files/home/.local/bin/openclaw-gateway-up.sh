@@ -112,6 +112,9 @@ fi
 
 # The state has to reach every process that runs the agent: the gateway
 # launched below, the TUI (which runs it in-process), and `sbx exec` shells.
+# The last of those is why the hook goes in ~/.profile -- but `sbx exec` runs
+# `<shell> -c <command>`, a non-login shell, so a scripted call that dispatches
+# in-process only picks this up when it asks for one (`sbx exec -- sh -lc ...`).
 if [ -f "$AUTH_ENV_FILE" ]; then
     . "$AUTH_ENV_FILE"
     if ! grep -qF "$AUTH_ENV_FILE" "$HOME/.profile" 2>/dev/null; then
