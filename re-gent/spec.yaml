@@ -402,9 +402,16 @@ setup:
         done
         if [ -z "$agents" ]; then
           for candidate in claude codex opencode pi; do
-            # ${HOME:-} rather than $HOME: `set -u` turns an unset HOME into
+            # The agent home is spelled literally rather than read from the
+            # HOME variable, for two reasons. Under `set -u` an unset HOME is
             # an abort, which would break this script's fail-soft contract.
-            if [ -d "$WORKSPACE/.$candidate" ] || { [ -n "${HOME:-}" ] && [ -d "$HOME/.$candidate" ]; }; then
+            # And the usual brace-with-default guard for that is unavailable
+            # here: sbx rejects every placeholder except WORKDIR in
+            # setup.files content, and it scans the text rather than parsing
+            # shell, so even naming one inside a comment fails kit resolution.
+            # SPEC-v2 §9.1 guarantees the agent user's home is /home/agent, so
+            # the literal is both safe and more portable than the variable.
+            if [ -d "$WORKSPACE/.$candidate" ] || [ -d "/home/agent/.$candidate" ]; then
               agents="$agents $candidate"
             fi
           done
