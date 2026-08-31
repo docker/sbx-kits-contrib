@@ -25,8 +25,8 @@ ship `jq`.
 ## Usage
 
 The kit is opinionated: installing it gets you the CLI, an initialized
-`.regent/` store, and Claude Code capture hooks, all unconditionally — no
-flags to set.
+`.regent/` store, and capture hooks wired for whichever agent the sandbox
+runs — no flags to set.
 
 ```console
 sbx run claude --kit "docker.io/sbx/re-gent-kit:latest" .
@@ -74,7 +74,7 @@ which release it came from, so the pinned tarball digest is what establishes
 the version. The trailing `rgt version` call is a liveness check — "Install
 commands completed" only ever means the commands exited 0.
 
-## How hook wiring works
+## How Claude Code hook wiring works
 
 `rgt init` cannot do this unattended. Its hook-configuration step always opens
 an interactive multi-select, even when `--agent claude` is passed — the flag
@@ -142,20 +142,59 @@ genuinely empty, which takes the same path for the same reason.
 
 ## Agent support
 
-The kit declares `requires.agent: claude` — composing it onto a different base
-agent is a composition error rather than a silently useless sandbox. That
-affinity exists because hook wiring is unconditional and Claude-specific (it
-writes `.claude/settings.json`); composed onto, say, a `codex` sandbox it would
-create a stray `.claude/` directory nothing reads. The `rgt` CLI itself is
-agent-agnostic — `log`, `blame`, and `show` work regardless of which agent
-produced the history — the affinity is purely about the hook-wiring half.
+One mixin, not one per agent. No `requires.agent` affinity is declared; instead
+the setup script detects the agent at container start and wires that agent's
+hooks. There is no authoritative in-container signal for "which agent is this
+sandbox", so detection is a probe rather than a lookup: the agent binary on
+`PATH` is treated as authoritative, and a config directory (`.claude/`,
+`.codex/`, …) is consulted only as a fallback when no agent binary is found.
 
-Upstream also supports Codex (`.codex/config.toml`), OpenCode (an npm plugin),
-and Pi (a git-sourced extension). This kit implements Claude Code only: the
-other two pull from `registry.npmjs.org` and `github.com` at wiring time, which
-would widen the kit's network contract, and — now that behavior can't be
-gated by an argument — there'd be no way to install `rgt` for one of those
-agents without also taking on that egress.
+That is deliberately stricter than upstream's `rgt init --agent auto`, which
+weighs a project-level config directory equally. Plenty of repositories commit
+a `.claude/` directory while being worked on from a Codex sandbox — this one
+does — and treating that as "Claude is the agent" would merge rgt hooks into a
+tracked `settings.json` the running agent never reads.
+
+When more than one agent binary is present, every one this kit supports gets
+wired, matching upstream's `auto` behaviour. A sandbox normally has exactly
+one; the alternative — guessing a single winner — risks silently wiring nothing
+for the agent actually driving the session.
+
+| Agent | Capture wiring | Written to |
+| --- | --- | --- |
+| Claude Code | yes | `.claude/settings.json` |
+| Codex | yes | `.codex/config.toml` |
+| OpenCode | no — detected, reported | — |
+| Pi | no — detected, reported | — |
+
+OpenCode and Pi are deliberately left unwired. Both need network *at wiring
+time* — an npm plugin install and a git-sourced `pi install` respectively —
+which would add `registry.npmjs.org` to this kit's declared egress for every
+user, including the majority who never touch either agent, and both shell out
+to tooling whose failure modes are outside this script. The kit says so
+explicitly at startup rather than silently doing nothing, and points at
+`rgt init`, which wires them properly in a terminal.
+
+On any agent it can't wire, the CLI is still installed and the store still
+created — `rgt log`/`blame`/`show` remain useful against a store populated
+another way, since the CLI itself is agent-agnostic.
+
+### How Codex wiring works
+
+Codex needs `[features] hooks = true` plus four events (`SessionStart`,
+`UserPromptSubmit`, `PostToolUse`, `Stop`) pointing at `rgt codex-hook`.
+
+The kit appends that as new TOML tables rather than parsing and rewriting the
+file. There is no `jq` for TOML, and Python's `tomllib` is parse-only with no
+stdlib writer, so a read-modify-write would mean hand-rolling an emitter and
+re-emitting the user's whole config from a parsed model — silently dropping
+their comments and formatting, and risking mangled values. Appending a new
+`[table]` header to valid TOML is safe and touches nothing already there.
+
+The trade-off: it cannot *merge* into a config that already declares `[hooks]`
+or `[features]`, because a second such table is a duplicate-table error. That
+case refuses loudly and leaves the file untouched, pointing at `rgt init` for a
+real parse-and-merge. In a fresh sandbox the file usually doesn't exist at all.
 
 ## What lands in your repository
 
@@ -164,7 +203,8 @@ Inside the workspace:
 - `.regent/` — the object store, SQLite index, and refs. Added to
   `.git/info/exclude` by the kit, so it stays out of `git status` and out of
   your commits without touching a tracked file.
-- `.claude/settings.json` — merged, not replaced.
+- `.claude/settings.json` (Claude) — merged, not replaced.
+- `.codex/config.toml` (Codex) — appended to, never rewritten.
 - `.git/info/exclude` — an appended `.regent/` line, plus
   `.claude/settings.json.re-gent-backup` if a backup was ever taken. Not
   committed.

@@ -5,7 +5,8 @@ displayName: re_gent
 description: >-
   Installs the re_gent CLI (`rgt`), content-addressed version control for AI
   agent activity, from a pinned GitHub release. Creates the `.regent/` store
-  in the workspace and wires Claude Code capture hooks unconditionally.
+  in the workspace and wires capture hooks for the detected agent (Claude
+  Code or Codex).
 sourceURL: https://github.com/regent-vcs/re_gent
 licenses:
   - Apache-2.0
@@ -16,7 +17,7 @@ licenses:
 # displayName and throughout the docs.
 
 # This kit is deliberately opinionated rather than configurable: installing
-# it means you get init + Claude hook wiring, no flags. An earlier revision
+# it means you get init + capture wiring, no flags. An earlier revision
 # offered both as `args:`-gated options, but v2's `args:` block is not
 # supported by any shipped `sbx` release yet (confirmed: `sbx` v0.39.0 rejects
 # a spec.yaml with `args:` at load with "field args not found in type
@@ -24,15 +25,18 @@ licenses:
 # design is unusable today regardless of preference. Revisit once a stable
 # release supports `args:`.
 
-requires:
-  agent: claude
-
-# The `rgt` CLI itself is agent-agnostic — log/blame/show work regardless of
-# which agent produced the history — but hook wiring below is Claude-specific
-# (it writes .claude/settings.json) and, with no args to gate it, now always
-# runs. Composing this onto a non-Claude sandbox would silently create a
-# stray .claude/ directory there, so the affinity turns that into a
-# composition error instead.
+# No `requires.agent` affinity: the kit adapts to whatever agent it is layered
+# onto instead of pinning one. The setup script detects the agent at container
+# start and wires only that agent's hooks. That keeps this a single mixin
+# rather than one per agent, and keeps the `rgt` CLI — which is genuinely
+# agent-agnostic — usable everywhere, including on a base agent whose hook
+# format nothing here writes.
+#
+# There is no authoritative in-container signal for "which agent is this
+# sandbox", so detection is necessarily a probe. It is close to, but
+# deliberately stricter than, upstream's `rgt init --agent auto`: see the
+# detection block in the setup script for why a config directory alone is not
+# treated as evidence when an agent binary is present.
 
 agentInstructions:
   content: |
@@ -52,12 +56,18 @@ agentInstructions:
     | `rgt sessions` | List sessions (`--format json`) |
     | `rgt status` | Current repository state |
 
-    Two things worth knowing before you use it:
+    Three things worth knowing before you use it:
 
+    - **Capture is wired for the agent this sandbox runs.** The kit detects
+      the agent at start and wires Claude Code (`.claude/settings.json`) or
+      Codex (`.codex/config.toml`). On OpenCode or Pi it installs `rgt` and
+      creates the store but does **not** wire capture — `rgt log` stays empty
+      there, and that is expected, not a bug. `rgt status` tells you where
+      you stand.
     - **On a `--clone` sandbox, nothing is set up on the first start.** This
       kit's setup runs before the clone populates the workspace, so it skips
       that round and takes effect on the next container start. If there is no
-      `.regent/` at all, and no hooks in `.claude/settings.json`, that is why
+      `.regent/` at all, and no hooks in your agent's config, that is why
       — ask the user to restart the sandbox (`sbx stop <name>` then
       `sbx run --name <name>`) rather than trying to run `rgt init` yourself.
     - **`rgt init` needs a TTY and will not work from a tool call.** Its hook
@@ -97,9 +107,11 @@ permissions:
       - ports.ubuntu.com
       - download.docker.com
       # No runtime egress. re_gent is fully offline: the CLI imports no HTTP
-      # client at all and never contacts a server. `rgt init` can shell out to
-      # npm (OpenCode plugin) or git (Pi extension), but this kit never selects
-      # those agents, so neither host is declared here.
+      # client at all and never contacts a server. Wiring OpenCode would need
+      # registry.npmjs.org (its plugin is an npm package) and Pi would need a
+      # git fetch for its extension — the setup script detects both agents but
+      # deliberately does not wire them, precisely so neither host has to be
+      # declared here for every user of this kit.
 
 setup:
   install:
@@ -149,9 +161,10 @@ setup:
       description: Install re_gent CLI v1.1.0, version+digest pinned
 
     # SPEC-v2 §9.3: jq is not part of the tool floor, so a kit that needs it
-    # must install it. The hook merge needs it; nothing else here does. On the
-    # sandbox templates this kit targets jq is already present, so the guard
-    # makes the common path perform no package I/O at all.
+    # must install it. The Claude hook merge needs it; the Codex path is pure
+    # shell append and needs nothing. On the sandbox templates this kit targets
+    # jq is already present, so the guard makes the common path perform no
+    # package I/O at all.
     #
     # git is also outside the floor and deliberately NOT installed: it is used
     # only to add .regent/ to the repository's exclude file, and a workspace
@@ -166,7 +179,7 @@ setup:
         apt-get install -y --no-install-recommends jq
         jq --version
       user: "0"
-      description: Ensure jq is available for hook merging (no-op when jq is already present)
+      description: Ensure jq is available for Claude hook merging (no-op when jq is already present)
 
   files:
     # The workspace path is only available as ${WORKDIR} inside setup.files
@@ -261,42 +274,172 @@ setup:
           exit 0
         fi
 
-        if ! command -v jq >/dev/null 2>&1 || [ ! -f "$JQ_FILTER" ]; then
-          note "jq or the hook filter is unavailable; not wiring hooks"
-          exit 0
+        # Claude Code: merge the three hook events into .claude/settings.json.
+        wire_claude() {
+          if ! command -v jq >/dev/null 2>&1 || [ ! -f "$JQ_FILTER" ]; then
+            note "claude detected but jq or the hook filter is unavailable; not wiring"
+            return 1
+          fi
+
+          settings="$WORKSPACE/.claude/settings.json"
+          mkdir -p "$WORKSPACE/.claude"
+
+          # An absent or blank settings file is just an empty object, not a
+          # parse failure — upstream treats it the same way and makes no backup.
+          if [ ! -s "$settings" ] || [ -z "$(tr -d '[:space:]' < "$settings")" ]; then
+            echo '{}' > "$settings"
+          # `jq empty` reports whether the input PARSES. `jq -e .` would report
+          # the truthiness of the parsed value instead, so a settings file
+          # holding `null` or `false` would be misfiled as corrupt and
+          # needlessly backed up.
+          elif ! jq empty "$settings" >/dev/null 2>&1; then
+            cp "$settings" "$settings.re-gent-backup"
+            # The backup lands in the user's repository, so keep it out of git
+            # for the same reason .regent/ is kept out.
+            git_exclude '.claude/settings.json.re-gent-backup'
+            note "existing settings.json was invalid JSON; backed up to $settings.re-gent-backup"
+            echo '{}' > "$settings"
+          fi
+
+          tmp="$settings.re-gent-tmp"
+          if jq -f "$JQ_FILTER" "$settings" > "$tmp" 2>/dev/null && [ -s "$tmp" ]; then
+            mv "$tmp" "$settings"
+            note "Claude Code capture hooks wired in $settings"
+            return 0
+          fi
+          rm -f "$tmp"
+          note "failed to merge hooks into $settings; left unchanged"
+          return 1
+        }
+
+        # Codex: .codex/config.toml needs `[features] hooks = true` plus four
+        # events pointing at `rgt codex-hook`.
+        #
+        # Deliberately append-only, with no TOML parser. There is no jq for
+        # TOML, and python3's tomllib is parse-only (no stdlib writer), so a
+        # read-modify-write would mean hand-rolling an emitter and re-emitting
+        # the user's whole config from a parsed model — which silently drops
+        # their comments and formatting and can mangle exotic values. Appending
+        # new top-level tables to a valid TOML file is safe (a `[table]` header
+        # ends the previous one) and touches nothing that was already there.
+        #
+        # The cost is that this cannot MERGE into a config that already has a
+        # [hooks] or [features] table — appending a second one is a duplicate-
+        # table error. That case refuses loudly instead of guessing, and points
+        # at `rgt init`, which does a real parse-and-merge.
+        wire_codex() {
+          config="$WORKSPACE/.codex/config.toml"
+
+          # Idempotency first: our own block makes the conflict patterns below
+          # match, so re-running would otherwise refuse on every restart.
+          if [ -f "$config" ] && grep -q 'rgt codex-hook' "$config"; then
+            return 0
+          fi
+
+          # Deliberately broad. Catches table headers in every spelling TOML
+          # allows — [hooks], [ features ], [hooks.Stop], [[hooks]] (array of
+          # tables), ["hooks"] (quoted key) — and key forms including dotted
+          # keys (features.hooks = true, hooks.SessionStart = [...]). Any of
+          # them would collide with the tables appended below, and a duplicate
+          # definition invalidates the user's whole config; over-refusing costs
+          # nothing but a message, under-refusing corrupts the file while
+          # reporting success.
+          if [ -s "$config" ] && grep -qE '^[[:space:]]*\[{1,2}[[:space:]]*"?(hooks|features)("?[][:space:].]|"?$)|^[[:space:]]*(hooks|features)[[:space:]]*[.=]' "$config"; then
+            note "codex config already defines [hooks] or [features]; not merging — run 'rgt init' in a terminal to wire it"
+            return 1
+          fi
+
+          # Created only now, once the refusals above have passed: a refusal
+          # must not leave a stray .codex/ behind in a workspace whose agent
+          # isn't Codex.
+          if ! mkdir -p "$WORKSPACE/.codex"; then
+            note "could not create $WORKSPACE/.codex; not wiring codex hooks"
+            return 1
+          fi
+
+          # Same trailing-newline hazard as the git exclude file: without this
+          # the [features] header would splice onto the user's last line.
+          if [ -s "$config" ] && [ -n "$(tail -c 1 "$config")" ]; then
+            printf '\n' >> "$config"
+          fi
+
+          # The write is checked rather than assumed — an unwritable path would
+          # otherwise print "wired" having appended nothing.
+          if ! {
+            printf '\n# Added by the re-gent sandbox kit.\n'
+            printf '[features]\nhooks = true\n\n'
+            printf '[hooks]\n'
+            for event in SessionStart UserPromptSubmit PostToolUse Stop; do
+              printf '%s = [{ matcher = "", hooks = [{ type = "command", command = "rgt codex-hook" }] }]\n' "$event"
+            done
+          } >> "$config"; then
+            note "failed to write $config; codex hooks not wired"
+            return 1
+          fi
+          note "Codex capture hooks wired in $config"
+          return 0
+        }
+
+        # Which agent is this sandbox running?
+        #
+        # The binary on PATH is the authoritative signal: a sandbox template
+        # installs the agent it is for, so if any agent binary is present, that
+        # is the answer and directory probes are ignored entirely.
+        #
+        # That ordering matters. Upstream's `rgt init --agent auto` treats a
+        # project-level `.claude/` (or `.codex/`, ...) directory as equal
+        # evidence, but plenty of repositories commit a `.claude/` directory
+        # while being worked on from a Codex sandbox — this repository is one.
+        # Treating that as "Claude is the agent" would merge rgt hooks into a
+        # tracked settings.json that the running agent never reads. So the
+        # directory probe is only a fallback for an image where no agent binary
+        # is on PATH under its own name.
+        agents=""
+        for candidate in claude codex opencode pi; do
+          if command -v "$candidate" >/dev/null 2>&1; then
+            agents="$agents $candidate"
+          fi
+        done
+        if [ -z "$agents" ]; then
+          for candidate in claude codex opencode pi; do
+            # ${HOME:-} rather than $HOME: `set -u` turns an unset HOME into
+            # an abort, which would break this script's fail-soft contract.
+            if [ -d "$WORKSPACE/.$candidate" ] || { [ -n "${HOME:-}" ] && [ -d "$HOME/.$candidate" ]; }; then
+              agents="$agents $candidate"
+            fi
+          done
         fi
 
-        SETTINGS="$WORKSPACE/.claude/settings.json"
-        mkdir -p "$WORKSPACE/.claude"
+        wired=0
+        detected=0
 
-        # An absent or blank settings file is just an empty object, not a
-        # parse failure — upstream treats it the same way and makes no backup.
-        if [ ! -s "$SETTINGS" ] || [ -z "$(tr -d '[:space:]' < "$SETTINGS")" ]; then
-          echo '{}' > "$SETTINGS"
-        # `jq empty` reports whether the input PARSES. `jq -e .` would report
-        # the truthiness of the parsed value instead, so a settings file
-        # holding `null` or `false` would be misfiled as corrupt and needlessly
-        # backed up.
-        elif ! jq empty "$SETTINGS" >/dev/null 2>&1; then
-          cp "$SETTINGS" "$SETTINGS.re-gent-backup"
-          # The backup lands in the user's repository, so keep it out of git
-          # for the same reason .regent/ is kept out.
-          git_exclude '.claude/settings.json.re-gent-backup'
-          note "existing settings.json was invalid JSON; backed up to $SETTINGS.re-gent-backup"
-          echo '{}' > "$SETTINGS"
-        fi
+        for agent in $agents; do
+          detected=1
+          case "$agent" in
+            claude) wire_claude && wired=1 ;;
+            codex)  wire_codex  && wired=1 ;;
+            # OpenCode and Pi are detected but deliberately not wired. Both
+            # need network at wiring time — an npm plugin install and a
+            # git-sourced `pi install` respectively — which would widen this
+            # kit's declared egress for every user including those who never
+            # touch either agent, and both shell out to tooling whose failure
+            # modes are outside this script. Say so rather than silently
+            # doing nothing.
+            *) note "$agent detected, but this kit does not wire its capture hooks — run 'rgt init' in a terminal to set it up" ;;
+          esac
+        done
 
-        TMP="$SETTINGS.re-gent-tmp"
-        if jq -f "$JQ_FILTER" "$SETTINGS" > "$TMP" 2>/dev/null && [ -s "$TMP" ]; then
-          mv "$TMP" "$SETTINGS"
-          note "Claude Code capture hooks wired in $SETTINGS"
-        else
-          rm -f "$TMP"
-          note "failed to merge hooks into $SETTINGS; left unchanged"
+        # Distinguish "found nothing" from "found something and could not wire
+        # it": the second already printed its own reason above, and claiming
+        # nothing was detected would contradict it.
+        if [ "$wired" -eq 0 ] && [ "$detected" -eq 0 ]; then
+          note "no supported agent detected; rgt is installed and the store is ready, but nothing is capturing"
+        elif [ "$wired" -eq 0 ]; then
+          note "capture is not wired (see above); rgt is installed and the store is ready"
         fi
       description: re_gent setup wrapper, with the workspace path baked in at sandbox start
 
   startup:
     - command: ["/home/agent/.local/bin/re-gent-setup.sh"]
       user: "1000"
-      description: Initialize the .regent store and wire Claude Code capture hooks
+      description: Initialize the .regent store and wire capture hooks for the detected agent
