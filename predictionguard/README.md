@@ -9,9 +9,21 @@ This kit enforces two gates of defense:
 
 ## Prerequisites
 
-- Docker Sandbox CLI: `brew install docker/tap/sbx`
-- A running Prediction Guard deployment (self-hosted or cloud)
+- A running Prediction Guard deployment (self-hosted or cloud) with governance policies enabled
 - Your Prediction Guard API token
+- Docker Sandbox CLI (`sbx`) — standalone, no Docker Desktop required
+
+**macOS (Apple Silicon, Sonoma 14+)**
+```bash
+brew install docker/tap/sbx
+sbx login
+```
+
+**Linux / cloud VM**
+```bash
+curl -fsSL https://get.docker.com/sbx | sh
+sbx login
+```
 
 ## Usage
 
