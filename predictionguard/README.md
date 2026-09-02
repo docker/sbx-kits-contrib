@@ -39,7 +39,7 @@ echo "$PREDICTIONGUARD_TOKEN" | sbx secret set-custom -g \
 Run OpenCode with this kit:
 
 ```bash
-sbx run --kit predictionguard --name pg-opencode opencode
+sbx run --kit predictionguard --name pg-opencode predictionguard
 ```
 
 Replace `pg.yourcompany.com` with your Prediction Guard deployment URL.
