@@ -320,6 +320,20 @@ suite, err := tck.NewSuiteFromDir(".")
 suite.RunAll(t)
 ```
 
+For the real-sandbox e2e layer, `tck.RunE2EKit` is exported the same way, so
+another module (e.g. a sibling kit repo with its own kits and its own CI) can
+drive the identical assertions this repo's own `TestE2EKit` uses, scoped to
+its own `sbx --app-name`:
+
+```go
+import "github.com/docker/sbx-kits-contrib/tck"
+
+func TestE2EKit(t *testing.T) {
+	kitPath := os.Getenv("KIT_UNDER_TEST")
+	tck.RunE2EKit(t, kitPath, tck.E2EOptions{AppName: "my-repo-tck"})
+}
+```
+
 ## CI
 
 Pull requests trigger TCK tests automatically:
