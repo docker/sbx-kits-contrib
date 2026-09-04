@@ -1,0 +1,28 @@
+schemaVersion: "1"
+kind: mixin
+name: mlops-mixin
+displayName: MLOps Experiment Agent
+description: >
+  Orchestrates ML experiments inside a Docker Sandbox. Tracks runs,
+  logs metrics and parameters, versions models using MLflow.
+  Ideal for classification and CV pipelines.
+
+environment:
+  variables:
+    MLFLOW_TRACKING_URI: "http://localhost:5000"
+    MLFLOW_EXPERIMENT_NAME: "sandbox-experiments"
+
+network:
+  allowedDomains:
+    - "pypi.org:443"
+    - "files.pythonhosted.org:443"
+
+commands:
+  install:
+    - command: "pip install --break-system-packages --upgrade pip && pip install --break-system-packages 'numpy>=2.0' 'pandas>=2.0' 'scikit-learn>=1.5' 'mlflow>=2.13' boto3 && sed -i 's/from importlib.abc import Traversable/from importlib.resources.abc import Traversable/' /home/agent/.local/lib/python3.14/site-packages/mlflow/assistant/skill_installer.py"
+      user: "1000"
+      description: "Install MLflow and ML dependencies and patch Python 3.14 compatibility"
+  startup:
+    - command: ["sh", "-c", "mkdir -p /home/agent/.mlflow/artifacts && setsid /home/agent/.local/bin/mlflow server --backend-store-uri sqlite:////home/agent/.mlflow/mlflow.db --default-artifact-root /home/agent/.mlflow/artifacts --host 0.0.0.0 --port 5000 > /home/agent/.mlflow/server.log 2>&1 &"]
+      user: "1000"
+      description: "Start MLflow tracking server"
