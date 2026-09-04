@@ -1,0 +1,47 @@
+#!/usr/bin/env node
+"use strict";
+
+// Thin CLI over @axe-core/playwright. We do not ship @axe-core/cli:
+// that package depends on chromedriver@latest (unpinned postinstall
+// download) and Selenium, which will not match Playwright Chromium.
+const url = process.argv[2];
+if (!url || url.startsWith("-")) {
+  console.error("usage: axe <url> [--save <file.json>]");
+  process.exit(2);
+}
+
+let save = null;
+for (let i = 3; i < process.argv.length; i++) {
+  if (process.argv[i] === "--save") {
+    save = process.argv[i + 1];
+    i++;
+  }
+}
+
+(async () => {
+  const { chromium } = require("playwright");
+  const axePlaywright = require("@axe-core/playwright");
+  const AxeBuilder = axePlaywright.AxeBuilder || axePlaywright.default;
+  const browser = await chromium.launch({
+    executablePath: process.env.CHROME_PATH || "/usr/local/bin/chromium",
+    headless: true,
+    args: ["--no-sandbox", "--disable-dev-shm-usage", "--disable-gpu"],
+  });
+  try {
+    const page = await browser.newPage();
+    await page.goto(url, { waitUntil: "networkidle" });
+    const results = await new AxeBuilder({ page }).analyze();
+    const json = JSON.stringify(results, null, 2);
+    if (save) {
+      require("fs").writeFileSync(save, json);
+    } else {
+      console.log(json);
+    }
+    process.exit(results.violations.length ? 1 : 0);
+  } finally {
+    await browser.close();
+  }
+})().catch((err) => {
+  console.error(err);
+  process.exit(2);
+});
