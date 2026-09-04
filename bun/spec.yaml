@@ -1,0 +1,74 @@
+schemaVersion: "2"
+kind: mixin
+name: bun
+displayName: Bun
+description: Installs the Bun JavaScript runtime and package manager from a pinned GitHub release.
+agentInstructions:
+  content: |
+    ## Bun
+
+    The `bun` CLI v1.4.0 is on PATH. Use it as a runtime (`bun run`),
+    a package manager (`bun install`), and a test runner (`bun test`).
+    Run `bun --version` to confirm.
+
+    `bun install` reaches the npm registry and often GitHub; those
+    hosts are not in this kit's allowlist (install time only covers
+    the release tarball). Add them on the sandbox if the project
+    needs to fetch packages:
+
+        sbx policy allow network --sandbox <name> "registry.npmjs.org,github.com,objects.githubusercontent.com"
+permissions:
+  network:
+    allow:
+      # Release zip download (install time, one-shot).
+      # github.com 302-redirects to objects.githubusercontent.com for
+      # binary downloads; release-assets.githubusercontent.com kept
+      # alongside it since that isn't guaranteed for every asset.
+      - github.com
+      - objects.githubusercontent.com
+      - release-assets.githubusercontent.com
+setup:
+  install:
+    # Install Bun from a pinned, SHA256-verified GitHub release.
+    # Do NOT use `curl | bash` from bun.sh — that pattern is unsigned
+    # and unpinned. Do NOT query api.github.com for releases/latest
+    # (CI IPs hit the 60 req/hr limit). To bump: change BUN_VERSION
+    # plus the per-arch SHA256 below (from the release SHASUMS256.txt).
+    # Archives are zip files; python3's zipfile is used so we do not
+    # need an apt unzip and the extra Ubuntu/Docker apt hosts.
+    - command: |
+        set -euo pipefail
+        BUN_VERSION=1.4.0
+        ARCH=$(dpkg --print-architecture)
+        case "$ARCH" in
+          amd64)
+            ZIP="bun-linux-x64.zip"
+            SHA256="2d03fb5fb83ac8b567aca0a281b2ce1a1a19d488f56c2968d88c3f25e92fe452"
+            ;;
+          arm64)
+            ZIP="bun-linux-aarch64.zip"
+            SHA256="4b1a332ee861983eb93bcfe6f770fff94e3e31b2c388bdaea3c8ed35e58eed0e"
+            ;;
+          *)
+            echo "unsupported sandbox arch: $ARCH (expected amd64 or arm64)" >&2
+            exit 1
+            ;;
+        esac
+        curl --proto '=https' --tlsv1.2 -fsSL \
+          -o /tmp/bun.zip \
+          "https://github.com/oven-sh/bun/releases/download/bun-v${BUN_VERSION}/${ZIP}"
+        echo "${SHA256}  /tmp/bun.zip" | sha256sum -c -
+        python3 -c "
+        import pathlib, stat, zipfile, sys
+        z = zipfile.ZipFile('/tmp/bun.zip')
+        name = next((n for n in z.namelist() if n.rstrip('/').endswith('/bun') or n == 'bun'), None)
+        if not name:
+            sys.exit('bun binary not found in zip')
+        dest = pathlib.Path('/usr/local/bin/bun')
+        dest.write_bytes(z.read(name))
+        dest.chmod(dest.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
+        "
+        rm /tmp/bun.zip
+        bun --version
+      user: "0"
+      description: Install Bun CLI v1.4.0, version+digest pinned
