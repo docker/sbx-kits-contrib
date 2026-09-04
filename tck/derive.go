@@ -2,10 +2,13 @@ package tck
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 
 	"github.com/docker/sbx-kits-contrib/spec"
+	"go.yaml.in/yaml/v3"
 )
 
 // Option is a functional option for customizing a Suite.
@@ -98,7 +101,49 @@ func NewSuiteFromDir(dir string, opts ...Option) (*Suite, error) {
 		suite.Image = image
 	}
 
+	cfg, err := loadKitTestConfig(dir)
+	if err != nil {
+		return nil, err
+	}
+	if cfg != nil {
+		suite.PostInstallChecks = cfg.PostInstallChecks
+	}
+
 	return suite, nil
+}
+
+// kitTestConfig holds kit-specific TCK container-test configuration, loaded
+// from <kit-dir>/testdata/tck.yaml. The same file also carries e2e-only
+// fields (promptArgs, readyFile, binary — see e2e_test.go's kitTCKData);
+// unmarshaling here into a struct that only knows about PostInstallChecks
+// silently ignores those, so one file serves both test surfaces.
+type kitTestConfig struct {
+	// PostInstallChecks are extra commands run in the same TCK container
+	// right after the kit's own install commands succeed — for
+	// self-contained checks (imports, offline signing self-tests, version
+	// assertions) that need the installed toolchain but not a live sandbox.
+	// Anything requiring real credentials or live network access belongs in
+	// the kit's README as a manual/e2e step instead.
+	PostInstallChecks []spec.InstallCommand `yaml:"postInstallChecks"`
+}
+
+// loadKitTestConfig reads <dir>/testdata/tck.yaml. Returns nil, nil when the
+// file does not exist — most kits have none.
+func loadKitTestConfig(dir string) (*kitTestConfig, error) {
+	p := filepath.Join(dir, "testdata", "tck.yaml")
+	data, err := os.ReadFile(p)
+	if os.IsNotExist(err) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("read %s: %w", p, err)
+	}
+
+	var cfg kitTestConfig
+	if err := yaml.Unmarshal(data, &cfg); err != nil {
+		return nil, fmt.Errorf("parse %s: %w", p, err)
+	}
+	return &cfg, nil
 }
 
 // deriveEnvVars builds expected "KEY=VALUE" strings from Environment.Variables.
