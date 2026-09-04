@@ -61,7 +61,7 @@ After normalization, only the canonical fields are populated. The legacy fields 
 - **permissions.network** — entry strings are exact host, exact host+port, or leading-label wildcard (`*.example.com`). Overlap between `allow` and `deny` is **legal** — at request time, deny wins.
 - **Credentials** — each entry has `service` set; `apiKey.inject[].format` (when set) is well-formed; a v2 `apiKey.inject[].scheme` is mutually exclusive with `format` and expands to it; `oauth.tokenEndpoint` has host+path.
 - **Volumes** — every entry has an absolute `path`; `type ∈ {"", "tmpfs"}`; `size` if set must parse as a byte-size string; `mode` if set must be octal.
-- **PublishedPorts** — `container` in 1..65535; `protocol ∈ {"", "tcp", "udp"}`.
+- **PublishedPorts** — `container` in 1..65535; `protocol ∈ {"", "tcp", "tcp4", "tcp6", "udp", "udp4", "udp6"}`.
 - **Locked** — each entry is a well-formed dotted YAML path; no duplicates.
 - **setup.files** — only `${WORKDIR}` placeholder is allowed; mode is octal; container paths are absolute.
 - **Static files** — relative-to-target only. Absolute paths and `..` traversal rejected. Symlink resolution must stay inside the artifact root.

@@ -336,15 +336,20 @@ Ports the kit wants the sandbox runtime to publish on the host when the sandbox 
 ```yaml
 ports:
   - container: 8080
-    protocol: tcp                              # "tcp" (default) or "udp"
+    protocol: tcp                              # "tcp" (default), tcp4, tcp6, udp, udp4, udp6
     name: web                                  # informational label for `sbx ports`
   - container: 9418                            # git-daemon
   - container: 53
     protocol: udp
     name: dns
+  - container: 3000
+    protocol: tcp4                             # IPv4-only service: bind 127.0.0.1 only
+    name: web-v4
 ```
 
-Host port allocation is **always ephemeral** on `127.0.0.1`. Users wanting a pinned host port still use `sbx ports --publish <host>:<container>` on top of the kit's declaration. A kit can't pick a host port because two kits requesting the same one would collide on the user's machine.
+Host port allocation is **always ephemeral** on loopback. Users wanting a pinned host port still use `sbx ports --publish <host>:<container>` on top of the kit's declaration. A kit can't pick a host port because two kits requesting the same one would collide on the user's machine.
+
+The bare `tcp`/`udp` forms bind whichever loopback families the sandbox endpoint supports — on a dual-stack host, both `127.0.0.1` and `::1` under one host port. The family-qualified forms pin the binding: `tcp4`/`udp4` bind `127.0.0.1` only, `tcp6`/`udp6` bind `::1` only. Reach for a v4-only form when the service inside the container listens on IPv4 only (e.g. `--bind 0.0.0.0`) — otherwise a browser that resolves `localhost` to `::1` hits a host binding with nothing behind it and the connection is reset.
 
 Port publishing is **inbound service exposure** — a separate concern from outbound egress under `permissions.network`.
 

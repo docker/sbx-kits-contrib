@@ -129,19 +129,25 @@ func ValidateNetworkPolicy(n *NetworkPolicy) error {
 	return nil
 }
 
+// SupportedPortProtocols enumerates the protocol tokens a PublishedPort may
+// declare, matching the set the sandbox runtime's port-publish API accepts.
+// The family-qualified forms pin the host binding to one loopback address
+// (see PublishedPort.Protocol); the bare forms leave the choice to the
+// runtime. An empty protocol is also valid and defaults to "tcp".
+var SupportedPortProtocols = []string{"tcp", "tcp4", "tcp6", "udp", "udp4", "udp6"}
+
 // ValidatePublishedPorts validates the canonical top-level publishedPorts
 // list: each entry's container port must be in 1..65535 and its protocol must
-// be empty (defaulted to "tcp" at consumption time), "tcp", or "udp".
+// be empty (defaulted to "tcp" at consumption time) or one of
+// SupportedPortProtocols.
 func ValidatePublishedPorts(ports []PublishedPort) error {
 	for i, p := range ports {
 		if p.Container < 1 || p.Container > 65535 {
 			return fmt.Errorf("publishedPorts[%d].container must be in 1..65535 (got %d)", i, p.Container)
 		}
-		switch p.Protocol {
-		case "", "tcp", "udp":
-			// "" is accepted and defaults to "tcp" at consumption time.
-		default:
-			return fmt.Errorf("publishedPorts[%d].protocol must be empty, \"tcp\" or \"udp\" (got %q)", i, p.Protocol)
+		if p.Protocol != "" && !slices.Contains(SupportedPortProtocols, p.Protocol) {
+			return fmt.Errorf("publishedPorts[%d].protocol must be empty or one of %s (got %q)",
+				i, strings.Join(SupportedPortProtocols, ", "), p.Protocol)
 		}
 	}
 
