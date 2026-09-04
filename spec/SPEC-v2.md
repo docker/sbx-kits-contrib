@@ -562,12 +562,13 @@ key.)
 ```yaml
 ports:
   - container: 8080          # REQUIRED, 1..65535
-    protocol: tcp            # "" (→ tcp) | "tcp" | "udp"
+    protocol: ""             # "" (→ consumer's default) | "tcp" | "udp" (both families)
     name: web                # optional informational label
 ```
 
-Host ports are always allocated **ephemerally on `127.0.0.1`**; a kit cannot pin
-a host port (two kits requesting the same one would collide). Users pin with
+Host ports are always allocated **ephemerally on loopback**; a kit cannot pin a
+host port (two kits requesting the same one would collide), and which loopback
+addresses are bound follows `protocol` and the consumer. Users pin with
 `sbx ports --publish <host>:<container>`.
 
 ### 5.4 `credentials`

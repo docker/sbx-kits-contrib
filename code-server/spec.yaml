@@ -30,8 +30,13 @@ permissions:
       - open-vsx.org
       - openvsx.eclipsecontent.org
 ports:
+  # No protocol on purpose, so the consumer decides which address families to
+  # publish. Naming "tcp" would force both, and the server below binds
+  # 0.0.0.0 — IPv4 only — so a host connection arriving over ::1 is accepted
+  # and then reset, breaking http://localhost:<port> for anyone whose resolver
+  # answers with ::1 first. Leaving it unset never asks for a family this
+  # service cannot serve.
   - container: 8080
-    protocol: tcp
     name: code-server
 setup:
   install:
