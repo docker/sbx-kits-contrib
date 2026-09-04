@@ -1,0 +1,11 @@
+{
+  "name": "sbx-kits",
+  "version": "1.0.0",
+  "description": "Author Docker Sandboxes kits (spec.yaml v2) — schema, lifecycle, composition, distribution, and TCK testing.",
+  "author": {
+    "name": "Docker Inc.",
+    "url": "https://github.com/docker"
+  },
+  "license": "Apache-2.0",
+  "keywords": ["docker", "sandboxes", "sbx", "kits", "spec.yaml"]
+}
