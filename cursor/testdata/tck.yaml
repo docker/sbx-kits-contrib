@@ -1,0 +1,38 @@
+# TCK configuration for the cursor kit.
+#
+# cursor is still a built-in agent in released sbx builds, and sbx refuses to
+# load a kit whose name collides with a built-in ("built-in agents cannot be
+# overridden by a kit"). This flag turns that one specific `sbx create` failure
+# into a skip, so the kit can land and be reviewed here before the built-in is
+# removed from sbx.
+#
+# Nothing needs re-enabling later: once a released sbx no longer registers the
+# built-in, `sbx create` succeeds, the full e2e runs, and the test logs a notice
+# that this line is obsolete and can be deleted.
+extractedFromBuiltin: true
+#
+# `promptArgs` is deliberately omitted, which skips the e2e `prompt` subtest.
+# Two reasons, either of which is sufficient:
+#
+#   - Auth. With no cursor credential on the runner, cursor-agent starts its
+#     own interactive sign-in rather than answering a prompt, so a
+#     non-interactive prompt would block rather than fail. No credential is set
+#     up here, and the built-in agent's own e2e never exercised this path
+#     either.
+#   - Binary lookup. The prompt subtest invokes the agent as
+#     `sbx exec <sandbox> -- <basename of entrypoint[0]>`, i.e. bare
+#     `cursor-agent`. That resolves only if ~/.local/bin is on the PATH the
+#     exec inherits, which is exactly the assumption spec.yaml's absolute
+#     entrypoint declines to make. Whoever wires promptArgs should expect to
+#     also set `binary: /home/agent/.local/bin/cursor-agent` here.
+#
+# Wire promptArgs (`["-p"]` is cursor-agent's non-interactive flag) once a
+# known-working recipe with a real credential exists, rather than guessing at
+# flags that could flake or hang CI.
+#
+# The remaining subtests (env, files, tmpfs, agentContext) still run and are
+# what actually gate this kit — for as long as the built-in exists they are
+# skipped too, so read a green run here as "TCK passed", not "e2e passed".
+
+# The cursor kit's hooks do no MCP-gateway registration, so no `mcp:` block is
+# needed here.
