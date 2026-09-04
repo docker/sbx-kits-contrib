@@ -1,4 +1,4 @@
-# glab — GitLab CLI
+# gitlab — GitLab CLI
 
 A mixin kit that installs the [GitLab CLI (`glab`)](https://gitlab.com/gitlab-org/cli) and wires up personal access token (PAT) authentication for gitlab.com through the sandbox proxy. Pairs with any base agent (claude, codex, gemini, …).
 
@@ -15,7 +15,7 @@ sbx secret set gitlab
 Then create a sandbox with the kit:
 
 ```console
-sbx run --kit "git+https://github.com/docker/sbx-kits-contrib.git#dir=glab" claude
+sbx run --kit "git+https://github.com/docker/sbx-kits-contrib.git#dir=gitlab" claude
 ```
 
 Verify inside the sandbox:
@@ -29,7 +29,40 @@ glab api user
 
 - The kit declares a `gitlab` credential with `proxyManaged: true`. Inside the container, `GITLAB_TOKEN` is set to a sentinel value, which is enough for `glab` to consider itself logged in.
 - On any request to `gitlab.com`, the sandbox proxy replaces the `Authorization` header with `Bearer <your-real-PAT>`. The real token never enters the sandbox filesystem or environment.
-- Git-over-HTTPS push credentials are **not** wired up by this kit — git sends Basic auth, which the kit does not rewrite. Use `glab api`, or public read-only clones. (Native GitLab sign-on, including git, is on the sbx roadmap.)
+
+## Git-over-HTTPS push/pull is not wired up — use SSH instead
+
+Git sends HTTP Basic auth for `git clone`/`push`/`pull`, not Bearer. A
+second `credentials[].apiKey.inject` rule with `scheme: basic` on the same
+`gitlab.com` domain was tried and **confirmed not to work**: the sandbox
+proxy does not disambiguate two inject rules on one domain by which auth
+scheme the client sent, so the Basic-auth request is never rewritten and
+GitLab rejects the literal sentinel value. (GitHub avoids this because its
+built-in credential's Bearer traffic goes to `api.github.com` while
+git-over-HTTPS goes to `github.com` — different domains, no collision.
+GitLab serves both the API and git smart-HTTP from `gitlab.com`.) This is a
+proxy-level gap, not something a kit can work around — it's been raised
+upstream as a feature request for scheme-aware or path-aware credential
+injection.
+
+Use SSH remotes for git operations instead:
+
+```console
+git clone git@gitlab.com:group/project.git
+git push origin my-branch
+```
+
+Add the [`gitlab-ssh`](../gitlab-ssh/) kit alongside this one so SSH
+host-key verification doesn't hang on a missing TTY:
+
+```console
+sbx run \
+  --kit "git+https://github.com/docker/sbx-kits-contrib.git#dir=gitlab" \
+  --kit "git+https://github.com/docker/sbx-kits-contrib.git#dir=gitlab-ssh" \
+  claude
+```
+
+You'll also need your SSH key loaded in the host agent (`ssh-add ~/.ssh/id_ed25519`) so it forwards into the sandbox, and that key registered with your GitLab account.
 
 ## Self-managed GitLab
 
