@@ -1,0 +1,120 @@
+# Docker Sandboxes kit for Mistral Vibe.
+# Usage, prerequisites and design notes: see README.md in this directory.
+schemaVersion: "2"
+kind: sandbox
+name: vibe
+version: "0.1.0"
+displayName: Mistral Vibe
+description: Mistral AI's open source coding agent, with its API key injected by the sandbox proxy
+licenses:
+  - MIT
+
+# The agent profile Vibe starts with. Overridable at install time:
+#   sbx run --kit docker.io/sbx/vibe-kit:latest --kit-arg agent=plan vibe
+args:
+  agent:
+    default: "auto-approve"
+    description: >-
+      Vibe agent to start: a builtin (ask, plan, accept-edits, auto-approve) or
+      a custom agent declared in ~/.vibe/agents/NAME.toml.
+    pattern: '^[A-Za-z0-9_-]+$'
+
+sandbox:
+  # Pre-baked image: the shell-docker template plus mistral-vibe from PyPI,
+  # built and published by build-and-publish-kits.yml, the shared kit-image
+  # pipeline (see ../PUBLISHING.md). Creating a sandbox therefore waits on no
+  # install, and the pipeline's nightly rebuild keeps Vibe current -- same
+  # arrangement as the pi and kiro kits.
+  image: docker.io/sbx/vibe-image:latest
+  # `uv tool install` puts the binary in ~/.local/bin, which the template
+  # already has on PATH, so the bare name resolves.
+  #
+  # --trust: the workspace is the user's own project, mounted by sbx, so Vibe's
+  #   trust prompt has nothing left to protect against and would only block a
+  #   non-interactive start.
+  # --agent: the sandbox is the security boundary, so the default profile lets
+  #   Vibe act without per-tool confirmation -- the same call the crush
+  #   (--yolo) and grok (--yolo) kits make. Narrow it with --kit-arg agent=ask.
+  entrypoint:
+    - vibe
+    - --trust
+    - --agent
+    - "${{ kit.args.agent }}"
+
+agentInstructions:
+  # Vibe loads ~/.vibe/AGENTS.md and every AGENTS.md from the project root up
+  # through the trust chain.
+  filename: AGENTS.md
+  content: |
+    ## Sandbox
+
+    You are running inside a Docker sandbox (sbx). The working directory is the
+    user's project, mounted from the host.
+
+    MISTRAL_API_KEY holds a sentinel value, not the real key: the sandbox proxy
+    swaps it for the real one on requests to Mistral. Do not read, print or
+    reconfigure it.
+
+# Every destination the kit needs. e2e runs under deny-all, so a host that is
+# not listed here is blocked -- see README, "Network".
+permissions:
+  network:
+    allow:
+      # Inference API (DEFAULT_MISTRAL_SERVER_URL).
+      - "api.mistral.ai:443"
+      # Vibe's own base URL (DEFAULT_VIBE_BASE_URL) -- sessions and account
+      # state.
+      - "chat.mistral.ai:443"
+      # Console, which is also the browser-auth base URL: Vibe reads the
+      # organization's admin-managed configuration from it at startup. Without
+      # it that call 401s into ~/.vibe/logs/vibe.log -- non-fatal, but noisy.
+      - "console.mistral.ai:443"
+      # Feature-flag / experiments service (experiments.mistral.services),
+      # queried at startup.
+      - "*.mistral.services:443"
+
+credentials:
+  - service: mistral
+    description: "Mistral API key (https://console.mistral.ai/api-keys)"
+    apiKey:
+      name: MISTRAL_API_KEY
+      # The container only ever sees a sentinel; the proxy substitutes the real
+      # key on the hosts listed below, and nowhere else.
+      proxyManaged: true
+      inject:
+        - domain: api.mistral.ai
+          header: Authorization
+          format: "Bearer %s"
+        # The two other hosts Vibe calls with the same key.
+        - domain: chat.mistral.ai
+          header: Authorization
+          format: "Bearer %s"
+        - domain: console.mistral.ai
+          header: Authorization
+          format: "Bearer %s"
+
+environment:
+  variables:
+    # Vibe maps VIBE_<CONFIG_FIELD> onto its config schema, so these two are
+    # the `enable_telemetry` / `enable_auto_update` fields of ~/.vibe/config.toml.
+    VIBE_ENABLE_TELEMETRY: "false"
+    # No silent self-update inside the sandbox: the version is whatever the
+    # image ships, so a run is reproducible and needs no egress to PyPI.
+    VIBE_ENABLE_AUTO_UPDATE: "false"
+    # Never block on a git credential prompt in a non-interactive session.
+    GIT_TERMINAL_PROMPT: "0"
+
+setup:
+  startup:
+    # ~/.vibe is a block volume (see `volumes`). It is mounted root-owned, so
+    # it has to be handed back to the agent user on every start, before Vibe
+    # writes to it. Idempotent, as every startup command must be.
+    - command: ["sh", "-c", "mkdir -p /home/agent/.vibe && chown -R agent:agent /home/agent/.vibe"]
+      user: "0"
+      description: Hand ~/.vibe (persistent volume) back to the agent user
+
+# Keeps config.toml, sessions, logs, custom agents and .env across re-creations
+# of a sandbox with the same name.
+volumes:
+  - path: /home/agent/.vibe
+    size: 1g
