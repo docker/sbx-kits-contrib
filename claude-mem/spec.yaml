@@ -14,8 +14,8 @@ agentInstructions:
     at session start. Search past sessions with the mem-search skill or the
     mcp-search MCP tools. The worker (viewer UI + live activity stream) runs
     on port 37700 (publish with `sbx ports <sandbox> --publish 37700/tcp`
-    to browse from the host). Telemetry is disabled
-    (DO_NOT_TRACK=1).
+    to browse from the host). claude-mem's telemetry is disabled
+    (CLAUDE_MEM_TELEMETRY=0).
 permissions:
   network:
     allow:
@@ -45,8 +45,14 @@ ports:
     name: memory-viewer
 environment:
   variables:
+    # Scoped to claude-mem on purpose. The cross-tool DO_NOT_TRACK convention
+    # would also silence the base claude kit and anything else in the sandbox,
+    # which is not this mixin's call to make. Upstream's consent ladder is
+    # DO_NOT_TRACK > CLAUDE_MEM_TELEMETRY > config > default-on, so this alone
+    # turns claude-mem's PostHog telemetry off; `us.i.posthog.com` is also
+    # absent from the allow-list above, which holds even if upstream renames
+    # the variable.
     CLAUDE_MEM_TELEMETRY: "0"
-    DO_NOT_TRACK: "1"
     # Worker port otherwise defaults to 37700 + (uid % 100); pinned so it
     # doesn't shift if the base image's agent uid ever changes.
     CLAUDE_MEM_WORKER_PORT: "37700"

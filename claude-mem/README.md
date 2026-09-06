@@ -63,9 +63,14 @@ sbx ports <sandbox> --publish 37700/tcp
   driven by `SBX_CRED_ANTHROPIC_MODE`) and the `enabledPlugins` entry
   are present, never overwriting existing keys. Trace at
   `/tmp/claude-mem-reconcile.log`.
-- **Telemetry off at the source**: upstream's PostHog telemetry is ON by
-  default; the kit sets `DO_NOT_TRACK=1` + `CLAUDE_MEM_TELEMETRY=0` and
-  does not allow-list `us.i.posthog.com`.
+- **Telemetry off at the source, scoped to claude-mem**: upstream's
+  PostHog telemetry is ON by default; the kit sets
+  `CLAUDE_MEM_TELEMETRY=0` and does not allow-list `us.i.posthog.com`.
+  The cross-tool `DO_NOT_TRACK` convention is deliberately *not* set — it
+  would silence the base claude kit and every other tool in the sandbox,
+  which is not a mixin's call to make. The missing allow-list entry is
+  the durable half of this: it holds even if upstream renames the
+  variable.
 - First memory compression uses your existing claude auth (the proxy
   wiring from the parent kit); first embed lazily downloads Chroma's
   ONNX model (~80MB, allow-listed S3 host).
