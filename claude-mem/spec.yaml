@@ -70,7 +70,15 @@ setup:
     # (rather than `npm config set`, which would persist to ~/.npmrc for
     # the sandbox's whole lifetime) so it doesn't silently weaken conflict
     # detection for any later npm install the agent or user runs.
-    - command: npm_config_legacy_peer_deps=true npx -y claude-mem@latest install
+    # `--provider claude` is required, not cosmetic: since claude-mem v13.20.0
+    # the installer aborts (exit 1) when stdin is not a TTY and no provider is
+    # given, before doing any work. Provisioning runs with stdin detached, so
+    # without the flag this step always fails. `claude` points memory at the
+    # sandbox's own Anthropic credentials and skips the browser OAuth pairing
+    # that the other providers require -- the only choice that can complete
+    # unattended. Upstream README still documents the pre-13.20.0 behavior;
+    # see https://github.com/thedotmack/claude-mem/issues/3893.
+    - command: npm_config_legacy_peer_deps=true npx -y claude-mem@latest install --provider claude
       user: "1000"
       description: Install latest claude-mem (plugin, marketplace registration, bun deps)
   startup:
