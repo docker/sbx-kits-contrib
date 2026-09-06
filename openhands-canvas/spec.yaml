@@ -79,13 +79,3 @@ setup:
         chmod +x /usr/local/bin/agent-canvas-wrapper
       user: "0"
       description: Create Node.js wrapper to fix Python httpx IPv6 proxy parsing bug
-    - command: |-
-        printf 'HTTP_PROXY=
-        HTTPS_PROXY=
-        ALL_PROXY=
-        http_proxy=
-        https_proxy=
-        all_proxy=
-        ' >> /etc/environment
-      user: "0"
-      description: Clear proxy vars in /etc/environment so all spawned Python subprocesses skip proxy
