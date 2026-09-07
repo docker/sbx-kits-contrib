@@ -28,7 +28,9 @@ sbx run --kit "git+https://github.com/docker/sbx-kits-contrib.git#dir=paperclip"
 sbx ports <sandbox> --publish 3100/tcp   # then open the printed host port
 ```
 
-On attach the entrypoint runs `paperclipai onboard --yes` — idempotent:
+On attach the entrypoint applies the resolved Anthropic auth state (see
+[How auth works](#how-auth-works)) and then runs `paperclipai onboard
+--yes` — idempotent:
 first boot writes config (instance, agent JWT secret, secrets key) under
 `~/.paperclip` and starts the server; later boots just start the server.
 The kit runs in **authenticated mode** (upstream's Docker default) with a
@@ -55,9 +57,64 @@ the declared ephemeral binding.
 
 Agent adapters spawn provider CLIs in-container; the Anthropic wiring
 (`credentials[].apiKey`, with `proxyManaged: true`) lets the sandbox proxy
-inject `ANTHROPIC_API_KEY` on egress for the `claude_local` adapter.
-Other provider keys (OpenAI, Gemini, …) can be added as sandbox secrets
-or configured in the UI.
+inject the real key on egress for the `claude_local` adapter, so the
+container only ever holds a sentinel. Other provider keys (OpenAI,
+Gemini, …) can be added as sandbox secrets or configured in the UI.
+
+### API key vs Claude subscription (OAuth)
+
+`claude_local` runs the Claude Code CLI, so the CLI's own precedence
+decides the wire format — and Anthropic rejects either credential shape
+sent in the wrong header. An API key goes out as `x-api-key`; a
+subscription login goes out as `Authorization: Bearer` with the OAuth
+beta headers. The kit declares both credential shapes and the host's
+credential decides which one materializes:
+
+| host credential | sandbox receives | wire format |
+|---|---|---|
+| API key — `sbx secret set anthropic` | `ANTHROPIC_API_KEY` sentinel | `x-api-key` |
+| OAuth login — sign in from a `claude` sandbox | `~/.claude/.credentials.json` with OAuth sentinels | `Bearer` |
+| none | sentinel dropped | adapter reports no credential |
+
+An API key wins when the host has one. Without the `oauth:` block a host
+whose only Anthropic credential is a subscription login would get no
+usable credential at all: the API-key sentinel would reach Anthropic
+unswapped and every `claude_local` run would 401.
+
+The OAuth path needs no translation step, because the file the engine
+materializes *is* the store the adapter's own "subscription login" path
+reads. It holds sentinels, not real tokens; the proxy swaps them on
+egress to `api.anthropic.com` and performs the refresh against
+`platform.claude.com` when the access token nears expiry.
+
+What the kit has to do is get out of the way. `ANTHROPIC_API_KEY` is set
+to the proxy-managed sentinel unconditionally — the injection is declared
+by the kit, not by whether a credential exists — which would pin the CLI
+to API-key mode. So `paperclip-anthropic-auth.sh` runs at every container
+start and drops the sentinel in the two cases where it is wrong: a
+subscription login, and no credential at all (otherwise the adapter's
+environment test reports an invalid key for a credential that never
+existed). It writes the decision to `~/.paperclip/anthropic-auth.env`,
+which the entrypoint wrapper sources; a `~/.profile` hook carries it into
+`sbx exec -- sh -lc '…'` shells too.
+
+The discriminator is the materialized credential file, **not**
+`SBX_CRED_ANTHROPIC_MODE` — that variable reports `none` for a
+subscription login just as it does for no credential at all, so nothing
+may key off it.
+
+Do not authenticate from inside the sandbox. A `claude /login` or
+`claude setup-token` run in the container writes a *real* token into
+`~/.claude/.credentials.json`, which defeats `proxyManaged: true`: from
+there it is readable by the agent and by anything the agent runs, and
+this kit's allowlist includes hosts it could be sent to. Keep credentials
+host-side.
+
+> **Not yet exercised end to end.** The OAuth wiring is verified against
+> the spec loader (`scripts/verify-kit-spec`, the TCK's `oauth_policy`
+> checks) and against the adapter's documented precedence, but no e2e run
+> against a real subscription-login host has happened yet. The API-key
+> path is unchanged.
 
 Telemetry is opted out at the source (`PAPERCLIP_TELEMETRY_DISABLED=1`);
 `telemetry.paperclip.ing` is deliberately not in `permissions.network.allow`.
