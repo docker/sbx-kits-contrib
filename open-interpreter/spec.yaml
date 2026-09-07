@@ -7,7 +7,12 @@ description: |
 sandbox:
   image: docker/sandbox-templates:shell-docker
   entrypoint:
-    - /home/agent/.local/bin/interpreter
+    # Kit content, not the installed binary: the entrypoint has to source the
+    # Anthropic auth env file the startup hook writes. Invoked through `sh`
+    # because files under `files/home/` land 0644 -- the artifact loader does
+    # not carry the source exec bit, so a direct exec fails with EACCES.
+    - sh
+    - /home/agent/.local/bin/open-interpreter-start.sh
 agentInstructions:
   filename: AGENTS.md
   content: |
@@ -34,6 +39,9 @@ permissions:
       # `sbx policy init deny-all`, so a domain absent from this list is
       # unreachable regardless of what the credential block declares.
       - api.anthropic.com
+      # The anthropic credential's OAuth token endpoint, for the refresh the
+      # proxy performs once the access token expires.
+      - platform.claude.com:443
       - api.openai.com
       # Open Procedures: OI fetches task-specific best-practice snippets at runtime
       - raw.githubusercontent.com
@@ -83,6 +91,35 @@ credentials:
         - domain: api.anthropic.com
           header: x-api-key
           format: '%s'
+    # For a host whose stored anthropic credential is an OAuth login -- signed
+    # in from a `claude` sandbox rather than an API key. Without this block
+    # such a host gets no usable credential at all: the apiKey sentinel reaches
+    # Anthropic unswapped and every model call 401s.
+    #
+    # LiteLLM never reads this file -- it takes the credential from
+    # ANTHROPIC_API_KEY -- so credentialFile serves two narrower purposes: it
+    # is what makes the OAuth path detectable from inside the sandbox
+    # (SBX_CRED_ANTHROPIC_MODE reports "none" even when this credential
+    # resolves, so it cannot discriminate oauth from apikey), and it carries
+    # the sentinel open-interpreter-anthropic-auth.sh exports. The file holds sentinels,
+    # not real tokens.
+    oauth:
+      tokenEndpoint:
+        host: platform.claude.com
+        path: /v1/oauth/token
+      resourceHosts:
+        - api.anthropic.com
+      sentinels:
+        accessToken: sk-ant-oat01-proxy-managed
+        refreshToken: sk-ant-ort01-proxy-managed
+      credentialFile:
+        path: ~/.claude/.credentials.json
+        structure:
+          claudeAiOauth:
+            accessToken: '{{.AccessToken}}'
+            refreshToken: '{{.RefreshToken}}'
+            expiresAt: '{{.ExpiresAt}}'
+            scopes: '{{.Scopes}}'
   # NOTE (migration gap, flagged for review): the original v1 spec also
   # declared a file-based fallback source for this credential
   # (credentials.sources.openai.file: {path: ~/.openai-api-key}) alongside
@@ -121,6 +158,14 @@ setup:
       user: "1000"
       description: Install Open Interpreter with Python 3.12
   startup:
+    # Runs on every container start, ahead of any attach: the credential state
+    # is wired at create time and a stop/start can follow a change of host
+    # credential, so the env file is recomputed rather than cached.
+    - command:
+        - sh
+        - /home/agent/.local/bin/open-interpreter-anthropic-auth.sh
+      user: "1000"
+      description: Resolve whether Anthropic auth is an API key, an OAuth login, or absent, and record it for the entrypoint and `sbx exec` shells
     - command:
         - uv
         - tool
