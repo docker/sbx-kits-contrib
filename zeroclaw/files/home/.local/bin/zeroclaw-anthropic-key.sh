@@ -15,6 +15,11 @@
 # and for no credential at all, so it cannot tell the two apart.
 set -u
 
+# Startup hooks run with a minimal environment and no $HOME (the same reason
+# the gateway hook in spec.yaml uses absolute paths), while the entrypoint and
+# `sbx exec` shells do have it. This kit's sandbox user is always agent.
+HOME="${HOME:-/home/agent}"
+
 CFG="$HOME/.zeroclaw/config.toml"
 # Must match credentials[].oauth.sentinels.accessToken in spec.yaml.
 OAUTH_SENTINEL=sk-ant-oat01-proxy-managed
@@ -26,7 +31,10 @@ grep -q __ANTHROPIC_API_KEY__ "$CFG" 2>/dev/null || exit 0
 if grep -qF "$OAUTH_SENTINEL" "$HOME/.claude/.credentials.json" 2>/dev/null; then
     KEY=$OAUTH_SENTINEL
 else
-    KEY=$ANTHROPIC_API_KEY
+    # Absent from a startup hook's minimal environment; the entrypoint runs
+    # this script again with the full env, so leaving the placeholder in place
+    # is the right no-op rather than an error.
+    KEY="${ANTHROPIC_API_KEY:-}"
 fi
 
 [ -n "$KEY" ] || exit 0

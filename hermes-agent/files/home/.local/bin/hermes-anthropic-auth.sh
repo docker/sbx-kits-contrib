@@ -21,6 +21,11 @@
 # which is the second branch below.
 set -eu
 
+# Startup hooks run with a minimal environment and no $HOME (the same reason
+# the gateway hook in spec.yaml uses absolute paths), while the entrypoint and
+# `sbx exec` shells do have it. This kit's sandbox user is always agent.
+HOME="${HOME:-/home/agent}"
+
 STATE_DIR="${HERMES_HOME:-$HOME/.hermes}"
 AUTH_ENV_FILE="$STATE_DIR/anthropic-auth.env"
 # Must match credentials[].oauth.sentinels.accessToken in spec.yaml.
