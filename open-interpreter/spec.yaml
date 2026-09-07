@@ -5,7 +5,13 @@ displayName: Open Interpreter
 description: |
   Natural language interface for your sandbox. Describe what you need; Open Interpreter writes and runs the code (Python, JS, Shell, and more) to complete the task.
 sandbox:
-  image: docker/sandbox-templates:shell-docker
+  # Pre-baked image: Open Interpreter, its C toolchain for psutil, and its
+  # Python 3.12 runtime all installed at build time. Built and published by
+  # build-and-publish-kits.yml, the shared kit-image pipeline (see
+  # ../PUBLISHING.md) -- no bespoke workflow needed, same as
+  # pi/openclaw/kiro/copilot/hermes-agent/aider. Sandbox creation only pulls
+  # the image.
+  image: docker.io/sbx/open-interpreter-image:latest
   entrypoint:
     # Kit content, not the installed binary: the entrypoint has to source the
     # Anthropic auth env file the startup hook writes. Invoked through `sh`
@@ -43,42 +49,28 @@ permissions:
       # proxy performs once the access token expires.
       - platform.claude.com:443
       - api.openai.com
-      # Open Procedures: OI fetches task-specific best-practice snippets at runtime
-      - raw.githubusercontent.com
-      - api.github.com
-      # uv installer and releases (including Python 3.12 standalone runtime)
-      - astral.sh
-      - '*.astral.sh'
-      # uv's `--python 3.12` fetches a standalone Python runtime from a
-      # GitHub release (astral-sh/python-build-standalone). The redirect
-      # target isn't a fixed constant -- both of GitHub's release-asset CDN
-      # hosts are needed (confirmed against the identical gap in kernel's
-      # kit, see kernel/spec.yaml). Resolving the release itself hits
-      # github.com directly, not just its CDN hosts -- confirmed via a real
-      # e2e run under deny-all.
-      - github.com
-      - objects.githubusercontent.com
-      - release-assets.githubusercontent.com
-      # PyPI: uv installs at creation time and during code execution
+      # PyPI, npm, and apt are runtime needs, not install-time ones: OI's
+      # whole purpose is writing and running code on request, and that code
+      # can `pip install`, `npm install`, or `apt-get install` anything it
+      # needs. Unlike the kit's own toolchain (now baked into the image, see
+      # Dockerfile), these stay because the *agent*, not the kit, uses them
+      # while running.
       - pypi.org
       - files.pythonhosted.org
-      # npm: OI can write and run JS
       - registry.npmjs.org
       - '*.npmjs.org'
-      # apt: OI can run shell commands that install system packages, and the
-      # kit's own gcc/python3-dev install needs `apt-get update` to succeed
-      # against every configured source -- it fails on the first one that
-      # doesn't resolve, even if the package itself comes from elsewhere.
-      # Ubuntu hosts amd64 packages on archive/security and arm64 packages on
-      # ports.ubuntu.com; download.docker.com is pre-added by the *-docker
-      # base templates.
+      # download.docker.com is pre-added to sources.list.d by this base image
+      # even without the `-docker` variant (confirmed by pulling
+      # docker/sandbox-templates:shell and inspecting it directly) --
+      # `apt-get update` fails on the first source that doesn't resolve, even
+      # if the package OI's code wants comes from elsewhere. Ubuntu hosts
+      # amd64 packages on archive/security and arm64 packages on
+      # ports.ubuntu.com.
       - deb.debian.org
       - archive.ubuntu.com
       - security.ubuntu.com
       - ports.ubuntu.com
       - download.docker.com
-      # LiteLLM model info and routing
-      - '*.litellm.ai'
 credentials:
   # Narrow inject domains: only the LLM API hosts that need auth injection.
   # A wildcard here would TLS-intercept all traffic, including code that
@@ -136,27 +128,6 @@ credentials:
           header: Authorization
           format: Bearer %s
 setup:
-  install:
-    # open-interpreter's psutil dependency has no prebuilt wheel for the
-    # Python 3.12 standalone uv downloads below on some architectures
-    # (confirmed on arm64) and falls back to compiling from source, which
-    # needs a C compiler the base image doesn't ship by default.
-    - command: apt-get update -qq && apt-get install -y -qq gcc python3-dev
-      user: "0"
-      description: Install a C compiler for building Python packages with native extensions
-    # uv ships pre-installed in the shell-docker base image (/usr/local/bin/uv,
-    # already on PATH) -- no need to install it ourselves.
-    # --python 3.12: the base image ships Python 3.13, but open-interpreter's
-    # numpy dependency has no Python 3.13 wheel. uv downloads a Python 3.12
-    # standalone (~28 MB) from releases.astral.sh (already in allowedDomains)
-    # automatically.
-    # --with "setuptools<81": open-interpreter still imports pkg_resources at
-    # startup, which setuptools>=81 dropped entirely (ModuleNotFoundError at
-    # runtime, not install time -- confirmed by hand). setuptools<81 still
-    # bundles it, with just a deprecation warning.
-    - command: uv tool install --with "setuptools<81" --python 3.12 open-interpreter
-      user: "1000"
-      description: Install Open Interpreter with Python 3.12
   startup:
     # Runs on every container start, ahead of any attach: the credential state
     # is wired at create time and a stop/start can follow a change of host
@@ -166,12 +137,3 @@ setup:
         - /home/agent/.local/bin/open-interpreter-anthropic-auth.sh
       user: "1000"
       description: Resolve whether Anthropic auth is an API key, an OAuth login, or absent, and record it for the entrypoint and `sbx exec` shells
-    - command:
-        - uv
-        - tool
-        - upgrade
-        - open-interpreter
-        - --quiet
-      user: "1000"
-      background: true
-      description: Upgrade Open Interpreter to latest

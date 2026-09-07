@@ -91,9 +91,19 @@ package installs, and web scraping tasks.
 Anthropic rejects an API key sent as `Authorization: Bearer` and an OAuth
 token sent as `x-api-key`, so the kit has to hand LiteLLM the shape that
 matches the credential the host holds. LiteLLM works that out from the
-key itself (`optionally_handle_anthropic_oauth`, in the LiteLLM OI resolves — its floor is `>=1.41.26`, so a fresh install gets it): a value starting `sk-ant-oat` drops
-`x-api-key` and goes out as Bearer with the OAuth beta header, anything
-else stays an API key.
+key itself (`optionally_handle_anthropic_oauth`): a value starting
+`sk-ant-oat` drops `x-api-key` and goes out as Bearer with the OAuth beta
+header, anything else stays an API key.
+
+Unlike aider, this kit doesn't need to override open-interpreter's litellm
+pin: open-interpreter depends on `litellm<2.0.0,>=1.41.26` — a range, not an
+exact pin — so installing it resolves whatever is newest under that ceiling.
+The image's build proves this rather than assuming it: it calls
+`optionally_handle_anthropic_oauth` directly against the litellm version the
+build actually resolved and asserts the OAuth header shape comes out right
+(see [Dockerfile](./Dockerfile)). That gate is what would catch a future
+open-interpreter release narrowing its own ceiling back down to something
+broken.
 
 | host credential | sandbox receives | wire format |
 |---|---|---|
@@ -150,35 +160,50 @@ OI executes arbitrary code, which can only reach domains in `permissions.network
 
 | Domain | Purpose |
 | --- | --- |
-| `raw.githubusercontent.com` | Open Procedures — task best-practice snippets OI fetches at runtime |
-| `pypi.org` / `files.pythonhosted.org` | pip (install time + code execution) |
-| `registry.npmjs.org` | npm (OI can write and run JS) |
-| `deb.debian.org` / `archive.ubuntu.com` | apt (OI can install system packages) |
-| `api.github.com` / `objects.githubusercontent.com` | GitHub API and asset downloads |
+| `pypi.org` / `files.pythonhosted.org` | pip — OI's executed code can install Python packages |
+| `registry.npmjs.org` | npm — OI's executed code can install and run JS |
+| `deb.debian.org` / `archive.ubuntu.com` / `security.ubuntu.com` / `ports.ubuntu.com` | apt — OI's executed code can install system packages |
+| `download.docker.com` | pre-added to this base image's apt sources regardless of the `-docker` variant; `apt-get update` fails on it if it's missing, even for an unrelated package |
+
+These are runtime needs of OI itself, not the kit's own toolchain: OI's whole
+purpose is writing and running code on request, so the code it runs can
+reach for a package manager same as a human would. That's different from
+`gcc`, `python3-dev`, and OI's own install, which the kit needed only to
+build the environment — those are now baked into the image (see
+[Dockerfile](./Dockerfile)) and don't appear in this list at all.
+
+There is no `raw.githubusercontent.com` / `api.github.com` entry: nothing in
+open-interpreter 0.4.3's own source fetches from either at runtime (checked
+against the installed package — the one GitHub-raw reference in its
+`computer_use` module lives in a module never imported by anything else, and
+is a leftover example URL, not a code path OI runs).
 
 If your tasks reach other hosts, add them with `sbx kit add` or stack an additional
 mixin kit with the extra domains.
 
-## What gets installed
+## What's in the image
+
+`gcc`, `python3-dev` (a C compiler for building `psutil` from source),
+Open Interpreter itself, and its Python 3.12 runtime are all baked into the
+kit's image (see [Dockerfile](./Dockerfile)) rather than installed when a
+sandbox is created:
 
 | Component | How |
 | --- | --- |
-| `gcc` / `python3-dev` | `apt-get install` at creation time — a C compiler for building `psutil` from source |
-| `uv` | Preinstalled in the base image (`/usr/local/bin/uv`) |
-| `open-interpreter` | `uv tool install --with "setuptools<81" --python 3.12 open-interpreter` at creation time |
-| Default profile | Dropped via `files/` at `/home/agent/.config/open-interpreter/profiles/default.yaml` |
+| `gcc` / `python3-dev` | `apt-get install` at image build time |
+| `open-interpreter` | `uv tool install --with "setuptools<81" --python 3.12 open-interpreter==<pin>` at image build time |
+| Default profile | Dropped via `files/` at `/home/agent/.config/open-interpreter/profiles/default.yaml` — kit content, not baked, so a fix reaches an existing sandbox on its next restart without an image rebuild |
 
 `uv --python 3.12` is used because the base image ships Python 3.13, and
 `open-interpreter`'s `numpy` dependency has no Python 3.13 wheel; `uv` fetches
-a standalone Python 3.12 runtime automatically. `setuptools<81` keeps
-`pkg_resources` available, which `open-interpreter` still imports at startup.
+a standalone Python 3.12 runtime automatically, at build time. `setuptools<81`
+keeps `pkg_resources` available, which `open-interpreter` still imports at
+startup.
 
-On every sandbox start, `uv tool upgrade open-interpreter` runs in the background
-so you stay on the latest release without recreating the sandbox.
-
-The install is substantial (LiteLLM, Anthropic SDK, Selenium, FastAPI, and more
-are bundled). First sandbox creation takes 3–5 minutes; subsequent starts reuse
-the persistent volume and upgrade in the background.
+Sandbox creation only pulls the image — no install step, no wait, and no
+per-start upgrade. A fixed image means a fixed Open Interpreter version;
+bumping it means rebuilding the image (`OPEN_INTERPRETER_VERSION` in the
+Dockerfile).
 
 ## Cleanup
 
