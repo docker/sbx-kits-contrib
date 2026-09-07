@@ -1,9 +1,9 @@
 # aider
 
 A standalone sandbox kit (`kind: sandbox`) for [Aider](https://aider.chat/), an
-AI pair programming tool. The kit installs Aider via
-[uv](https://astral.sh/uv/), wires LLM API auth through the sandbox proxy,
-and runs `aider` as the entrypoint when you attach.
+AI pair programming tool. The kit boots from a pre-built image with Aider
+already installed, wires LLM API auth through the sandbox proxy, and runs
+`aider` as the entrypoint when you attach.
 
 Aider defaults to Claude Sonnet (`AIDER_MODEL=sonnet`) with auto-commits enabled.
 It works with any [LiteLLM-compatible model](https://aider.chat/docs/llms.html).
@@ -53,9 +53,9 @@ Or with a local clone:
 sbx run --kit ./aider/ aider
 ```
 
-The first launch installs Aider (~2 minutes — uv downloads a Python 3.12
-standalone runtime and resolves ~100 packages). Subsequent launches reconnect
-to the existing sandbox and check for Aider updates in the background.
+Aider is pre-installed in the kit's image, so the first launch only pulls that
+image — no install step runs at sandbox creation. Subsequent launches reconnect
+to the existing sandbox.
 
 Once attached, Aider starts in interactive mode in your workspace. Type a
 request and Aider will propose and apply code changes, committing them
@@ -80,43 +80,31 @@ even attempt a request. The placeholder satisfies that check; the proxy
 substitutes the real key before the request leaves the sandbox. Aider never
 sees the actual credential.
 
-### Anthropic: API key vs Claude subscription (OAuth)
+### Anthropic: API key only, no Claude subscription
 
-Anthropic rejects an API key sent as `Authorization: Bearer` and an OAuth
-token sent as `x-api-key`, so the kit has to hand LiteLLM the shape that
-matches the credential the host holds. LiteLLM works that out from the
-key itself (`optionally_handle_anthropic_oauth`, present in the `litellm==1.82.3` Aider pins): a value starting `sk-ant-oat` drops
-`x-api-key` and goes out as Bearer with the OAuth beta header, anything
-else stays an API key.
+An Anthropic **API key** is the only credential Aider can use here, and
+that follows from a pin upstream controls, not a gap in the kit. Aider
+routes every model call through [LiteLLM](https://github.com/BerriAI/litellm),
+and `aider-chat==0.86.2` pins `litellm==1.81.10` exactly (`==`, not a
+range). At that pin, LiteLLM never inspects the *shape* of the `api_key`
+it's handed — it always sets `x-api-key` regardless of what the value
+looks like. A subscription (OAuth) token, which Anthropic only accepts as
+`Authorization: Bearer`, can therefore never be presented correctly: it
+would go out as `x-api-key` and Anthropic would reject it.
 
-| host credential | sandbox receives | wire format |
-|---|---|---|
-| API key — `sbx secret set anthropic` | `ANTHROPIC_API_KEY` sentinel | `x-api-key` |
-| OAuth login — sign in from a `claude` sandbox | `ANTHROPIC_API_KEY` set to the OAuth sentinel | `Bearer` |
-| none | sentinel dropped | Aider reports no credential |
+The kit declares no `oauth:` block for this credential, so on a host
+whose only Anthropic credential is a subscription login the API-key
+sentinel would reach Anthropic unswapped and every model call would 401.
+Bind an API key instead — `echo "$ANTHROPIC_API_KEY" | sbx secret set
+anthropic` — or use OpenAI or Gemini.
 
-An API key wins when the host has one. Without the `oauth:` block a host
-whose only Anthropic credential is a subscription login would get no
-usable credential at all: the API-key sentinel would reach Anthropic
-unswapped and every model call would 401.
-
-`aider-anthropic-auth.sh` runs at every container start and writes
-that decision to an env file the entrypoint sources (and a `~/.profile` hook carries it into `sbx exec -- sh -lc 'aider …'`). It
-detects the OAuth case from the credential file the engine materializes,
-**not** from `SBX_CRED_ANTHROPIC_MODE` — that variable reports `none` for
-an OAuth login just as it does for no credential at all, so nothing may
-key off it. LiteLLM never reads that file; it exists to make the OAuth
-case detectable and to carry the sentinel. The proxy swaps the sentinel
-for the real access token on egress to `api.anthropic.com` and performs
-the refresh against `platform.claude.com` when it nears expiry.
-
-**Only one binding at a time.** A bound `anthropic` API-key secret makes
-the proxy *set* `x-api-key` on `api.anthropic.com`. Combined with a
-Bearer request that is two auth headers, and Anthropic rejects it
-outright — so `API key is invalid` on the OAuth path means a stale API-key
-secret is still bound. `sbx secret rm anthropic` first, then recreate the
-sandbox: credentials are wired at create time, so a running sandbox never
-picks up a change.
+`litellm==1.81.12` is the first release where this is fixed (confirmed by
+reading that version's `litellm/llms/anthropic/common_utils.py`). If a
+future `aider-chat` release bumps its own pin past that floor, re-check
+whether a subscription login becomes viable — and whether the newer
+`litellm` introduces its own compatibility gaps against Aider's bundled
+`aider/exceptions.py`, which enumerates every litellm `*Error` it knows
+how to map and raises on one it doesn't.
 
 Do not authenticate from inside the sandbox. Any flow that writes a
 *real* token into the container defeats `proxyManaged: true`: from there
@@ -153,9 +141,28 @@ analytics off). To customise:
 
 The base sandbox image ships Python 3.13, but aider's `numpy` dependency resolves
 to a version that only has prebuilt wheels for Python ≤3.12. The base image has no
-C compiler, so building numpy from source fails. The kit pins `--python 3.12` to
-install Aider, and uv downloads a standalone Python 3.12 runtime (~28 MB) from
-`releases.astral.sh` (already in `permissions.network.allow`) automatically.
+C compiler, so building numpy from source fails. The image's build pins
+`--python 3.12` to install Aider, and uv downloads a standalone Python 3.12
+runtime (~28 MB) from `releases.astral.sh` at build time — this happens once,
+when the image is built, not on every sandbox creation.
+
+## What's in the image
+
+Aider and its Python 3.12 runtime are baked into the kit's image (see
+[Dockerfile](./Dockerfile)) rather than installed when a sandbox is
+created. That means:
+
+- Sandbox creation only pulls the image — no install step, no wait.
+- The runtime network allowlist only needs what Aider actually calls while
+  running: the three LLM API hosts. PyPI and the Python 3.12 download are
+  gone from `permissions.network.allow` because they're build-time-only now;
+  `raw.githubusercontent.com` is gone because the image sets
+  `LITELLM_LOCAL_MODEL_COST_MAP` / `LITELLM_LOCAL_ANTHROPIC_BETA_HEADERS`,
+  which stop LiteLLM fetching its model-cost map and beta-header config from
+  GitHub at runtime (see [Dockerfile](./Dockerfile)).
+- There is no per-start upgrade. A fixed image means a fixed Aider version;
+  bumping it means rebuilding the image (`AIDER_VERSION` in the Dockerfile),
+  not something that happens silently in the background on every boot.
 
 ## Coding conventions
 

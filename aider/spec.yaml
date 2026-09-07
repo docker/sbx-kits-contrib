@@ -5,32 +5,17 @@ displayName: Aider
 description: |
   AI pair programming in your terminal. Edits code, runs tests, and commits changes using Claude, GPT, Gemini, or any LiteLLM-compatible model.
 sandbox:
-  image: docker/sandbox-templates:shell-docker
+  # Pre-baked image: Aider and its Python 3.12 runtime installed at build
+  # time. Built and published by build-and-publish-kits.yml, the shared
+  # kit-image pipeline (see ../PUBLISHING.md) -- no bespoke workflow needed,
+  # same as pi/openclaw/kiro/copilot/hermes-agent. Sandbox creation only
+  # pulls the image.
+  image: docker.io/sbx/aider-image:latest
   entrypoint:
-    # Kit content, not the installed binary: the entrypoint has to source the
-    # Anthropic auth env file the startup hook writes. Invoked through `sh`
-    # because files under `files/home/` land 0644 -- the artifact loader does
-    # not carry the source exec bit, so a direct exec fails with EACCES.
-    - sh
-    - /home/agent/.local/bin/aider-start.sh
+    - aider
 permissions:
   network:
     allow:
-      - github.com
-      - api.github.com
-      - raw.githubusercontent.com
-      # uv's `--python 3.12` fetches a standalone Python runtime from a
-      # GitHub release (astral-sh/python-build-standalone). The redirect
-      # target isn't a fixed constant -- both of GitHub's release-asset CDN
-      # hosts are needed (confirmed against the identical gap in kernel's
-      # kit, see kernel/spec.yaml).
-      - objects.githubusercontent.com
-      - release-assets.githubusercontent.com
-      - pypi.org
-      - files.pythonhosted.org
-      - astral.sh
-      - '*.astral.sh'
-      - aider.chat
       # Every domain the credential blocks below inject into -- required here
       # too, not just there: this repo's e2e runs every kit under
       # `sbx policy init deny-all`, so a domain absent from this list is
@@ -38,9 +23,6 @@ permissions:
       - api.anthropic.com
       - api.openai.com
       - generativelanguage.googleapis.com
-      # The anthropic credential's OAuth token endpoint, for the refresh the
-      # proxy performs once the access token expires.
-      - platform.claude.com:443
 # Aider uses LiteLLM under the hood, which checks the relevant env var is
 # present *before* it will attempt a request -- with no placeholder set,
 # LiteLLM raises its own "missing API key" error locally, before the proxy
@@ -57,35 +39,6 @@ credentials:
         - domain: api.anthropic.com
           header: x-api-key
           format: '%s'
-    # For a host whose stored anthropic credential is an OAuth login -- signed
-    # in from a `claude` sandbox rather than an API key. Without this block
-    # such a host gets no usable credential at all: the apiKey sentinel reaches
-    # Anthropic unswapped and every model call 401s.
-    #
-    # LiteLLM never reads this file -- it takes the credential from
-    # ANTHROPIC_API_KEY -- so credentialFile serves two narrower purposes: it
-    # is what makes the OAuth path detectable from inside the sandbox
-    # (SBX_CRED_ANTHROPIC_MODE reports "none" even when this credential
-    # resolves, so it cannot discriminate oauth from apikey), and it carries
-    # the sentinel aider-anthropic-auth.sh exports. The file holds sentinels,
-    # not real tokens.
-    oauth:
-      tokenEndpoint:
-        host: platform.claude.com
-        path: /v1/oauth/token
-      resourceHosts:
-        - api.anthropic.com
-      sentinels:
-        accessToken: sk-ant-oat01-proxy-managed
-        refreshToken: sk-ant-ort01-proxy-managed
-      credentialFile:
-        path: ~/.claude/.credentials.json
-        structure:
-          claudeAiOauth:
-            accessToken: '{{.AccessToken}}'
-            refreshToken: '{{.RefreshToken}}'
-            expiresAt: '{{.ExpiresAt}}'
-            scopes: '{{.Scopes}}'
   - service: gemini
     apiKey:
       name: GEMINI_API_KEY
@@ -108,32 +61,3 @@ environment:
     AIDER_AUTO_COMMITS: "true"
     AIDER_CHECK_UPDATE: "false"
     AIDER_MODEL: sonnet
-setup:
-  install:
-    # uv ships pre-installed in the shell-docker base image (/usr/local/bin/uv,
-    # already on PATH) -- no need to install it ourselves.
-    # --python 3.12: the base image ships Python 3.13, but aider's numpy
-    # dependency (<=1.26.x) has no Python 3.13 wheel and the base image
-    # has no C compiler. uv downloads a Python 3.12 standalone (~28 MB)
-    # from releases.astral.sh, which is already in permissions.network.allow.
-    - command: uv tool install --with pip --python 3.12 aider-chat
-      user: "1000"
-      description: Install Aider with Python 3.12
-  startup:
-    # Runs on every container start, ahead of any attach: the credential state
-    # is wired at create time and a stop/start can follow a change of host
-    # credential, so the env file is recomputed rather than cached.
-    - command:
-        - sh
-        - /home/agent/.local/bin/aider-anthropic-auth.sh
-      user: "1000"
-      description: Resolve whether Anthropic auth is an API key, an OAuth login, or absent, and record it for the entrypoint and `sbx exec` shells
-    - command:
-        - uv
-        - tool
-        - upgrade
-        - aider-chat
-        - --quiet
-      user: "1000"
-      background: true
-      description: Upgrade Aider to latest
