@@ -5,10 +5,18 @@
 # artifact loader does not carry the source exec bit.
 set -u
 
+# Re-run the resolver here, not just source its output: the entrypoint is
+# guaranteed the full container environment, while the setup.startup hook
+# that already ran it once may not be. The resolver is idempotent, so running
+# it twice only means the entrypoint's result is the one that counts.
+sh "$HOME/.local/bin/openhands-anthropic-auth.sh"
+
 AUTH_ENV_FILE="$HOME/.config/openhands/anthropic-auth.env"
-# Written by openhands-anthropic-auth.sh at container start; absent means the
-# injected ANTHROPIC_API_KEY sentinel is the credential to use as-is.
 # shellcheck source=/dev/null
 [ -f "$AUTH_ENV_FILE" ] && . "$AUTH_ENV_FILE"
 
-exec "$HOME/.local/bin/openhands" "$@"
+# --override-with-envs: without it, openhands ignores LLM_API_KEY/LLM_MODEL
+# entirely and either falls back to a persisted ~/.openhands/agent_settings.json
+# or, on a fresh sandbox, opens the interactive first-run settings form -- there
+# is no non-interactive way to hand it a credential otherwise.
+exec "$HOME/.local/bin/openhands" --override-with-envs "$@"

@@ -16,7 +16,9 @@ At least one LLM API key exported on your host. Open Interpreter defaults to GPT
 export OPENAI_API_KEY=<your-openai-key>
 ```
 
-To use Claude instead (recommended — Anthropic key only):
+To use Claude instead, an Anthropic API key or a Claude subscription login both
+work — no OpenAI credential needs to be bound. The kit switches the seeded
+profile to Claude for you when that's the only credential present:
 
 ```console
 export ANTHROPIC_API_KEY=<your-anthropic-key>
@@ -54,10 +56,14 @@ and OI will write and execute code to complete it:
 
 ## Switching models
 
-The default profile sets `model: gpt-4o`. Override at launch:
+The seeded profile sets `model: gpt-4o`. If OpenAI has no bound credential and
+Anthropic does, `open-interpreter-anthropic-auth.sh` redirects the profile to
+Claude automatically — see
+[Anthropic: API key vs Claude subscription (OAuth)](#anthropic-api-key-vs-claude-subscription-oauth)
+below. To use something else, override at launch:
 
 ```console
-# Use Claude (requires ANTHROPIC_API_KEY)
+# Use a specific Claude model (requires an anthropic credential)
 sbx run --kit ./open-interpreter/ open-interpreter -- --model claude-3-5-sonnet-20241022
 
 # Use a local Ollama model (no API key needed)
@@ -65,6 +71,9 @@ sbx run --kit ./open-interpreter/ open-interpreter -- --model ollama/llama3
 
 # Or update ~/.config/open-interpreter/profiles/default.yaml inside the sandbox
 ```
+
+A model or key you set by hand — at launch or by editing the profile — is
+never touched by the kit's own resolver; see below.
 
 ## How auth works
 
@@ -97,9 +106,22 @@ whose only Anthropic credential is a subscription login would get no
 usable credential at all: the API-key sentinel would reach Anthropic
 unswapped and every model call would 401.
 
-`open-interpreter-anthropic-auth.sh` runs at every container start and writes
-that decision to an env file the entrypoint sources (and a `~/.profile` hook carries it into `sbx exec -- sh -lc 'interpreter …'`). It
-detects the OAuth case from the credential file the engine materializes,
+Setting `ANTHROPIC_API_KEY` alone doesn't get the credential to Open
+Interpreter, though: OI only checks for a key when the configured model is a
+recognized OpenAI name, and the seeded profile pins `gpt-4o` — a bare
+Anthropic credential is silently ignored. `open-interpreter-anthropic-auth.sh`
+also rewrites `~/.config/open-interpreter/profiles/default.yaml`'s `llm.model`
+and `llm.api_key` directly, and only when it's safe to: **Anthropic resolved
+and OpenAI did not** (`SBX_CRED_OPENAI_MODE` reports `none`). If OpenAI also
+has a bound credential, the profile is left on `gpt-4o` so that setup keeps
+working — the resolver never overwrites a model or key you (or `--model` at
+launch) set to anything other than its own seeded default or its own prior
+redirect, so a hand-edited profile always survives. It reverts the redirect
+the same way if OpenAI later gains a credential.
+
+The resolver also writes the credential decision to an env file the entrypoint
+sources (and a `~/.profile` hook carries it into `sbx exec -- sh -lc 'interpreter …'`).
+It detects the OAuth case from the credential file the engine materializes,
 **not** from `SBX_CRED_ANTHROPIC_MODE` — that variable reports `none` for
 an OAuth login just as it does for no credential at all, so nothing may
 key off it. LiteLLM never reads that file; it exists to make the OAuth

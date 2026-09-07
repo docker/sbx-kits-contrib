@@ -104,13 +104,15 @@ credentials:
     # such a host gets no usable credential at all: the apiKey sentinel reaches
     # Anthropic unswapped and every model call 401s.
     #
-    # LiteLLM never reads this file -- it takes the credential from
-    # ANTHROPIC_API_KEY -- so credentialFile serves two narrower purposes: it
-    # is what makes the OAuth path detectable from inside the sandbox
+    # openhands never reads this file directly, nor ANTHROPIC_API_KEY: its LLM
+    # config lives in ~/.openhands/agent_settings.json, populated from
+    # LLM_API_KEY/LLM_MODEL when openhands-anthropic-auth.sh resolves a
+    # credential. So credentialFile serves two narrower purposes here: it is
+    # what makes the OAuth path detectable from inside the sandbox
     # (SBX_CRED_ANTHROPIC_MODE reports "none" even when this credential
     # resolves, so it cannot discriminate oauth from apikey), and it carries
-    # the sentinel openhands-anthropic-auth.sh exports. The file holds sentinels,
-    # not real tokens.
+    # the sentinel openhands-anthropic-auth.sh exports. The file holds
+    # sentinels, not real tokens.
     oauth:
       tokenEndpoint:
         host: platform.claude.com
@@ -149,7 +151,11 @@ credentials:
           format: Bearer %s
 environment:
   variables:
-    LLM_MODEL: anthropic/claude-opus-4-5
+    # Not LLM_MODEL: openhands-anthropic-auth.sh is the sole source of that
+    # variable now, and it deliberately leaves it unset when there's no
+    # Anthropic credential to resolve or a persisted agent_settings.json
+    # already exists -- a static default here would apply regardless and
+    # silently override either of those states.
     OPENHANDS_SUPPRESS_BANNER: "1"
     SANDBOX_TYPE: local
 setup:

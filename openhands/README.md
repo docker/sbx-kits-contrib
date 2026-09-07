@@ -30,16 +30,15 @@ up ahead of time:
 sbx secret set anthropic   # or: openai, google
 ```
 
-To use OpenAI or Gemini instead of the default (Anthropic): there's no supported
-way to override a kit's `environment.variables` at run time, and OpenHands' CLI
-has no `--model` flag either. Once attached, edit the seeded
-`~/.openhands/settings.json`'s `llm_config.model` and restart OpenHands inside
-the sandbox:
+To use OpenAI or Gemini instead of the default (Anthropic): once attached, open
+the in-app Settings screen (the `Settings` command, or the form OpenHands shows
+on first run) and pick the provider and model there. That choice is saved to
+`~/.openhands/agent_settings.json`, which from then on takes precedence over
+the Anthropic credential this kit resolves automatically:
 
 ```console
 sbx run --kit "docker.io/sbx/openhands-kit:latest" openhands
-# inside the sandbox:
-vi ~/.openhands/settings.json   # set llm_config.model to e.g. "openai/gpt-4o"
+# inside the sandbox: open Settings and choose e.g. openai/gpt-4o
 ```
 
 ### Optional: Tavily web search
@@ -95,11 +94,19 @@ inject on outbound requests to that domain:
 
 Each credential also sets `proxyManaged: true`, which is what makes the engine
 populate a placeholder value (e.g. `sk-ant-<random>`) for the matching env var
-inside the sandbox automatically — OpenHands uses
-[LiteLLM](https://github.com/BerriAI/litellm) for all LLM calls, and LiteLLM
-checks the env var is *present* before it will even attempt a request. The
-placeholder satisfies that check; the proxy substitutes the real key before the
-request leaves the sandbox.
+inside the sandbox automatically; the proxy substitutes the real key before
+the request leaves the sandbox.
+
+Populating the env var isn't enough on its own, though: OpenHands' CLI (the
+`openhands` package, distinct from the older `openhands-sdk`) never reads
+`ANTHROPIC_API_KEY`. Its LLM config lives in `~/.openhands/agent_settings.json`
+(created the first time you save settings in-app) or, non-interactively, in
+the `LLM_API_KEY`/`LLM_MODEL` env vars read behind the `--override-with-envs`
+flag this kit's entrypoint always passes. `openhands-anthropic-auth.sh` is what
+turns the resolved Anthropic credential into those two variables — see the
+next section. OpenAI and Gemini have no equivalent resolver: reach them only
+through the in-app Settings screen, which persists your choice to
+`agent_settings.json`.
 
 ### Anthropic: API key vs Claude subscription (OAuth)
 
@@ -110,11 +117,11 @@ key itself (`optionally_handle_anthropic_oauth`, present in the `litellm>=1.93.0
 `x-api-key` and goes out as Bearer with the OAuth beta header, anything
 else stays an API key.
 
-| host credential | sandbox receives | wire format |
+| host credential | `LLM_API_KEY` | wire format |
 |---|---|---|
-| API key — `sbx secret set anthropic` | `ANTHROPIC_API_KEY` sentinel | `x-api-key` |
-| OAuth login — sign in from a `claude` sandbox | `ANTHROPIC_API_KEY` set to the OAuth sentinel | `Bearer` |
-| none | sentinel dropped | OpenHands reports no credential |
+| API key — `sbx secret set anthropic` | the `ANTHROPIC_API_KEY` sentinel | `x-api-key` |
+| OAuth login — sign in from a `claude` sandbox | the OAuth sentinel | `Bearer` |
+| none | unset | OpenHands reports a missing credential and exits — no wizard, no 401 |
 
 An API key wins when the host has one. Without the `oauth:` block a host
 whose only Anthropic credential is a subscription login would get no
@@ -122,14 +129,18 @@ usable credential at all: the API-key sentinel would reach Anthropic
 unswapped and every model call would 401.
 
 `openhands-anthropic-auth.sh` runs at every container start and writes
-that decision to an env file the entrypoint sources (and a `~/.profile` hook carries it into `sbx exec -- sh -lc 'openhands …'`). It
-detects the OAuth case from the credential file the engine materializes,
-**not** from `SBX_CRED_ANTHROPIC_MODE` — that variable reports `none` for
-an OAuth login just as it does for no credential at all, so nothing may
-key off it. LiteLLM never reads that file; it exists to make the OAuth
-case detectable and to carry the sentinel. The proxy swaps the sentinel
-for the real access token on egress to `api.anthropic.com` and performs
-the refresh against `platform.claude.com` when it nears expiry.
+its decision to an env file the entrypoint sources (and a `~/.profile` hook
+carries it into `sbx exec -- sh -lc 'openhands …'`). It sets `LLM_MODEL` and
+`LLM_API_KEY` — the two variables `--override-with-envs` reads — only when no
+`~/.openhands/agent_settings.json` exists yet; once you've saved settings
+in-app, that file wins and the resolver backs off rather than overwrite your
+choice. It detects the OAuth case from the credential file the engine
+materializes, **not** from `SBX_CRED_ANTHROPIC_MODE` — that variable reports
+`none` for an OAuth login just as it does for no credential at all, so nothing
+may key off it. LiteLLM never reads that credential file; it exists to make
+the OAuth case detectable and to carry the sentinel. The proxy swaps the
+sentinel for the real access token on egress to `api.anthropic.com` and
+performs the refresh against `platform.claude.com` when it nears expiry.
 
 **Only one binding at a time.** A bound `anthropic` API-key secret makes
 the proxy *set* `x-api-key` on `api.anthropic.com`. Combined with a
@@ -160,14 +171,11 @@ a second container layer.
 
 ## Switching the default model
 
-`LLM_MODEL` (litellm format: `<provider>/<model-id>`) sets the kit's default,
-but there's no supported way to override a kit's `environment.variables` at
-run time. Once attached, edit `~/.openhands/settings.json`'s `llm_config.model`
-and restart OpenHands:
-
-```console
-vi ~/.openhands/settings.json   # set llm_config.model to e.g. "anthropic/claude-sonnet-4-5"
-```
+The kit's default is whatever Anthropic model `openhands-anthropic-auth.sh`
+resolves (see above). To use a different model — including a different
+Anthropic one — open the in-app Settings screen and choose it there; that
+choice is saved to `~/.openhands/agent_settings.json` and takes precedence
+over the kit's resolver on every later start.
 
 ## Cleanup
 
