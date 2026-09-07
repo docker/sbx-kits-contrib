@@ -6,7 +6,11 @@ description: Tiny, fast personal AI assistant (Go, single static binary) — age
 sandbox:
   image: docker/sandbox-templates:shell
   entrypoint:
-    - /home/agent/.local/bin/picoclaw-start
+    # Invoked through `sh` because files under `files/home/` land 0644 -- the
+    # artifact loader does not carry the source exec bit, so a direct exec
+    # fails with EACCES.
+    - sh
+    - /home/agent/.local/bin/picoclaw-start.sh
 permissions:
   network:
     allow:
@@ -17,6 +21,9 @@ permissions:
       - api.anthropic.com
       - claude.ai
       - console.anthropic.com
+      # The anthropic credential's OAuth token endpoint, for the refresh the
+      # proxy performs once the access token expires.
+      - platform.claude.com:443
       # pinned release download at install time
       - github.com:443
       - objects.githubusercontent.com:443
@@ -48,6 +55,38 @@ credentials:
         - domain: console.anthropic.com
           header: x-api-key
           format: '%s'
+    # For a host whose stored anthropic credential is an OAuth login -- signed
+    # in from a `claude` sandbox rather than an API key. Without this block
+    # such a host gets no usable credential at all: the apiKey sentinel reaches
+    # Anthropic unswapped and every model call 401s.
+    #
+    # credentialFile *is* PicoClaw's own auth store, the same file
+    # `picoclaw auth login --provider anthropic` writes, so the `anthropic`
+    # protocol's OAuth path reads it with no translation -- what
+    # picoclaw-anthropic-auth.sh still has to do is switch the model entry to
+    # that protocol, since the seeded default is anthropic-messages (API key
+    # only). expires_at is deliberately absent: the field is an RFC3339 string
+    # upstream, {{.ExpiresAt}} renders Unix ms, and leaving it unset also stops
+    # PicoClaw attempting a refresh the proxy already owns. The file holds
+    # sentinels, not real tokens.
+    oauth:
+      tokenEndpoint:
+        host: platform.claude.com
+        path: /v1/oauth/token
+      resourceHosts:
+        - api.anthropic.com
+      sentinels:
+        accessToken: sk-ant-oat01-proxy-managed
+        refreshToken: sk-ant-ort01-proxy-managed
+      credentialFile:
+        path: ~/.picoclaw/auth.json
+        structure:
+          credentials:
+            anthropic:
+              access_token: '{{.AccessToken}}'
+              refresh_token: '{{.RefreshToken}}'
+              provider: anthropic
+              auth_method: oauth
 environment:
   variables:
     PICOCLAW_GATEWAY_HOST: 0.0.0.0
@@ -82,12 +121,14 @@ setup:
       user: "0"
       description: Install the pinned picoclaw release binary, SHA256-verified
   startup:
+    # Runs before the gateway command below, which reads the same config. The
+    # script is idempotent -- the placeholder it matches is gone once the
+    # credential is resolved -- which is why the entrypoint can call it again.
     - command:
         - sh
-        - -c
-        - CFG=/home/agent/.picoclaw/config.json; [ -n "$ANTHROPIC_API_KEY" ] && grep -q __ANTHROPIC_API_KEY__ $CFG 2>/dev/null && sed -i "s/__ANTHROPIC_API_KEY__/$ANTHROPIC_API_KEY/" $CFG || true
+        - /home/agent/.local/bin/picoclaw-anthropic-auth.sh
       user: "1000"
-      description: Template the proxy-managed key into config.json at sandbox start
+      description: Resolve the host's Anthropic credential into config.json at sandbox start
     # Absolute paths (startup commands run with a minimal env, no $HOME);
     # health-endpoint guard (a pgrep -f guard would match its own shell's
     # command line and never start the gateway).
@@ -97,20 +138,3 @@ setup:
         - curl -fsS -m 2 http://127.0.0.1:18790/health >/dev/null 2>&1 || { mkdir -p /home/agent/.picoclaw; HOME=/home/agent setsid sh -c '/usr/local/bin/picoclaw gateway > /home/agent/.picoclaw/gateway.log 2>&1' & }
       user: "1000"
       description: Start the picoclaw gateway in the background (health at :18790/health)
-  files:
-    - path: /home/agent/.local/bin/picoclaw-start
-      content: |
-        #!/bin/sh
-        PCH="$HOME/.picoclaw"
-        if [ -n "$PICOCLAW_HOME" ]; then PCH="$PICOCLAW_HOME"; fi
-        CFG="$PCH/config.json"
-        if [ -n "$ANTHROPIC_API_KEY" ] && grep -q __ANTHROPIC_API_KEY__ "$CFG" 2>/dev/null; then
-            sed -i "s/__ANTHROPIC_API_KEY__/$ANTHROPIC_API_KEY/" "$CFG"
-        fi
-        if ! curl -fsS -m 2 http://127.0.0.1:18790/health >/dev/null 2>&1; then
-            mkdir -p "$PCH"
-            setsid sh -c "/usr/local/bin/picoclaw gateway > $PCH/gateway.log 2>&1" &
-        fi
-        exec /usr/local/bin/picoclaw agent
-      mode: "0755"
-      description: Entrypoint — template the proxy-managed key into config (picoclaw reads keys from config.json, not env), start the gateway, drop into the agent CLI
