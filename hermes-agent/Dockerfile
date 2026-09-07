@@ -42,6 +42,11 @@ ARG BASE_IMAGE
 ARG HERMES_REF=latest
 ADD --chmod=644 https://api.github.com/repos/NousResearch/hermes-agent/releases/${HERMES_REF} /tmp/hermes-release.json
 
+# /tmp/hermes-release.json is root-owned (this ADD runs before the USER switch
+# below) inside /tmp's sticky bit, so the agent user below can read it but
+# cannot unlink it -- an `rm` on it as agent fails the build. It is also never
+# removed: the file lives in the ADD's own layer, so deleting it in a later
+# layer would only add a whiteout on top of the ~1 KB that ships either way.
 USER agent
 WORKDIR /home/agent
 
@@ -84,7 +89,7 @@ RUN set -eu; \
     curl -fsSL "https://raw.githubusercontent.com/NousResearch/hermes-agent/${tag}/scripts/install.sh" -o /tmp/hermes-install.sh; \
     chmod +x /tmp/hermes-install.sh; \
     /tmp/hermes-install.sh --branch "$tag" --skip-setup --skip-browser --skip-computer-use --non-interactive; \
-    rm -f /tmp/hermes-install.sh /tmp/hermes-release.json; \
+    rm -f /tmp/hermes-install.sh; \
     "$HOME/.hermes/bin/uv" pip install --python "$HOME/.hermes/hermes-agent/venv/bin/python" \
         -e "$HOME/.hermes/hermes-agent[anthropic]"; \
     "$HOME/.local/bin/hermes" --version
