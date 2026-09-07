@@ -1,8 +1,9 @@
 # junie
 
 A standalone sandbox kit for [Junie](https://junie.jetbrains.com/), the AI coding agent by JetBrains. The
-kit installs Junie into the sandbox at creation time, wires its API auth through the sandbox proxy, and runs `junie` as
-the entrypoint.
+kit runs on a **pre-baked sandbox image** — Junie is installed from its stable channel at image-build time, not at
+sandbox creation, so a new sandbox starts in seconds instead of waiting on the vendor install script. The kit itself
+wires Junie's API auth through the sandbox proxy and runs `junie` as the entrypoint.
 
 ## Prerequisites
 
@@ -47,7 +48,8 @@ Or with a local clone of this repo:
 sbx run --kit ./junie/ junie
 ```
 
-The first launch installs Junie via its official install script. Subsequent launches reuse the sandbox.
+Attaching drops you straight into Junie; sandbox creation installs nothing — Junie ships inside the image. The image
+itself still has to be pulled the first time, if it isn't cached locally.
 
 ## How auth works
 
@@ -57,6 +59,17 @@ the correct authentication headers (e.g., `Authorization: Bearer %s`, `x-api-key
 outbound requests.
 
 Each credential sets `apiKey.proxyManaged: true` to ensure it's handled securely by the proxy.
+
+`permissions.network.allow` no longer lists `github.com`, `raw.githubusercontent.com`, or
+`release-assets.githubusercontent.com`: those were only ever needed for the vendor installer's own
+version-resolution feed and the release zip it downloads, both now resolved at image-build time (see
+[Base image](#base-image)), and the image also sets `JUNIE_SKIP_UPDATE_CHECK=1` so the installed binary never checks
+for a newer build at runtime either. `junie.jetbrains.com` stays in the allowlist regardless, because it is also the
+`junie` credential's inject domain above.
+
+Junie's own multi-channel switching (`junie --eap`, `--nightly`, `--experimental`) is outside this kit's supported
+surface: it fetches and installs another channel's build on demand, and that build's hosts are not part of this
+allowlist.
 
 ### Anthropic: API key only, no Claude subscription
 
@@ -74,6 +87,57 @@ Do not authenticate from inside the sandbox: a credential written into
 the container defeats `proxyManaged: true`, since from there it is
 readable by the agent and by anything the agent runs. Keep credentials
 host-side.
+
+## Base image
+
+Unlike most kits here — which are `kind: mixin` or `kind: agent` and layer
+onto an existing `docker/sandbox-templates` image — a `kind: sandbox` kit *is*
+the whole environment, so it names the image the sandbox boots from. This kit
+builds and publishes its own, from the `Dockerfile` in this directory:
+
+```
+docker.io/sbx/junie-image
+└── FROM docker/sandbox-templates:shell-docker
+    └── junie (upstream's own install.sh, stable channel)
+        ENV JUNIE_SKIP_UPDATE_CHECK=1
+```
+
+`JUNIE_SKIP_UPDATE_CHECK=1` disables the installed binary's own runtime
+auto-update check — without it, Junie's shim reaches out on its own schedule
+to look for a newer build of the channel it is on, independent of anything
+this kit's egress policy allows. Setting it is what makes the trimmed
+allowlist above a closed set rather than an approximation of one.
+
+The `-image` suffix distinguishes the base image from the kit itself: the kit
+is published separately as an OCI artifact at `docker.io/sbx/junie-kit` (see
+[Usage](#usage) above).
+
+### Building and publishing
+
+How the image is named, tagged, verified and pushed is the same for every kit
+in this repo that builds its own image — see
+**[PUBLISHING.md](../PUBLISHING.md)** for the pipeline. There is no
+kit-specific build script or workflow; CI builds and publishes this image the
+same way it does for `hermes-agent`/`pi`/`openclaw`/`kiro`/`copilot`.
+
+Junie's stable channel publishes a new build every few days, so this image
+rolls: the `Dockerfile`'s `ADD` against upstream's own version-resolution feed
+forces a fresh install whenever the channel moves, and the pipeline's nightly
+scheduled rebuild picks one up within a day either way. There is no supported
+way to pin a specific build in this image — `install.sh`'s `JUNIE_VERSION`
+override exists, but is not exposed as a build arg here (see the Dockerfile).
+
+### Building locally
+
+```console
+docker build -t docker.io/sbx/junie-image:latest junie
+./scripts/test-kit.sh junie
+```
+
+`scripts/test-kit.sh` builds the kit's own image before running the suite
+(`SBX_KIT_SKIP_IMAGE_BUILD=1` to skip and reuse what's already built). Until
+the image is first published — pull requests build it but never push it — the
+TCK's `container` subtest can only pull it locally, so build before you test.
 
 ## Customization
 

@@ -4,7 +4,14 @@ name: crush
 displayName: Crush
 description: Multi-provider AI coding agent from Charm, with proxy-mediated auth for 15 model providers.
 sandbox:
-  image: docker/sandbox-templates:shell-docker
+  # Pre-baked image: Crush is installed from Charm's apt repository at image-
+  # build time rather than sandbox-create time. Built and published by
+  # build-and-publish-kits.yml, the shared kit-image pipeline (see
+  # ../PUBLISHING.md) -- no bespoke workflow needed, same as
+  # hermes-agent/pi/openclaw/kiro/copilot. Sandbox creation only pulls the
+  # image; the pipeline's nightly rebuild keeps Crush current (rolling
+  # updates, no deliberate version bump -- see the Dockerfile).
+  image: docker.io/sbx/crush-image:latest
   entrypoint:
     - crush
   command:
@@ -26,23 +33,15 @@ agentInstructions:
 permissions:
   network:
     allow:
-      - repo.charm.sh
-      # `apt-get update` (run by the install hooks) refreshes metadata for
-      # every configured apt source — failing on any one of them returns
-      # exit 100 even if the kit's package would come from a different
-      # repo. The shell-docker template ships with three sources, so all
-      # three must be allowed for the kit's install to succeed under
-      # `deny-all`. Ubuntu hosts amd64 packages on archive/security and
-      # arm64 packages on ports.ubuntu.com, so all three Ubuntu hosts are
-      # listed to keep the kit working cross-arch.
-      - archive.ubuntu.com        # Ubuntu archive (amd64 main)
-      - security.ubuntu.com       # Ubuntu security updates (amd64)
-      - ports.ubuntu.com          # Ubuntu archive/security (arm64)
-      - download.docker.com       # Docker's apt repo, pre-added by shell-docker
-      # Charm distributes the actual `crush` .deb via Gemfury's S3-accelerated
-      # bucket — `repo.charm.sh` only serves the apt index; package payloads
-      # are signed-URL redirects to this host.
-      - gemfury.s3-accelerate.dualstack.amazonaws.com
+      # Crush is baked into the image (see Dockerfile) rather than installed
+      # at sandbox-create time, so repo.charm.sh (the apt index and GPG key),
+      # the Gemfury-fronted S3 bucket it redirects package downloads to, and
+      # the three apt sources the shell-docker template ships with are all
+      # install-time-only now -- none of them is a credential inject domain,
+      # so none belongs here. What remains below is exactly the provider
+      # hosts the credentials block injects into: a credential's inject
+      # domains are not allowed implicitly, and e2e runs every kit under
+      # `deny-all` -- see README, "How auth works".
       - api.anthropic.com
       - api.openai.com
       - '*.openai.azure.com'
@@ -222,19 +221,3 @@ credentials:
         - domain: api.zai.com
           header: Authorization
           format: Bearer %s
-setup:
-  install:
-    - command: |
-        set -euo pipefail
-        mkdir -p /etc/apt/keyrings
-        curl -fsSL https://repo.charm.sh/apt/gpg.key | gpg --dearmor -o /etc/apt/keyrings/charm.gpg
-      user: "0"
-      description: Add Charm GPG key
-    - command: |
-        echo 'deb [signed-by=/etc/apt/keyrings/charm.gpg] https://repo.charm.sh/apt/ * *' \
-          > /etc/apt/sources.list.d/charm.list
-      user: "0"
-      description: Add Charm apt repository
-    - command: apt-get update -qq && apt-get install -y -qq crush
-      user: "0"
-      description: Install Crush from Charm apt repository

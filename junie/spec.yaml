@@ -4,7 +4,14 @@ name: junie
 displayName: Junie
 description: The AI coding agent by JetBrains.
 sandbox:
-  image: docker/sandbox-templates:shell-docker
+  # Pre-baked image: Junie is installed from its stable channel at image-
+  # build time rather than sandbox-create time. Built and published by
+  # build-and-publish-kits.yml, the shared kit-image pipeline (see
+  # ../PUBLISHING.md) -- no bespoke workflow needed, same as
+  # hermes-agent/pi/openclaw/kiro/copilot. Sandbox creation only pulls the
+  # image; the pipeline's nightly rebuild keeps Junie current (rolling
+  # updates, no deliberate version bump -- see the Dockerfile).
+  image: docker.io/sbx/junie-image:latest
   entrypoint:
     - junie
 agentInstructions:
@@ -12,11 +19,19 @@ agentInstructions:
 permissions:
   network:
     allow:
+      # Junie is baked into the image (see Dockerfile) rather than installed
+      # at sandbox-create time, and the image also sets
+      # JUNIE_SKIP_UPDATE_CHECK=1, so the installed binary never checks for
+      # or stages a runtime update. That drops github.com,
+      # raw.githubusercontent.com, and release-assets.githubusercontent.com
+      # from this list entirely: all three were reachable only for the
+      # vendor installer's own version-resolution feed and the GitHub-hosted
+      # release zip it downloads, and neither is a credential inject domain.
+      # junie.jetbrains.com stays -- it doubles as the `junie` credential's
+      # inject domain below, so it is still needed at runtime independent of
+      # install.
       - junie.jetbrains.com
       - api.jetbrains.ai
-      - github.com
-      - raw.githubusercontent.com
-      - release-assets.githubusercontent.com
       - api.anthropic.com
       - api.openai.com
       - generativelanguage.googleapis.com
@@ -77,8 +92,3 @@ credentials:
         - domain: api.x.ai
           header: Authorization
           format: Bearer %s
-setup:
-  install:
-    - command: curl -fsSL https://junie.jetbrains.com/install.sh | bash
-      user: "1000"
-      description: Install Junie
