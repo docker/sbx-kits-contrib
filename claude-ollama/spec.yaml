@@ -64,7 +64,9 @@ setup:
         }
         " > /home/agent/.claude/settings.json
         fi
-        chown -R agent:agent /home/agent/.claude
+        # Enumerated, not recursive: ~/.claude holds the shared skills directory,
+        # mounted read-only by default, so `chown -R` on the parent fails there.
+        chown agent:agent /home/agent/.claude /home/agent/.claude/settings.json
       user: root
       description: Seed Claude settings.json (none path; no credential service)
   files:

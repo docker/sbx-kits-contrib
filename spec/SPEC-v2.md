@@ -895,9 +895,12 @@ Conforming runtimes provide:
 - Install entries running as root MAY write to `/usr/local/bin`, `/opt`,
   `/etc`, and `/tmp`.
 - `/home/agent` and the workspace belong to the agent user. A root install
-  step that writes there MUST restore ownership (for example
-  `chown -R agent:agent /home/agent/.claude`), or later writes by the agent
-  user fail.
+  step that writes there MUST restore ownership (enumerate the paths it
+  touched, for example `chown agent:agent /home/agent/.claude
+  /home/agent/.claude/settings.json`, rather than recursing over the
+  parent — `~/.claude` can contain the shared skills directory, mounted
+  read-only by default, so a recursive chown there fails), or later writes
+  by the agent user fail.
 - Startup entries and the entrypoint run as the agent user by default and
   MUST NOT assume root write access.
 

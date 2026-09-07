@@ -95,9 +95,12 @@ setup:
           set -e
           exec > /tmp/claude-mem-reconcile.log 2>&1
           # Run unconditionally (including on early failure below) so root
-          # never leaves /home/agent/.claude un-chowned.
-          trap 'chown -R agent:agent /home/agent/.claude' EXIT
+          # never leaves /home/agent/.claude or settings.json root-owned.
+          # Enumerated, not recursive: ~/.claude holds the shared skills
+          # directory, mounted read-only by default, so `chown -R` on the
+          # parent fails there.
           S=/home/agent/.claude/settings.json
+          trap 'chown agent:agent /home/agent/.claude "$S"' EXIT
           mkdir -p /home/agent/.claude
           # Wait for the platform's own settings write to land first — at
           # create time the engine seeds this file late in the sequence and
@@ -135,7 +138,6 @@ setup:
             console.log("reconciled");
           ' "$S"
       # root + chown-on-exit: /home/agent/.claude ownership isn't guaranteed
-      # agent-owned on every base image (matches claude-sbx-statusline,
-      # claude-ollama).
+      # agent-owned on every base image.
       user: "0"
       description: Reconcile settings.json — ensure platform keys and claude-mem's enabledPlugins both present (ordering-immune, idempotent)
