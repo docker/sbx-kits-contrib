@@ -6,7 +6,13 @@ description: The self-improving AI agent by Nous Research — creates skills fro
 sandbox:
   image: docker/sandbox-templates:shell-docker
   entrypoint:
-    - /usr/local/bin/hermes-start
+    # Kit content, not a script written at install time: the entrypoint has to
+    # source the Anthropic auth env file the startup hook writes, and it is
+    # invoked through `sh` because files under `files/home/` land 0644 -- the
+    # artifact loader does not carry the source exec bit, so a direct exec
+    # fails with EACCES.
+    - sh
+    - /home/agent/.local/bin/hermes-start.sh
 agentInstructions:
   filename: AGENTS.md
 permissions:
@@ -22,6 +28,9 @@ permissions:
       - '*.openrouter.ai'
       - api.openai.com
       - api.anthropic.com
+      # The anthropic credential's OAuth token endpoint, for the refresh the
+      # proxy performs once the access token expires.
+      - platform.claude.com:443
       - portal.nousresearch.com
       - duckduckgo.com        # install.sh connectivity probe alongside pypi.org
       - archive.ubuntu.com    # Ubuntu archive (amd64 main)
@@ -37,6 +46,33 @@ credentials:
         - domain: api.anthropic.com
           header: x-api-key
           format: '%s'
+    # For a host whose stored anthropic credential is an OAuth login -- signed
+    # in from a `claude` sandbox rather than an API key. Without this block
+    # such a host gets no usable credential at all: the apiKey sentinel reaches
+    # Anthropic unswapped and every model call 401s.
+    #
+    # credentialFile points at Claude Code's own store because Hermes reads it
+    # natively and refreshes it in place (agent/anthropic_credentials.py), so
+    # no bootstrap has to translate the credential -- only to drop the
+    # ANTHROPIC_API_KEY sentinel that would otherwise shadow it, which
+    # hermes-anthropic-auth.sh does. The file holds sentinels, not real tokens.
+    oauth:
+      tokenEndpoint:
+        host: platform.claude.com
+        path: /v1/oauth/token
+      resourceHosts:
+        - api.anthropic.com
+      sentinels:
+        accessToken: sk-ant-oat01-proxy-managed
+        refreshToken: sk-ant-ort01-proxy-managed
+      credentialFile:
+        path: ~/.claude/.credentials.json
+        structure:
+          claudeAiOauth:
+            accessToken: '{{.AccessToken}}'
+            refreshToken: '{{.RefreshToken}}'
+            expiresAt: '{{.ExpiresAt}}'
+            scopes: '{{.Scopes}}'
   - service: openai
     apiKey:
       name: OPENAI_API_KEY
@@ -58,9 +94,15 @@ environment:
     HERMES_HOME: /home/agent/.hermes
 setup:
   install:
-    - command: printf '#!/bin/sh\nif ! [ -f /home/agent/.hermes-installed ]; then\n  echo "Waiting for Hermes Agent installation (~3 min)..." >&2\n  until [ -f /home/agent/.hermes-installed ]; do sleep 3; done\nfi\nexec /home/agent/.local/bin/hermes "$@"\n' > /usr/local/bin/hermes-start && chmod +x /usr/local/bin/hermes-start
-      user: "0"
-      description: Create entrypoint wrapper that polls for install completion before launching hermes
     - command: printf '#!/bin/bash\nset -e\ncurl -fsSL https://raw.githubusercontent.com/NousResearch/hermes-agent/main/scripts/install.sh | bash -s -- --skip-setup\ntouch /home/agent/.hermes-installed\n' > /home/agent/hermes-install.sh && chmod +x /home/agent/hermes-install.sh && setsid /home/agent/hermes-install.sh > /home/agent/hermes-install.log 2>&1 &
       user: "1000"
       description: Install Hermes Agent via official installer in detached background session (~3 minutes; writes .hermes-installed flag on completion)
+  startup:
+    # Runs on every container start, ahead of any attach: the credential state
+    # is wired at create time and a stop/start can follow a change of host
+    # credential, so the env file is recomputed rather than cached.
+    - command:
+        - sh
+        - /home/agent/.local/bin/hermes-anthropic-auth.sh
+      user: "1000"
+      description: Resolve whether Anthropic auth is an API key, an OAuth login, or absent, and record it for the entrypoint and `sbx exec` shells
