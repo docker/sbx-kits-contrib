@@ -5,7 +5,18 @@ displayName: OpenHands
 description: |
   AI software engineering agent. Resolves issues, writes code, runs tests, and opens PRs — all autonomously.
 sandbox:
-  image: docker/sandbox-templates:shell-docker
+  # Pre-baked image: OpenHands installed via `uv tool install` at build time
+  # (see the Dockerfile), on the plain `shell` template -- no Docker engine.
+  # This kit sets SANDBOX_TYPE=local, and the CLI's own workspace setup
+  # resolves to a subprocess-based LocalWorkspace regardless of that
+  # variable, so it never needs one. Built and published by
+  # build-and-publish-kits.yml, the shared kit-image pipeline (see
+  # ../PUBLISHING.md) -- no bespoke workflow needed, same as
+  # hermes-agent/pi/openclaw/kiro/copilot. Sandbox creation only pulls the
+  # image; the pipeline's nightly rebuild tracks whatever `openhands` is
+  # newest on PyPI (rolling, no deliberate version bump -- see the
+  # Dockerfile).
+  image: docker.io/sbx/openhands-image:latest
   entrypoint:
     # Kit content, not the installed binary: the entrypoint has to source the
     # Anthropic auth env file the startup hook writes. Invoked through `sh`
@@ -32,9 +43,10 @@ agentInstructions:
 
     ## Network access
 
-    Outbound requests are filtered. Reachable: GitHub, PyPI, npm, Docker registries,
-    the configured LLM API (auth injected by proxy). Tavily search is available
-    if `TAVILY_API_KEY` is set.
+    Outbound requests are filtered. Reachable: GitHub, PyPI (version-check only),
+    npm (for `openhands mcp add` servers launched via `npx`), the configured LLM
+    API (auth injected by proxy). Tavily search is available if `TAVILY_API_KEY`
+    is set.
 
     ## Working conventions
 
@@ -64,24 +76,18 @@ permissions:
       - github.com
       - api.github.com
       - raw.githubusercontent.com
-      # openhands-ai pins requires-python to <3.14, and the shell-docker base
-      # image ships 3.14 -- so `uv tool install openhands` below downloads a
-      # standalone Python from a GitHub release (astral-sh/python-build-standalone).
-      # GitHub serves that redirect from either of two CDN hosts depending on
-      # rollout, so both must stay allowed.
-      - objects.githubusercontent.com
-      - release-assets.githubusercontent.com
+      # The CLI's splash screen calls this on every interactive launch
+      # (openhands_cli/version_check.py: a GET to pypi.org/pypi/openhands/json
+      # with a 2s timeout, swallowed on failure) to show an "update available"
+      # notice. It never downloads a package here -- that only happened at
+      # `uv tool install`/`uv tool upgrade`, both gone now that the CLI is
+      # baked into the image -- so files.pythonhosted.org (the wheel/sdist
+      # host) is dropped, but this metadata host stays.
       - pypi.org
-      - files.pythonhosted.org
-      - astral.sh
-      - '*.astral.sh'
+      # OpenHands' `openhands mcp add <name> --transport stdio npx -- ...`
+      # (see the kit README) launches MCP servers via `npx`, a genuine
+      # runtime feature of the shipped CLI, not an install-time artifact.
       - registry.npmjs.org
-      - registry-1.docker.io
-      - index.docker.io
-      - auth.docker.io
-      - production.cloudflare.docker.com
-      - ghcr.io
-      - docker.openhands.dev
       - api.tavily.com
 # litellm (which OpenHands uses under the hood) checks these env vars are
 # present *before* it ever makes a request -- if the var is unset it raises
@@ -159,12 +165,6 @@ environment:
     OPENHANDS_SUPPRESS_BANNER: "1"
     SANDBOX_TYPE: local
 setup:
-  install:
-    # uv ships pre-installed in the shell-docker base image (/usr/local/bin/uv,
-    # already on PATH) -- no need to install it ourselves.
-    - command: uv tool install openhands
-      user: "1000"
-      description: Install OpenHands CLI
   startup:
     # Runs on every container start, ahead of any attach: the credential state
     # is wired at create time and a stop/start can follow a change of host
@@ -174,11 +174,3 @@ setup:
         - /home/agent/.local/bin/openhands-anthropic-auth.sh
       user: "1000"
       description: Resolve whether Anthropic auth is an API key, an OAuth login, or absent, and record it for the entrypoint and `sbx exec` shells
-    - command:
-        - uv
-        - tool
-        - upgrade
-        - openhands
-        - --quiet
-      user: "1000"
-      description: Upgrade OpenHands to latest (foreground -- must finish before the entrypoint execs the binary it's upgrading)

@@ -2,13 +2,15 @@
 
 A standalone sandbox kit (`kind: sandbox`, `schemaVersion: "2"`) for
 [OpenHands](https://openhands.dev/), an open-source AI software engineering
-agent. The kit installs OpenHands via
-[uv](https://astral.sh/uv/), wires LLM API auth through the sandbox proxy, and runs
-`openhands --always-approve` as the entrypoint when you attach.
+agent. OpenHands runs on a pre-baked image — installed via
+[uv](https://astral.sh/uv/) at image-build time, not at sandbox creation, so a
+new sandbox starts in seconds instead of waiting on the install. The kit wires
+LLM API auth through the sandbox proxy and runs `openhands --always-approve`
+as the entrypoint when you attach.
 
 OpenHands defaults to [CodeActAgent](https://docs.all-hands.dev/usage/agents) with
 `SANDBOX_TYPE=local` — code executes directly in the sandbox container rather than
-spawning nested Docker containers.
+spawning nested Docker containers. See "How `SANDBOX_TYPE=local` works" below.
 
 ## Prerequisites
 
@@ -77,9 +79,14 @@ Or with a local clone:
 sbx run --kit ./openhands/ openhands
 ```
 
-The first launch installs OpenHands (takes ~2 minutes; subsequent starts reuse the
-sandbox). Subsequent launches reconnect to the existing sandbox and check for
-OpenHands updates before starting.
+OpenHands is already installed in the image, so the first launch starts in
+seconds rather than waiting on a multi-minute install; subsequent starts reuse
+the same sandbox. There is no per-start upgrade step — the image is rebuilt
+nightly against whatever release is newest on PyPI (see
+[PUBLISHING.md](../PUBLISHING.md)), so a running sandbox picks up a newer
+OpenHands only on its next recreate. The CLI's own splash screen still pings
+PyPI on each interactive launch to show an "update available" notice; that
+check never installs anything.
 
 ## How auth works
 
@@ -156,18 +163,27 @@ it is readable by the agent and by anything the agent runs, and this
 kit's allowlist includes hosts it could be sent to. Keep credentials
 host-side.
 
-`permissions.network.allow` is kept narrow — only the API endpoints are listed,
-not CDNs or install scripts. Widening it to a wildcard would push the proxy into
-TLS-intercepting mode for those additional hosts, which breaks binary downloads
-during installation.
+`permissions.network.allow` is kept to what the running agent actually needs:
+the LLM API endpoints, GitHub (git/`gh`), PyPI (the CLI's own update-check
+ping — see "Usage" above), and npm (MCP servers launched via `npx`). OpenHands itself
+is baked into the image at build time, so none of `uv`'s install-time fetches
+(PyPI wheels, a standalone CPython, GitHub release CDNs) need a place in this
+list anymore.
 
 ## How `SANDBOX_TYPE=local` works
 
-By default, OpenHands spawns a Docker container as its code-execution runtime. Inside
-a Docker sandbox that would require Docker-in-Docker. Setting `SANDBOX_TYPE=local`
-tells OpenHands to execute code directly within the container instead. The SBX
-container is already isolated, so this is safe and eliminates the overhead of
-a second container layer.
+OpenHands can execute code either directly in its own process or by spawning
+a separate Docker container as an isolation boundary. This kit sets
+`SANDBOX_TYPE=local`, which is the CLI's own convention for the former. In the
+current CLI, though, the workspace it constructs
+(`openhands_cli/setup.py: Workspace(working_dir=...)`, no `host` argument)
+resolves unconditionally to a subprocess-based `LocalWorkspace`
+(`openhands.sdk.workspace.workspace.Workspace.__new__`) — the
+Docker-container path lives in a separate package the CLI's local-agent code
+never imports. So the terminal CLI this kit runs never needs a Docker engine,
+independent of the env var; re-check that factory if a future OpenHands
+release restructures workspace selection. The SBX container is already
+isolated, so running directly in it is safe either way.
 
 ## Switching the default model
 
