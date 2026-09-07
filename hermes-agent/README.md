@@ -138,11 +138,6 @@ defeats `proxyManaged: true`: from there it is readable by the agent and by
 anything the agent runs, and this kit's allowlist includes hosts it could be
 sent to. Keep credentials host-side.
 
-> **Not yet exercised end to end.** The OAuth wiring is verified against the
-> spec loader (`scripts/verify-kit-spec`, the TCK's `oauth_policy` checks) and
-> against upstream's credential resolution, but no e2e run against a real
-> subscription-login host has happened yet. The API-key path is unchanged.
-
 ## How the install works
 
 On first sandbox creation the kit runs the official `install.sh` script in a

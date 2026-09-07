@@ -124,12 +124,6 @@ it is readable by the agent and by anything the agent runs, and this
 kit's allowlist includes hosts it could be sent to. Keep credentials
 host-side.
 
-> **Not yet exercised end to end.** The OAuth wiring is verified against
-> the spec loader (`scripts/verify-kit-spec`, the TCK's `oauth_policy`
-> checks) and against LiteLLM's own shape detection, but no e2e run
-> against a real subscription-login host has happened yet. The API-key
-> path is unchanged.
-
 ## Switching the default model
 
 `AIDER_MODEL` sets the kit's default (`sonnet`), but there's no supported way

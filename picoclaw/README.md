@@ -108,13 +108,6 @@ key. Instead of "no API key configured" you get an opaque `401` on the
 first model call. Treat a bare 401 as "no credential wired", not as
 "wrong key".
 
-> **Not yet exercised end to end.** The resolver's three branches are
-> tested directly against the seeded config, and the wiring is verified
-> against the spec loader (`scripts/verify-kit-spec`, the TCK's
-> `oauth_policy` checks) and upstream's provider factory — but no e2e run
-> against a real subscription-login host has happened yet. The API-key
-> path is unchanged.
-
 ## Debugging
 
 ```console

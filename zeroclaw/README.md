@@ -104,12 +104,6 @@ so instead of "no API key configured" you get an opaque `401` on the
 first model call. Treat a bare 401 as "no credential wired", not as
 "wrong key".
 
-> **Not yet exercised end to end.** The OAuth wiring is verified against
-> the spec loader (`scripts/verify-kit-spec`, the TCK's `oauth_policy`
-> checks) and against upstream's shape detection, but no e2e run against
-> a real subscription-login host has happened yet. The API-key path is
-> unchanged.
-
 `sandbox_backend = "none"` is set because tool calls already run inside
 the sandbox microVM (ZeroClaw's own Landlock/Bubblewrap backends aren't
 available in-container).
