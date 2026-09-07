@@ -80,6 +80,56 @@ even attempt a request. The placeholder satisfies that check; the proxy
 substitutes the real key before the request leaves the sandbox. Aider never
 sees the actual credential.
 
+### Anthropic: API key vs Claude subscription (OAuth)
+
+Anthropic rejects an API key sent as `Authorization: Bearer` and an OAuth
+token sent as `x-api-key`, so the kit has to hand LiteLLM the shape that
+matches the credential the host holds. LiteLLM works that out from the
+key itself (`optionally_handle_anthropic_oauth`, present in the `litellm==1.82.3` Aider pins): a value starting `sk-ant-oat` drops
+`x-api-key` and goes out as Bearer with the OAuth beta header, anything
+else stays an API key.
+
+| host credential | sandbox receives | wire format |
+|---|---|---|
+| API key — `sbx secret set anthropic` | `ANTHROPIC_API_KEY` sentinel | `x-api-key` |
+| OAuth login — sign in from a `claude` sandbox | `ANTHROPIC_API_KEY` set to the OAuth sentinel | `Bearer` |
+| none | sentinel dropped | Aider reports no credential |
+
+An API key wins when the host has one. Without the `oauth:` block a host
+whose only Anthropic credential is a subscription login would get no
+usable credential at all: the API-key sentinel would reach Anthropic
+unswapped and every model call would 401.
+
+`aider-anthropic-auth.sh` runs at every container start and writes
+that decision to an env file the entrypoint sources (and a `~/.profile` hook carries it into `sbx exec -- sh -lc 'aider …'`). It
+detects the OAuth case from the credential file the engine materializes,
+**not** from `SBX_CRED_ANTHROPIC_MODE` — that variable reports `none` for
+an OAuth login just as it does for no credential at all, so nothing may
+key off it. LiteLLM never reads that file; it exists to make the OAuth
+case detectable and to carry the sentinel. The proxy swaps the sentinel
+for the real access token on egress to `api.anthropic.com` and performs
+the refresh against `platform.claude.com` when it nears expiry.
+
+**Only one binding at a time.** A bound `anthropic` API-key secret makes
+the proxy *set* `x-api-key` on `api.anthropic.com`. Combined with a
+Bearer request that is two auth headers, and Anthropic rejects it
+outright — so `API key is invalid` on the OAuth path means a stale API-key
+secret is still bound. `sbx secret rm anthropic` first, then recreate the
+sandbox: credentials are wired at create time, so a running sandbox never
+picks up a change.
+
+Do not authenticate from inside the sandbox. Any flow that writes a
+*real* token into the container defeats `proxyManaged: true`: from there
+it is readable by the agent and by anything the agent runs, and this
+kit's allowlist includes hosts it could be sent to. Keep credentials
+host-side.
+
+> **Not yet exercised end to end.** The OAuth wiring is verified against
+> the spec loader (`scripts/verify-kit-spec`, the TCK's `oauth_policy`
+> checks) and against LiteLLM's own shape detection, but no e2e run
+> against a real subscription-login host has happened yet. The API-key
+> path is unchanged.
+
 ## Switching the default model
 
 `AIDER_MODEL` sets the kit's default (`sonnet`), but there's no supported way
