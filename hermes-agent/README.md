@@ -8,10 +8,26 @@ memory across sessions, supports 200+ models via OpenRouter, and includes a
 built-in cron scheduler and multi-platform gateway (Telegram, Discord, Slack,
 WhatsApp).
 
-The kit installs Hermes via the official installer at sandbox creation time and
-runs it as the entrypoint when you attach. First launch polls until the
-background install finishes (~3 minutes); subsequent launches reuse the sandbox
-instantly.
+The kit runs on a pre-baked image — Hermes and its dependencies are installed
+at image-build time, not at sandbox creation, so a new sandbox starts in
+seconds instead of waiting on a multi-minute install. The sandbox has no
+Docker engine (unlike this kit's previous base image): Hermes' default
+terminal backend runs commands in the sandbox itself and does not need one,
+so if your workflow shells out to `docker` inside the agent, it will not
+find it here.
+
+## Supported providers, and what is not baked in
+
+Only Anthropic, OpenAI, and OpenRouter are installed and reachable — see
+"Setup" and "How auth works" below. Hermes supports a much wider set of model
+providers, search backends, messaging-platform gateways, and TTS/STT engines,
+and normally installs each one's SDK from PyPI the first time you use it. This
+image disables that: it is sealed (no writable install target), so an attempt
+to use anything outside the three supported providers fails immediately with
+`FeatureUnavailable` naming the exact `pip install` command Hermes would have
+run, rather than hanging or failing opaquely against a network policy that
+does not allow PyPI. That message is expected — it means the feature genuinely
+is not part of this kit, not that something is broken.
 
 ## Prerequisites
 
@@ -137,16 +153,6 @@ Hermes-native `/login` run in the container writes a *real* token into
 defeats `proxyManaged: true`: from there it is readable by the agent and by
 anything the agent runs, and this kit's allowlist includes hosts it could be
 sent to. Keep credentials host-side.
-
-## How the install works
-
-On first sandbox creation the kit runs the official `install.sh` script in a
-detached background session as user `1000`. The script installs `uv`,
-Python 3.11, clones the hermes-agent repo from GitHub, and installs it via
-`uv pip install -e ".[all]"` into `~/.hermes/hermes-agent/venv`. A sentinel
-file `~/.hermes-installed` is written on success. The entrypoint at
-`~/.local/bin/hermes-start.sh` polls for this file before exec-ing
-`~/.local/bin/hermes`. Install logs are written to `~/hermes-install.log`.
 
 ## Removing stored secrets
 

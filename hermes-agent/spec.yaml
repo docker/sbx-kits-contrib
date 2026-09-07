@@ -4,7 +4,15 @@ name: hermes-agent
 displayName: Hermes Agent
 description: The self-improving AI agent by Nous Research — creates skills from experience, supports 200+ models via OpenRouter, and runs anywhere
 sandbox:
-  image: docker/sandbox-templates:shell-docker
+  # Pre-baked image: Hermes at the latest upstream release, on the shell
+  # template (no Docker engine -- Hermes' default terminal backend is
+  # "local", so it does not need one). Built and published by
+  # build-and-publish-kits.yml, the shared kit-image pipeline (see
+  # ../PUBLISHING.md) -- no bespoke workflow needed, same as
+  # pi/openclaw/kiro/copilot. Sandbox creation only pulls the image; the
+  # pipeline's nightly rebuild keeps Hermes current (rolling updates, no
+  # deliberate version bump -- see the Dockerfile).
+  image: docker.io/sbx/hermes-agent-image:latest
   entrypoint:
     # Kit content, not a script written at install time: the entrypoint has to
     # source the Anthropic auth env file the startup hook writes, and it is
@@ -18,21 +26,14 @@ agentInstructions:
 permissions:
   network:
     allow:
-      - github.com
-      - raw.githubusercontent.com
-      # install.sh's uv then fetches a standalone Python runtime from a
-      # GitHub release (astral-sh/python-build-standalone). GitHub serves
-      # that redirect from either of two CDN hosts depending on rollout, so
-      # both must stay allowed.
-      - objects.githubusercontent.com
-      - release-assets.githubusercontent.com
-      - pypi.org
-      - files.pythonhosted.org
-      # install.sh installs uv via astral.sh/uv/install.sh, which 301s to
-      # releases.astral.sh for the actual installer script -- the bare
-      # `astral.sh` entry above does not cover that subdomain.
-      - astral.sh
-      - '*.astral.sh'
+      # A credential's inject domains are not allowed implicitly, and e2e
+      # runs every kit under deny-all -- see README, "How auth works".
+      #
+      # No pypi.org/files.pythonhosted.org: the image sets
+      # HERMES_DISABLE_LAZY_INSTALLS=1 (see Dockerfile), so Hermes refuses
+      # every runtime pip install rather than reaching PyPI for a provider,
+      # search backend, or skill dependency outside what is baked in. That
+      # makes this allowlist a closed set instead of an approximation of one.
       - openrouter.ai
       - '*.openrouter.ai'
       - api.openai.com
@@ -40,12 +41,9 @@ permissions:
       # The anthropic credential's OAuth token endpoint, for the refresh the
       # proxy performs once the access token expires.
       - platform.claude.com:443
+      # Nous Portal: OAuth login and model selection for the "nous" hosted
+      # model provider.
       - portal.nousresearch.com
-      - duckduckgo.com        # install.sh connectivity probe alongside pypi.org
-      - archive.ubuntu.com    # Ubuntu archive (amd64 main)
-      - security.ubuntu.com   # Ubuntu security updates (amd64)
-      - ports.ubuntu.com      # Ubuntu archive/security (arm64)
-      - download.docker.com   # Docker's apt repo
 credentials:
   - service: anthropic
     apiKey:
@@ -102,10 +100,6 @@ environment:
   variables:
     HERMES_HOME: /home/agent/.hermes
 setup:
-  install:
-    - command: printf '#!/bin/bash\nset -e\ncurl -fsSL https://raw.githubusercontent.com/NousResearch/hermes-agent/main/scripts/install.sh | bash -s -- --skip-setup\ntouch /home/agent/.hermes-installed\n' > /home/agent/hermes-install.sh && chmod +x /home/agent/hermes-install.sh && setsid /home/agent/hermes-install.sh > /home/agent/hermes-install.log 2>&1 &
-      user: "1000"
-      description: Install Hermes Agent via official installer in detached background session (~3 minutes; writes .hermes-installed flag on completion)
   startup:
     # Runs on every container start, ahead of any attach: the credential state
     # is wired at create time and a stop/start can follow a change of host
