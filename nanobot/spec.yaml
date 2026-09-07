@@ -15,6 +15,13 @@ agentInstructions:
 permissions:
   network:
     allow:
+      # Every domain the anthropic credential below injects into -- required
+      # here too, not just below: this repo's e2e runs every kit under
+      # `sbx policy init deny-all`, so a domain absent from this list is
+      # unreachable regardless of what the credential block declares.
+      - api.anthropic.com
+      - claude.ai
+      - console.anthropic.com
       - pypi.org
       - files.pythonhosted.org
       - '*.telegram.org'

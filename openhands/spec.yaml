@@ -64,7 +64,13 @@ permissions:
       - github.com
       - api.github.com
       - raw.githubusercontent.com
+      # openhands-ai pins requires-python to <3.14, and the shell-docker base
+      # image ships 3.14 -- so `uv tool install openhands` below downloads a
+      # standalone Python from a GitHub release (astral-sh/python-build-standalone).
+      # GitHub serves that redirect from either of two CDN hosts depending on
+      # rollout, so both must stay allowed.
       - objects.githubusercontent.com
+      - release-assets.githubusercontent.com
       - pypi.org
       - files.pythonhosted.org
       - astral.sh

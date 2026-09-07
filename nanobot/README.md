@@ -90,6 +90,8 @@ Do not authenticate from inside the sandbox: a credential written into
 is readable by the agent and by anything the agent runs. Keep credentials
 host-side.
 
-The kit's `allowedDomains` covers PyPI (for the install) and the
+The kit's `allowedDomains` covers the Anthropic hosts the credential
+above injects into (`api.anthropic.com`, `claude.ai`,
+`console.anthropic.com`), PyPI (for the install), and the
 chat-platform hosts (Telegram, Discord, WhatsApp, Slack, Feishu)
 for any chat adapters the user later enables.

@@ -20,10 +20,19 @@ permissions:
     allow:
       - github.com
       - raw.githubusercontent.com
+      # install.sh's uv then fetches a standalone Python runtime from a
+      # GitHub release (astral-sh/python-build-standalone). GitHub serves
+      # that redirect from either of two CDN hosts depending on rollout, so
+      # both must stay allowed.
       - objects.githubusercontent.com
+      - release-assets.githubusercontent.com
       - pypi.org
       - files.pythonhosted.org
+      # install.sh installs uv via astral.sh/uv/install.sh, which 301s to
+      # releases.astral.sh for the actual installer script -- the bare
+      # `astral.sh` entry above does not cover that subdomain.
       - astral.sh
+      - '*.astral.sh'
       - openrouter.ai
       - '*.openrouter.ai'
       - api.openai.com
