@@ -60,11 +60,35 @@ nanobot expands `${VAR}` references in config values at startup, so the
 config picks up whatever value the runtime put in `ANTHROPIC_API_KEY`
 for this sandbox instead of pinning one sandbox's value into the kit.
 
-The kit declares the Anthropic auth wiring (`serviceDomains`,
-`serviceAuth`, `credentials.sources.anthropic`, and
-`environment.proxyManaged: ANTHROPIC_API_KEY`) so the sandbox proxy
-substitutes the real Anthropic credential on outbound requests to
-`api.anthropic.com`.
+The kit declares the Anthropic auth wiring as a single
+`credentials[]` entry — `service: anthropic`, `apiKey.name:
+ANTHROPIC_API_KEY`, `apiKey.proxyManaged: true`, and an `inject` rule for
+`api.anthropic.com` — so the sandbox proxy substitutes the real Anthropic
+credential on outbound requests and the container only ever holds a
+sentinel.
+
+### Anthropic: API key only, no Claude subscription
+
+An Anthropic **API key** is the only credential nanobot can use here.
+Its Anthropic client sets `x-api-key` unconditionally from the
+provider's `api_key` (`pkg/llm/anthropic/client.go`) with no shape
+detection, so a subscription (OAuth) token — which Anthropic only accepts
+as `Authorization: Bearer`, and only alongside the Claude Code identity
+prompt its own clients send — cannot be presented correctly. The kit
+therefore declares no `oauth:` block, and on a host whose only Anthropic
+credential is a subscription login the API-key sentinel would reach
+Anthropic unswapped and every model call would 401. Bind an API key
+instead: `echo "$ANTHROPIC_API_KEY" | sbx secret set anthropic`.
+
+nanobot's per-provider `headers` map can override the auth header, which
+is the seam a future OAuth path would use, but it does not by itself
+satisfy Anthropic's requirements for a subscription token — so the kit
+does not pretend to support one.
+
+Do not authenticate from inside the sandbox: a credential written into
+`~/.nanobot/config.json` defeats `proxyManaged: true`, since from there it
+is readable by the agent and by anything the agent runs. Keep credentials
+host-side.
 
 The kit's `allowedDomains` covers PyPI (for the install) and the
 chat-platform hosts (Telegram, Discord, WhatsApp, Slack, Feishu)

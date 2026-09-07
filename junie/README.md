@@ -58,6 +58,23 @@ outbound requests.
 
 Each credential sets `apiKey.proxyManaged: true` to ensure it's handled securely by the proxy.
 
+### Anthropic: API key only, no Claude subscription
+
+Junie's bring-your-own-key mode takes provider **API keys** — the CLI's
+own flag is `--anthropic-api-key sk-...` — and has no Claude subscription
+(OAuth) login. So the kit declares only an `apiKey` credential for
+`anthropic`, and a host whose only Anthropic credential is a subscription
+login has nothing usable here: the API-key sentinel would reach Anthropic
+unswapped and every model call would 401. Bind an API key instead
+(`echo "$ANTHROPIC_API_KEY" | sbx secret set anthropic`), use a
+`JUNIE_API_KEY` from junie.jetbrains.com, or pick one of the other
+providers the kit declares.
+
+Do not authenticate from inside the sandbox: a credential written into
+the container defeats `proxyManaged: true`, since from there it is
+readable by the agent and by anything the agent runs. Keep credentials
+host-side.
+
 ## Customization
 
 Junie's instructions can be customized by editing `.junie/AGENTS.md` or `AGENTS.md`.

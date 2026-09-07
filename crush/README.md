@@ -70,3 +70,26 @@ expects to find.
 
 `permissions.network.allow` covers the install repo (`repo.charm.sh`) and
 every provider API host.
+
+### Anthropic: API key only, no Claude subscription
+
+An Anthropic **API key** is the only credential Crush can use here, and
+that is upstream's decision rather than a gap in the kit. Crush used to
+accept a Claude Code subscription login; it now deletes one on sight —
+`internal/config/load.go` drops the whole `providers.anthropic` entry
+when it carries an OAuth token, with the comment *"Claude Code
+subscription is not supported anymore"*, and re-runs onboarding. OAuth
+survives in Crush only for `hyper`, `copilot` and MCP servers
+(`crush login hyper`, `crush login copilot`).
+
+So on a host whose only Anthropic credential is a subscription login,
+this kit has nothing to wire: the kit declares no `oauth:` block, the
+API-key sentinel would reach Anthropic unswapped, and every model call
+would 401. Bind an API key instead —
+`echo "$ANTHROPIC_API_KEY" | sbx secret set anthropic` — or pick one of
+the other 14 providers the kit declares.
+
+Do not authenticate from inside the sandbox: a credential written into
+the container defeats `proxyManaged: true`, since from there it is
+readable by the agent and by anything the agent runs. Keep credentials
+host-side.
