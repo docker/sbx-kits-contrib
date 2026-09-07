@@ -5,11 +5,12 @@ A standalone sandbox kit (`kind: sandbox`, the v2 spec naming) for
 fully autonomous AI assistant infrastructure in Rust: a single binary
 running a gateway with 30+ channels and ~20 providers.
 
-ZeroClaw ships pinned per-arch release binaries, so this kit deliberately
-uses **no custom image**: one install command downloads the pinned
-upstream release onto the stock `shell` template in seconds. (See
-[`docs/recipe-prebaked-image-kit.md`](../docs/recipe-prebaked-image-kit.md)
-for when a pre-baked image *is* worth it.)
+ZeroClaw ships pinned per-arch release binaries, so this kit runs from a
+pre-baked image ([`Dockerfile`](./Dockerfile)): the pinned upstream release
+is downloaded, SHA256-verified and pinned as `docker.io/sbx/zeroclaw-image`
+at build time, so sandbox creation only pulls the image rather than fetching
+the binary itself, and the release download never has to sit in this kit's
+runtime network allowlist.
 
 ## Usage
 

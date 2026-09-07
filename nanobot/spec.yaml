@@ -4,7 +4,17 @@ name: nanobot
 displayName: Nanobot
 description: Lightweight personal AI assistant with multi-platform chat and multi-provider LLM support
 sandbox:
-  image: docker/sandbox-templates:shell-docker
+  # Pre-baked image: nanobot-ai at the latest upstream PyPI release, on the
+  # plain shell template -- nanobot-ai's dependency tree has no Docker
+  # dependency (checked against upstream's pyproject.toml), so the
+  # shell-docker variant this kit used to boot from was carrying an engine
+  # it never used. Built and published by build-and-publish-kits.yml, the
+  # shared kit-image pipeline (see ../PUBLISHING.md) -- no bespoke workflow
+  # needed, same as hermes-agent/pi/openclaw/kiro/copilot. Sandbox creation
+  # only pulls the image; the pipeline's nightly rebuild keeps nanobot
+  # current (rolling updates, no deliberate version bump -- see the
+  # Dockerfile).
+  image: docker.io/sbx/nanobot-image:latest
   entrypoint:
     - nanobot
     - agent
@@ -22,6 +32,11 @@ permissions:
       - api.anthropic.com
       - claude.ai
       - console.anthropic.com
+      # Not install-time-only: the kit's own bootstrap install moved to build
+      # time (see Dockerfile), but nanobot's built-in `cli_apps` tool
+      # (agent/tools/cli_apps.py, enabled by default, not disabled by this
+      # kit's config) pip-installs further packages at the agent's own
+      # request, so these stay reachable at runtime.
       - pypi.org
       - files.pythonhosted.org
       - '*.telegram.org'
@@ -49,8 +64,3 @@ credentials:
 environment:
   variables:
     NANOBOT_AGENTS__DEFAULTS__WORKSPACE: /home/agent/nanobot
-setup:
-  install:
-    - command: pip install --break-system-packages nanobot-ai
-      user: "1000"
-      description: Install nanobot

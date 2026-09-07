@@ -3,8 +3,9 @@
 A standalone agent kit (`kind: agent`) for
 [nanobot](https://pypi.org/project/nanobot-ai/) — a lightweight
 personal AI assistant with multi-platform chat (Telegram, Discord,
-WhatsApp, Slack, Feishu) and multi-provider LLM support. The kit
-installs nanobot via pip at sandbox creation time, ships a
+WhatsApp, Slack, Feishu) and multi-provider LLM support. The kit runs
+from a pre-baked image ([`Dockerfile`](./Dockerfile)) with nanobot
+already installed at the latest upstream PyPI release, ships a
 preconfigured `config.json` that points it at Anthropic via the
 sandbox proxy, and runs `nanobot agent` as the entrypoint when you
 attach.
@@ -27,10 +28,10 @@ Or with a local clone of this repo:
 sbx run --kit ./nanobot/ nanobot
 ```
 
-The first launch installs nanobot via `pip install nanobot-ai` and
-runs it against the kit-shipped config at
-`/home/agent/.nanobot/config.json`. Subsequent launches reuse the
-sandbox.
+nanobot is already installed in the image, so the first launch runs
+it directly against the kit-shipped config at
+`/home/agent/.nanobot/config.json` — no pip install in front of it.
+Subsequent launches reuse the sandbox.
 
 If you need the upstream onboarding flow (creates `SOUL.md`,
 `USER.md`, etc. under `~/.nanobot/`), exec a shell into the sandbox
@@ -92,6 +93,9 @@ host-side.
 
 The kit's `allowedDomains` covers the Anthropic hosts the credential
 above injects into (`api.anthropic.com`, `claude.ai`,
-`console.anthropic.com`), PyPI (for the install), and the
-chat-platform hosts (Telegram, Discord, WhatsApp, Slack, Feishu)
+`console.anthropic.com`), PyPI (`pypi.org`, `files.pythonhosted.org` —
+not for the kit's own install, which is baked into the image, but for
+nanobot's built-in `cli_apps` tool, which pip-installs further
+packages at the agent's own request and is enabled by default), and
+the chat-platform hosts (Telegram, Discord, WhatsApp, Slack, Feishu)
 for any chat adapters the user later enables.

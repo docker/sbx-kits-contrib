@@ -2,9 +2,16 @@ schemaVersion: "2"
 kind: sandbox
 name: zeroclaw
 displayName: ZeroClaw
-description: Fast, small, fully autonomous AI assistant infrastructure (Rust, single binary) — gateway with 30+ channels and ~20 providers. Installs in seconds from the pinned upstream release; no custom image needed.
+description: Fast, small, fully autonomous AI assistant infrastructure (Rust, single binary) — gateway with 30+ channels and ~20 providers, pre-baked at a pinned upstream release.
 sandbox:
-  image: docker/sandbox-templates:shell
+  # Pre-baked image: the pinned zeroclaw release binary, on the shell
+  # template (no Docker engine -- see the Dockerfile). Built and published
+  # by build-and-publish-kits.yml, the shared kit-image pipeline (see
+  # ../PUBLISHING.md) -- no bespoke workflow needed, same as
+  # hermes-agent/pi/openclaw/kiro/copilot. Sandbox creation only pulls the
+  # image; bumping the pinned version is a deliberate Dockerfile edit, not
+  # something the nightly rebuild does on its own.
+  image: docker.io/sbx/zeroclaw-image:latest
   entrypoint:
     # Invoked through `sh` because files under `files/home/` land 0644 -- the
     # artifact loader does not carry the source exec bit, so a direct exec
@@ -24,9 +31,6 @@ permissions:
       # The anthropic credential's OAuth token endpoint, for the refresh the
       # proxy performs once the access token expires.
       - platform.claude.com:443
-      - github.com:443
-      - objects.githubusercontent.com:443
-      - release-assets.githubusercontent.com:443
       - '*.telegram.org'
       - '*.discord.com'
       - gateway.discord.gg
@@ -83,10 +87,6 @@ environment:
   variables:
     ZEROCLAW_gateway__host: 0.0.0.0
 setup:
-  install:
-    - command: set -e; v=v0.8.0; case "$(uname -m)" in x86_64) t=x86_64-unknown-linux-gnu;; aarch64|arm64) t=aarch64-unknown-linux-gnu;; *) echo "unsupported arch"; exit 1;; esac; curl -fsSL "https://github.com/zeroclaw-labs/zeroclaw/releases/download/$v/zeroclaw-$t.tar.gz" | tar -xz -C /usr/local/bin zeroclaw && chmod 0755 /usr/local/bin/zeroclaw
-      user: "0"
-      description: Install the pinned zeroclaw release binary
   startup:
     # Runs on every container start, ahead of any attach, so a sandbox nobody
     # attaches to (the gateway on the published port) is configured too. The

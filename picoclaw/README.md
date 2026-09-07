@@ -5,11 +5,12 @@ A standalone sandbox kit (`kind: sandbox`, the v2 spec naming) for
 assistant in Go (<20MB RAM): an agent CLI plus a channel gateway
 (Telegram, Discord, Slack, WhatsApp, and 15 more).
 
-PicoClaw is a single ~10MB static binary, so this kit deliberately uses
-**no custom image**: one install command downloads the pinned upstream
-release onto the stock `shell` template in seconds. (See
-[`docs/recipe-prebaked-image-kit.md`](../docs/recipe-prebaked-image-kit.md)
-for when a pre-baked image *is* worth it.)
+PicoClaw is a single ~10MB static binary, so this kit runs from a pre-baked
+image ([`Dockerfile`](./Dockerfile)): the pinned, SHA256-verified upstream
+release is downloaded and pinned as `docker.io/sbx/picoclaw-image` at build
+time, so sandbox creation only pulls the image rather than fetching the
+binary itself, and the release download never has to sit in this kit's
+runtime network allowlist.
 
 ## Usage
 

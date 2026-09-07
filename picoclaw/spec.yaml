@@ -2,9 +2,16 @@ schemaVersion: "2"
 kind: sandbox
 name: picoclaw
 displayName: PicoClaw
-description: Tiny, fast personal AI assistant (Go, single static binary) — agent CLI plus a channel gateway. Installs in seconds from the pinned upstream release; no custom image needed.
+description: Tiny, fast personal AI assistant (Go, single static binary) — agent CLI plus a channel gateway, pre-baked at a pinned, SHA256-verified upstream release.
 sandbox:
-  image: docker/sandbox-templates:shell
+  # Pre-baked image: the pinned, SHA256-verified picoclaw release binary, on
+  # the shell template (no Docker engine -- see the Dockerfile). Built and
+  # published by build-and-publish-kits.yml, the shared kit-image pipeline
+  # (see ../PUBLISHING.md) -- no bespoke workflow needed, same as
+  # hermes-agent/pi/openclaw/kiro/copilot. Sandbox creation only pulls the
+  # image; bumping the pinned version is a deliberate Dockerfile edit, not
+  # something the nightly rebuild does on its own.
+  image: docker.io/sbx/picoclaw-image:latest
   entrypoint:
     # Invoked through `sh` because files under `files/home/` land 0644 -- the
     # artifact loader does not carry the source exec bit, so a direct exec
@@ -24,10 +31,6 @@ permissions:
       # The anthropic credential's OAuth token endpoint, for the refresh the
       # proxy performs once the access token expires.
       - platform.claude.com:443
-      # pinned release download at install time
-      - github.com:443
-      - objects.githubusercontent.com:443
-      - release-assets.githubusercontent.com:443
       # chat platforms (enabled via config; tokens supplied by the user)
       - '*.telegram.org'
       - '*.discord.com'
@@ -92,34 +95,6 @@ environment:
     PICOCLAW_GATEWAY_HOST: 0.0.0.0
     PICOCLAW_HOME: /home/agent/.picoclaw
 setup:
-  install:
-    # Single static binary, ~10MB — a pinned release download is faster and
-    # lighter than maintaining a pre-baked image (see
-    # docs/recipe-prebaked-image-kit.md for when an image IS worth it).
-    - command: |
-        set -euo pipefail
-        v=v0.2.9
-        case "$(uname -m)" in
-          x86_64)
-            a=x86_64
-            SHA256=7e658f320e9d63779f4d1c32ea64bf474d903bc91d41afdc79c8f0572ab936b4
-            ;;
-          aarch64|arm64)
-            a=arm64
-            SHA256=a8989b1a409ec995cde454a17222d00eb5b0c9dbda08213e2f82d22526023c9f
-            ;;
-          *)
-            echo "unsupported sandbox arch: $(uname -m) (expected x86_64 or arm64)" >&2
-            exit 1
-            ;;
-        esac
-        curl --proto '=https' --tlsv1.2 -fsSL -o /tmp/picoclaw.tar.gz "https://github.com/sipeed/picoclaw/releases/download/$v/picoclaw_Linux_$a.tar.gz"
-        echo "${SHA256}  /tmp/picoclaw.tar.gz" | sha256sum -c -
-        tar -xzf /tmp/picoclaw.tar.gz -C /usr/local/bin picoclaw
-        rm /tmp/picoclaw.tar.gz
-        chmod 0755 /usr/local/bin/picoclaw
-      user: "0"
-      description: Install the pinned picoclaw release binary, SHA256-verified
   startup:
     # Runs before the gateway command below, which reads the same config. The
     # script is idempotent -- the placeholder it matches is gone once the
