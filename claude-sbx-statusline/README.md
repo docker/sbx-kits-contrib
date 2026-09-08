@@ -64,9 +64,9 @@ sbx run claude --kit ./claude-sbx-statusline .
   It creates the file if missing and leaves every other key untouched — only `statusLine`
   is set (replacing a prior one if present) — then `chown`s back to the `agent` user exactly
   the paths it touched: `~/.claude`, `~/.claude/settings.json`, and `~/.claude/statusline.sh`.
-  The chown is deliberately **not** recursive — the shared skills directory under `~/.claude`
-  is mounted read-only by default, so a `chown -R` over the parent fails there and would break
-  sandbox creation. Re-running is idempotent. The temp file is created inside `~/.claude`
+  The chown is deliberately **not** recursive — `~/.claude` holds runtime-managed content this
+  kit doesn't own, so a `chown -R` over the parent would claim ownership of paths outside the
+  kit's control. Re-running is idempotent. The temp file is created inside `~/.claude`
   so the final `mv` is an atomic same-filesystem rename rather than a cross-device copy.
 - Note that the script does _not_ perform any checks to verify that you are indeed inside a sandbox. Care should be taken to not put this status line to your host's Claude Code installation as it would then incorrectly state that you are inside a sandbox when you are not.
 
