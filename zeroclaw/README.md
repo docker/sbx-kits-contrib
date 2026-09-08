@@ -34,9 +34,15 @@ scheduler, heartbeat). Talk to it over the gateway's WebSocket chat
 |-------|---------|---------|
 | 42617 | gateway | HTTP/WS gateway: `/health`, `/metrics`, `/ws/chat`, webhooks |
 
-> The web dashboard isn't bundled in upstream's release binaries (only in
-> their container image), so `/` returns 503 — the API and WS endpoints
-> are fully functional.
+> Upstream's release binaries don't bundle the web dashboard, so `/`
+> serves a placeholder response naming the fix: build the frontend with
+> `cargo web build` (upstream's supported entry point — it generates the
+> TS API client and runs the Vite production build) and point
+> `gateway.web_dist_dir` at the resulting `web/dist`. That build needs a
+> full source checkout at the pinned tag plus a Rust and Node toolchain,
+> not the release tarball this kit installs, so the kit doesn't attempt
+> it. The gateway's HTTP/WS API endpoints above are reachable and fully
+> functional regardless.
 
 The sandbox runtime publishes the declared port on an ephemeral host port
 at start time — find it with `sbx ports <sandbox-name>`. If you'd rather
