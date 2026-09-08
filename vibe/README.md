@@ -56,7 +56,7 @@ The value is any builtin (`ask`, `plan`, `accept-edits`, `auto-approve`) or a cu
 
 ## Persistence
 
-`~/.vibe` is a 1 GB volume, so `config.toml`, sessions, logs, custom agents and `.env` survive recreating a sandbox of the same name. The volume is mounted root-owned, which is why a startup command hands it back to the `agent` user before Vibe writes to it.
+`~/.vibe` is a 1 GB volume, so `config.toml`, sessions, logs, custom agents and `.env` survive recreating a sandbox of the same name. `.env` is Vibe's own key store; the environment takes precedence over it, so the proxy-managed `MISTRAL_API_KEY` is what Vibe uses regardless of what lands there. The volume is mounted root-owned, which is why a startup command hands it back to the `agent` user before Vibe writes to it.
 
 ## Network
 
