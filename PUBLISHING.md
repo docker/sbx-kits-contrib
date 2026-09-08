@@ -314,6 +314,10 @@ the image itself:
   its base sets — today's bases all carry their own flavor, so a Dockerfile
   that forgets it does not report a missing agent, it reports the base's.
 
+Which base to reach for in the first place — plain or `-docker` — is an
+authoring decision made before any of this runs; see [Choosing a base
+image](skills/kit-author/topics/image-publishing.md#choosing-a-base-image).
+
 ## Adding an image-publishing kit
 
 1. Put a `Dockerfile` at the kit root; the kit directory is the build context.
