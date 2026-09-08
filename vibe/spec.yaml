@@ -68,9 +68,9 @@ permissions:
       # Console: the /whoami account and plan lookup, and the browser-auth
       # base URL.
       - "console.mistral.ai:443"
-      # Feature-flag / experiments service (experiments.mistral.services),
-      # queried at startup.
-      - "*.mistral.services:443"
+      # Feature-flag / experiments service. Only reached when telemetry is
+      # enabled, which this kit disables below.
+      - "experiments.mistral.services:443"
 
 credentials:
   - service: mistral
