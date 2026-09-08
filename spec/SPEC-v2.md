@@ -153,6 +153,21 @@ environment:
 - **Every reference MUST be declared.** A `${{ kit.args.x }}` with no `args.x`
   declaration is an error. That is what makes the block a complete, trustworthy
   list of a kit's inputs.
+- **A reference stands in for a value.** A mapping key that names an argument
+  is an error, escaped or not: nothing rewrites a key, so nothing there is
+  escapable.
+- **Escaping.** Write `$${{`, before any namespace, to emit a literal `${{`
+  and start no reference.
+- **Text that opens the namespace MUST parse.** An unescaped `${{ kit.args.`
+  that does not continue into a well-formed name and a closing `}}` is an
+  error, not text that survives into the value. A `${{ … }}` opening any other
+  namespace is otherwise left as written.
+- **The `args` block is never substituted.** Everything under it — defaults,
+  descriptions, enums, patterns — is the declaration of the kit's inputs, not
+  a use of them, so it reads exactly as written and a name mentioned only
+  there is no reference at all.
+- **A substituted value is spliced literally** and never re-read, so a value
+  that is itself shaped like a reference stays that text.
 - **Declarations are signed; values are not.** The block lives in `spec.yaml`,
   so a signature covers the argument names, defaults, and constraints. The
   values an installer supplies sit outside it.
