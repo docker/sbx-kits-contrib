@@ -65,9 +65,9 @@ The allow list is the four hosts Vibe reaches for, and nothing else:
 | Host | Why |
 | --- | --- |
 | `api.mistral.ai` | Inference API. |
-| `chat.mistral.ai` | Vibe's own base URL — sessions and account state. |
-| `console.mistral.ai` | Admin-managed configuration read at startup; also the browser-auth base URL. |
-| `*.mistral.services` | Feature-flag / experiments service queried at startup. |
+| `chat.mistral.ai` | Vibe's own base URL; also where the organization's admin-managed configuration is read at startup. |
+| `console.mistral.ai` | The `/whoami` account and plan lookup, and the browser-auth base URL. |
+| `experiments.mistral.services` | Feature-flag / experiments service. Only reached when telemetry is enabled, which this kit disables. |
 
 Anything else your work needs — a package registry, a git host — has to be added to `permissions.network.allow` or allowed on the host with `sbx policy allow network`.
 
