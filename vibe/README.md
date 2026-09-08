@@ -30,7 +30,7 @@ Get a key from the [Mistral console](https://console.mistral.ai/api-keys), then 
 printf '%s' "$MISTRAL_API_KEY" | sbx secret set mistral
 ```
 
-Piping the key in keeps it out of your shell history and out of the process table, where passing it as a flag value would put it. `printf` rather than `echo` because `echo` appends a newline to what it pipes; the sibling kits use `echo` without trouble, so `sbx` evidently trims it, but `printf` leaves nothing to trim and no `401` to diagnose.
+Piping the key in keeps it out of your shell history and out of the process table, where `-t/--token` would put it.
 
 `sbx secret set mistral` on its own is equally valid — it prompts for the value on a TTY. Either way the secret is stored once on the host; `sbx` also offers to configure the credential on first launch if none is stored.
 
