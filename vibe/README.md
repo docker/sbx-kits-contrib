@@ -1,6 +1,6 @@
 # Mistral Vibe
 
-A standalone Docker Sandboxes kit for [Mistral Vibe](https://github.com/mistralai/vibe), Mistral AI's open source coding agent. It runs the `vibe` CLI inside a sandbox with the workspace pre-trusted, tool approval pre-granted, and the Mistral API key held by the sandbox proxy rather than by the container.
+A standalone Docker Sandboxes kit for [Mistral Vibe](https://github.com/mistralai/mistral-vibe), Mistral AI's open source coding agent. It runs the `vibe` CLI inside a sandbox with the workspace pre-trusted, tool approval pre-granted, and the Mistral API key held by the sandbox proxy rather than by the container.
 
 ## Usage
 
