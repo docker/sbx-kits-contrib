@@ -108,7 +108,7 @@ setup:
     # ~/.vibe is a block volume (see `volumes`). It is mounted root-owned, so
     # it has to be handed back to the agent user on every start, before Vibe
     # writes to it. Idempotent, as every startup command must be.
-    - command: ["sh", "-c", "mkdir -p /home/agent/.vibe && chown -R agent:agent /home/agent/.vibe"]
+    - command: ["sh", "-c", "mkdir -p /home/agent/.vibe && chown agent:agent /home/agent/.vibe"]
       user: "0"
       description: Hand ~/.vibe (persistent volume) back to the agent user
 
