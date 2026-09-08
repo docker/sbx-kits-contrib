@@ -7,7 +7,7 @@ version: "0.1.0"
 displayName: Mistral Vibe
 description: Mistral AI's open source coding agent, with its API key injected by the sandbox proxy
 licenses:
-  - MIT
+  - Apache-2.0
 
 # The agent profile Vibe starts with. Overridable at install time:
 #   sbx run --kit docker.io/sbx/vibe-kit:latest --kit-arg agent=plan vibe
