@@ -1,0 +1,3 @@
+args:
+  greeting: "supplied by tck.yaml"
+  token: "dummy-for-ci"
