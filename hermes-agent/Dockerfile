@@ -107,11 +107,13 @@ RUN set -eu; \
 # volume in this sandbox to redirect them into -- so every lazy-install
 # attempt is refused outright rather than relocated.
 #
-# This is what makes a trimmed runtime network allowlist correct rather than
-# merely convenient: a feature outside the baked set now fails fast with
-# `FeatureUnavailable`, naming the exact `pip install` command an operator
-# would run by hand, instead of that same pip install silently hanging or
-# erroring against a blocked host.
+# This only closes the pip-install surface, not every runtime HTTP fetch
+# Hermes makes on its own (the model catalogue, its startup update check) --
+# those still need their own hosts allowed at runtime regardless (see
+# spec.yaml). What this buys specifically: a feature outside the baked set
+# fails fast with `FeatureUnavailable`, naming the exact `pip install` command
+# an operator would run by hand, instead of that same pip install silently
+# hanging or erroring against a blocked host.
 ENV HERMES_DISABLE_LAZY_INSTALLS=1
 
 # COPY, not a reference to the kit's files/ tree: this is what makes the

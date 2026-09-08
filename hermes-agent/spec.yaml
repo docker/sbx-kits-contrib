@@ -33,7 +33,9 @@ permissions:
       # HERMES_DISABLE_LAZY_INSTALLS=1 (see Dockerfile), so Hermes refuses
       # every runtime pip install rather than reaching PyPI for a provider,
       # search backend, or skill dependency outside what is baked in. That
-      # makes this allowlist a closed set instead of an approximation of one.
+      # switch only closes pip installs, though -- it has no effect on the
+      # plain HTTP fetches below, which are a separate, genuine runtime
+      # surface and stay allowed on their own merits.
       - openrouter.ai
       - '*.openrouter.ai'
       - api.openai.com
@@ -41,9 +43,54 @@ permissions:
       # The anthropic credential's OAuth token endpoint, for the refresh the
       # proxy performs once the access token expires.
       - platform.claude.com:443
-      # Nous Portal: OAuth login and model selection for the "nous" hosted
-      # model provider.
-      - portal.nousresearch.com
+      # model.provider: "auto" in config.yaml (see hermes-anthropic-auth.sh)
+      # makes hermes_cli/auth.py's resolve_provider() run on every launch, and
+      # part of that resolution -- and the startup banner's own update/model
+      # checks -- depend on these, confirmed against a real sandbox run under
+      # deny-all:
+      # models.dev: agent/models_dev.py's provider/model catalogue
+      # ("primary database for providers and models"), disk-cached at
+      # ~/.hermes/models_dev_cache.json but fetched over the network whenever
+      # that cache is missing or its 4h TTL has lapsed.
+      - models.dev
+      # opencode.ai: hermes_cli/doctor_connectivity.py probes
+      # https://opencode.ai/zen/v1/models as part of the same
+      # provider-availability sweep that feeds "auto" resolution and the
+      # `hermes model` picker.
+      - opencode.ai
+      # github.com / api.github.com: hermes_cli/banner.py's
+      # prefetch_update_check(), which every launch's startup banner kicks
+      # off in the background -- `git ls-remote` against this kit's own
+      # upstream checkout (a real git clone; install.sh clones it) hits
+      # github.com, and counting exactly how many commits behind falls back
+      # to the GitHub compare API (api.github.com/repos/.../compare/...)
+      # when the checkout is shallow.
+      - github.com
+      - api.github.com
+      # raw.githubusercontent.com: not pinned to a specific call site within
+      # this investigation, but observed contacted on the same real run as
+      # the two hosts above and consistent with the same
+      # update/skills-metadata machinery reading a file out of the repo
+      # rather than cloning it.
+      - raw.githubusercontent.com
+      # api.githubcopilot.com: not confirmed from source. Hypothesis, stated
+      # as such: this kit declares no GitHub Copilot credential, but the
+      # sandbox's own base template unconditionally exports GH_TOKEN for git
+      # operations, and hermes_cli/auth.py's provider registry lists GH_TOKEN
+      # as a Copilot credential candidate. Copilot is excluded from
+      # auto-*selection* (_NO_AUTO_DETECT_PROVIDERS), but that exclusion does
+      # not obviously cover *discovery* (populating `hermes model`'s
+      # provider-availability list), which would explain an attempt to
+      # validate the ambient GH_TOKEN against Copilot's API. Flagged rather
+      # than asserted -- verify against a real sandbox run before trusting it.
+      - api.githubcopilot.com
+      # The project's own domain, confirmed contacted on a real sandbox run.
+      # Exact call site not pinned, but hermes_cli/subcommands/egress.py
+      # links docs here -- evidence this is the CLI's own front door, not
+      # portal.nousresearch.com. This kit declares no "nous" credential and a
+      # real run under deny-all never reached portal.nousresearch.com, so it
+      # is dropped rather than kept on faith.
+      - hermes-agent.nousresearch.com
 credentials:
   - service: anthropic
     apiKey:
@@ -108,4 +155,4 @@ setup:
         - sh
         - /home/agent/.local/bin/hermes-anthropic-auth.sh
       user: "1000"
-      description: Resolve whether Anthropic auth is an API key, an OAuth login, or absent, and record it for the entrypoint and `sbx exec` shells
+      description: Resolve which of the anthropic/openai/openrouter credentials are genuinely bound, record the result for the entrypoint and `sbx exec` shells, and pin the active provider in config.yaml when only an Anthropic OAuth login is bound
