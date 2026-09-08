@@ -89,7 +89,7 @@ func TestE2EKit(t *testing.T) {
 
 		checkHostCredentials(t, ctx, td)
 
-		name := createSbx(t, ctx, absKit, agent, td)
+		name := createSbx(t, ctx, absKit, suite.Artifact.Manifest.Name, agent, td)
 
 		// Verify kit content landed inside the running container. Files are
 		// re-derived here so `${WORKDIR}` resolves to the real sandbox workdir
@@ -263,8 +263,9 @@ func assertSbxAgentContext(t *testing.T, ctx context.Context, name string, a *sp
 
 // agentContextFilename returns the filename the engine writes a kit's
 // agentContext into.
-//   kind: sandbox → Manifest.AIFilename (inlined agentContext)
-//   kind: mixin   → "<kit-name>.md" under .../kits-agent-context/
+//
+//	kind: sandbox → Manifest.AIFilename (inlined agentContext)
+//	kind: mixin   → "<kit-name>.md" under .../kits-agent-context/
 func agentContextFilename(a *spec.Artifact) string {
 	if a.Manifest.Kind == spec.KindSandbox {
 		return a.Manifest.AIFilename
@@ -351,6 +352,13 @@ type kitTCKData struct {
 	// keeps needing the credential indefinitely, so the entry is permanent
 	// for as long as the kit declares this agent affinity.
 	RequiresHostCredentials []string `yaml:"requiresHostCredentials"`
+
+	// Args are the values to substitute for the arguments the kit declares,
+	// keyed by argument name. The TCK layer reads the same block, so both
+	// layers install the kit with the same values: here they are passed to
+	// `sbx create` as kit-argument flags. An argument absent from this block
+	// resolves to its declared default on both sides and needs no entry.
+	Args map[string]string `yaml:"args"`
 }
 
 // builtinCollisionMarker is the distinguishing text of the error sbx returns
@@ -440,7 +448,7 @@ const promptMessage = "what version are you running"
 // dir is used as the workspace.
 // td may be nil (no testdata/tck.yaml); see kitTCKData.ExtractedFromBuiltin for
 // the one failure this tolerates.
-func createSbx(t *testing.T, ctx context.Context, absKit, agent string, td *kitTCKData) string {
+func createSbx(t *testing.T, ctx context.Context, absKit, kitName, agent string, td *kitTCKData) string {
 	t.Helper()
 	workspace := t.TempDir()
 	name := sandboxName(t, absKit)
@@ -484,7 +492,12 @@ func createSbx(t *testing.T, ctx context.Context, absKit, agent string, td *kitT
 			t.Logf("cleanup `sbx rm -f %s` failed: %v\n%s", name, err, out)
 		}
 	})
-	createOut, err := runSbx(t, ctx, "create", "--kit", absKit, "--name", name, agent, workspace)
+	createArgs := []string{"create", "--kit", absKit, "--name", name}
+	if td != nil {
+		createArgs = append(createArgs, tck.KitArgFlags(kitName, td.Args)...)
+	}
+	createArgs = append(createArgs, agent, workspace)
+	createOut, err := runSbx(t, ctx, createArgs...)
 
 	if err != nil && strings.Contains(createOut, builtinCollisionMarker) {
 		if td != nil && td.ExtractedFromBuiltin {
