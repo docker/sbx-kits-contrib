@@ -62,12 +62,11 @@ permissions:
     allow:
       # Inference API (DEFAULT_MISTRAL_SERVER_URL).
       - "api.mistral.ai:443"
-      # Vibe's own base URL (DEFAULT_VIBE_BASE_URL) -- sessions and account
-      # state.
+      # Vibe's own base URL (DEFAULT_VIBE_BASE_URL), which is also where the
+      # organization's admin-managed configuration is read at startup.
       - "chat.mistral.ai:443"
-      # Console, which is also the browser-auth base URL: Vibe reads the
-      # organization's admin-managed configuration from it at startup. Without
-      # it that call 401s into ~/.vibe/logs/vibe.log -- non-fatal, but noisy.
+      # Console: the /whoami account and plan lookup, and the browser-auth
+      # base URL.
       - "console.mistral.ai:443"
       # Feature-flag / experiments service (experiments.mistral.services),
       # queried at startup.
