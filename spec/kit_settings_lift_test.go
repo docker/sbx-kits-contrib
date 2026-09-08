@@ -63,8 +63,9 @@ func runSettingsInstallScript(t *testing.T, script, modeEnv string) string {
 	// chown will fail for a non-root test process; keep it non-fatal so the
 	// `set -e` script does not abort before/after writing the file. Two
 	// patterns: kits still on the recursive form, and kits enumerating
-	// specific paths (the trailing space keeps "-R " from matching the
-	// enumerated pattern too).
+	// specific paths. The two ReplaceAll calls can't double-substitute each
+	// other: "chown -R agent:agent" doesn't contain "chown agent:agent" as a
+	// substring, since "-R " sits between "chown" and "agent:agent".
 	script = strings.ReplaceAll(script, "chown -R agent:agent", "chown -R agent:agent 2>/dev/null || true #")
 	script = strings.ReplaceAll(script, "chown agent:agent", "chown agent:agent 2>/dev/null || true #")
 
