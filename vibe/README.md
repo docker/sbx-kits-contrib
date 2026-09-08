@@ -44,7 +44,7 @@ The container only ever sees `MISTRAL_API_KEY` set to a proxy sentinel. The real
 
 ## Agent profile
 
-Vibe's [agent profile](https://github.com/mistralai/vibe) decides which tool calls need confirmation. The kit starts `auto-approve`, on the same reasoning as the `crush` and `grok` kits: the sandbox is the security boundary, so a confirmation prompt inside it buys little and blocks non-interactive use.
+Vibe's [agent profile](https://github.com/mistralai/mistral-vibe#built-in-agents) decides which tool calls need confirmation. The kit starts `auto-approve`, on the same reasoning as the `crush` and `grok` kits: the sandbox is the security boundary, so a confirmation prompt inside it buys little and blocks non-interactive use.
 
 Pick another one at install time:
 
