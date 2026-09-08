@@ -898,9 +898,10 @@ Conforming runtimes provide:
   step that writes there MUST restore ownership (enumerate the paths it
   touched, for example `chown agent:agent /home/agent/.claude
   /home/agent/.claude/settings.json`, rather than recursing over the
-  parent — `~/.claude` can contain the shared skills directory, mounted
-  read-only by default, so a recursive chown there fails), or later writes
-  by the agent user fail.
+  parent — `~/.claude` holds runtime-managed content that the kit does not
+  own, so a kit SHOULD NOT take ownership of the whole directory or couple
+  itself to whatever the runtime places there), or later writes by the
+  agent user fail.
 - Startup entries and the entrypoint run as the agent user by default and
   MUST NOT assume root write access.
 

@@ -64,8 +64,9 @@ setup:
         }
         " > /home/agent/.claude/settings.json
         fi
-        # Enumerated, not recursive: ~/.claude holds the shared skills directory,
-        # mounted read-only by default, so `chown -R` on the parent fails there.
+        # Enumerated, not recursive: ~/.claude holds runtime-managed content
+        # this kit doesn't own, so `chown -R` on the parent would take
+        # ownership of paths outside the kit's control.
         chown agent:agent /home/agent/.claude /home/agent/.claude/settings.json
       user: root
       description: Seed Claude settings.json (none path; no credential service)
