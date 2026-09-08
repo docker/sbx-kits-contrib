@@ -94,13 +94,17 @@ setup:
         - |
           set -e
           exec > /tmp/claude-mem-reconcile.log 2>&1
-          # Run unconditionally (including on early failure below) so root
-          # never leaves /home/agent/.claude or settings.json root-owned.
-          # Enumerated, not recursive: ~/.claude holds the shared skills
-          # directory, mounted read-only by default, so `chown -R` on the
-          # parent fails there.
+          # Runs on every exit, including early failures, so root never
+          # leaves /home/agent/.claude or settings.json root-owned.
+          # Enumerated, not recursive: ~/.claude holds runtime-managed
+          # content this kit doesn't own, so a recursive chown would take
+          # ownership of paths outside the kit's control. Paths are
+          # existence-checked because under `set -e` a chown that fails on
+          # a path this script never created would replace the script's
+          # exit status from inside the trap, turning a tolerated early
+          # failure into a failed install.
           S=/home/agent/.claude/settings.json
-          trap 'chown agent:agent /home/agent/.claude "$S"' EXIT
+          trap 'for p in /home/agent/.claude "$S"; do if [ -e "$p" ]; then chown agent:agent "$p"; fi; done' EXIT
           mkdir -p /home/agent/.claude
           # Wait for the platform's own settings write to land first — at
           # create time the engine seeds this file late in the sequence and
