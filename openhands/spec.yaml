@@ -5,9 +5,25 @@ displayName: OpenHands
 description: |
   AI software engineering agent. Resolves issues, writes code, runs tests, and opens PRs — all autonomously.
 sandbox:
-  image: docker/sandbox-templates:shell-docker
+  # Pre-baked image: OpenHands installed via `uv tool install` at build time
+  # (see the Dockerfile), on the plain `shell` template -- no Docker engine.
+  # This kit sets SANDBOX_TYPE=local, and the CLI's own workspace setup
+  # resolves to a subprocess-based LocalWorkspace regardless of that
+  # variable, so it never needs one. Built and published by
+  # build-and-publish-kits.yml, the shared kit-image pipeline (see
+  # ../PUBLISHING.md) -- no bespoke workflow needed, same as
+  # hermes-agent/pi/openclaw/kiro/copilot. Sandbox creation only pulls the
+  # image; the pipeline's nightly rebuild tracks whatever `openhands` is
+  # newest on PyPI (rolling, no deliberate version bump -- see the
+  # Dockerfile).
+  image: docker.io/sbx/openhands-image:latest
   entrypoint:
-    - /home/agent/.local/bin/openhands
+    # Kit content, not the installed binary: the entrypoint has to source the
+    # Anthropic auth env file the startup hook writes. Invoked through `sh`
+    # because files under `files/home/` land 0644 -- the artifact loader does
+    # not carry the source exec bit, so a direct exec fails with EACCES.
+    - sh
+    - /home/agent/.local/bin/openhands-start.sh
     - --always-approve
 agentInstructions:
   filename: AGENTS.md
@@ -27,9 +43,10 @@ agentInstructions:
 
     ## Network access
 
-    Outbound requests are filtered. Reachable: GitHub, PyPI, npm, Docker registries,
-    the configured LLM API (auth injected by proxy). Tavily search is available
-    if `TAVILY_API_KEY` is set.
+    Outbound requests are filtered. Reachable: GitHub, PyPI (version-check only),
+    npm (for `openhands mcp add` servers launched via `npx`), the configured LLM
+    API (auth injected by proxy). Tavily search is available if `TAVILY_API_KEY`
+    is set.
 
     ## Working conventions
 
@@ -41,8 +58,11 @@ agentInstructions:
 
     ## Switching LLM providers
 
-    Recreate the sandbox with `LLM_MODEL` overridden and the matching provider
-    secret registered via `sbx secret set <service>`. See the kit README for details.
+    Anthropic is resolved automatically from the host credential. For OpenAI
+    or Gemini, register the provider secret with `sbx secret set <service>`,
+    then open the in-app Settings screen and pick the provider and model
+    there — that choice is saved to `~/.openhands/agent_settings.json` and
+    takes precedence from then on. See the kit README for details.
 permissions:
   network:
     allow:
@@ -51,23 +71,26 @@ permissions:
       # `sbx policy init deny-all`, so a domain absent from this list is
       # unreachable regardless of what the credential block declares.
       - api.anthropic.com
+      # The anthropic credential's OAuth token endpoint, for the refresh the
+      # proxy performs once the access token expires.
+      - platform.claude.com:443
       - api.openai.com
       - generativelanguage.googleapis.com
       - github.com
       - api.github.com
       - raw.githubusercontent.com
-      - objects.githubusercontent.com
+      # The CLI's splash screen calls this on every interactive launch
+      # (openhands_cli/version_check.py: a GET to pypi.org/pypi/openhands/json
+      # with a 2s timeout, swallowed on failure) to show an "update available"
+      # notice. It never downloads a package here -- that only happened at
+      # `uv tool install`/`uv tool upgrade`, both gone now that the CLI is
+      # baked into the image -- so files.pythonhosted.org (the wheel/sdist
+      # host) is dropped, but this metadata host stays.
       - pypi.org
-      - files.pythonhosted.org
-      - astral.sh
-      - '*.astral.sh'
+      # OpenHands' `openhands mcp add <name> --transport stdio npx -- ...`
+      # (see the kit README) launches MCP servers via `npx`, a genuine
+      # runtime feature of the shipped CLI, not an install-time artifact.
       - registry.npmjs.org
-      - registry-1.docker.io
-      - index.docker.io
-      - auth.docker.io
-      - production.cloudflare.docker.com
-      - ghcr.io
-      - docker.openhands.dev
       - api.tavily.com
 # litellm (which OpenHands uses under the hood) checks these env vars are
 # present *before* it ever makes a request -- if the var is unset it raises
@@ -85,6 +108,37 @@ credentials:
         - domain: api.anthropic.com
           header: x-api-key
           format: '%s'
+    # For a host whose stored anthropic credential is an OAuth login -- signed
+    # in from a `claude` sandbox rather than an API key. Without this block
+    # such a host gets no usable credential at all: the apiKey sentinel reaches
+    # Anthropic unswapped and every model call 401s.
+    #
+    # openhands never reads this file directly, nor ANTHROPIC_API_KEY: its LLM
+    # config lives in ~/.openhands/agent_settings.json, populated from
+    # LLM_API_KEY/LLM_MODEL when openhands-anthropic-auth.sh resolves a
+    # credential. So credentialFile serves two narrower purposes here: it is
+    # what makes the OAuth path detectable from inside the sandbox
+    # (SBX_CRED_ANTHROPIC_MODE reports "none" even when this credential
+    # resolves, so it cannot discriminate oauth from apikey), and it carries
+    # the sentinel openhands-anthropic-auth.sh exports. The file holds
+    # sentinels, not real tokens.
+    oauth:
+      tokenEndpoint:
+        host: platform.claude.com
+        path: /v1/oauth/token
+      resourceHosts:
+        - api.anthropic.com
+      sentinels:
+        accessToken: sk-ant-oat01-proxy-managed
+        refreshToken: sk-ant-ort01-proxy-managed
+      credentialFile:
+        path: ~/.claude/.credentials.json
+        structure:
+          claudeAiOauth:
+            accessToken: '{{.AccessToken}}'
+            refreshToken: '{{.RefreshToken}}'
+            expiresAt: '{{.ExpiresAt}}'
+            scopes: '{{.Scopes}}'
   # google (not gemini) is the canonical service name for this provider
   # across the repo -- matches crush/junie's credentials[].service, so a
   # binding set for one kit is reused by another.
@@ -106,22 +160,20 @@ credentials:
           format: Bearer %s
 environment:
   variables:
-    LLM_MODEL: anthropic/claude-opus-4-5
+    # Not LLM_MODEL: openhands-anthropic-auth.sh is the sole source of that
+    # variable now, and it deliberately leaves it unset when there's no
+    # Anthropic credential to resolve or a persisted agent_settings.json
+    # already exists -- a static default here would apply regardless and
+    # silently override either of those states.
     OPENHANDS_SUPPRESS_BANNER: "1"
     SANDBOX_TYPE: local
 setup:
-  install:
-    # uv ships pre-installed in the shell-docker base image (/usr/local/bin/uv,
-    # already on PATH) -- no need to install it ourselves.
-    - command: uv tool install openhands
-      user: "1000"
-      description: Install OpenHands CLI
   startup:
+    # Runs on every container start, ahead of any attach: the credential state
+    # is wired at create time and a stop/start can follow a change of host
+    # credential, so the env file is recomputed rather than cached.
     - command:
-        - uv
-        - tool
-        - upgrade
-        - openhands
-        - --quiet
+        - sh
+        - /home/agent/.local/bin/openhands-anthropic-auth.sh
       user: "1000"
-      description: Upgrade OpenHands to latest (foreground -- must finish before the entrypoint execs the binary it's upgrading)
+      description: Resolve whether Anthropic auth is an API key, an OAuth login, or absent, and record it for the entrypoint and `sbx exec` shells
