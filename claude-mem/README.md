@@ -55,6 +55,15 @@ sbx ports <sandbox> --publish 37700/tcp
   inheriting whatever regressions ship in a new claude-mem release
   (claude-mem's issue tracker shows a fairly high rate of worker-lifecycle
   regressions). Re-introduce a pin if this trade proves worse in practice.
+- **Explicit `--provider claude`**: mandatory for an unattended install.
+  Since claude-mem v13.20.0 the installer aborts before doing any work
+  when stdin is not a TTY and no provider was given, so the flag is what
+  keeps this step from failing outright. `claude` is also the only
+  provider that completes without interaction: it uses the sandbox's own
+  Anthropic credentials, where the alternatives (CMEM Pro, Gemini,
+  OpenRouter) need a browser OAuth pairing or a preconfigured personal
+  API key. Upstream's README still describes the pre-13.20.0 behavior —
+  see [thedotmack/claude-mem#3893](https://github.com/thedotmack/claude-mem/issues/3893).
 - **Settings reconciler**: claude-mem's installer merges
   `enabledPlugins` into `~/.claude/settings.json`, while the platform
   seeds the same file at startup *only when missing* — and the two race
