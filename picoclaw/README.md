@@ -68,7 +68,7 @@ matching protocol from what the host actually holds:
 |---|---|---|
 | API key — `sbx secret set anthropic` | `ANTHROPIC_API_KEY` sentinel | substitutes it into `api_keys` |
 | OAuth login — sign in from a `claude` sandbox | `~/.picoclaw/auth.json` with OAuth sentinels | switches the model entry to `anthropic` + `auth_method: oauth` |
-| none | the placeholder, unsubstituted | leaves it ([below](#barebones-sandbox-no-credential-yet)) |
+| none | `ANTHROPIC_API_KEY` still set to the `proxy-managed` sentinel | substitutes it into `api_keys` the same as an API key — unswapped, so it 401s ([below](#barebones-sandbox-no-credential-yet)) |
 
 An API key wins when the host has one. Without the `oauth:` block a host
 whose only Anthropic credential is an OAuth login would get no usable

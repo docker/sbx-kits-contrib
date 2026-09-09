@@ -58,8 +58,11 @@ agentInstructions:
 
     ## Switching LLM providers
 
-    Recreate the sandbox with `LLM_MODEL` overridden and the matching provider
-    secret registered via `sbx secret set <service>`. See the kit README for details.
+    Anthropic is resolved automatically from the host credential. For OpenAI
+    or Gemini, register the provider secret with `sbx secret set <service>`,
+    then open the in-app Settings screen and pick the provider and model
+    there — that choice is saved to `~/.openhands/agent_settings.json` and
+    takes precedence from then on. See the kit README for details.
 permissions:
   network:
     allow:

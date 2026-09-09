@@ -10,22 +10,27 @@ by default.
 
 ## Prerequisites
 
-At least one LLM API key exported on your host. Open Interpreter defaults to GPT-4o:
+At least one LLM credential bound on your host. Open Interpreter defaults to GPT-4o:
 
 ```console
 export OPENAI_API_KEY=<your-openai-key>
 ```
 
-To use Claude instead, an Anthropic API key or a Claude subscription login both
-work — no OpenAI credential needs to be bound. The kit switches the seeded
-profile to Claude for you when that's the only credential present:
+To use Claude instead, no OpenAI credential needs to be bound — the kit switches
+the seeded profile to Claude for you when that's the only credential present.
+Either of these works:
 
-```console
-export ANTHROPIC_API_KEY=<your-anthropic-key>
-```
+- An Anthropic API key, declared under `credentials[].apiKey`:
 
-Both are declared in `credentials[].apiKey`. The kit proxy-manages whichever ones
-are present on the host — the real values never enter the sandbox.
+  ```console
+  export ANTHROPIC_API_KEY=<your-anthropic-key>
+  ```
+
+- A Claude subscription login, declared under `credentials[].oauth`: sign in
+  from a `claude` sandbox instead of exporting a key.
+
+The kit proxy-manages whichever credential is present on the host — the real
+value never enters the sandbox.
 
 ## Usage
 

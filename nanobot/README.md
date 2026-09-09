@@ -71,9 +71,10 @@ sentinel.
 ### Anthropic: API key only, no Claude subscription
 
 An Anthropic **API key** is the only credential nanobot can use here.
-Its Anthropic client sets `x-api-key` unconditionally from the
-provider's `api_key` (`pkg/llm/anthropic/client.go`) with no shape
-detection, so a subscription (OAuth) token — which Anthropic only accepts
+Its Anthropic provider (`nanobot/providers/anthropic_provider.py`) passes
+the provider's `api_key` straight into `anthropic.AsyncAnthropic(...)`,
+the official Python SDK client, which sends it as `x-api-key` with no
+shape detection, so a subscription (OAuth) token — which Anthropic only accepts
 as `Authorization: Bearer`, and only alongside the Claude Code identity
 prompt its own clients send — cannot be presented correctly. The kit
 therefore declares no `oauth:` block, and on a host whose only Anthropic
