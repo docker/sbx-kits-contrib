@@ -12,7 +12,7 @@
 # hermes-agent/pi/openclaw/kiro/copilot.
 #
 # The base is a floating tag, which is why CI also rebuilds on a schedule.
-ARG BASE_IMAGE=docker/sandbox-templates:shell-docker
+ARG BASE_IMAGE=docker/sandbox-templates:shell
 FROM ${BASE_IMAGE}
 
 # Re-declared inside the stage: an ARG defined before the first FROM is a global
@@ -20,13 +20,10 @@ FROM ${BASE_IMAGE}
 # expand to an empty string.
 ARG BASE_IMAGE
 
-# Crush has no tool of its own that talks to a Docker engine: LSPs and MCP
-# servers are commands the user adds via `crushrc` and Crush execs them
-# directly, it does not start containers for them. Docker stays available
-# anyway, on the same basis as pi/openclaw/kiro/copilot -- the agent's own
-# tools don't need it, but the user's project underneath it might (a
-# docker-compose test suite, a container build) -- rather than picking a
-# dockerless base for a reason that is about Crush, not the sandbox.
+# Crush's own tool set (bash, edit, view, grep, glob, fetch, download --
+# internal/agent/tools/ upstream) has nothing that launches or manages
+# containers; LSPs and MCP servers are commands the user configures and Crush
+# execs them directly. The plain base is correct here.
 
 # Upstream's tagged releases (checked via the GitHub releases API) land
 # roughly weekly, sometimes with same-week patch releases (v0.91.0, v0.91.1,
@@ -76,16 +73,11 @@ RUN crush --version
 # lands, which is what makes dropping the apt/GPG hosts from the runtime
 # allowlist correct rather than merely convenient.
 
-# Both labels below OVERRIDE values inherited from the base image, which
-# describe the base rather than this image. Overriding `flavor` is not
-# optional: sbx reads it as the image's agent identifier, and left inherited
-# it would report "shell-docker" rather than "crush".
+# OVERRIDES the value inherited from the base image, which describes the
+# base rather than this image. Not optional: sbx reads it as the image's
+# agent identifier, and left inherited it would report "shell" rather than
+# "crush".
 LABEL com.docker.sandboxes.flavor="crush"
-
-# Inherited from the base image, but re-declared deliberately so the value is
-# owned here rather than depending on inheritance from an image this
-# repository does not own.
-LABEL com.docker.sandboxes.start-docker="true"
 
 # Informational only -- nothing in sbx reads this. Worth setting because the
 # base is a floating tag rebuilt nightly, so this is the one place the

@@ -97,7 +97,7 @@ builds and publishes its own, from the `Dockerfile` in this directory:
 
 ```
 docker.io/sbx/junie-image
-└── FROM docker/sandbox-templates:shell-docker
+└── FROM docker/sandbox-templates:shell
     └── junie (upstream's own install.sh, stable channel)
         ENV JUNIE_SKIP_UPDATE_CHECK=1
 ```

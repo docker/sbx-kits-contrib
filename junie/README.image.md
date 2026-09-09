@@ -5,9 +5,8 @@ Base image for the Junie kit for
 
 ## Contents
 
-Built on `docker/sandbox-templates:shell-docker` — the standard sandbox
-toolchain plus a Docker engine, requesting Docker-in-Docker via
-`com.docker.sandboxes.start-docker=true`. On top of that:
+Built on `docker/sandbox-templates:shell` — the standard sandbox toolchain,
+no Docker engine. On top of that:
 
 - [Junie](https://junie.jetbrains.com/), JetBrains' LLM-agnostic coding
   agent, installed from the stable ("release") channel via upstream's own

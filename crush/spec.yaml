@@ -36,10 +36,10 @@ permissions:
       # Crush is baked into the image (see Dockerfile) rather than installed
       # at sandbox-create time, so repo.charm.sh (the apt index and GPG key),
       # the Gemfury-fronted S3 bucket it redirects package downloads to, and
-      # the three apt sources the shell-docker template ships with are all
-      # install-time-only now -- none of them is a credential inject domain,
-      # so none belongs here. What remains below is exactly the provider
-      # hosts the credentials block injects into: a credential's inject
+      # the base template's own apt sources are all install-time-only now --
+      # none of them is a credential inject domain, so none belongs here.
+      # What remains below is exactly the provider hosts the credentials
+      # block injects into: a credential's inject
       # domains are not allowed implicitly, and e2e runs every kit under
       # `deny-all` -- see README, "How auth works".
       - api.anthropic.com

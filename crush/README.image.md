@@ -5,9 +5,8 @@ Base image for the Crush kit for
 
 ## Contents
 
-Built on `docker/sandbox-templates:shell-docker` — the standard sandbox
-toolchain plus a Docker engine, requesting Docker-in-Docker via
-`com.docker.sandboxes.start-docker=true`. On top of that:
+Built on `docker/sandbox-templates:shell` — the standard sandbox toolchain,
+no Docker engine. On top of that:
 
 - [Crush](https://github.com/charmbracelet/crush), Charm's multi-provider AI
   coding agent, installed from Charm's own apt repository at whatever release

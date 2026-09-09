@@ -108,7 +108,7 @@ builds and publishes its own, from the `Dockerfile` in this directory:
 
 ```
 docker.io/sbx/crush-image
-└── FROM docker/sandbox-templates:shell-docker
+└── FROM docker/sandbox-templates:shell
     └── crush (apt, from Charm's own repository)
 ```
 

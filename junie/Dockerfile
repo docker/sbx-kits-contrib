@@ -1,8 +1,7 @@
 # syntax=docker/dockerfile:1.7
-# Base image for the `junie` sandbox kit. Junie's own docs describe no
-# Docker use of its own; the -docker base is kept because the user's
-# project underneath it may need one.
-ARG BASE_IMAGE=docker/sandbox-templates:shell-docker
+# Base image for the `junie` sandbox kit. Junie's own docs and README
+# describe no Docker-backed tool of its own, so this uses the plain base.
+ARG BASE_IMAGE=docker/sandbox-templates:shell
 FROM ${BASE_IMAGE}
 
 # Re-declared inside the stage: an ARG defined before the first FROM is a global
@@ -37,12 +36,8 @@ RUN "$HOME/.local/bin/junie" --version
 ENV JUNIE_SKIP_UPDATE_CHECK=1
 
 # Overrides the base's inherited flavor -- left alone it would report
-# "shell-docker" rather than "junie".
+# "shell" rather than "junie".
 LABEL com.docker.sandboxes.flavor="junie"
-
-# Re-declared so the value is owned here rather than inherited from a base
-# image this repository does not control.
-LABEL com.docker.sandboxes.start-docker="true"
 
 # Nothing in sbx reads this; records what the floating base actually
 # resolved to at build time.
