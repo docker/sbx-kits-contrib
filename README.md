@@ -270,10 +270,11 @@ Each subtest (`env`, `files/<path>`, `tmpfs/<path>`, `memory`) reports independe
 
 ### Running in CI
 
-The e2e legs in [`.github/workflows/tck.yml`](.github/workflows/tck.yml) run alongside the default `test-kit` job, via the reusable [`.github/workflows/e2e.yml`](.github/workflows/e2e.yml). Each signs in to Docker Hub using `DOCKERPUBLICBOT_USERNAME` / `DOCKERPUBLICBOT_WRITE_PAT` repo secrets, then runs the e2e test once per detected kit — against two `sbx` channels:
+The e2e legs in [`.github/workflows/tck.yml`](.github/workflows/tck.yml) run alongside the default `test-kit` job, via the reusable [`.github/workflows/e2e.yml`](.github/workflows/e2e.yml). Each signs in to Docker Hub using `DOCKERPUBLICBOT_USERNAME` / `DOCKERPUBLICBOT_WRITE_PAT` repo secrets, then runs the e2e test once per detected kit — against three `sbx` channels:
 
 - **`e2e-release`** downloads the latest tagged `sbx` release. This is the channel users have today, so it **gates the PR** through the stable `e2e` job (the required status check).
 - **`e2e-nightly`** downloads the rolling `nightly` build, so kits are also exercised against what `sbx` will ship next. It is **informational only** — a broken nightly shows a red check but never blocks merge. The `e2e-nightly-report` job echoes its outcome to the run log and the job summary.
+- **`e2e-rc`** downloads the latest `sbx-releases` prerelease tagged `*-rcN`, so kits are also exercised against the release candidate currently being validated for the next stable cut. Also **informational only** — the `e2e-rc-report` job echoes its outcome the same way `e2e-nightly-report` does.
 
 **All e2e legs are skipped on fork PRs** because GitHub does not expose secrets to fork-triggered workflows — so for the typical contributor, e2e never runs in CI on their PR, and the reviewer sees a green check that does **not** cover the e2e assertions.
 
@@ -327,7 +328,7 @@ Pull requests trigger TCK tests automatically:
 - **Kit changes**: only the modified kit is tested
 - **TCK/spec changes**: all kits are tested
 - Each kit runs in a separate CI runner on Linux
-- The optional e2e legs exercise every detected kit against a real `sbx` CLI — `e2e-release` (latest release, gates the PR) and `e2e-nightly` (rolling nightly, informational only). See [End-to-end (e2e) Tests](#end-to-end-e2e-tests). Skipped on fork PRs (no Docker Hub secrets).
+- The optional e2e legs exercise every detected kit against a real `sbx` CLI — `e2e-release` (latest release, gates the PR), `e2e-nightly` (rolling nightly, informational only), and `e2e-rc` (latest release candidate, informational only). See [End-to-end (e2e) Tests](#end-to-end-e2e-tests). Skipped on fork PRs (no Docker Hub secrets).
 
 ## Prerequisites
 
