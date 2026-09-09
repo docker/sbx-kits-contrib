@@ -12,6 +12,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -25,6 +26,10 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.yaml.in/yaml/v3"
 )
+
+// appName scopes every sbx call in this suite to a dedicated daemon instance,
+// isolated from the operator's default sbx state.
+const appName = "sbx-kits-contrib-tck"
 
 // sandboxWorkDir is the workspace mount point inside every sbx template
 // container. All templates inherit from the shared `base` stage which sets
@@ -81,6 +86,8 @@ func TestE2EKit(t *testing.T) {
 
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 		defer cancel()
+
+		checkHostCredentials(t, ctx, td)
 
 		name := createSbx(t, ctx, absKit, agent, td)
 
@@ -332,6 +339,18 @@ type kitTCKData struct {
 	//   * When the flag is set but creation succeeds, the test logs a notice
 	//     that the flag is now obsolete and should be deleted.
 	ExtractedFromBuiltin bool `yaml:"extractedFromBuiltin"`
+
+	// RequiresHostCredentials names `sbx secret` service(s) that must already
+	// be stored on the host — via `sbx --app-name sbx-kits-contrib-tck secret
+	// set <service>` — before this kit's agent can be created at all. Every
+	// listed service is checked before `sbx create` runs; if any is missing,
+	// the whole kit e2e is skipped naming the missing service(s) and the
+	// command to store them.
+	//
+	// Unlike ExtractedFromBuiltin, this does not self-obsolete: the agent
+	// keeps needing the credential indefinitely, so the entry is permanent
+	// for as long as the kit declares this agent affinity.
+	RequiresHostCredentials []string `yaml:"requiresHostCredentials"`
 }
 
 // builtinCollisionMarker is the distinguishing text of the error sbx returns
@@ -362,6 +381,53 @@ func loadKitTCKData(t *testing.T, kitDir string) *kitTCKData {
 		require.NoErrorf(t, err, "parse %s", p)
 	}
 	return &td
+}
+
+// checkHostCredentials skips the kit's e2e run if any service in
+// td.RequiresHostCredentials has no secret stored on this sbx daemon. It
+// probes for presence rather than matching `sbx create`'s failure text: that
+// failure gives no indication of a missing credential, so string-matching it
+// would be fragile and, being generic, could mask unrelated create failures
+// as a skip. A probe failure or an unparseable probe result therefore fails
+// the test instead of skipping — only a clean "stored count is zero" does.
+// No-op when td is nil or declares no required services.
+func checkHostCredentials(t *testing.T, ctx context.Context, td *kitTCKData) {
+	t.Helper()
+	if td == nil || len(td.RequiresHostCredentials) == 0 {
+		return
+	}
+
+	var missing []string
+	for _, svc := range td.RequiresHostCredentials {
+		out, err := runSbxStdout(t, ctx, "secret", "ls", "--service", svc, "--json")
+		if err != nil {
+			var exitErr *exec.ExitError
+			if errors.As(err, &exitErr) {
+				out += string(exitErr.Stderr)
+			}
+		}
+		require.NoErrorf(t, err, "probe for a stored %q secret failed:\n%s", svc, out)
+
+		stored, perr := secretServiceStored([]byte(out))
+		require.NoErrorf(t, perr, "parse `sbx secret ls --service %s --json` output:\n%s", svc, out)
+
+		if !stored {
+			missing = append(missing, svc)
+		}
+	}
+	if len(missing) == 0 {
+		return
+	}
+
+	var setCmds strings.Builder
+	for _, svc := range missing {
+		fmt.Fprintf(&setCmds, "  sbx --app-name %s secret set %s\n", appName, svc)
+	}
+	t.Skipf("kit's agent needs credential(s) not stored on this sbx daemon: %s.\n"+
+		"This is expected in CI, which stores no per-agent cloud credentials — the requirement "+
+		"is permanent for this agent, not something to remove. To run the full e2e locally, "+
+		"store the missing service(s) first:\n%s",
+		strings.Join(missing, ", "), setCmds.String())
 }
 
 // promptMessage is the fixed text sent to every agent in TestE2EKit's prompt subtest.
@@ -405,12 +471,12 @@ func createSbx(t *testing.T, ctx context.Context, absKit, agent string, td *kitT
 		// during the normal failure unwind of require.NoErrorf/t.Fatal,
 		// before the process ever exits.
 		if t.Failed() {
-			t.Logf("keeping sandbox %q for post-mortem: sbx --app-name sbx-kits-contrib-tck policy log %s", name, name)
+			t.Logf("keeping sandbox %q for post-mortem: sbx --app-name %s policy log %s", name, appName, name)
 			return
 		}
 		cleanCtx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 		defer cancel()
-		out, err := exec.CommandContext(cleanCtx, "sbx", "--app-name", "sbx-kits-contrib-tck", "rm", "-f", name).CombinedOutput()
+		out, err := exec.CommandContext(cleanCtx, "sbx", "--app-name", appName, "rm", "-f", name).CombinedOutput()
 		// A sandbox that was never created has nothing to remove. Reporting
 		// that as a cleanup failure buries the real error under a misleading
 		// "not found" whenever `sbx create` itself failed.
@@ -519,6 +585,15 @@ func sandboxName(t *testing.T, kitDir string) string {
 	return "e2e-" + base + "-" + hex.EncodeToString(raw[:])
 }
 
+func buildSbxCmd(ctx context.Context, args ...string) *exec.Cmd {
+	all := make([]string, 0, len(args)+2)
+	all = append(all, "--app-name", appName)
+	all = append(all, args...)
+	cmd := exec.CommandContext(ctx, "sbx", all...)
+	cmd.Env = os.Environ()
+	return cmd
+}
+
 // runSbx invokes the sbx CLI and returns combined stdout+stderr. Inherits the
 // current environment so secrets and credential stores set up by the CI
 // `sbx login` step flow through. --app-name is prepended to every call for
@@ -526,12 +601,21 @@ func sandboxName(t *testing.T, kitDir string) string {
 // inside callers point at the call site, not this wrapper.
 func runSbx(t *testing.T, ctx context.Context, args ...string) (string, error) {
 	t.Helper()
-	all := make([]string, 0, len(args)+2)
-	all = append(all, "--app-name", "sbx-kits-contrib-tck")
-	all = append(all, args...)
-	cmd := exec.CommandContext(ctx, "sbx", all...)
-	cmd.Env = os.Environ()
+	cmd := buildSbxCmd(ctx, args...)
 	out, err := cmd.CombinedOutput()
+	return string(out), err
+}
+
+// runSbxStdout invokes the sbx CLI like runSbx but returns stdout only,
+// discarding stderr. Callers that decode --json output need this: any stderr
+// text sbx writes alongside a JSON payload would otherwise be interleaved
+// into it and break decoding. On a non-zero exit the returned error is an
+// *exec.ExitError whose Stderr field carries the process's stderr, so callers
+// can still surface it in a failure message.
+func runSbxStdout(t *testing.T, ctx context.Context, args ...string) (string, error) {
+	t.Helper()
+	cmd := buildSbxCmd(ctx, args...)
+	out, err := cmd.Output()
 	return string(out), err
 }
 

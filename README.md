@@ -101,23 +101,24 @@ There's no per-kit test file to write — the shared `TestKitTCK` in `tck/kit_te
 2. Write your `spec.yaml`:
 
 ```yaml
-schemaVersion: "1"
+schemaVersion: "2"
 kind: mixin
 name: my-kit
 displayName: My Kit
 description: "Short description of what this kit does"
 
-network:
-  allowedDomains:
-    - example.com
-  deniedDomains:
-    - tracker.example.com
+permissions:
+  network:
+    allow:
+      - example.com
+    deny:
+      - tracker.example.com
 
 environment:
   variables:
     MY_CONFIG: "/home/agent/config.json"
 
-commands:
+setup:
   install:
     - command: "pip install my-tool"
       user: "1000"
@@ -156,11 +157,11 @@ working directory set to the package directory (`./tck/`).
 
 ## Declare every domain your kit needs
 
-A kit's `network.allowedDomains` is its **complete** outbound network contract. The CI e2e job runs with a `deny-all` default policy, so anything not in your `allowedDomains` is blocked at request time — and any failed request inside an install hook surfaces as `sbx create` failing.
+A kit's `permissions.network.allow` is its **complete** outbound network contract. The CI e2e job runs with a `deny-all` default policy, so anything not in your `permissions.network.allow` is blocked at request time — and any failed request inside an install hook surfaces as `sbx create` failing.
 
 The non-obvious trap is **package managers refreshing every configured source**, not just the one you added:
 
-- `apt-get update` re-fetches metadata for every file in `/etc/apt/sources.list[.d/]` — including sources the base template added. If *any* of those returns non-2xx, `apt-get` exits non-zero even if the package you want is in a different source. For kits built on `shell-docker` / `*-docker` templates that means `download.docker.com` (Docker's apt repo, pre-added by the template) needs to be in your `allowedDomains` even if you're only installing something from Ubuntu's main archive.
+- `apt-get update` re-fetches metadata for every file in `/etc/apt/sources.list[.d/]` — including sources the base template added. If *any* of those returns non-2xx, `apt-get` exits non-zero even if the package you want is in a different source. For kits built on `shell-docker` / `*-docker` templates that means `download.docker.com` (Docker's apt repo, pre-added by the template) needs to be in your `permissions.network.allow` even if you're only installing something from Ubuntu's main archive.
 - Ubuntu hosts amd64 packages on `archive.ubuntu.com` + `security.ubuntu.com` and arm64 packages on `ports.ubuntu.com`. List all three for cross-arch coverage; CI is amd64, your Mac is likely arm64.
 - `npm install`, `pip install`, `cargo`, `go get`, etc. each have their own registry/mirror hosts — declare them too.
 
@@ -178,7 +179,7 @@ sbx --app-name $APP ls                            # find the tck-e2e-* sandbox
 sbx --app-name $APP policy log tck-e2e-<short-uuid>
 ```
 
-Every `Blocked requests` row is a domain your install or startup hook reached for under `deny-all`. Add the host (column `HOST`, e.g. `download.docker.com:443`) to `allowedDomains` and re-run until the block list is empty.
+Every `Blocked requests` row is a domain your install or startup hook reached for under `deny-all`. Add the host (column `HOST`, e.g. `download.docker.com:443`) to `permissions.network.allow` and re-run until the block list is empty.
 
 If you'd rather hand-build a probe sandbox without invoking the test harness (useful when iterating on install scripts without touching the spec), the manual flow is:
 

@@ -107,7 +107,9 @@ Every `sbx` call carries `--app-name sbx-kits-contrib-tck` so all commands route
 
 ### `testdata/tck.yaml` — kit-specific e2e config
 
-`kind: sandbox` kits **should** ship a `testdata/tck.yaml` file alongside their `spec.yaml` to opt in to the `prompt` subtest. The file is optional — the subtest is simply absent when the file is missing or `promptArgs` is empty. Kits whose agent requires a long async installation (e.g. nanoclaw, hermes-agent) may omit it until the installation reliably completes within the test timeout.
+`kind: sandbox` kits **should** ship a `testdata/tck.yaml` file alongside their `spec.yaml` to opt in to the `prompt` subtest, which only exists for `kind: sandbox` kits (see the table above). The file is optional there too — the subtest is simply absent when the file is missing or `promptArgs` is empty. Kits whose agent requires a long async installation (e.g. nanoclaw, hermes-agent) may omit it until the installation reliably completes within the test timeout.
+
+The file itself is not sandbox-only, though: a `kind: mixin` kit ships one too when it needs `requiresHostCredentials` (see "Kits whose agent needs a host-stored credential" below). Only `promptArgs`, `readyFile`, `binary`, and `extractedFromBuiltin` are meaningful solely for `kind: sandbox`.
 
 **Full schema:**
 
@@ -135,6 +137,11 @@ binary: "claude"
 # extractedFromBuiltin: set this only on a kind:sandbox kit whose name is still
 # that of an agent built into sbx. See "Kits that replace a built-in agent".
 extractedFromBuiltin: true
+
+# requiresHostCredentials: sbx secret service name(s) that must already be
+# stored on the host before this kit's agent can be created at all. See
+# "Kits whose agent needs a host-stored credential".
+requiresHostCredentials: ["bedrock"]
 ```
 
 #### Kits that replace a built-in agent
@@ -163,6 +170,34 @@ It is deliberately not a blanket "skip e2e for this kit": only the collision err
 tolerated, every other failure still fails, and nothing needs re-enabling afterwards —
 once the built-in is gone the test starts running on its own. Delete the line when you see
 the obsolete-flag notice.
+
+#### Kits whose agent needs a host-stored credential
+
+Some agents cannot be created at all unless a credential is already stored on the host via
+`sbx --app-name sbx-kits-contrib-tck secret set <service>`. `aidlc-claude`'s `claude-bedrock`
+affinity is the current example: `sbx create` for that agent needs an AWS profile stored under
+the `bedrock` service, and CI stores no such per-agent cloud credentials.
+
+`requiresHostCredentials: ["bedrock"]` declares that dependency. Before `sbx create` runs, the
+test probes `sbx --app-name sbx-kits-contrib-tck secret ls --service <service> --json` for each
+declared service instead of matching `sbx create`'s failure text — that failure gives no
+indication of a missing credential, so string-matching it would be fragile:
+
+| Situation | Result |
+|---|---|
+| Declared service not stored | `SKIP`, naming the service and the scoped `sbx secret set` command |
+| Declared service stored | Runs in full |
+| Probe fails or is unparseable | **FAIL** |
+
+It is deliberately not a blanket "skip e2e for this kit": only kits that declare the field are
+affected, and only a missing credential produces a skip — every other failure still fails.
+
+Unlike `extractedFromBuiltin`, this does not self-obsolete. The agent keeps needing the
+credential indefinitely, so the entry stays for as long as the kit declares this agent
+affinity — there is no obsolete-flag notice to watch for here.
+
+The check applies to any kit kind — `aidlc-claude` is `kind: mixin` — since it runs before
+`sbx create` regardless of kind.
 
 #### How `binary` is resolved
 
