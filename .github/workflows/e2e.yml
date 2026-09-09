@@ -5,11 +5,14 @@ name: Kit e2e
 # `./scripts/test-kit-e2e.sh <kit>` across the caller-supplied kit matrix.
 #
 # The whole point of parametrizing `channel` here — instead of hardcoding a
-# version — is that tck.yml calls this twice:
+# version — is that tck.yml calls this three times:
 #   * channel: release  → the last tagged sbx (gates the PR via the `e2e` job)
 #   * channel: nightly  → the rolling nightly build (informational only)
-# so kits are exercised against both what users have today and what they'll
-# get next, without the (currently flaky) nightly ever blocking a merge.
+#   * channel: rc       → the latest sbx-releases prerelease tagged
+#                          "*-rcN" (informational only)
+# so kits are exercised against what users have today, what they'll get next,
+# and what's currently being validated for the next stable cut, without
+# nightly or rc ever blocking a merge.
 
 on:
   workflow_call:
@@ -19,7 +22,7 @@ on:
         required: true
         type: string
       channel:
-        description: sbx build channel to test against — "release" or "nightly".
+        description: sbx build channel to test against — "release", "nightly", or "rc".
         required: true
         type: string
 
@@ -64,6 +67,16 @@ jobs:
             # exercised against the latest sbx instead of the last tag.
             VERSION=nightly
             echo "Using rolling nightly sbx build"
+          elif [ "${CHANNEL}" = "rc" ]; then
+            # Latest release candidate: sbx-releases publishes these as
+            # prereleases tagged "*-rcN", which /releases/latest deliberately
+            # excludes. The releases list is newest-first, so the first tag
+            # matching the rc suffix is the most recently cut candidate.
+            VERSION=$(curl -fsSL \
+              -H "Authorization: Bearer ${GITHUB_TOKEN}" \
+              https://api.github.com/repos/docker/sbx-releases/releases \
+              | jq -r '[.[] | select(.tag_name | test("-rc[0-9]+$"))][0].tag_name')
+            echo "Resolved latest sbx rc: ${VERSION}"
           else
             VERSION=$(curl -fsSL \
               -H "Authorization: Bearer ${GITHUB_TOKEN}" \

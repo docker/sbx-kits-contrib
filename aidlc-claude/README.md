@@ -2,7 +2,7 @@
 
 A mixin that makes a sandbox ready for [AWS AI-DLC](https://github.com/awslabs/aidlc-workflows):
 it installs a pinned [Bun](https://bun.sh) version, clones the latest
-`awslabs/aidlc-workflows` `v2` commit for a fresh project (or the commit an
+`awslabs/aidlc-workflows` `main` commit for a fresh project (or the commit an
 existing project already pinned), and copies that repo's Claude harness into the
 workspace.
 
@@ -238,10 +238,10 @@ The install clone is guarded with `git rev-parse --git-dir`, not just a director
 check. A valid clone is reused if install is replayed; a partial clone left by
 an interrupted run is removed and cloned again.
 
-## Why the clone is pinned to a commit, not the `v2` branch tip
+## Why the clone is pinned to a commit, not the `main` branch tip
 
-`v2` is active enough — double-digit commits in a handful of days — that an
-unpinned `git clone --branch v2` can hand two sandboxes created hours apart
+`main` is active enough — double-digit commits in a handful of days — that an
+unpinned `git clone --branch main` can hand two sandboxes created hours apart
 different code under the same published kit digest. Worse, the two merge
 scripts described above depend on the internal shape of the shipped
 `settings.json` and `.gitignore`, so an upstream restructure of either file can
@@ -251,12 +251,12 @@ So the clone always checks out a specific commit. `aidlc/.aidlc-workflows-versio
 in the project records which one:
 
 - **No file yet** (a fresh project) — the first startup records the full SHA of
-  the latest `v2` commit cloned during install, so every later sandbox for
+  the latest `main` commit cloned during install, so every later sandbox for
   the same project — this one recreated, or a teammate's once the file is
   committed to the project's Git repo — reproduces that exact commit instead
-  of whatever `v2` has moved to since.
+  of whatever `main` has moved to since.
 - **File present** — the recorded commit is checked out instead of the moving
-  `v2` tip. The file is an automatically managed, immutable project lock after
+  `main` tip. The file is an automatically managed, immutable project lock after
   its initial creation; editing or deleting it manually is unsupported.
 
 ## Cleanup

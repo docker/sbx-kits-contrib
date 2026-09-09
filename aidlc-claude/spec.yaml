@@ -2,7 +2,7 @@ schemaVersion: "2"
 kind: mixin
 name: aidlc-claude
 displayName: AI-DLC Quick Start
-description: Starter Kit for AWS AI-DLC — installs a pinned Bun, clones the latest aidlc-workflows v2 commit for a fresh project or the commit that project already recorded, and copies its Claude harness into the workspace, merging its settings.json keys and .gitignore rules into the files a project already has.
+description: Starter Kit for AWS AI-DLC — installs a pinned Bun, clones the latest aidlc-workflows main commit for a fresh project or the commit that project already recorded, and copies its Claude harness into the workspace, merging its settings.json keys and .gitignore rules into the files a project already has.
 
 # This kit installs the *Claude* harness from dist/claude and its agent
 # instructions describe Claude Code slash commands, so layering it onto a codex
@@ -22,13 +22,13 @@ agentInstructions:
 
     The clone at `/home/agent/aidlc-workflows` is the source tree those files
     came from; it stays outside the workspace, checked out to a specific commit
-    rather than the `v2` branch tip — v2 moves fast enough that two sandboxes
+    rather than the `main` branch tip — main moves fast enough that two sandboxes
     created hours apart can otherwise get different code under the same kit
     digest, and the harness's own merge scripts depend on the internal shape of
     its shipped `settings.json` and `.gitignore`.
 
     `aidlc/.aidlc-workflows-version` in the project records which commit. Empty
-    (a fresh project) means the first startup checks out the latest `v2`
+    (a fresh project) means the first startup checks out the latest `main`
     commit and records its SHA there; present means every later sandbox for
     this project — this one recreated, or a teammate's once the file is
     committed — reproduces that same commit. The file is an automatically
@@ -92,9 +92,9 @@ setup:
           exit 0
         fi
         rm -rf "$AIDLC_REPO"
-        git clone --branch v2 https://github.com/awslabs/aidlc-workflows.git "$AIDLC_REPO"
+        git clone --branch main https://github.com/awslabs/aidlc-workflows.git "$AIDLC_REPO"
       user: "1000"
-      description: Clone the latest aidlc-workflows v2 branch into ~/aidlc-workflows before Claude launches
+      description: Clone the latest aidlc-workflows main branch into ~/aidlc-workflows before Claude launches
 
   startup:
     # $WORKSPACE_DIR is the real mount point, injected by the runtime at create
@@ -109,17 +109,17 @@ setup:
     # the harness. Keeping this post-start path short is important because
     # Claude discovers project slash commands when its session starts.
     #
-    # Pinning: v2 is active enough (double-digit commits in a handful of days)
-    # that an unpinned `--branch v2` clone can hand two sandboxes created hours
+    # Pinning: main is active enough (double-digit commits in a handful of days)
+    # that an unpinned `--branch main` clone can hand two sandboxes created hours
     # apart different code under the same kit digest — and the two merge
     # scripts below depend on the internal shape of its shipped settings.json
     # and .gitignore, so an upstream restructure can break them outright. So
     # the project always ends up pinned to a specific commit:
     # `aidlc/.aidlc-workflows-version` records which one. If it exists, that
     # exact commit is checked out. If it does not, this is a fresh project: use
-    # the v2 tip cloned during install, resolve HEAD to its full SHA, and
+    # the main tip cloned during install, resolve HEAD to its full SHA, and
     # atomically record it, so every later sandbox for the same project
-    # reproduces that commit even after v2 moves. Once written, the pin is an
+    # reproduces that commit even after main moves. Once written, the pin is an
     # automatically managed, immutable project lock; manual edits and deletion
     # are not a supported upgrade mechanism.
     #
@@ -201,4 +201,4 @@ setup:
           cp -R --update=none "$SRC/.claude/." "$WORKSPACE_DIR/.claude/"
           cp -R --update=none "$SRC/aidlc/."   "$WORKSPACE_DIR/aidlc/"
       user: "1000"
-      description: Check out aidlc/.aidlc-workflows-version if the project has recorded a pin, otherwise record the pre-launch v2 clone's SHA, then reconcile .claude/settings.json (merging the AI-DLC hooks, env, and models into any file the project already has) and .gitignore (merging the AI-DLC commit/ignore rules into any file the project already has), then copy the rest of the Claude harness into $WORKSPACE_DIR
+      description: Check out aidlc/.aidlc-workflows-version if the project has recorded a pin, otherwise record the pre-launch main clone's SHA, then reconcile .claude/settings.json (merging the AI-DLC hooks, env, and models into any file the project already has) and .gitignore (merging the AI-DLC commit/ignore rules into any file the project already has), then copy the rest of the Claude harness into $WORKSPACE_DIR

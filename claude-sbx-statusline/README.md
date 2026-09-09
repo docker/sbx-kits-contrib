@@ -49,8 +49,9 @@ sbx run claude --kit ./claude-sbx-statusline .
 ## How it works
 
 - **`files/home/.claude/statusline.sh`** is copied to `~/.claude/statusline.sh` at sandbox
-  start. The engine preserves the file's executable bit, so Claude Code can invoke it
-  directly. The script receives the session JSON on stdin and prints the two lines.
+  start. The copy's mode is not guaranteed to keep the executable bit, so the install hook
+  below `chmod +x`es it — without that, Claude Code silently renders no status line. The
+  script receives the session JSON on stdin and prints the two lines.
 - **The `install` hook** (run as root) merges the `statusLine` block into
   `~/.claude/settings.json` with `jq`:
 
@@ -61,9 +62,12 @@ sbx run claude --kit ./claude-sbx-statusline .
   ```
 
   It creates the file if missing and leaves every other key untouched — only `statusLine`
-  is set (replacing a prior one if present) — then `chown`s `~/.claude` back to the `agent`
-  user. Re-running is idempotent. The temp file is created inside `~/.claude` so the final
-  `mv` is an atomic same-filesystem rename rather than a cross-device copy.
+  is set (replacing a prior one if present) — then `chown`s back to the `agent` user exactly
+  the paths it touched: `~/.claude`, `~/.claude/settings.json`, and `~/.claude/statusline.sh`.
+  The chown is deliberately **not** recursive — `~/.claude` holds runtime-managed content this
+  kit doesn't own, so a `chown -R` over the parent would claim ownership of paths outside the
+  kit's control. Re-running is idempotent. The temp file is created inside `~/.claude`
+  so the final `mv` is an atomic same-filesystem rename rather than a cross-device copy.
 - Note that the script does _not_ perform any checks to verify that you are indeed inside a sandbox. Care should be taken to not put this status line to your host's Claude Code installation as it would then incorrectly state that you are inside a sandbox when you are not.
 
 ## Requirements

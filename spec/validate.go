@@ -411,6 +411,16 @@ func ValidateLicenses(licenses []string) error {
 	return nil
 }
 
+// ValidArgName reports whether name is a well-formed kit-argument name.
+//
+// One grammar governs both ends of an argument: the key a kit declares under
+// args and the name a `${{ kit.args.<name> }}` reference selects it by. A
+// consumer that resolves references checks the second against this so the two
+// cannot drift apart and leave a name declarable but unreferenceable.
+func ValidArgName(name string) bool {
+	return argNamePattern.MatchString(name)
+}
+
 // ValidateArgs validates the well-formedness of a kit's argument
 // declarations (see KitArg). Each argument declares exactly one of default or
 // required: an argument with neither would silently substitute an empty
@@ -428,7 +438,7 @@ func ValidateLicenses(licenses []string) error {
 func ValidateArgs(args map[string]KitArg) error {
 	for _, name := range slices.Sorted(maps.Keys(args)) {
 		a := args[name]
-		if !argNamePattern.MatchString(name) {
+		if !ValidArgName(name) {
 			return fmt.Errorf("args[%q] is not a valid argument name (must start with a letter or underscore, followed by letters, digits, underscores, or hyphens)", name)
 		}
 		switch {
