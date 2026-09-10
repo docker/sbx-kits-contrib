@@ -1,33 +1,12 @@
-package tck_test
+package tck
 
-import (
-	"encoding/json"
-	"fmt"
-	"testing"
-)
-
-// secretServiceStored reports whether the JSON emitted by
-// `sbx secret ls --service <name> --json` declares at least one stored
-// secret for that service. The `secrets` key must be present in the decoded
-// document — its absence is treated as an unrecognized payload shape, not as
-// zero entries — while a present-but-empty array means the service has
-// nothing stored. Unknown keys besides `secrets` are tolerated.
-func secretServiceStored(raw []byte) (bool, error) {
-	var doc struct {
-		Secrets *[]json.RawMessage `json:"secrets"`
-	}
-	if err := json.Unmarshal(raw, &doc); err != nil {
-		return false, err
-	}
-	if doc.Secrets == nil {
-		return false, fmt.Errorf(`missing "secrets" key in: %s`, raw)
-	}
-	return len(*doc.Secrets) > 0, nil
-}
+import "testing"
 
 // TestSecretServiceStored pins secretServiceStored's contract against the
 // documented `sbx secret ls --service <name> --json` shapes, without
-// needing a live sbx daemon.
+// needing a live sbx daemon. secretServiceStored itself lives in tck/e2e.go
+// (package tck, not tck_test) alongside the rest of the exported e2e
+// machinery, so this is a white-box test calling it directly.
 func TestSecretServiceStored(t *testing.T) {
 	tests := []struct {
 		name    string

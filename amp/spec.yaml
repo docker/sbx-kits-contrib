@@ -24,7 +24,7 @@ permissions:
 credentials:
   - service: amp
     apiKey:
-      name: ""
+      name: AMP_API_KEY
       inject:
         - domain: ampcode.com
           header: Authorization

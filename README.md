@@ -213,8 +213,10 @@ The default TCK runs every kit assertion against a fabricated `testcontainers-go
 
 `tck/e2e_test.go` (build-tag `e2e`, function `TestE2ECreateSandbox`) drives one kit per run:
 
-1. Loads the kit at `$KIT_UNDER_TEST` and picks the agent argument — kit name for `kind: agent`, `claude` for `kind: mixin`.
-2. Runs `sbx create --kit <kit> --name <unique> <agent> <tmpdir>` against a temporary workspace.
+1. Loads the kit at `$KIT_UNDER_TEST`.
+2. Runs `sbx create`, shaped by the kit's manifest kind, against a temporary workspace:
+   - `kind: sandbox` → `sbx create <kit> --name <unique> <tmpdir>` — the kit's own directory is the first positional, no `--kit` flag or agent argument. `sbx create --kit <sandbox-kit> ... <agent>` still works with a deprecation warning when `<agent>` doesn't name a built-in, but hard-fails as `must be kind "mixin", got "sandbox"` when it does, since the positional then resolves to the built-in rather than this kit; the positional form drops that deprecation warning for every sandbox kit, not only the built-in-shadowed ones.
+   - `kind: mixin` → `sbx create --kit <kit> --name <unique> <agent> <tmpdir>`, composing the mixin onto `<agent>` (`claude`, or the mixin's declared base-agent affinity).
 3. Verifies, via `sbx exec`, that the running sandbox contains:
    - every `environment.variables` entry,
    - every file under `files/home` and every `commands.initFiles` (with `${WORKDIR}` resolved to `/home/agent/workspace`, the real sandbox workdir),
@@ -320,6 +322,20 @@ import "github.com/docker/sbx-kits-contrib/tck"
 
 suite, err := tck.NewSuiteFromDir(".")
 suite.RunAll(t)
+```
+
+For the real-sandbox e2e layer, `tck.RunE2EKit` is exported the same way, so
+another module (e.g. a sibling kit repo with its own kits and its own CI) can
+drive the identical assertions this repo's own `TestE2EKit` uses, scoped to
+its own `sbx --app-name`:
+
+```go
+import "github.com/docker/sbx-kits-contrib/tck"
+
+func TestE2EKit(t *testing.T) {
+	kitPath := os.Getenv("KIT_UNDER_TEST")
+	tck.RunE2EKit(t, kitPath, tck.E2EOptions{AppName: "my-repo-tck"})
+}
 ```
 
 ## CI
