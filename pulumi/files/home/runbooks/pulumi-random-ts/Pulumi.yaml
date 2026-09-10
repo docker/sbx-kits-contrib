@@ -1,0 +1,3 @@
+name: pulumi-random-ts
+runtime: nodejs
+description: A credential-free Pulumi starter using the random provider.

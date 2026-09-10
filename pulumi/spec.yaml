@@ -1,0 +1,121 @@
+schemaVersion: "2"
+kind: mixin
+name: pulumi
+displayName: Pulumi CLI
+description: Installs the Pulumi CLI (version and SHA256 pinned) and wires the Pulumi Cloud access token through the sandbox proxy, so `pulumi login`, `pulumi up` and `pulumi env` (ESC) work without the token ever entering the container. Pairs with any base agent.
+sourceURL: https://github.com/dirien/infrastructure-sandbox-kit
+licenses:
+  - MIT
+
+permissions:
+  network:
+    allow:
+      # Pulumi Cloud: state/service API (login, up, ESC via `pulumi env`).
+      # Also the credential injection target below.
+      - api.pulumi.com
+      # Resource/language plugin downloads at runtime (`pulumi up` fetches
+      # pulumi-resource-<provider> on first use); redirects to GitHub releases.
+      - get.pulumi.com
+      # The pinned CLI tarball (install time) and the plugin redirect targets.
+      # github.com 302-redirects release assets to objects.githubusercontent.com;
+      # release-assets.githubusercontent.com is kept alongside since that isn't
+      # guaranteed to be the same host for every asset.
+      - github.com
+      - objects.githubusercontent.com
+      - release-assets.githubusercontent.com
+      # Hosted Pulumi MCP server (registry lookups, schema and code validation,
+      # Pulumi Neo). Optional; see the README for the one-line registration.
+      - mcp.ai.pulumi.com
+      # SDK packages a Pulumi program pulls on `npm install` / `pip install` /
+      # `go mod download` for the three most common Pulumi languages.
+      - registry.npmjs.org
+      - pypi.org
+      - files.pythonhosted.org
+      - proxy.golang.org
+      - sum.golang.org
+
+# Pulumi Cloud access token. The kit only declares the credential; the value is
+# bound once on the host (`sbx secret set -g pulumi`). The proxy injects
+# `Authorization: token <PAT>` on api.pulumi.com; inside the container
+# PULUMI_ACCESS_TOKEN only ever holds the proxy-managed placeholder. Declared
+# optional: Pulumi with a local or self-managed backend works without it.
+credentials:
+  - service: pulumi
+    description: "Pulumi Cloud access token (pulumi login/up + ESC via pulumi env)"
+    required: false
+    apiKey:
+      name: PULUMI_ACCESS_TOKEN
+      proxyManaged: true
+      inject:
+        - domain: api.pulumi.com
+          header: Authorization
+          format: "token %s"
+
+environment:
+  variables:
+    PULUMI_SKIP_UPDATE_CHECK: "true"
+
+agentInstructions:
+  content: |
+    ## Pulumi CLI
+
+    `pulumi` is installed system-wide with its bundled language hosts. When a
+    Pulumi Cloud token is bound on the host, `PULUMI_ACCESS_TOKEN` holds a
+    proxy-managed placeholder and the proxy injects the real token on
+    `api.pulumi.com`, so `pulumi login`, `pulumi up` and `pulumi env` (ESC)
+    just work. Without a bound token, run `pulumi login --local` first.
+
+    - Run `pulumi preview` before `pulumi up`; non-interactive runs want
+      `--non-interactive` and an explicit `--stack <name>`.
+    - Resource plugins download on first use from get.pulumi.com (allowed).
+    - Cloud credentials (AWS/Azure/GCP) are not part of this kit. Supply them
+      at run time or through Pulumi ESC; never hardcode them in code.
+    - A credential-free starter lives in `~/runbooks/pulumi-random-ts`:
+      `npm install && pulumi stack init dev && pulumi preview`.
+
+setup:
+  install:
+    # Install the Pulumi CLI from a pinned, digest-verified GitHub release
+    # (same pattern as the trivy and glab kits: no curl|sh, version AND
+    # per-arch SHA256 pinned in git). To bump: change PULUMI_VERSION plus both
+    # checksums below, sourced from
+    # https://get.pulumi.com/releases/sdk/pulumi-<version>-checksums.txt
+    - command: |
+        set -eu
+        PULUMI_VERSION=3.260.0
+        if command -v pulumi >/dev/null 2>&1 \
+           && [ "$(PULUMI_SKIP_UPDATE_CHECK=true pulumi version 2>/dev/null)" = "v${PULUMI_VERSION}" ]; then
+          echo "pulumi v${PULUMI_VERSION} already installed"
+          exit 0
+        fi
+        DEB_ARCH=$(dpkg --print-architecture)
+        case "$DEB_ARCH" in
+          amd64)
+            ARCH=x64
+            SHA256="d7b2936f986e82fd5fa2025bafe27f74d4a50cb6ba6785a16884fd5f270453fe"
+            ;;
+          arm64)
+            ARCH=arm64
+            SHA256="1e7176d55274be10778b5ec7ebb0ae24be4061ad78e9ebfd0e9c1d874927617a"
+            ;;
+          *)
+            echo "unsupported sandbox arch: $DEB_ARCH (expected amd64 or arm64)" >&2
+            exit 1
+            ;;
+        esac
+        TARBALL="pulumi-v${PULUMI_VERSION}-linux-${ARCH}.tar.gz"
+        URL="https://github.com/pulumi/pulumi/releases/download/v${PULUMI_VERSION}/${TARBALL}"
+        curl --proto '=https' --tlsv1.2 -fsSL --retry 3 -o /tmp/pulumi.tgz "$URL"
+        echo "${SHA256}  /tmp/pulumi.tgz" | sha256sum -c -
+        rm -rf /opt/pulumi
+        mkdir -p /opt/pulumi
+        tar -C /opt/pulumi --strip-components=1 -xzf /tmp/pulumi.tgz
+        rm -f /tmp/pulumi.tgz
+        # Every binary is named pulumi*; link them all so the CLI finds its
+        # language hosts (pulumi-language-*) by PATH lookup of its siblings.
+        for f in /opt/pulumi/pulumi*; do
+          ln -sf "$f" "/usr/local/bin/$(basename "$f")"
+        done
+        PULUMI_SKIP_UPDATE_CHECK=true /usr/local/bin/pulumi version
+      user: "0"
+      description: "Install Pulumi CLI v3.260.0, version+digest pinned"
