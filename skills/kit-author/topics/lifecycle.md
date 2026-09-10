@@ -58,7 +58,7 @@ After normalization, only the canonical fields are populated. The legacy fields 
 `spec.ValidateArtifact` runs from each `Load*` path:
 
 - **Manifest** — `schemaVersion ∈ {"1", "2"}`, `kind ∈ {sandbox, mixin}` (also accepts v1 `agent` alias), `name` is lowercase alphanumeric + hyphen (1–64 chars), exactly one of `sandbox.image` / `sandbox.build` required for sandbox kits, `resources.cpu` must be a non-negative number and `resources.memory` (v2) a valid byte-size string if set.
-- **permissions.network** — entry strings are exact host, exact host+port, or leading-label wildcard (`*.example.com`). Overlap between `allow` and `deny` is **legal** — at request time, deny wins.
+- **permissions.network** — entry strings are an exact host (any port), an exact host with a numeric port, a single-label wildcard (`*.example.com`), a multi-label wildcard (`**.example.com`), or a port wildcard (`host:*`); a port range (`host:80-443`) is declared but never matches a request. Overlap between `allow` and `deny` is **legal** — at request time, deny wins.
 - **Credentials** — each entry has `service` set; `apiKey.inject[].format` (when set) is well-formed; a v2 `apiKey.inject[].scheme` is mutually exclusive with `format` and expands to it; `oauth.tokenEndpoint` has host+path.
 - **Volumes** — every entry has an absolute `path`; `type ∈ {"", "tmpfs"}`; `size` if set must parse as a byte-size string; `mode` if set must be octal.
 - **PublishedPorts** — `container` in 1..65535; `protocol ∈ {"", "tcp", "udp"}`.
