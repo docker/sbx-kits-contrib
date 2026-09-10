@@ -460,8 +460,8 @@ type Caps struct {
 //   - exact:port:            api.example.com:443
 //   - single-label wildcard: *.example.com
 //
-// P3 entry formats (deferred): double wildcards (**.example.com), CIDR
-// (10.0.0.0/8), port ranges (api.example.com:8000-9000).
+// P3-labeled but enforced: double wildcards (**.example.com), port wildcard
+// (host:*). Still not enforced: CIDR (10.0.0.0/8), port ranges (host:8000-9000).
 type CapsNetwork struct {
 	Allow []string `json:"allow,omitempty" yaml:"allow,omitempty"`
 	Deny  []string `json:"deny,omitempty" yaml:"deny,omitempty"`
@@ -735,9 +735,8 @@ type Artifact struct {
 	// warning.
 	AgentContext string `json:"agentContext,omitempty"`
 
-	// Warnings is the list of non-fatal validation issues collected during
-	// load (typically v1 → v2 deprecation warnings). Empty slice when the
-	// spec uses only canonical v2 fields.
+	// Warnings lists non-fatal issues from load and validation — v1 → v2
+	// deprecations plus validator findings (e.g. an uncovered credential domain).
 	Warnings []string `json:"warnings,omitempty"`
 }
 

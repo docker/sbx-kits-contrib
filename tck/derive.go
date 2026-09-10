@@ -21,10 +21,15 @@ func WithImage(image string) Option {
 // NewSuiteFromDir loads a kit artifact from the given directory and derives
 // all test expectations from the spec.yaml and files/ directory.
 //
-// The artifact is loaded via spec.OpenFromDirectory (streaming path) so the
-// TCK exercises on-demand file reading via ArtifactFile.Open. File content is
-// still read into memory at the copy boundary inside RunContainerTests, but
-// only one file at a time.
+// A `${{ kit.args.<name> }}` reference in spec.yaml or under files/ is
+// substituted before the spec is decoded, taking its value from the `args:`
+// block of <dir>/testdata/tck.yaml or, failing that, from the argument's
+// declared default.
+//
+// A kit with nothing to substitute is loaded via spec.OpenFromDirectory
+// (streaming path), so the TCK exercises on-demand file reading via
+// ArtifactFile.Open. File content is still read into memory at the copy
+// boundary inside RunContainerTests, but only one file at a time.
 //
 // For kind=agent artifacts, the container image is taken from the manifest's template.
 // For kind=mixin artifacts, the image is resolved from extends or the declared
@@ -32,7 +37,7 @@ func WithImage(image string) Option {
 // defaults to the shell template.
 // Use WithImage to override the image for any artifact.
 func NewSuiteFromDir(dir string, opts ...Option) (*Suite, error) {
-	artifact, err := spec.OpenFromDirectory(dir)
+	artifact, err := openKitArtifact(dir)
 	if err != nil {
 		return nil, fmt.Errorf("load artifact from %q: %w", dir, err)
 	}

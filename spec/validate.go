@@ -6,6 +6,7 @@ import (
 	"path"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/docker/go-units"
@@ -309,12 +310,24 @@ func ValidateArtifact(a *Artifact) error {
 	if err := ValidatePublishedPorts(a.PublishedPorts); err != nil {
 		return err
 	}
-	if err := ValidateEnvironmentPolicy(a.Environment); err != nil {
-		return err
+	var allowedDomains []string
+	if a.Caps != nil && a.Caps.Network != nil {
+		allowedDomains = a.Caps.Network.Allow
 	}
-	if err := ValidateCommandsPolicy(a.Commands); err != nil {
-		return err
+
+	// This class of warning is validator-owned: drop every prior instance so
+	// revalidation reflects the artifact's current state, not its history.
+	retained := make([]string, 0, len(a.Warnings))
+	for _, w := range a.Warnings {
+		if !strings.HasPrefix(w, uncoveredDomainWarningPrefix) {
+			retained = append(retained, w)
+		}
 	}
+	a.Warnings = retained
+
+	// Credentials validate before Environment: a v2 apiKey.proxyManaged: true
+	// copies its name into Environment.ProxyManaged, so an author must see a
+	// malformed name as "apiKey: name ...", not "environment: proxyManaged ...".
 	for i, c := range a.Credentials {
 		// SPEC-v2 §5.4 makes service REQUIRED on every credential entry: it is
 		// the identity the user-side bindings file matches on. For OAuth it
@@ -331,9 +344,28 @@ func ValidateArtifact(a *Artifact) error {
 		if c.Service == "" {
 			return fmt.Errorf("artifact: credentials[%d]: service is required", i)
 		}
+		if err := ValidateApiKey(c.ApiKey, a.Manifest.SchemaVersion); err != nil {
+			return fmt.Errorf("artifact: credentials[%d] (service %q): %w", i, c.Service, err)
+		}
 		if err := ValidateOAuth(c.OAuth); err != nil {
 			return fmt.Errorf("artifact: credentials[%d] (service %q): %w", i, c.Service, err)
 		}
+		if c.ApiKey != nil {
+			for j, inj := range c.ApiKey.Inject {
+				if inj.Domain != "" && !allowListCovers(inj.Domain, allowedDomains) {
+					a.Warnings = append(a.Warnings, fmt.Sprintf(
+						"%scredentials[%d] (service %q) inject[%d].domain %q",
+						uncoveredDomainWarningPrefix, i, c.Service, j, inj.Domain))
+				}
+			}
+		}
+	}
+
+	if err := ValidateEnvironmentPolicy(a.Environment); err != nil {
+		return err
+	}
+	if err := ValidateCommandsPolicy(a.Commands); err != nil {
+		return err
 	}
 
 	for i, f := range a.Files {
@@ -411,6 +443,16 @@ func ValidateLicenses(licenses []string) error {
 	return nil
 }
 
+// ValidArgName reports whether name is a well-formed kit-argument name.
+//
+// One grammar governs both ends of an argument: the key a kit declares under
+// args and the name a `${{ kit.args.<name> }}` reference selects it by. A
+// consumer that resolves references checks the second against this so the two
+// cannot drift apart and leave a name declarable but unreferenceable.
+func ValidArgName(name string) bool {
+	return argNamePattern.MatchString(name)
+}
+
 // ValidateArgs validates the well-formedness of a kit's argument
 // declarations (see KitArg). Each argument declares exactly one of default or
 // required: an argument with neither would silently substitute an empty
@@ -428,7 +470,7 @@ func ValidateLicenses(licenses []string) error {
 func ValidateArgs(args map[string]KitArg) error {
 	for _, name := range slices.Sorted(maps.Keys(args)) {
 		a := args[name]
-		if !argNamePattern.MatchString(name) {
+		if !ValidArgName(name) {
 			return fmt.Errorf("args[%q] is not a valid argument name (must start with a letter or underscore, followed by letters, digits, underscores, or hyphens)", name)
 		}
 		switch {
@@ -502,6 +544,71 @@ func compileArgPattern(pat string) (*regexp.Regexp, error) {
 		return nil, err
 	}
 	return regexp.Compile(`\A(?:` + pat + `)\z`)
+}
+
+// ValidateApiKey requires inject[].domain and header or username on every
+// entry (SPEC-v2 §5.4.1); name itself is required only for schemaVersion "2".
+func ValidateApiKey(a *ApiKey, schemaVersion string) error {
+	if a == nil {
+		return nil
+	}
+	if a.Name == "" && schemaVersion == "2" {
+		return fmt.Errorf("apiKey: name is required")
+	}
+	if a.Name != "" && !shellIdentifierPattern.MatchString(a.Name) {
+		return fmt.Errorf("apiKey: name %q is not a valid shell identifier (letters, digits, underscores; can't start with a digit)", a.Name)
+	}
+	for j, inj := range a.Inject {
+		if inj.Domain == "" {
+			return fmt.Errorf("apiKey: inject[%d].domain is required", j)
+		}
+		if inj.Format != "" && strings.Count(inj.Format, "%s") != 1 {
+			return fmt.Errorf("apiKey: inject[%d].format must contain exactly one %%s placeholder (got %q)", j, inj.Format)
+		}
+		if inj.Header == "" && inj.Username == "" {
+			return fmt.Errorf("apiKey: inject[%d] sets neither header nor username, so it injects nothing", j)
+		}
+		if inj.Header != "" && inj.Username == "" && inj.Format == "" {
+			return fmt.Errorf("apiKey: inject[%d] sets header but no format, so it injects nothing", j)
+		}
+		if strings.Contains(inj.Username, ":") {
+			return fmt.Errorf("apiKey: inject[%d].username must not contain \":\" (HTTP Basic treats the first colon as the user/password delimiter)", j)
+		}
+	}
+	return nil
+}
+
+// uncoveredDomainWarningPrefix tags a validator-owned warning class so
+// ValidateArtifact can find and drop its own prior instances on revalidation.
+const uncoveredDomainWarningPrefix = "apiKey inject domain not covered by permissions.network.allow: "
+
+// allowListCovers mirrors sbx's runtime enforcement: a port range or other
+// non-numeric, non-"*" port never matches, so it doesn't count as coverage.
+func allowListCovers(domain string, allow []string) bool {
+	for _, entry := range allow {
+		host, port, hasPort := strings.Cut(entry, ":")
+		if hasPort && port != "*" && !isNumericPort(port) {
+			continue
+		}
+		if host == domain {
+			return true
+		}
+		if label, ok := strings.CutPrefix(host, "**."); ok && strings.HasSuffix(domain, "."+label) {
+			return true
+		}
+		if label, ok := strings.CutPrefix(host, "*."); ok {
+			if sub := strings.TrimSuffix(domain, "."+label); sub != domain && sub != "" && !strings.Contains(sub, ".") {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// isNumericPort reports whether s is a valid 0-65535 decimal port.
+func isNumericPort(s string) bool {
+	_, err := strconv.ParseUint(s, 10, 16)
+	return err == nil
 }
 
 // ValidateOAuthPolicy validates the oauth policy if present.

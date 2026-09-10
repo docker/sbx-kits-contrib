@@ -1,6 +1,7 @@
 package spec
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -534,6 +535,95 @@ func TestValidateOAuthPolicy(t *testing.T) {
 	})
 }
 
+func TestValidateApiKey(t *testing.T) {
+	t.Run("nil_is_valid", func(t *testing.T) {
+		require.NoError(t, ValidateApiKey(nil, "2"))
+	})
+
+	t.Run("v2_missing_name_rejected", func(t *testing.T) {
+		a := &ApiKey{Inject: []ApiKeyInject{{Domain: "api.example.com", Header: "x-api-key", Format: "%s"}}}
+		require.ErrorContains(t, ValidateApiKey(a, "2"), "name is required")
+	})
+
+	// v1's serviceDomains+serviceAuth fold can yield a header-only inject
+	// with no name that still injects, so schemaVersion "1" must accept it.
+	t.Run("v1_missing_name_grandfathered", func(t *testing.T) {
+		a := &ApiKey{Inject: []ApiKeyInject{{Domain: "api.example.com", Header: "x-api-key", Format: "%s"}}}
+		require.NoError(t, ValidateApiKey(a, "1"))
+	})
+
+	// name is an env-var name; a non-empty malformed one always loads clean
+	// today but the value is never actually reachable in-container.
+	t.Run("malformed_name_rejected", func(t *testing.T) {
+		a := &ApiKey{Name: "bad-name", Inject: []ApiKeyInject{{Domain: "api.example.com", Header: "x-api-key", Format: "%s"}}}
+		require.ErrorContains(t, ValidateApiKey(a, "2"), "not a valid shell identifier")
+	})
+
+	// The shell-identifier shape check is not v2-gated: only the
+	// non-empty requirement is, so a malformed v1 name is rejected too.
+	t.Run("malformed_name_rejected_v1", func(t *testing.T) {
+		a := &ApiKey{Name: "bad-name", Inject: []ApiKeyInject{{Domain: "api.example.com", Header: "x-api-key", Format: "%s"}}}
+		require.ErrorContains(t, ValidateApiKey(a, "1"), "not a valid shell identifier")
+	})
+
+	t.Run("valid_underscore_leading_name_accepted", func(t *testing.T) {
+		a := &ApiKey{Name: "_OK_NAME2", Inject: []ApiKeyInject{{Domain: "api.example.com", Header: "x-api-key", Format: "%s"}}}
+		require.NoError(t, ValidateApiKey(a, "2"))
+	})
+
+	// The shell-identifier check only applies to a non-empty name; an empty
+	// one stays governed solely by the v1/v2 name-required gate above.
+	t.Run("v1_empty_name_not_subject_to_shell_identifier_check", func(t *testing.T) {
+		a := &ApiKey{Inject: []ApiKeyInject{{Domain: "api.example.com", Header: "x-api-key", Format: "%s"}}}
+		require.NoError(t, ValidateApiKey(a, "1"))
+	})
+
+	t.Run("empty_inject_domain_rejected", func(t *testing.T) {
+		a := &ApiKey{Name: "TOKEN", Inject: []ApiKeyInject{{Header: "x-api-key", Format: "%s"}}}
+		require.ErrorContains(t, ValidateApiKey(a, "2"), "inject[0].domain is required")
+	})
+
+	t.Run("format_with_zero_placeholders_rejected", func(t *testing.T) {
+		a := &ApiKey{Name: "TOKEN", Inject: []ApiKeyInject{{Domain: "d.example.com", Header: "h", Format: "static"}}}
+		require.ErrorContains(t, ValidateApiKey(a, "2"), "exactly one %s placeholder")
+	})
+
+	t.Run("format_with_two_placeholders_rejected", func(t *testing.T) {
+		a := &ApiKey{Name: "TOKEN", Inject: []ApiKeyInject{{Domain: "d.example.com", Header: "h", Format: "%s-%s"}}}
+		require.ErrorContains(t, ValidateApiKey(a, "2"), "exactly one %s placeholder")
+	})
+
+	t.Run("inert_inject_rejected", func(t *testing.T) {
+		a := &ApiKey{Name: "TOKEN", Inject: []ApiKeyInject{{Domain: "d.example.com", Format: "%s"}}}
+		require.ErrorContains(t, ValidateApiKey(a, "2"), "sets neither header nor username")
+	})
+
+	t.Run("header_only_valid", func(t *testing.T) {
+		a := &ApiKey{Name: "TOKEN", Inject: []ApiKeyInject{{Domain: "d.example.com", Header: "x-api-key", Format: "%s"}}}
+		require.NoError(t, ValidateApiKey(a, "2"))
+	})
+
+	// header alone has no template to substitute the credential into, so it
+	// never actually injects at runtime — only the username/Basic path can
+	// omit format.
+	t.Run("header_without_format_rejected", func(t *testing.T) {
+		a := &ApiKey{Name: "TOKEN", Inject: []ApiKeyInject{{Domain: "d.example.com", Header: "x-api-key"}}}
+		require.ErrorContains(t, ValidateApiKey(a, "2"), "sets header but no format")
+	})
+
+	t.Run("username_only_valid", func(t *testing.T) {
+		a := &ApiKey{Name: "TOKEN", Inject: []ApiKeyInject{{Domain: "d.example.com", Username: "x-access-token"}}}
+		require.NoError(t, ValidateApiKey(a, "2"))
+	})
+
+	// HTTP Basic (RFC 7617) parses everything after the first colon as the
+	// password, so a colon-bearing username can never authenticate as declared.
+	t.Run("username_with_colon_rejected", func(t *testing.T) {
+		a := &ApiKey{Name: "TOKEN", Inject: []ApiKeyInject{{Domain: "d.example.com", Username: "a:b", Format: "%s"}}}
+		require.ErrorContains(t, ValidateApiKey(a, "2"), `username must not contain ":"`)
+	})
+}
+
 func TestValidateOAuth(t *testing.T) {
 	t.Run("nil_is_valid", func(t *testing.T) {
 		require.NoError(t, ValidateOAuth(nil))
@@ -759,6 +849,239 @@ func TestValidateArtifact(t *testing.T) {
 			Credentials: []Credential{{Service: "sample_proxy", ApiKey: &ApiKey{Name: "SAMPLE_PROXY_TOKEN"}}},
 		}
 		require.NoError(t, ValidateArtifact(a))
+	})
+
+	// proxyManaged: true copies apiKey.name into the derived
+	// Environment.ProxyManaged list; a malformed name must still be
+	// attributed to the credential, not to that derived list.
+	t.Run("proxymanaged_malformed_name_errors_as_apikey_not_environment", func(t *testing.T) {
+		yamlBytes := []byte(`
+schemaVersion: "2"
+kind: mixin
+name: creds-proxy-managed
+permissions:
+  network:
+    allow:
+      - api.example.com
+credentials:
+  - service: svc
+    apiKey:
+      name: bad-name
+      proxyManaged: true
+      inject:
+        - domain: api.example.com
+          header: x-api-key
+          format: "%s"
+`)
+		art, err := LoadArtifactFromBytes(yamlBytes)
+		require.NoError(t, err)
+		require.Equal(t, []string{"bad-name"}, art.Environment.ProxyManaged,
+			"precondition: the name must have propagated to the derived environment list")
+
+		err = ValidateArtifact(art)
+		require.ErrorContains(t, err, "apiKey: name")
+		require.ErrorContains(t, err, "not a valid shell identifier")
+		require.NotContains(t, err.Error(), "environment: proxyManaged",
+			"error must be attributed to the credential, not the derived environment list")
+	})
+
+	t.Run("apikey_explicit_header_and_format_valid", func(t *testing.T) {
+		a := &Artifact{
+			Manifest: Manifest{SchemaVersion: "2", Kind: KindMixin, Name: "ok"},
+			Caps:     &Caps{Network: &CapsNetwork{Allow: []string{"api.anthropic.com"}}},
+			Credentials: []Credential{{
+				Service: "anthropic",
+				ApiKey: &ApiKey{
+					Name:   "ANTHROPIC_API_KEY",
+					Inject: []ApiKeyInject{{Domain: "api.anthropic.com", Header: "x-api-key", Format: "%s"}},
+				},
+			}},
+		}
+		require.NoError(t, ValidateArtifact(a))
+		require.Empty(t, a.Warnings)
+	})
+
+	t.Run("apikey_inject_domain_not_allowed_warns_not_errors", func(t *testing.T) {
+		a := &Artifact{
+			Manifest: Manifest{SchemaVersion: "2", Kind: KindMixin, Name: "ok"},
+			Caps:     &Caps{Network: &CapsNetwork{Allow: []string{"other.example.com"}}},
+			Credentials: []Credential{{
+				Service: "svc",
+				ApiKey: &ApiKey{
+					Name:   "SVC_TOKEN",
+					Inject: []ApiKeyInject{{Domain: "svc.example.com", Header: "x-api-key", Format: "%s"}},
+				},
+			}},
+		}
+		require.NoError(t, ValidateArtifact(a), "an uncovered inject domain must warn, not fail validation")
+		require.True(t, hasWarningContaining(a.Warnings, `credentials[0] (service "svc") inject[0].domain "svc.example.com"`),
+			"expected an uncovered-domain warning, got %v", a.Warnings)
+	})
+
+	// Coverage warnings are validator-owned: revalidating the same artifact
+	// must not accumulate a duplicate per call.
+	t.Run("apikey_inject_domain_warning_is_idempotent_across_revalidation", func(t *testing.T) {
+		a := &Artifact{
+			Manifest: Manifest{SchemaVersion: "2", Kind: KindMixin, Name: "ok"},
+			Caps:     &Caps{Network: &CapsNetwork{Allow: []string{"other.example.com"}}},
+			Credentials: []Credential{{
+				Service: "svc",
+				ApiKey: &ApiKey{
+					Name:   "SVC_TOKEN",
+					Inject: []ApiKeyInject{{Domain: "svc.example.com", Header: "x-api-key", Format: "%s"}},
+				},
+			}},
+		}
+		require.NoError(t, ValidateArtifact(a))
+		require.NoError(t, ValidateArtifact(a))
+		count := 0
+		for _, w := range a.Warnings {
+			if strings.Contains(w, `credentials[0] (service "svc") inject[0].domain "svc.example.com"`) {
+				count++
+			}
+		}
+		require.Equal(t, 1, count, "revalidation must not duplicate the warning, got %v", a.Warnings)
+	})
+
+	// Coverage warnings are also self-healing: once the allow list is fixed,
+	// revalidating the same artifact must drop the now-stale warning.
+	t.Run("apikey_inject_domain_warning_clears_once_allow_list_fixed", func(t *testing.T) {
+		a := &Artifact{
+			Manifest: Manifest{SchemaVersion: "2", Kind: KindMixin, Name: "ok"},
+			Caps:     &Caps{Network: &CapsNetwork{Allow: []string{"other.example.com"}}},
+			Credentials: []Credential{{
+				Service: "svc",
+				ApiKey: &ApiKey{
+					Name:   "SVC_TOKEN",
+					Inject: []ApiKeyInject{{Domain: "svc.example.com", Header: "x-api-key", Format: "%s"}},
+				},
+			}},
+		}
+		require.NoError(t, ValidateArtifact(a))
+		require.NotEmpty(t, a.Warnings, "precondition: the domain must start out uncovered")
+
+		a.Caps.Network.Allow = append(a.Caps.Network.Allow, "svc.example.com")
+		require.NoError(t, ValidateArtifact(a))
+		require.Empty(t, a.Warnings, "the warning must clear once the domain is covered, got %v", a.Warnings)
+	})
+
+	t.Run("apikey_inject_domain_covered_by_wildcard_no_warning", func(t *testing.T) {
+		a := &Artifact{
+			Manifest: Manifest{SchemaVersion: "2", Kind: KindMixin, Name: "ok"},
+			Caps:     &Caps{Network: &CapsNetwork{Allow: []string{"*.example.com"}}},
+			Credentials: []Credential{{
+				Service: "svc",
+				ApiKey: &ApiKey{
+					Name:   "SVC_TOKEN",
+					Inject: []ApiKeyInject{{Domain: "svc.example.com", Header: "x-api-key", Format: "%s"}},
+				},
+			}},
+		}
+		require.NoError(t, ValidateArtifact(a))
+		require.Empty(t, a.Warnings)
+	})
+
+	// A port range never matches a request, so it doesn't cover the domain.
+	t.Run("apikey_inject_domain_port_range_allow_still_warns", func(t *testing.T) {
+		a := &Artifact{
+			Manifest: Manifest{SchemaVersion: "2", Kind: KindMixin, Name: "ok"},
+			Caps:     &Caps{Network: &CapsNetwork{Allow: []string{"api.example.com:80-443"}}},
+			Credentials: []Credential{{
+				Service: "svc",
+				ApiKey: &ApiKey{
+					Name:   "SVC_TOKEN",
+					Inject: []ApiKeyInject{{Domain: "api.example.com", Header: "x-api-key", Format: "%s"}},
+				},
+			}},
+		}
+		require.NoError(t, ValidateArtifact(a))
+		require.True(t, hasWarningContaining(a.Warnings, `credentials[0] (service "svc") inject[0].domain "api.example.com"`),
+			"a port-range allow entry never matches, so it must still warn; got %v", a.Warnings)
+	})
+
+	t.Run("apikey_inject_domain_port_wildcard_allow_no_warning", func(t *testing.T) {
+		a := &Artifact{
+			Manifest: Manifest{SchemaVersion: "2", Kind: KindMixin, Name: "ok"},
+			Caps:     &Caps{Network: &CapsNetwork{Allow: []string{"api.example.com:*"}}},
+			Credentials: []Credential{{
+				Service: "svc",
+				ApiKey: &ApiKey{
+					Name:   "SVC_TOKEN",
+					Inject: []ApiKeyInject{{Domain: "api.example.com", Header: "x-api-key", Format: "%s"}},
+				},
+			}},
+		}
+		require.NoError(t, ValidateArtifact(a))
+		require.Empty(t, a.Warnings)
+	})
+
+	t.Run("apikey_inject_domain_multilabel_wildcard_allow_no_warning", func(t *testing.T) {
+		a := &Artifact{
+			Manifest: Manifest{SchemaVersion: "2", Kind: KindMixin, Name: "ok"},
+			Caps:     &Caps{Network: &CapsNetwork{Allow: []string{"**.example.com"}}},
+			Credentials: []Credential{{
+				Service: "svc",
+				ApiKey: &ApiKey{
+					Name:   "SVC_TOKEN",
+					Inject: []ApiKeyInject{{Domain: "a.b.example.com", Header: "x-api-key", Format: "%s"}},
+				},
+			}},
+		}
+		require.NoError(t, ValidateArtifact(a))
+		require.Empty(t, a.Warnings)
+	})
+
+	// scheme: basic expands to Username set, Header empty (SPEC-v2 §5.4.1);
+	// this shape must validate clean despite the empty header.
+	t.Run("scheme_basic_post_fold_shape_is_clean", func(t *testing.T) {
+		yamlBytes := []byte(`
+schemaVersion: "2"
+kind: mixin
+name: creds-basic
+permissions:
+  network:
+    allow:
+      - github.com
+credentials:
+  - service: github
+    apiKey:
+      name: GITHUB_TOKEN
+      inject:
+        - domain: github.com
+          scheme: basic
+          username: x-access-token
+`)
+		art, err := LoadArtifactFromBytes(yamlBytes)
+		require.NoError(t, err)
+		require.NoError(t, ValidateArtifact(art))
+		require.Empty(t, art.Credentials[0].ApiKey.Inject[0].Header, "scheme: basic sets no header")
+		require.Equal(t, "x-access-token", art.Credentials[0].ApiKey.Inject[0].Username)
+		require.Empty(t, art.Warnings)
+	})
+
+	// Regression: the v1 serviceDomains+serviceAuth fold can produce a
+	// no-name, header-only apiKey that already injects; it must stay valid.
+	t.Run("v1_serviceDomains_fold_without_name_stays_valid", func(t *testing.T) {
+		yamlBytes := []byte(`
+schemaVersion: "1"
+kind: agent
+name: routing-only
+agent:
+  image: x
+network:
+  allowedDomains: [api.anthropic.com]
+  serviceDomains:
+    api.anthropic.com: anthropic
+  serviceAuth:
+    anthropic:
+      headerName: x-api-key
+      valueFormat: "%s"
+`)
+		art, err := LoadArtifactFromBytes(yamlBytes)
+		require.NoError(t, err)
+		require.NoError(t, ValidateArtifact(art))
+		require.Empty(t, art.Credentials[0].ApiKey.Name, "no credentials.sources entry means no envName")
+		require.Equal(t, "x-api-key", art.Credentials[0].ApiKey.Inject[0].Header)
 	})
 
 	t.Run("oauth_credential_file_structure_only_accepted", func(t *testing.T) {

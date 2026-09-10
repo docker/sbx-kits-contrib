@@ -69,9 +69,11 @@ args:
     required: true                     # installer must supply a value
 ```
 
-Each argument declares exactly one of `default` or `required: true`, and constrains its value with at most one of `enum` or `pattern` (a Go RE2 regexp matched against the whole value). Values are always strings: quote the placeholder in a string-valued field (`VERSION: "${{ kit.args.version }}"`), or a value like `1.20` is read as a float.
+Each argument declares exactly one of `default` or `required: true`, and constrains its value with at most one of `enum` or `pattern` (a Go RE2 regexp matched against the whole value). Values are always strings: quote the placeholder in a string-valued field (`VERSION: "${{ kit.args.version }}"`), or a value like `1.20` is read as a float. Write `$${{` where you want a literal `${{` and no substitution — except in a mapping key, which is rejected for naming an argument whether escaped or not (see [SPEC-v2 §2.1](../../../spec/SPEC-v2.md#21-args)).
 
 `args` is v2-only, and unrelated to `sandbox.build.args` (Docker build arguments). Because the block lives in `spec.yaml`, a signature covers the declarations and defaults; the values an installer supplies do not.
+
+In this repository the TCK is the installer that supplies them — it reads them from your kit's `testdata/tck.yaml`. See [Testing — Kits that declare `args`](testing.md#kits-that-declare-args).
 
 ### `mixins`
 
@@ -256,7 +258,11 @@ credentials:
 
 `bearer` supplies `header: Authorization` only when you left `header` empty, so writing an explicit `header:` alongside it still wins. `basic` is username-driven at the proxy rather than a header encoding, so it sets no `header` at all — write one yourself if the service needs a specific one.
 
-**Enforcement:** every `apiKey.inject[].domain` MUST appear in `permissions.network.allow`. There is no auto-derived egress from credentials. The spec validator does not cross-check the two lists; the engine enforces the rule, and a missing domain surfaces at load or sandbox-create time (SPEC-v2 §6).
+**Enforcement:** every `apiKey.inject[].domain` MUST appear in `permissions.network.allow`. There is no auto-derived egress from credentials. `sbx kit validate` warns (but does not fail) when it detects an uncovered domain; the engine performs the authoritative enforcement, and a missing domain surfaces at load or sandbox-create time (SPEC-v2 §6).
+
+An inject entry MUST also set at least one of `header` or `username` — one with neither has nothing for the proxy to inject and fails `sbx kit validate`. A `header`-bearing entry with no `username` MUST also set `format`, or there is no template to substitute the credential into. `username` MUST NOT contain `:` — HTTP Basic (RFC 7617) treats the first colon as the user/password delimiter, so a colon-bearing username can't authenticate as declared; `sbx kit validate` rejects it.
+
+`apiKey.name` is REQUIRED on a v2 spec, and whenever it's set (v1 or v2) it MUST be a valid shell identifier — letters, digits, underscores, not starting with a digit — since the engine uses it as an environment-variable name.
 
 ### OAuth shape
 
@@ -315,12 +321,12 @@ Entry formats:
 
 | Pattern | Example | Matches | Status |
 |---|---|---|---|
-| `<domain>` | `api.example.com` | Exact host, default port 443 | **P2 — implemented** |
+| `<domain>` | `api.example.com` | Exact host, no port — matches any port | **P2 — implemented** |
 | `<domain>:<port>` | `api.example.com:8080` | Exact host, specific port | **P2 — implemented** |
 | `*.<domain>` | `*.example.com` | Exactly one DNS label (e.g. `api.example.com`, `cdn.example.com`). Does **not** match `example.com` itself or `a.b.example.com`. | **P2 — implemented** |
-| `**.<domain>` | `**.example.com` | One or more DNS labels (e.g. `api.example.com`, `a.b.example.com`). | **P3 — pending** |
-| `<domain>:<lo>-<hi>` | `api.example.com:80-443` | Port range | **P3 — pending** |
-| `<domain>:*` | `api.example.com:*` | Port wildcard | **P3 — pending** |
+| `**.<domain>` | `**.example.com` | One or more DNS labels (e.g. `api.example.com`, `a.b.example.com`). | **Enforced** |
+| `<domain>:<lo>-<hi>` | `api.example.com:80-443` | Port range | **P3 — pending**; never matches a request |
+| `<domain>:*` | `api.example.com:*` | Port wildcard | **Enforced** — identical to omitting the port |
 | CIDR | `10.0.0.0/8` | IP block | **P3 — pending** |
 
 **Deny precedence.** When the same host matches both `allow` and `deny`, **deny wins** — the request is rejected. Overlap is legal (and intentional: a parent kit can allow `*.example.com` while a child or mixin denies `telemetry.example.com`).

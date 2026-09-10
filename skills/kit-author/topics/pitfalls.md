@@ -146,7 +146,7 @@ The CLI catches this up front: a kit whose `setup.files[i].path` resolves at or 
 
 `*.example.com` matches **exactly one** DNS label — `api.example.com` ✓, `cdn.example.com` ✓; `example.com` ✗ (zero labels), `a.b.example.com` ✗ (two labels).
 
-`**.example.com` (matches one or more labels, crossing dots) is **P3 — deferred**, pending sbx support. Until it ships, multi-label wildcards aren't usable.
+`**.example.com` matches one or more labels, crossing dots, and is enforced.
 
 Middle-position wildcards like `bedrock-runtime.*.amazonaws.com` aren't part of the spec at all. List the regions explicitly until the spec adds an entry format for them.
 
