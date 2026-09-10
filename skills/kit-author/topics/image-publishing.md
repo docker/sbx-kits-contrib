@@ -49,6 +49,23 @@ The `-image` suffix keeps `docker.io/sbx/<kit>-kit` free for the kit artifact
 itself, which is also distributed as an OCI artifact — see
 [Distribution](distribution.md).
 
+## Choosing a base image
+
+Default to `docker/sandbox-templates:shell`; reach for a `-docker` variant only
+when the kit's agent itself launches containers, not because a nearby kit's
+Dockerfile does — existing kits split between the two bases, so the closest
+example isn't evidence either way. Only set `LABEL
+com.docker.sandboxes.start-docker="true"` on a base that actually ships an
+engine (CI checks this — see [Pre-publish verification](../../../PUBLISHING.md#pre-publish-verification)).
+For a new kit, absence of evidence isn't a reason to pick either base — check
+the agent's own source or docs for whether it shells out to `docker`,
+declares a container runtime, or offers a container-backed execution mode,
+and default to plain if it doesn't; when converting an existing kit and that
+question stays open, preserve the base it already had rather than change
+behavior on a guess. The plain base runs meaningfully smaller — hundreds of
+megabytes, measured against today's bases — which is why the choice is worth
+making deliberately rather than by default.
+
 ## Do not reach for `sandbox.build:`
 
 [Spec anatomy](spec-anatomy.md) documents `sandbox.build:`, and it decodes — but

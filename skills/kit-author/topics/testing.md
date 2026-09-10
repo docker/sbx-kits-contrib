@@ -2,7 +2,7 @@
 
 Four layers. Run **all four locally** before opening a PR — only the first two run on CI for fork PRs.
 
-**Why fork contributors must run e2e locally.** The repo's CI e2e legs (`e2e-release`, which gates the PR, and the informational `e2e-nightly`) need `DOCKERHUB_USERNAME` / `DOCKERHUB_TOKEN` to pull the template image, and GitHub does not expose secrets to workflows triggered from forks. So if you're contributing from a fork (the common case), the e2e legs are **skipped silently** on your PR — the reviewer sees a green check that does not include `TestE2EKit`. The only place those assertions ever run is on your laptop. See [`.github/workflows/tck.yml`](../../../.github/workflows/tck.yml) and the "Running in CI" note in [the README](../../../README.md#running-in-ci).
+**Why fork contributors must run e2e locally.** The repo's CI e2e legs (`e2e-release`, which gates the PR, and the informational `e2e-nightly`/`e2e-rc`) need `DOCKERHUB_USERNAME` / `DOCKERHUB_TOKEN` to pull the template image, and GitHub does not expose secrets to workflows triggered from forks. So if you're contributing from a fork (the common case), the e2e legs are **skipped silently** on your PR — the reviewer sees a green check that does not include `TestE2EKit`. The only place those assertions ever run is on your laptop. See [`.github/workflows/tck.yml`](../../../.github/workflows/tck.yml) and the "Running in CI" note in [the README](../../../README.md#running-in-ci).
 
 ## 1. Spec-level validation
 
@@ -27,6 +27,7 @@ This repository ships a TCK package at [`tck/`](../../../tck/). It validates:
 6. Container files (files from `files/` are injected at the correct paths)
 7. Volumes (block-backed and `type: tmpfs` entries — plus the implicit `/run/secrets` tmpfs)
 8. Published ports (`ports[]` entries validate)
+9. Arguments (in `spec.yaml` scalars outside `args:`, and in every regular file under `files/`, each `${{ kit.args.<name> }}` reference names a declared argument and resolves to a constraint-satisfying value — checked as the suite loads, before any subtest runs)
 
 ### Writing a TCK test
 
@@ -53,6 +54,49 @@ suite, err := tck.NewSuiteFromDir(".", tck.WithImage("my-custom/template:latest"
 ```
 
 The TCK auto-resolves well-known parent agents (shell, claude, codex, copilot, cursor, docker-agent, droid, gemini, kiro, opencode) via their template images.
+
+### Kits that declare `args`
+
+A kit that declares [`args`](spec-anatomy.md#args) is installed with values someone supplies. The TCK is that someone: it substitutes every `${{ kit.args.<name> }}` reference in `spec.yaml` and in the regular files under `files/` before the spec is decoded, which is why an argument works in a field the schema pattern-checks, such as `requires.agent`. [SPEC-v2 §2.1](../../../spec/SPEC-v2.md#21-args) is the reference for what counts as a reference and what does not — a key, the `args:` block itself, another namespace, a substituted value.
+
+Each value comes from the `args:` block of your kit's `testdata/tck.yaml`, or from the argument's declared `default` when that block says nothing about it:
+
+```yaml
+# my-kit/spec.yaml
+args:
+  channel:
+    default: "stable"
+    enum: ["stable", "nightly"]
+  token:
+    required: true
+    description: "API token"
+
+setup:
+  install:
+    - command: "install-my-tool --channel '${{ kit.args.channel }}'"
+```
+
+```yaml
+# my-kit/testdata/tck.yaml
+args:
+  token: "dummy-for-ci"
+```
+
+An argument declared `required: true` has no default to fall back on, so the TCK **fails** the kit until `testdata/tck.yaml` supplies a value — naming the argument and the file. That is deliberate: a skip here is how a kit ends up shipping with nothing testing it. Pick a value that is safe in a public repo and good enough for the install to run; the TCK container has no real credentials either way.
+
+| Situation | Result |
+|---|---|
+| `tck.yaml` supplies a value | That value is substituted |
+| No value, argument has a `default` | The default is substituted |
+| No value, argument is `required` | **FAIL**, naming the argument and `testdata/tck.yaml` |
+| Value violates the argument's `enum` or `pattern` | **FAIL**, naming the value and the constraint |
+| A reference no `args:` entry declares | **FAIL**, naming the file and the reference |
+| A reference that does not parse — a dotted name, a missing `}}` | **FAIL**, naming the file and the offending text |
+| A `spec.yaml` mapping key naming an argument, escaped or not | **FAIL**, naming the key |
+
+Values are strings, and quoting the placeholder in `spec.yaml` is what keeps the substituted value one: leave it unquoted in a field that takes a number and `1.20` is read as a number, which is what you want there and not what you want in a string field.
+
+The e2e layer passes the very same `testdata/tck.yaml` values to `sbx create`, using its repeatable `--kit-arg <kit-name>.name=value` flag, so both layers install the kit with identical values. Arguments you leave to their defaults need no entry — the create resolves those the same way the TCK does.
 
 ### Running TCK
 
@@ -107,7 +151,9 @@ Every `sbx` call carries `--app-name sbx-kits-contrib-tck` so all commands route
 
 ### `testdata/tck.yaml` — kit-specific e2e config
 
-`kind: sandbox` kits **should** ship a `testdata/tck.yaml` file alongside their `spec.yaml` to opt in to the `prompt` subtest. The file is optional — the subtest is simply absent when the file is missing or `promptArgs` is empty. Kits whose agent requires a long async installation (e.g. nanoclaw, hermes-agent) may omit it until the installation reliably completes within the test timeout.
+`kind: sandbox` kits **should** ship a `testdata/tck.yaml` file alongside their `spec.yaml` to opt in to the `prompt` subtest, which only exists for `kind: sandbox` kits (see the table above). The file is optional there too — the subtest is simply absent when the file is missing or `promptArgs` is empty. Kits whose agent requires a long async installation (e.g. nanoclaw, hermes-agent) may omit it until the installation reliably completes within the test timeout.
+
+The file itself is not sandbox-only, though: a `kind: mixin` kit ships one too when it needs `requiresHostCredentials` (see "Kits whose agent needs a host-stored credential" below) or `args` (see ["Kits that declare `args`"](#kits-that-declare-args)). Only `promptArgs`, `readyFile`, `binary`, and `extractedFromBuiltin` are meaningful solely for `kind: sandbox`.
 
 **Full schema:**
 
@@ -135,6 +181,16 @@ binary: "claude"
 # extractedFromBuiltin: set this only on a kind:sandbox kit whose name is still
 # that of an agent built into sbx. See "Kits that replace a built-in agent".
 extractedFromBuiltin: true
+
+# requiresHostCredentials: sbx secret service name(s) that must already be
+# stored on the host before this kit's agent can be created at all. See
+# "Kits whose agent needs a host-stored credential".
+requiresHostCredentials: ["bedrock"]
+
+# args: values for the arguments spec.yaml declares. Both the TCK layer and
+# e2e install the kit with these — see "Kits that declare `args`" above.
+args:
+  token: "dummy-for-ci"
 ```
 
 #### Kits that replace a built-in agent
@@ -163,6 +219,34 @@ It is deliberately not a blanket "skip e2e for this kit": only the collision err
 tolerated, every other failure still fails, and nothing needs re-enabling afterwards —
 once the built-in is gone the test starts running on its own. Delete the line when you see
 the obsolete-flag notice.
+
+#### Kits whose agent needs a host-stored credential
+
+Some agents cannot be created at all unless a credential is already stored on the host via
+`sbx --app-name sbx-kits-contrib-tck secret set <service>`. `aidlc-claude`'s `claude-bedrock`
+affinity is the current example: `sbx create` for that agent needs an AWS profile stored under
+the `bedrock` service, and CI stores no such per-agent cloud credentials.
+
+`requiresHostCredentials: ["bedrock"]` declares that dependency. Before `sbx create` runs, the
+test probes `sbx --app-name sbx-kits-contrib-tck secret ls --service <service> --json` for each
+declared service instead of matching `sbx create`'s failure text — that failure gives no
+indication of a missing credential, so string-matching it would be fragile:
+
+| Situation | Result |
+|---|---|
+| Declared service not stored | `SKIP`, naming the service and the scoped `sbx secret set` command |
+| Declared service stored | Runs in full |
+| Probe fails or is unparseable | **FAIL** |
+
+It is deliberately not a blanket "skip e2e for this kit": only kits that declare the field are
+affected, and only a missing credential produces a skip — every other failure still fails.
+
+Unlike `extractedFromBuiltin`, this does not self-obsolete. The agent keeps needing the
+credential indefinitely, so the entry stays for as long as the kit declares this agent
+affinity — there is no obsolete-flag notice to watch for here.
+
+The check applies to any kit kind — `aidlc-claude` is `kind: mixin` — since it runs before
+`sbx create` regardless of kind.
 
 #### How `binary` is resolved
 
@@ -295,4 +379,4 @@ See [Pitfalls — `setup.startup` runs on every container start](pitfalls.md#2-s
 
 ## CI
 
-The repository's CI runs the TCK on every PR — the matrix tests only the modified kit on PRs that touch a kit directory, and every kit on PRs that touch `tck/` or `spec/`. Two e2e legs exercise every detected kit against a real `sbx` CLI: `e2e-release` (latest tagged release, gates the PR via the required `e2e` check) and `e2e-nightly` (rolling nightly, informational only — never blocks merge). Both **are skipped on PRs opened from forks** because the `DOCKERHUB_USERNAME` / `DOCKERHUB_TOKEN` secrets aren't exposed to fork-triggered workflows. Fork contributors are the common case, so you should treat e2e + `deny-all` as a **mandatory local step** before opening the PR — don't rely on a green CI check to mean "e2e passed". See [`.github/workflows/tck.yml`](../../../.github/workflows/tck.yml) and the reusable [`.github/workflows/e2e.yml`](../../../.github/workflows/e2e.yml).
+The repository's CI runs the TCK on every PR — the matrix tests only the modified kit on PRs that touch a kit directory, and every kit on PRs that touch `tck/` or `spec/`. Three e2e legs exercise every detected kit against a real `sbx` CLI: `e2e-release` (latest tagged release, gates the PR via the required `e2e` check), `e2e-nightly` (rolling nightly, informational only — never blocks merge), and `e2e-rc` (latest `sbx-releases` prerelease tagged `*-rcN`, also informational only). All three **are skipped on PRs opened from forks** because the `DOCKERHUB_USERNAME` / `DOCKERHUB_TOKEN` secrets aren't exposed to fork-triggered workflows. Fork contributors are the common case, so you should treat e2e + `deny-all` as a **mandatory local step** before opening the PR — don't rely on a green CI check to mean "e2e passed". See [`.github/workflows/tck.yml`](../../../.github/workflows/tck.yml) and the reusable [`.github/workflows/e2e.yml`](../../../.github/workflows/e2e.yml).

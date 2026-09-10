@@ -69,9 +69,11 @@ args:
     required: true                     # installer must supply a value
 ```
 
-Each argument declares exactly one of `default` or `required: true`, and constrains its value with at most one of `enum` or `pattern` (a Go RE2 regexp matched against the whole value). Values are always strings: quote the placeholder in a string-valued field (`VERSION: "${{ kit.args.version }}"`), or a value like `1.20` is read as a float.
+Each argument declares exactly one of `default` or `required: true`, and constrains its value with at most one of `enum` or `pattern` (a Go RE2 regexp matched against the whole value). Values are always strings: quote the placeholder in a string-valued field (`VERSION: "${{ kit.args.version }}"`), or a value like `1.20` is read as a float. Write `$${{` where you want a literal `${{` and no substitution — except in a mapping key, which is rejected for naming an argument whether escaped or not (see [SPEC-v2 §2.1](../../../spec/SPEC-v2.md#21-args)).
 
 `args` is v2-only, and unrelated to `sandbox.build.args` (Docker build arguments). Because the block lives in `spec.yaml`, a signature covers the declarations and defaults; the values an installer supplies do not.
+
+In this repository the TCK is the installer that supplies them — it reads them from your kit's `testdata/tck.yaml`. See [Testing — Kits that declare `args`](testing.md#kits-that-declare-args).
 
 ### `mixins`
 

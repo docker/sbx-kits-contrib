@@ -101,23 +101,24 @@ There's no per-kit test file to write — the shared `TestKitTCK` in `tck/kit_te
 2. Write your `spec.yaml`:
 
 ```yaml
-schemaVersion: "1"
+schemaVersion: "2"
 kind: mixin
 name: my-kit
 displayName: My Kit
 description: "Short description of what this kit does"
 
-network:
-  allowedDomains:
-    - example.com
-  deniedDomains:
-    - tracker.example.com
+permissions:
+  network:
+    allow:
+      - example.com
+    deny:
+      - tracker.example.com
 
 environment:
   variables:
     MY_CONFIG: "/home/agent/config.json"
 
-commands:
+setup:
   install:
     - command: "pip install my-tool"
       user: "1000"
@@ -156,11 +157,11 @@ working directory set to the package directory (`./tck/`).
 
 ## Declare every domain your kit needs
 
-A kit's `network.allowedDomains` is its **complete** outbound network contract. The CI e2e job runs with a `deny-all` default policy, so anything not in your `allowedDomains` is blocked at request time — and any failed request inside an install hook surfaces as `sbx create` failing.
+A kit's `permissions.network.allow` is its **complete** outbound network contract. The CI e2e job runs with a `deny-all` default policy, so anything not in your `permissions.network.allow` is blocked at request time — and any failed request inside an install hook surfaces as `sbx create` failing.
 
 The non-obvious trap is **package managers refreshing every configured source**, not just the one you added:
 
-- `apt-get update` re-fetches metadata for every file in `/etc/apt/sources.list[.d/]` — including sources the base template added. If *any* of those returns non-2xx, `apt-get` exits non-zero even if the package you want is in a different source. For kits built on `shell-docker` / `*-docker` templates that means `download.docker.com` (Docker's apt repo, pre-added by the template) needs to be in your `allowedDomains` even if you're only installing something from Ubuntu's main archive.
+- `apt-get update` re-fetches metadata for every file in `/etc/apt/sources.list[.d/]` — including sources the base template added. If *any* of those returns non-2xx, `apt-get` exits non-zero even if the package you want is in a different source. For kits built on `shell-docker` / `*-docker` templates that means `download.docker.com` (Docker's apt repo, pre-added by the template) needs to be in your `permissions.network.allow` even if you're only installing something from Ubuntu's main archive.
 - Ubuntu hosts amd64 packages on `archive.ubuntu.com` + `security.ubuntu.com` and arm64 packages on `ports.ubuntu.com`. List all three for cross-arch coverage; CI is amd64, your Mac is likely arm64.
 - `npm install`, `pip install`, `cargo`, `go get`, etc. each have their own registry/mirror hosts — declare them too.
 
@@ -178,7 +179,7 @@ sbx --app-name $APP ls                            # find the tck-e2e-* sandbox
 sbx --app-name $APP policy log tck-e2e-<short-uuid>
 ```
 
-Every `Blocked requests` row is a domain your install or startup hook reached for under `deny-all`. Add the host (column `HOST`, e.g. `download.docker.com:443`) to `allowedDomains` and re-run until the block list is empty.
+Every `Blocked requests` row is a domain your install or startup hook reached for under `deny-all`. Add the host (column `HOST`, e.g. `download.docker.com:443`) to `permissions.network.allow` and re-run until the block list is empty.
 
 If you'd rather hand-build a probe sandbox without invoking the test harness (useful when iterating on install scripts without touching the spec), the manual flow is:
 
@@ -270,10 +271,11 @@ Each subtest (`env`, `files/<path>`, `tmpfs/<path>`, `memory`) reports independe
 
 ### Running in CI
 
-The e2e legs in [`.github/workflows/tck.yml`](.github/workflows/tck.yml) run alongside the default `test-kit` job, via the reusable [`.github/workflows/e2e.yml`](.github/workflows/e2e.yml). Each signs in to Docker Hub using `DOCKERPUBLICBOT_USERNAME` / `DOCKERPUBLICBOT_WRITE_PAT` repo secrets, then runs the e2e test once per detected kit — against two `sbx` channels:
+The e2e legs in [`.github/workflows/tck.yml`](.github/workflows/tck.yml) run alongside the default `test-kit` job, via the reusable [`.github/workflows/e2e.yml`](.github/workflows/e2e.yml). Each signs in to Docker Hub using `DOCKERPUBLICBOT_USERNAME` / `DOCKERPUBLICBOT_WRITE_PAT` repo secrets, then runs the e2e test once per detected kit — against three `sbx` channels:
 
 - **`e2e-release`** downloads the latest tagged `sbx` release. This is the channel users have today, so it **gates the PR** through the stable `e2e` job (the required status check).
 - **`e2e-nightly`** downloads the rolling `nightly` build, so kits are also exercised against what `sbx` will ship next. It is **informational only** — a broken nightly shows a red check but never blocks merge. The `e2e-nightly-report` job echoes its outcome to the run log and the job summary.
+- **`e2e-rc`** downloads the latest `sbx-releases` prerelease tagged `*-rcN`, so kits are also exercised against the release candidate currently being validated for the next stable cut. Also **informational only** — the `e2e-rc-report` job echoes its outcome the same way `e2e-nightly-report` does.
 
 **All e2e legs are skipped on fork PRs** because GitHub does not expose secrets to fork-triggered workflows — so for the typical contributor, e2e never runs in CI on their PR, and the reviewer sees a green check that does **not** cover the e2e assertions.
 
@@ -327,7 +329,7 @@ Pull requests trigger TCK tests automatically:
 - **Kit changes**: only the modified kit is tested
 - **TCK/spec changes**: all kits are tested
 - Each kit runs in a separate CI runner on Linux
-- The optional e2e legs exercise every detected kit against a real `sbx` CLI — `e2e-release` (latest release, gates the PR) and `e2e-nightly` (rolling nightly, informational only). See [End-to-end (e2e) Tests](#end-to-end-e2e-tests). Skipped on fork PRs (no Docker Hub secrets).
+- The optional e2e legs exercise every detected kit against a real `sbx` CLI — `e2e-release` (latest release, gates the PR), `e2e-nightly` (rolling nightly, informational only), and `e2e-rc` (latest release candidate, informational only). See [End-to-end (e2e) Tests](#end-to-end-e2e-tests). Skipped on fork PRs (no Docker Hub secrets).
 
 ## Prerequisites
 
