@@ -19,6 +19,16 @@ go run scripts/migrate-v1-to-v2.go <path-to-your-kit>
 
 It applies the v2 renames (`memory:` → `agentContext:`, `kind: agent` → `kind: sandbox`, `agent:` → `sandbox:`), writes a `spec.yaml.bak` of the original, and prints a summary of what changed. The script grows as later phases of the v2 migration land — see [`scripts/README.md`](./scripts/README.md) for the current scope and the [v2 migration roadmap](https://github.com/docker/sandboxes/blob/main/docs/specs/2026-05-27-unified-kit-spec-v2.md) for what's still pending.
 
+## Changing `spec/` or `tck/` behavior
+
+The [`kit-author`](./skills/kit-author/) skill documents the schema, validation, and lifecycle
+that `spec/` implements — its docs can silently drift from what the code actually enforces if a
+change to `spec/` isn't mirrored there (see [#125](https://github.com/docker/sbx-kits-contrib/pull/125)
+for a real example). If you're using an AI coding agent, see [`AGENTS.md`](./AGENTS.md) for the
+directive that keeps this in sync automatically. Contributing by hand: update the matching
+`skills/kit-author/topics/*.md` page alongside any change to validation rules, field names, or
+lifecycle behavior in `spec/`.
+
 ## Before you start
 
 Pick an existing kit closest in shape to what you want to build and read it end-to-end as a template:
