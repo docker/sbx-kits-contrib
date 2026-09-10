@@ -1,0 +1,184 @@
+schemaVersion: "1"
+kind: agent
+name: postgres-agent
+displayName: PostgreSQL + pgvector Agent Sandbox
+description: "AI agent sandbox with PostgreSQL 16 and pgvector running locally — no external database required. Includes the Anthropic SDK and psycopg3 for building agents that store structured data, JSON documents, and vector embeddings in a single SQL database."
+
+agent:
+  image: "docker/sandbox-templates:shell-docker"
+  aiFilename: AGENTS.md
+  entrypoint:
+    run: ["bash"]
+
+network:
+  serviceDomains:
+    api.anthropic.com: anthropic
+    console.anthropic.com: anthropic
+  serviceAuth:
+    anthropic:
+      headerName: x-api-key
+      valueFormat: "%s"
+  allowedDomains:
+    - api.anthropic.com
+    - console.anthropic.com
+    - pypi.org
+    - files.pythonhosted.org
+    - pythonhosted.org
+    - registry-1.docker.io
+    - auth.docker.io
+    - production.cloudflare.docker.com
+    - index.docker.io
+    - archive.ubuntu.com
+    - security.ubuntu.com
+    - ports.ubuntu.com
+    - download.docker.com
+
+credentials:
+  sources:
+    anthropic:
+      env:
+        - ANTHROPIC_API_KEY
+
+environment:
+  proxyManaged:
+    - ANTHROPIC_API_KEY
+  variables:
+    ANTHROPIC_API_KEY: "sk-ant-proxy-managed"
+    PGHOST: "localhost"
+    PGPORT: "5432"
+    PGUSER: "postgres"
+    PGDATABASE: "postgres"
+    PYTHONUNBUFFERED: "1"
+
+commands:
+  install:
+    - command: |
+        set -euo pipefail
+        apt-get update && apt-get install -y --no-install-recommends \
+          python3 python3-pip python3-venv \
+          libpq-dev curl ca-certificates && \
+        rm -rf /var/lib/apt/lists/*
+      user: "0"
+      description: "Install Python and PostgreSQL client library headers"
+    - command: |
+        set -euo pipefail
+        python3 -m venv /opt/postgres-agent
+        /opt/postgres-agent/bin/pip install --upgrade pip
+        /opt/postgres-agent/bin/pip install anthropic "psycopg[binary]" python-dotenv
+        echo 'export PATH=/opt/postgres-agent/bin:$PATH' >> /etc/sandbox-persistent.sh
+        echo 'export PATH=/opt/postgres-agent/bin:$PATH' >> /etc/profile.d/postgres-agent.sh
+        echo 'export PATH=/opt/postgres-agent/bin:$PATH' >> /home/agent/.bashrc
+      user: "0"
+      description: "Install Anthropic SDK and psycopg3 in isolated venv at /opt/postgres-agent"
+
+  startup:
+    - command:
+        - bash
+        - -c
+        - |
+          set -euo pipefail
+          echo "Starting PostgreSQL 16 with pgvector..."
+          docker run -d \
+            --name postgres-pgvector \
+            --restart unless-stopped \
+            -e POSTGRES_HOST_AUTH_METHOD=trust \
+            -p 5432:5432 \
+            pgvector/pgvector:pg16
+          echo "Waiting for PostgreSQL to accept connections..."
+          for i in $(seq 1 30); do
+            docker exec postgres-pgvector pg_isready -U postgres -q && break
+            sleep 2
+          done
+          docker exec postgres-pgvector \
+            psql -U postgres -c "CREATE EXTENSION IF NOT EXISTS vector;"
+          echo "PostgreSQL + pgvector ready at localhost:5432"
+      description: "Pull and start pgvector/pgvector:pg16, enable vector extension"
+      background: false
+
+  initFiles:
+    - path: /home/agent/workspace/db.py
+      content: |
+        import os
+        import psycopg
+        from typing import Any, Dict, List
+
+        _DSN = {
+            "host":   os.getenv("PGHOST",     "localhost"),
+            "port":   int(os.getenv("PGPORT", "5432")),
+            "user":   os.getenv("PGUSER",     "postgres"),
+            "dbname": os.getenv("PGDATABASE", "postgres"),
+        }
+
+        def execute(sql: str, params: tuple = ()) -> List[Dict[str, Any]]:
+            with psycopg.connect(**_DSN) as conn:
+                with conn.cursor() as cur:
+                    cur.execute(sql, params)
+                    if cur.description:
+                        cols = [d[0] for d in cur.description]
+                        return [dict(zip(cols, row)) for row in cur.fetchall()]
+                    conn.commit()
+                    return []
+
+        def connection():
+            return psycopg.connect(**_DSN)
+
+    - path: /home/agent/workspace/AGENTS.md
+      content: |
+        # PostgreSQL + pgvector Agent Sandbox
+
+        PostgreSQL 16 is running at localhost:5432.
+        The vector extension is enabled. Connect with standard SQL via psycopg3.
+
+        Import the db helper:
+
+            from db import execute, connection
+
+        Store structured data:
+
+            execute(
+                "CREATE TABLE IF NOT EXISTS events "
+                "(id BIGSERIAL PRIMARY KEY, data JSONB, ts TIMESTAMPTZ DEFAULT NOW())"
+            )
+            execute("INSERT INTO events (data) VALUES (%s)", ('{"type": "run"}',))
+            rows = execute("SELECT data->>'type' FROM events")
+
+        Store and search embeddings with pgvector:
+
+            execute("""
+                CREATE TABLE IF NOT EXISTS documents (
+                    id BIGSERIAL PRIMARY KEY,
+                    content TEXT,
+                    embedding VECTOR(1536)
+                )
+            """)
+            execute("""
+                CREATE INDEX IF NOT EXISTS documents_embedding_idx
+                ON documents USING hnsw (embedding vector_cosine_ops)
+            """)
+            execute(
+                "INSERT INTO documents (content, embedding) VALUES (%s, %s)",
+                ("memory entry", "[0.1, 0.2, ...]")
+            )
+            rows = execute(
+                "SELECT content FROM documents ORDER BY embedding <=> %s LIMIT 5",
+                ("[0.1, 0.2, ...]",)
+            )
+
+        Distance operators: <-> L2, <=> cosine, <#> inner product.
+
+        Call Claude:
+
+            import anthropic
+            client = anthropic.Anthropic()
+            response = client.messages.create(
+                model="claude-sonnet-4-6",
+                max_tokens=1024,
+                messages=[{"role": "user", "content": "your prompt"}]
+            )
+            print(response.content[0].text)
+
+        Notes:
+        - All data is local to this sandbox. Run sbx rm to delete everything.
+        - ANTHROPIC_API_KEY is proxy-managed and never exposed in the sandbox.
+        - To use an external PostgreSQL instance, set PGHOST, PGPORT, PGUSER,
+          and PGDATABASE before creating the sandbox.
