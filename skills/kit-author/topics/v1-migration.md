@@ -230,6 +230,7 @@ credentials:
   - service: anthropic
     apiKey:
       name: ANTHROPIC_API_KEY
+      proxyManaged: true           # required to preserve v1's environment.proxyManaged behavior
       inject:
         - domain: api.anthropic.com
           header: x-api-key
@@ -240,7 +241,7 @@ The discovery half (`env: [...]`, `file: {path, parser}`, `priority`) **moves ou
 
 v2 also adds `inject[].scheme` as sugar for `header` + `format`: `scheme: bearer` expands to `header: Authorization`, `format: "Bearer %s"`; `scheme: basic` (with a required `username`) marks the entry as HTTP Basic. It is mutually exclusive with a raw `format`. The migrate script emits the explicit `header`/`format` form; switch to `scheme:` by hand if you prefer the shorthand.
 
-`environment.proxyManaged` is gone — the proxy-managed semantic is implicit on `credentials[].apiKey.name`. The engine sets the env var to the literal `proxy-managed` inside the container, and the sentinel-swap proxy replaces it on outbound requests.
+`environment.proxyManaged` is gone — each listed env var becomes `apiKey.proxyManaged: true` on the credential named by `apiKey.name` (not `name` alone). Only then does the engine set the env var to the literal `proxy-managed` inside the container, with the sentinel-swap proxy replacing it on outbound requests.
 
 ### OAuth folding — Phase 3
 

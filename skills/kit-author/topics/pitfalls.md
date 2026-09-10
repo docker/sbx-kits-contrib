@@ -92,7 +92,7 @@ When verifying `permissions.network.allow` enforcement, run `sbx policy log <san
 
 Two models:
 
-- **Sentinel-swap (proxy)** — the default for `credentials[].apiKey`. The engine sets `apiKey.name` inside the container to the literal `proxy-managed`; the proxy swaps the real value into the outbound request based on `apiKey.inject[]`. The container never sees the credential. Used by Anthropic, OpenAI, GitHub.
+- **Sentinel-swap (proxy)** — opt in with `apiKey.proxyManaged: true`. The engine sets `apiKey.name` inside the container to the literal `proxy-managed`; the proxy swaps the real value into the outbound request based on `apiKey.inject[]`. The container never sees the credential. Used by Anthropic, OpenAI, GitHub.
 - **Container-resident (egress-bounded)** — the real credential lives in the container, restricted by `permissions.network.allow`. Used when signatures must be computed in-container — **AWS SigV4 forces this**, because the signature is over canonical headers the proxy doesn't see.
 
 Pick the right model for your service. Sentinel-swap is stricter; container-resident is necessary for SigV4-style auth.

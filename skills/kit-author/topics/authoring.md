@@ -88,6 +88,7 @@ credentials:
     description: "GitHub Personal Access Token"
     apiKey:
       name: GITHUB_TOKEN
+      proxyManaged: true
       inject:
         - domain: api.github.com
           scheme: bearer
