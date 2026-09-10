@@ -540,9 +540,12 @@ func TestValidateApiKey(t *testing.T) {
 		require.NoError(t, ValidateApiKey(nil, "2"))
 	})
 
-	t.Run("v2_missing_name_rejected", func(t *testing.T) {
+	// An empty name is a legitimate shape (proxy-side-only credential); it is
+	// no longer rejected here — ValidateArtifact warns instead, see
+	// TestValidateArtifact/apikey_empty_name_warns_not_errors.
+	t.Run("v2_missing_name_allowed", func(t *testing.T) {
 		a := &ApiKey{Inject: []ApiKeyInject{{Domain: "api.example.com", Header: "x-api-key", Format: "%s"}}}
-		require.ErrorContains(t, ValidateApiKey(a, "2"), "name is required")
+		require.NoError(t, ValidateApiKey(a, "2"))
 	})
 
 	// v1's serviceDomains+serviceAuth fold can yield a header-only inject
@@ -593,9 +596,13 @@ func TestValidateApiKey(t *testing.T) {
 		require.ErrorContains(t, ValidateApiKey(a, "2"), "exactly one %s placeholder")
 	})
 
-	t.Run("inert_inject_rejected", func(t *testing.T) {
+	// Neither header nor username is a legitimate shape too — it maps the
+	// domain to the credential's service without injecting anything; it is
+	// no longer rejected here — ValidateArtifact warns instead, see
+	// TestValidateArtifact/apikey_inert_inject_warns_not_errors.
+	t.Run("inert_inject_allowed", func(t *testing.T) {
 		a := &ApiKey{Name: "TOKEN", Inject: []ApiKeyInject{{Domain: "d.example.com", Format: "%s"}}}
-		require.ErrorContains(t, ValidateApiKey(a, "2"), "sets neither header nor username")
+		require.NoError(t, ValidateApiKey(a, "2"))
 	})
 
 	t.Run("header_only_valid", func(t *testing.T) {
@@ -1031,6 +1038,156 @@ credentials:
 		require.Empty(t, a.Warnings)
 	})
 
+	// An empty apiKey.name on a v2 spec is a legitimate shape — the
+	// credential is handled entirely proxy-side — so it must warn, not fail.
+	t.Run("apikey_empty_name_warns_not_errors", func(t *testing.T) {
+		a := &Artifact{
+			Manifest: Manifest{SchemaVersion: "2", Kind: KindMixin, Name: "ok"},
+			Caps:     &Caps{Network: &CapsNetwork{Allow: []string{"api.example.com"}}},
+			Credentials: []Credential{{
+				Service: "svc",
+				ApiKey: &ApiKey{
+					Inject: []ApiKeyInject{{Domain: "api.example.com", Header: "x-api-key", Format: "%s"}},
+				},
+			}},
+		}
+		require.NoError(t, ValidateArtifact(a), "an empty apiKey.name must warn, not fail validation")
+		require.True(t, hasWarningContaining(a.Warnings, `credentials[0] (service "svc")`),
+			"expected an empty-name warning, got %v", a.Warnings)
+	})
+
+	// Coverage warnings are validator-owned: revalidating the same artifact
+	// must not accumulate a duplicate per call.
+	t.Run("apikey_empty_name_warning_is_idempotent_across_revalidation", func(t *testing.T) {
+		a := &Artifact{
+			Manifest: Manifest{SchemaVersion: "2", Kind: KindMixin, Name: "ok"},
+			Caps:     &Caps{Network: &CapsNetwork{Allow: []string{"api.example.com"}}},
+			Credentials: []Credential{{
+				Service: "svc",
+				ApiKey: &ApiKey{
+					Inject: []ApiKeyInject{{Domain: "api.example.com", Header: "x-api-key", Format: "%s"}},
+				},
+			}},
+		}
+		require.NoError(t, ValidateArtifact(a))
+		require.NoError(t, ValidateArtifact(a))
+		count := 0
+		for _, w := range a.Warnings {
+			if strings.HasPrefix(w, apiKeyNameEmptyWarningPrefix) {
+				count++
+			}
+		}
+		require.Equal(t, 1, count, "revalidation must not duplicate the warning, got %v", a.Warnings)
+	})
+
+	// Self-healing: once the author sets a name, revalidating the same
+	// artifact must drop the now-stale warning.
+	t.Run("apikey_empty_name_warning_clears_once_name_set", func(t *testing.T) {
+		a := &Artifact{
+			Manifest: Manifest{SchemaVersion: "2", Kind: KindMixin, Name: "ok"},
+			Caps:     &Caps{Network: &CapsNetwork{Allow: []string{"api.example.com"}}},
+			Credentials: []Credential{{
+				Service: "svc",
+				ApiKey: &ApiKey{
+					Inject: []ApiKeyInject{{Domain: "api.example.com", Header: "x-api-key", Format: "%s"}},
+				},
+			}},
+		}
+		require.NoError(t, ValidateArtifact(a))
+		require.NotEmpty(t, a.Warnings, "precondition: the name must start out empty")
+
+		a.Credentials[0].ApiKey.Name = "SVC_TOKEN"
+		require.NoError(t, ValidateArtifact(a))
+		require.Empty(t, a.Warnings, "the warning must clear once name is set, got %v", a.Warnings)
+	})
+
+	// The v1 serviceDomains+serviceAuth fold can legitimately produce a
+	// no-name apiKey; the empty-name warning is v2-only, so a v1 artifact
+	// must not receive it either.
+	t.Run("apikey_empty_name_not_warned_on_v1", func(t *testing.T) {
+		a := &Artifact{
+			Manifest: Manifest{SchemaVersion: "1", Kind: KindMixin, Name: "ok"},
+			Caps:     &Caps{Network: &CapsNetwork{Allow: []string{"api.example.com"}}},
+			Credentials: []Credential{{
+				Service: "svc",
+				ApiKey: &ApiKey{
+					Inject: []ApiKeyInject{{Domain: "api.example.com", Header: "x-api-key", Format: "%s"}},
+				},
+			}},
+		}
+		require.NoError(t, ValidateArtifact(a))
+		require.Empty(t, a.Warnings)
+	})
+
+	// An inject entry with neither header nor username is a legitimate
+	// shape — it associates the domain with the credential's service for
+	// routing/policy purposes without injecting anything — so it must warn,
+	// not fail.
+	t.Run("apikey_inert_inject_warns_not_errors", func(t *testing.T) {
+		a := &Artifact{
+			Manifest: Manifest{SchemaVersion: "2", Kind: KindMixin, Name: "ok"},
+			Caps:     &Caps{Network: &CapsNetwork{Allow: []string{"api.example.com"}}},
+			Credentials: []Credential{{
+				Service: "svc",
+				ApiKey: &ApiKey{
+					Name:   "SVC_TOKEN",
+					Inject: []ApiKeyInject{{Domain: "api.example.com"}},
+				},
+			}},
+		}
+		require.NoError(t, ValidateArtifact(a), "an inert inject must warn, not fail validation")
+		require.True(t, hasWarningContaining(a.Warnings, `credentials[0] (service "svc") inject[0].domain "api.example.com"`),
+			"expected an inert-inject warning, got %v", a.Warnings)
+	})
+
+	// Coverage warnings are validator-owned: revalidating the same artifact
+	// must not accumulate a duplicate per call.
+	t.Run("apikey_inert_inject_warning_is_idempotent_across_revalidation", func(t *testing.T) {
+		a := &Artifact{
+			Manifest: Manifest{SchemaVersion: "2", Kind: KindMixin, Name: "ok"},
+			Caps:     &Caps{Network: &CapsNetwork{Allow: []string{"api.example.com"}}},
+			Credentials: []Credential{{
+				Service: "svc",
+				ApiKey: &ApiKey{
+					Name:   "SVC_TOKEN",
+					Inject: []ApiKeyInject{{Domain: "api.example.com"}},
+				},
+			}},
+		}
+		require.NoError(t, ValidateArtifact(a))
+		require.NoError(t, ValidateArtifact(a))
+		count := 0
+		for _, w := range a.Warnings {
+			if strings.HasPrefix(w, inertInjectWarningPrefix) {
+				count++
+			}
+		}
+		require.Equal(t, 1, count, "revalidation must not duplicate the warning, got %v", a.Warnings)
+	})
+
+	// Self-healing: once the author adds a header/format, revalidating the
+	// same artifact must drop the now-stale warning.
+	t.Run("apikey_inert_inject_warning_clears_once_header_set", func(t *testing.T) {
+		a := &Artifact{
+			Manifest: Manifest{SchemaVersion: "2", Kind: KindMixin, Name: "ok"},
+			Caps:     &Caps{Network: &CapsNetwork{Allow: []string{"api.example.com"}}},
+			Credentials: []Credential{{
+				Service: "svc",
+				ApiKey: &ApiKey{
+					Name:   "SVC_TOKEN",
+					Inject: []ApiKeyInject{{Domain: "api.example.com"}},
+				},
+			}},
+		}
+		require.NoError(t, ValidateArtifact(a))
+		require.NotEmpty(t, a.Warnings, "precondition: the inject must start out inert")
+
+		a.Credentials[0].ApiKey.Inject[0].Header = "x-api-key"
+		a.Credentials[0].ApiKey.Inject[0].Format = "%s"
+		require.NoError(t, ValidateArtifact(a))
+		require.Empty(t, a.Warnings, "the warning must clear once header+format is set, got %v", a.Warnings)
+	})
+
 	// scheme: basic expands to Username set, Header empty (SPEC-v2 §5.4.1);
 	// this shape must validate clean despite the empty header.
 	t.Run("scheme_basic_post_fold_shape_is_clean", func(t *testing.T) {
@@ -1082,6 +1239,8 @@ network:
 		require.NoError(t, ValidateArtifact(art))
 		require.Empty(t, art.Credentials[0].ApiKey.Name, "no credentials.sources entry means no envName")
 		require.Equal(t, "x-api-key", art.Credentials[0].ApiKey.Inject[0].Header)
+		require.False(t, hasWarningContaining(art.Warnings, apiKeyNameEmptyWarningPrefix),
+			"the empty-name warning is v2-only, so the v1 fold must not receive it, got %v", art.Warnings)
 	})
 
 	t.Run("oauth_credential_file_structure_only_accepted", func(t *testing.T) {

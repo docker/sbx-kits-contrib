@@ -315,13 +315,16 @@ func ValidateArtifact(a *Artifact) error {
 		allowedDomains = a.Caps.Network.Allow
 	}
 
-	// This class of warning is validator-owned: drop every prior instance so
+	// These warning classes are validator-owned: drop every prior instance so
 	// revalidation reflects the artifact's current state, not its history.
 	retained := make([]string, 0, len(a.Warnings))
 	for _, w := range a.Warnings {
-		if !strings.HasPrefix(w, uncoveredDomainWarningPrefix) {
-			retained = append(retained, w)
+		if strings.HasPrefix(w, uncoveredDomainWarningPrefix) ||
+			strings.HasPrefix(w, inertInjectWarningPrefix) ||
+			strings.HasPrefix(w, apiKeyNameEmptyWarningPrefix) {
+			continue
 		}
+		retained = append(retained, w)
 	}
 	a.Warnings = retained
 
@@ -351,11 +354,23 @@ func ValidateArtifact(a *Artifact) error {
 			return fmt.Errorf("artifact: credentials[%d] (service %q): %w", i, c.Service, err)
 		}
 		if c.ApiKey != nil {
+			// A v2 apiKey with no name is proxy-side-only, a legitimate shape.
+			if c.ApiKey.Name == "" && a.Manifest.SchemaVersion == "2" {
+				a.Warnings = append(a.Warnings, fmt.Sprintf(
+					"%scredentials[%d] (service %q): no in-container environment variable will be set for this credential; set apiKey.name if the kit needs to read the value itself",
+					apiKeyNameEmptyWarningPrefix, i, c.Service))
+			}
 			for j, inj := range c.ApiKey.Inject {
 				if inj.Domain != "" && !allowListCovers(inj.Domain, allowedDomains) {
 					a.Warnings = append(a.Warnings, fmt.Sprintf(
 						"%scredentials[%d] (service %q) inject[%d].domain %q",
 						uncoveredDomainWarningPrefix, i, c.Service, j, inj.Domain))
+				}
+				// A domain-to-service association with nothing to inject is legitimate too.
+				if inj.Header == "" && inj.Username == "" {
+					a.Warnings = append(a.Warnings, fmt.Sprintf(
+						"%scredentials[%d] (service %q) inject[%d].domain %q: it injects nothing into requests; add header+format or username if you intend to authenticate requests to this domain",
+						inertInjectWarningPrefix, i, c.Service, j, inj.Domain))
 				}
 			}
 		}
@@ -546,14 +561,12 @@ func compileArgPattern(pat string) (*regexp.Regexp, error) {
 	return regexp.Compile(`\A(?:` + pat + `)\z`)
 }
 
-// ValidateApiKey requires inject[].domain and header or username on every
-// entry (SPEC-v2 §5.4.1); name itself is required only for schemaVersion "2".
+// ValidateApiKey requires inject[].domain, a well-formed header/format pair,
+// and a colon-free username (SPEC-v2 §5.4.1). An empty name and a
+// header/username-less inject are legitimate shapes, warned by ValidateArtifact instead.
 func ValidateApiKey(a *ApiKey, schemaVersion string) error {
 	if a == nil {
 		return nil
-	}
-	if a.Name == "" && schemaVersion == "2" {
-		return fmt.Errorf("apiKey: name is required")
 	}
 	if a.Name != "" && !shellIdentifierPattern.MatchString(a.Name) {
 		return fmt.Errorf("apiKey: name %q is not a valid shell identifier (letters, digits, underscores; can't start with a digit)", a.Name)
@@ -564,9 +577,6 @@ func ValidateApiKey(a *ApiKey, schemaVersion string) error {
 		}
 		if inj.Format != "" && strings.Count(inj.Format, "%s") != 1 {
 			return fmt.Errorf("apiKey: inject[%d].format must contain exactly one %%s placeholder (got %q)", j, inj.Format)
-		}
-		if inj.Header == "" && inj.Username == "" {
-			return fmt.Errorf("apiKey: inject[%d] sets neither header nor username, so it injects nothing", j)
 		}
 		if inj.Header != "" && inj.Username == "" && inj.Format == "" {
 			return fmt.Errorf("apiKey: inject[%d] sets header but no format, so it injects nothing", j)
@@ -581,6 +591,14 @@ func ValidateApiKey(a *ApiKey, schemaVersion string) error {
 // uncoveredDomainWarningPrefix tags a validator-owned warning class so
 // ValidateArtifact can find and drop its own prior instances on revalidation.
 const uncoveredDomainWarningPrefix = "apiKey inject domain not covered by permissions.network.allow: "
+
+// inertInjectWarningPrefix tags the validator-owned warning class for a
+// legitimate but header/username-less inject entry.
+const inertInjectWarningPrefix = "apiKey inject sets neither header nor username: "
+
+// apiKeyNameEmptyWarningPrefix tags the validator-owned warning class for a
+// legitimate but empty v2 apiKey.name.
+const apiKeyNameEmptyWarningPrefix = "apiKey.name is empty: "
 
 // allowListCovers mirrors sbx's runtime enforcement: a port range or other
 // non-numeric, non-"*" port never matches, so it doesn't count as coverage.
