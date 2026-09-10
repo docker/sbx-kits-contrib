@@ -1,0 +1,81 @@
+schemaVersion: "2"
+kind: sandbox
+name: openhands-canvas
+displayName: OpenHands Agent Canvas
+description: OpenHands Agent Canvas running inside a Docker Sandbox
+sandbox:
+  image: docker/sandbox-templates:shell-docker
+  entrypoint:
+    - /usr/local/bin/agent-canvas-wrapper
+permissions:
+  network:
+    allow:
+      - install.openhands.dev:443
+      - '*.openhands.dev:443'
+      - github.com:443
+      - api.github.com:443
+      - objects.githubusercontent.com:443
+      - raw.githubusercontent.com:443
+      - pypi.org:443
+      - files.pythonhosted.org:443
+      - registry.npmjs.org:443
+      - nodejs.org:443
+      - astral.sh:443
+      - '*.astral.sh:443'
+      - api.anthropic.com:443
+      - api.openai.com:443
+      - generativelanguage.googleapis.com:443
+credentials:
+  - service: anthropic
+    apiKey:
+      name: ANTHROPIC_API_KEY
+      proxyManaged: true
+      inject:
+        - domain: api.anthropic.com
+          header: x-api-key
+          format: '%s'
+  - service: openai
+    apiKey:
+      name: OPENAI_API_KEY
+      proxyManaged: true
+      inject:
+        - domain: api.openai.com
+          header: Authorization
+          format: Bearer %s
+environment:
+  variables:
+    ALL_PROXY: ""
+    HTTP_PROXY: ""
+    HTTPS_PROXY: ""
+    PORT: "8000"
+    WORKSPACE_DIR: /workspace
+    all_proxy: ""
+    http_proxy: ""
+    https_proxy: ""
+setup:
+  install:
+    - command: curl -LsSf https://astral.sh/uv/install.sh | sh && mv /root/.local/bin/uv /usr/local/bin/uv && mv /root/.local/bin/uvx /usr/local/bin/uvx
+      user: "0"
+      description: Install uv package manager system-wide
+    - command: npm install -g n && n install 22
+      user: "0"
+      description: Upgrade Node.js to v22 for Agent Canvas
+    - command: NPM_CONFIG_PREFIX=/usr/local/share/npm-global npm install -g @openhands/agent-canvas
+      user: "0"
+      description: Install OpenHands Agent Canvas via npm
+    - command: |
+        cat > /usr/local/bin/agent-canvas-wrapper <<'EOF'
+        #!/usr/bin/env node
+        const { spawn } = require('child_process');
+        const env = { ...process.env };
+        for (const k of Object.keys(env)) {
+            if (k.toLowerCase().includes('proxy') && env[k]) {
+                env[k] = env[k].replace(/\[.*?\]/g, '127.0.0.1');
+            }
+        }
+        const p = spawn('/usr/local/share/npm-global/bin/agent-canvas', process.argv.slice(2), { stdio: 'inherit', env });
+        p.on('exit', c => process.exit(c || 0));
+        EOF
+        chmod +x /usr/local/bin/agent-canvas-wrapper
+      user: "0"
+      description: Create Node.js wrapper to fix Python httpx IPv6 proxy parsing bug
