@@ -110,8 +110,10 @@ else
     rm -f "$AUTH_ENV_FILE"
 fi
 
-# The state has to reach every process that runs the agent: the gateway
-# launched below, the TUI (which runs it in-process), and `sbx exec` shells.
+# The state has to reach every process that runs the agent in-process: the
+# gateway launched below, and `sbx exec` shells. The entrypoint's TUI does not
+# need it -- it talks to the gateway (see openclaw-start.sh) -- but an
+# in-process invocation from a shell here does.
 # The last of those is why the hook goes in ~/.profile -- but `sbx exec` runs
 # `<shell> -c <command>`, a non-login shell, so a scripted call that dispatches
 # in-process only picks this up when it asks for one (`sbx exec -- sh -lc ...`).

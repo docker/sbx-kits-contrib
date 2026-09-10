@@ -5,7 +5,7 @@
 # fast: Node 24, the pinned openclaw npm package, Chromium for the browser
 # tool (saves the 60-90s playwright download on first browser use), and a
 # minimal gateway config. The kit (spec.yaml) only applies policy and the
-# entrypoint waits for the gateway then drops into `openclaw chat`.
+# entrypoint waits for the gateway then drops into `openclaw tui`.
 #
 # Built and published by build-and-publish-kits.yml, the shared kit-image
 # pipeline (see ../PUBLISHING.md) -- no bespoke workflow needed, same as

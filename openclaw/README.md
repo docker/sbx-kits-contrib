@@ -28,9 +28,12 @@ runs `openclaw-gateway-up.sh`, which returns once `/readyz` is green. So the
 published port answers and `sbx exec <sandbox> -- openclaw ...` works on a
 sandbox nobody has attached to. Startup commands re-run on
 every container start, so a stop/start is covered too. On attach, the
-entrypoint waits for the readiness sentinel rather than bootstrapping in
-parallel — two concurrent bootstraps would each mint a different gateway
-token — and drops you into `openclaw chat` (the interactive TUI). The
+entrypoint waits for the gateway to answer `/readyz` rather than bootstrapping
+in parallel — two concurrent bootstraps would each mint a different gateway
+token — and drops you into `openclaw tui`, the TUI connected to that gateway.
+Not `openclaw chat`: that is an alias for `tui --local`, and openclaw refuses
+the in-process runtime while a gateway holds the same state directory, so the
+alias would exit and take the container with it. The
 gateway token is generated on first boot and stored in
 `~/.openclaw/openclaw.json`, so every later `openclaw` call inside the
 sandbox authenticates itself with no token handoff on your side.
@@ -105,9 +108,9 @@ with `sbx secret set anthropic`.
 sbx run --kit "docker.io/sbx/openclaw-kit:latest" openclaw
 ```
 
-You land in `openclaw chat`. A reply there means the provider credential is
-wired — the TUI runs the agent in-process rather than through the gateway, so
-it is steps 3 and 4 that exercise the gateway and its token.
+You land in `openclaw tui`, connected to the gateway. A reply there means the
+whole path is wired: the gateway, its token, and the provider credential the
+gateway resolved at startup.
 
 The remaining steps are host-side `sbx` commands, so run them from a second
 terminal while the TUI holds this one. `<sandbox-name>` below is the name
@@ -210,12 +213,11 @@ build, one date computed for the whole run, but the image is also rebuilt
 nightly on an unchanged commit, so it carries dated tags whose sha repeats and
 which have no kit counterpart. So read both lists rather than deriving one tag
 from the other — that is why the two are written as separate placeholders
-above. The kit artifact is an OCI artifact and the image is an image, so they
-are listed with different tools:
+above:
 
 ```console
 oras repo tags docker.io/sbx/openclaw-kit
-docker buildx imagetools inspect docker.io/sbx/openclaw-image:latest
+oras repo tags docker.io/sbx/openclaw-image
 ```
 
 [PUBLISHING.md](../PUBLISHING.md#tags) has the scheme, and why there is no bare
@@ -246,10 +248,10 @@ OpenClaw picks the wire format from the token it holds — a value containing
 headers, anything else as `x-api-key` — and Anthropic rejects either shape sent
 in the wrong header. So the kit's job is to hand it the shape that matches the
 credential the host actually holds. `openclaw-gateway-up.sh` works that out and
-writes it to an env file that the gateway and the TUI (which runs the agent
-in-process, not through the gateway) both read. A `sbx exec` shell picks it up
-via the `~/.profile` hook, so scripted calls that dispatch in-process need
-`sh -lc`.
+writes it to an env file the gateway reads at startup. The TUI does not need
+it — it runs the agent through the gateway — but anything dispatching
+in-process does, and a `sbx exec` shell picks it up via the `~/.profile` hook,
+so those calls need `sh -lc`.
 
 | host credential | sandbox receives | wire format |
 |---|---|---|
