@@ -1059,8 +1059,6 @@ credentials:
 			"remediation must tell the author proxyManaged: true is also required, got %v", a.Warnings)
 	})
 
-	// Coverage warnings are validator-owned: revalidating the same artifact
-	// must not accumulate a duplicate per call.
 	t.Run("apikey_empty_name_warning_is_idempotent_across_revalidation", func(t *testing.T) {
 		a := &Artifact{
 			Manifest: Manifest{SchemaVersion: "2", Kind: KindMixin, Name: "ok"},
@@ -1143,8 +1141,6 @@ credentials:
 			"expected an inert-inject warning, got %v", a.Warnings)
 	})
 
-	// Coverage warnings are validator-owned: revalidating the same artifact
-	// must not accumulate a duplicate per call.
 	t.Run("apikey_inert_inject_warning_is_idempotent_across_revalidation", func(t *testing.T) {
 		a := &Artifact{
 			Manifest: Manifest{SchemaVersion: "2", Kind: KindMixin, Name: "ok"},

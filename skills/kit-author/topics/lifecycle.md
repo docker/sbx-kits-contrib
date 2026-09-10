@@ -212,7 +212,7 @@ Independent of the customizer chain. The proxy runs on the host (or in the VM) a
 - Routes outbound HTTPS by `credentials[].apiKey.inject[].domain` and `credentials[].oauth.tokenEndpoint`.
 - Injects credentials per `credentials[]` using the `inject[].header` / `format` declared in the spec.
 - Enforces `permissions.network.allow` / `deny` at policy-evaluation time. Use `sbx policy log <sandbox>` to see what the proxy blocked and what got through.
-- For sentinel-swap credentials (`apiKey.proxyManaged: true`, the default posture for `apiKey`), the proxy swaps the literal `proxy-managed` value for the real one per request. The container never sees the real credential.
+- For sentinel-swap credentials (opt in with `apiKey.proxyManaged: true`), the proxy swaps the literal `proxy-managed` value for the real one per request. The container never sees the real credential.
 
 The alternative — container-resident credentials — is necessary for signature-based auth (AWS SigV4) where the signature is over canonical headers the proxy doesn't see. Today that means writing the credential to a file inside the container; the kit's `permissions.network.allow` then bounds where the credential can be sent.
 
