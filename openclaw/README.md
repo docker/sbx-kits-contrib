@@ -28,9 +28,12 @@ runs `openclaw-gateway-up.sh`, which returns once `/readyz` is green. So the
 published port answers and `sbx exec <sandbox> -- openclaw ...` works on a
 sandbox nobody has attached to. Startup commands re-run on
 every container start, so a stop/start is covered too. On attach, the
-entrypoint waits for the gateway to answer `/readyz` rather than bootstrapping
-in parallel — two concurrent bootstraps would each mint a different gateway
-token — and drops you into `openclaw tui`, the TUI connected to that gateway.
+entrypoint waits for `~/.openclaw/gateway-ready` rather than bootstrapping in
+parallel — two concurrent bootstraps would each mint a different gateway token
+— and drops you into `openclaw tui`, the TUI connected to that gateway. It
+waits for that sentinel rather than the gateway alone because a turn fails
+outright while the tool-call image is missing; on a first boot it says so
+instead of sitting silent.
 Not `openclaw chat`: that is an alias for `tui --local`, and openclaw refuses
 the in-process runtime while a gateway holds the same state directory, so the
 alias would exit and take the container with it. The
