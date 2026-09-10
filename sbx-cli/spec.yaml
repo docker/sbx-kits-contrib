@@ -1,0 +1,35 @@
+schemaVersion: "1"
+kind: mixin
+name: sbx-cli
+displayName: sbx CLI
+description: "Installs the Docker Sandboxes `sbx` CLI in the sandbox, for local kit-authoring commands like `sbx kit validate` and `sbx kit inspect`."
+
+network:
+  allowedDomains:
+    - github.com
+    - release-assets.githubusercontent.com
+
+commands:
+  install:
+    - command: |
+        set -euo pipefail
+        LATEST_URL=$(curl -fsSLI -o /dev/null -w '%{url_effective}' https://github.com/docker/sbx-releases/releases/latest)
+        VERSION="${LATEST_URL##*/}"
+        echo "Resolved latest sbx version: ${VERSION}"
+        ARCH=$(dpkg --print-architecture)
+        case "$ARCH" in
+          amd64|arm64) TARBALL="DockerSandboxes-linux-${ARCH}.tar.gz" ;;
+          *)
+            echo "unsupported sandbox arch: $ARCH (expected amd64 or arm64)" >&2
+            exit 1
+            ;;
+        esac
+        curl --proto '=https' --tlsv1.2 -fsSL \
+          "https://github.com/docker/sbx-releases/releases/download/${VERSION}/${TARBALL}" \
+          -o /tmp/DockerSandboxes-linux.tar.gz
+        tar xzf /tmp/DockerSandboxes-linux.tar.gz -C /tmp
+        PREFIX=/usr/local /tmp/docker-sbx/install.sh
+        rm -rf /tmp/DockerSandboxes-linux.tar.gz /tmp/docker-sbx
+        sbx version
+      user: "0"
+      description: "Install the sbx CLI from the latest docker/sbx-releases release"
