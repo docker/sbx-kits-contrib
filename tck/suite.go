@@ -51,6 +51,11 @@ type Suite struct {
 	ExpectedServiceDomains map[string]string
 	ExpectedServiceAuth    map[string]spec.ServiceAuth
 	ExpectedTmpfs          map[string]string // path -> options (manifest tmpfs + /run/secrets)
+
+	// PostInstallChecks are extra kit-specific commands run in the container
+	// after the kit's own install commands succeed, loaded from
+	// testdata/tck.yaml. Empty for kits that declare none.
+	PostInstallChecks []spec.InstallCommand
 }
 
 // RunAll runs all TCK tests for the kit artifact.
@@ -130,6 +135,11 @@ func (s *Suite) RunContainerTests(t *testing.T) {
 		// errors, conflicting flags. Skipped under -short.
 		s.assertInstallExecution(t, ctx, container)
 
+		// Kit-specific self-checks (imports, offline self-tests, version
+		// assertions) that need the installed toolchain but not a live
+		// sandbox. Opt-in via testdata/tck.yaml. Skipped under -short.
+		s.assertPostInstallChecks(t, ctx, container)
+
 		// All container assertions against the same container
 		s.assertEnvVars(t, ctx, container)
 		s.assertFiles(t, ctx, container)
@@ -154,36 +164,62 @@ func (s *Suite) assertInstallExecution(t *testing.T, ctx context.Context, contai
 		return
 	}
 
-	t.Run("install_execution", func(t *testing.T) {
-		for i, cmd := range s.Artifact.Commands.Install {
+	// Mirrors sandboxlib/kit/agent.go buildInstallCustomizers: install
+	// commands default to root since they typically install system packages.
+	// The "install" label prefix (not "install_execution") preserves the
+	// subtest names this assertion has always produced for undescribed
+	// commands, e.g. install_execution/install[0].
+	runCommandChecks(t, ctx, container, "install_execution", "install", s.Artifact.Commands.Install, "0")
+}
+
+// assertPostInstallChecks runs kit-specific commands (testdata/tck.yaml's
+// postInstallChecks) in the same container right after the kit's install
+// commands succeed. Opt-in and empty for most kits. Skipped under -short for
+// the same reason as assertInstallExecution.
+func (s *Suite) assertPostInstallChecks(t *testing.T, ctx context.Context, container testcontainers.Container) {
+	if len(s.PostInstallChecks) == 0 {
+		return
+	}
+	if testing.Short() {
+		t.Log("post_install_checks: skipped under -short")
+		return
+	}
+
+	// Default to the agent user: unlike install commands (which typically
+	// set up system-owned paths), these checks exercise what the agent user
+	// actually runs.
+	runCommandChecks(t, ctx, container, "post_install_checks", "check", s.PostInstallChecks, "1000")
+}
+
+// runCommandChecks execs each command in the container via "sh -c" (kit
+// authors write natural shell strings — pipes, expansions — without explicit
+// shell wrapping) and asserts a clean exit, under a subtest named after cmd's
+// description (or "<labelPrefix>[i]" when absent).
+func runCommandChecks(t *testing.T, ctx context.Context, container testcontainers.Container, subtest, labelPrefix string, cmds []spec.InstallCommand, defaultUser string) {
+	t.Run(subtest, func(t *testing.T) {
+		for i, cmd := range cmds {
 			user := cmd.User
 			if user == "" {
-				// Mirrors sandboxlib/kit/agent.go buildInstallCustomizers:
-				// install commands default to root since they typically
-				// install system packages.
-				user = "0"
+				user = defaultUser
 			}
 
 			label := cmd.Description
 			if label == "" {
-				label = fmt.Sprintf("install[%d]", i)
+				label = fmt.Sprintf("%s[%d]", labelPrefix, i)
 			}
 
 			t.Run(label, func(t *testing.T) {
-				// Wrap with "sh -c" to match the real install runner —
-				// kit authors write natural shell strings (pipes,
-				// expansions) without explicit shell wrapping.
 				code, reader, err := container.Exec(ctx,
 					[]string{"sh", "-c", cmd.Command},
 					tcexec.WithUser(user),
 					tcexec.Multiplexed(),
 				)
-				require.NoError(t, err, "exec install command (user=%s): %s", user, cmd.Command)
+				require.NoError(t, err, "exec %s (user=%s): %s", subtest, user, cmd.Command)
 
 				output := readOutput(t, reader)
 				require.Equalf(t, 0, code,
-					"install command exited %d (user=%s)\n  command: %s\n  output:\n%s",
-					code, user, cmd.Command, output,
+					"%s exited %d (user=%s)\n  command: %s\n  output:\n%s",
+					subtest, code, user, cmd.Command, output,
 				)
 			})
 		}
