@@ -50,10 +50,7 @@ type E2EOptions struct {
 //	  agentContext — all kits (skipped when agentContext is absent)
 //	  prompt       — kind:sandbox only, skipped when tck.yaml/promptArgs absent
 //
-// The agent passed to `sbx create` depends on the kit's manifest:
-//
-//	kind: sandbox → the kit's own name (sbx enforces this match).
-//	kind: mixin   → "claude" (the default agent the kit is exercised against).
+// `sbx create`'s argv depends on the kit's manifest kind — see buildCreateArgs.
 //
 // Exported so any module that imports this package can drive the same
 // real-sandbox e2e assertions this repo's own e2e-tagged test uses — see
@@ -88,7 +85,7 @@ func RunE2EKit(t *testing.T, kitPath string, opts E2EOptions) {
 
 		checkHostCredentials(t, ctx, td, opts.AppName)
 
-		name := createSbx(t, ctx, absKit, suite.Artifact.Manifest.Name, agent, td, opts.AppName)
+		name := createSbx(t, ctx, absKit, suite.Artifact.Manifest.Kind, suite.Artifact.Manifest.Name, agent, td, opts.AppName)
 
 		// Verify kit content landed inside the running container. Files are
 		// re-derived here so `${WORKDIR}` resolves to the real sandbox workdir
@@ -461,12 +458,34 @@ func checkHostCredentials(t *testing.T, ctx context.Context, td *kitTCKData, app
 // agent rejects the call with an authentication error.
 const promptMessage = "what version are you running"
 
+// buildCreateArgs renders the `sbx create` argv for a kit under test. The
+// shape is kind-aware:
+//
+//   - kind:sandbox: `create <absKit> --name <name> [kit-arg flags] <workspace>`.
+//     sbx rejects --kit for a kind:sandbox spec ("must be kind \"mixin\""),
+//     and resolves a bare agent name to a published kit rather than this
+//     local checkout — so the kit's own directory is the first positional,
+//     with no separate agent argument.
+//   - kind:mixin: `create --kit <absKit> --name <name> [kit-arg flags] <agent> <workspace>`,
+//     composing the mixin onto agent (the default agent or its declared
+//     base-agent affinity).
+func buildCreateArgs(kind, absKit, name, agent, workspace string, kitArgFlags []string) []string {
+	if kind == spec.KindSandbox {
+		args := []string{"create", absKit, "--name", name}
+		args = append(args, kitArgFlags...)
+		return append(args, workspace)
+	}
+	args := []string{"create", "--kit", absKit, "--name", name}
+	args = append(args, kitArgFlags...)
+	return append(args, agent, workspace)
+}
+
 // createSbx creates a sandbox for the kit using `sbx create`, registers a
 // t.Cleanup that force-removes it, and returns the sandbox name. A fresh temp
 // dir is used as the workspace.
 // td may be nil (no testdata/tck.yaml); see kitTCKData.ExtractedFromBuiltin for
 // the one failure this tolerates.
-func createSbx(t *testing.T, ctx context.Context, absKit, kitName, agent string, td *kitTCKData, appName string) string {
+func createSbx(t *testing.T, ctx context.Context, absKit, kind, kitName, agent string, td *kitTCKData, appName string) string {
 	t.Helper()
 	workspace := t.TempDir()
 	name := sandboxName(t, absKit)
@@ -510,13 +529,14 @@ func createSbx(t *testing.T, ctx context.Context, absKit, kitName, agent string,
 			t.Logf("cleanup `sbx rm -f %s` failed: %v\n%s", name, err, out)
 		}
 	})
-	createArgs := []string{"create", "--kit", absKit, "--name", name}
+	var kitArgFlags []string
 	if td != nil {
-		createArgs = append(createArgs, KitArgFlags(kitName, td.Args)...)
+		kitArgFlags = KitArgFlags(kitName, td.Args)
 	}
-	createArgs = append(createArgs, agent, workspace)
-	createOut, err := runSbx(t, ctx, appName, createArgs...)
+	createOut, err := runSbx(t, ctx, appName, buildCreateArgs(kind, absKit, name, agent, workspace, kitArgFlags)...)
 
+	// Matches on stdout text alone, so it fires regardless of which
+	// buildCreateArgs shape produced it.
 	if err != nil && strings.Contains(createOut, builtinCollisionMarker) {
 		if td != nil && td.ExtractedFromBuiltin {
 			t.Skipf("kit %q is still shadowed by the built-in %q agent in this sbx build, and "+
@@ -585,11 +605,14 @@ func waitForAgentReady(t *testing.T, ctx context.Context, name, readyFile, appNa
 	}
 }
 
-// agentForKit picks the positional agent argument for `sbx create`. Sandbox
-// kits must be invoked with their own name as the agent. A mixin that declares
-// base-agent affinity (requires.agent) must be exercised on that agent —
-// composing it onto any other base is a hard error, since affinity is enforced
-// at compose time. Mixins without affinity default to claude.
+// agentForKit returns the agent label used in log messages and collision
+// diagnostics, and — for kind:mixin only — the positional `sbx create`
+// composes the mixin onto (see buildCreateArgs; a kind:sandbox kit's own
+// directory fills that slot instead, so its label is never sent as an
+// argument). A mixin that declares base-agent affinity (requires.agent) must
+// be exercised on that agent — composing it onto any other base is a hard
+// error, since affinity is enforced at compose time. Mixins without affinity
+// default to claude.
 func agentForKit(a *spec.Artifact) string {
 	if a.Manifest.Kind == spec.KindSandbox {
 		return a.Manifest.Name

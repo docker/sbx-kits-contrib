@@ -213,8 +213,10 @@ The default TCK runs every kit assertion against a fabricated `testcontainers-go
 
 `tck/e2e_test.go` (build-tag `e2e`, function `TestE2ECreateSandbox`) drives one kit per run:
 
-1. Loads the kit at `$KIT_UNDER_TEST` and picks the agent argument — kit name for `kind: agent`, `claude` for `kind: mixin`.
-2. Runs `sbx create --kit <kit> --name <unique> <agent> <tmpdir>` against a temporary workspace.
+1. Loads the kit at `$KIT_UNDER_TEST`.
+2. Runs `sbx create`, shaped by the kit's manifest kind, against a temporary workspace:
+   - `kind: sandbox` → `sbx create <kit> --name <unique> <tmpdir>` — the kit's own directory is the first positional. `sbx create --kit` rejects a `kind: sandbox` spec, and a bare agent name resolves to a published kit rather than this local checkout, so no `--kit` flag or agent argument is passed.
+   - `kind: mixin` → `sbx create --kit <kit> --name <unique> <agent> <tmpdir>`, composing the mixin onto `<agent>` (`claude`, or the mixin's declared base-agent affinity).
 3. Verifies, via `sbx exec`, that the running sandbox contains:
    - every `environment.variables` entry,
    - every file under `files/home` and every `commands.initFiles` (with `${WORKDIR}` resolved to `/home/agent/workspace`, the real sandbox workdir),
