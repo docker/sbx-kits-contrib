@@ -622,7 +622,7 @@ credentials:
 
 | Field | Type | Rules |
 |---|---|---|
-| `name` | string | Env-var name — MUST be a valid shell identifier when set, on both v1 and v2 specs. The engine sets it to the literal `proxy-managed` sentinel in-container when the credential is wired. An empty name on a `schemaVersion "2"` spec is warned, not rejected: it means the credential is handled entirely proxy-side, with no in-container environment variable. |
+| `name` | string | Env-var name — MUST be a valid shell identifier when set, on both v1 and v2 specs. The engine sets it to the literal `proxy-managed` sentinel in-container only when `proxyManaged: true` is also set (see below); `name` alone declares the variable but populates nothing in-container. An empty name on a `schemaVersion "2"` spec is warned, not rejected: it means the credential is handled entirely proxy-side, with no in-container environment variable. |
 | `proxyManaged` | bool | When `true`, the sentinel is set in-container (re-expresses the removed v1 `environment.proxyManaged`). |
 | `inject[].domain` | string | REQUIRED. MUST appear in `permissions.network.allow`. |
 | `inject[].header` | string | The HTTP header to set. |
@@ -976,8 +976,9 @@ sandbox is wrong or meaningless in the next.
   Read it defensively, treating unset as `none`:
   `${SBX_CRED_MYSERVICE_MODE:-none}`.
 - The env var named by `credentials[].apiKey.name`: set to the sentinel value
-  when the credential is wired ([§5.4.1](#541-apikey)). A config file that
-  needs the value references the variable (for example
+  only when `apiKey.proxyManaged: true` is also set ([§5.4.1](#541-apikey)); `name`
+  on its own declares the variable but populates nothing in-container. A
+  config file that needs the value references the variable (for example
   `"${ANTHROPIC_API_KEY}"` in a format that expands env references) instead
   of embedding the sentinel literal.
 - `MCP_GATEWAY_URL` and `MCP_SENTINEL_TOKEN_NAME`: the MCP gateway endpoint

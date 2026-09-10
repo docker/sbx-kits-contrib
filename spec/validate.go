@@ -357,7 +357,7 @@ func ValidateArtifact(a *Artifact) error {
 			// A v2 apiKey with no name is proxy-side-only, a legitimate shape.
 			if c.ApiKey.Name == "" && a.Manifest.SchemaVersion == "2" {
 				a.Warnings = append(a.Warnings, fmt.Sprintf(
-					"%scredentials[%d] (service %q): no in-container environment variable will be set for this credential; set apiKey.name if the kit needs to read the value itself",
+					"%scredentials[%d] (service %q): no in-container environment variable will be set for this credential; set apiKey.name (with proxyManaged: true) if the kit needs the value in-container",
 					apiKeyNameEmptyWarningPrefix, i, c.Service))
 			}
 			for j, inj := range c.ApiKey.Inject {

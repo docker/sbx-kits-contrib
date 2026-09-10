@@ -1054,6 +1054,9 @@ credentials:
 		require.NoError(t, ValidateArtifact(a), "an empty apiKey.name must warn, not fail validation")
 		require.True(t, hasWarningContaining(a.Warnings, `credentials[0] (service "svc")`),
 			"expected an empty-name warning, got %v", a.Warnings)
+		// Name alone derives nothing in-container; the remediation must say so.
+		require.True(t, hasWarningContaining(a.Warnings, "proxyManaged: true"),
+			"remediation must tell the author proxyManaged: true is also required, got %v", a.Warnings)
 	})
 
 	// Coverage warnings are validator-owned: revalidating the same artifact

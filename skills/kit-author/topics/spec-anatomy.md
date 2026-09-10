@@ -227,7 +227,8 @@ credentials:
     description: "Anthropic API key"           # surfaced in interactive prompts
     required: false                            # resolver fails fast if true and unbound
     apiKey:
-      name: ANTHROPIC_API_KEY                  # env var the proxy populates in-container
+      name: ANTHROPIC_API_KEY                  # env var the engine names
+      proxyManaged: true                       # required for the engine to set the sentinel in-container
       inject:
         - domain: api.anthropic.com
           header: x-api-key
@@ -235,6 +236,7 @@ credentials:
   - service: github
     apiKey:
       name: GITHUB_TOKEN
+      proxyManaged: true
       inject:
         - domain: api.github.com
           scheme: bearer                       # sugar for header: Authorization, format: "Bearer %s"
@@ -243,7 +245,7 @@ credentials:
           username: x-access-token             # required with scheme: basic
 ```
 
-`apiKey.name` is set to the literal `proxy-managed` inside the container by the engine — the sentinel-swap proxy replaces it on outbound requests. Authors **don't** put real values in the spec.
+With `proxyManaged: true`, `apiKey.name` is set to the literal `proxy-managed` inside the container by the engine — the sentinel-swap proxy replaces it on outbound requests. Authors **don't** put real values in the spec.
 
 ### `scheme` — header-encoding sugar (v2)
 
@@ -262,7 +264,7 @@ credentials:
 
 An inject entry SHOULD set at least one of `header` or `username` — one with neither injects nothing into requests and only maps the domain to the credential's service for routing/policy purposes; that's a legitimate shape (e.g. associating a domain with a service without a header to inject), but `sbx kit validate` warns since it usually means a forgotten `header`/`username`. A `header`-bearing entry with no `username` MUST also set `format`, or there is no template to substitute the credential into. `username` MUST NOT contain `:` — HTTP Basic (RFC 7617) treats the first colon as the user/password delimiter, so a colon-bearing username can't authenticate as declared; `sbx kit validate` rejects it.
 
-Whenever `apiKey.name` is set (v1 or v2) it MUST be a valid shell identifier — letters, digits, underscores, not starting with a digit — since the engine uses it as an environment-variable name. An empty `name` on a v2 spec is a legitimate shape too — the credential is handled entirely proxy-side, with no in-container environment variable — so `sbx kit validate` warns rather than rejects it.
+Whenever `apiKey.name` is set (v1 or v2) it MUST be a valid shell identifier — letters, digits, underscores, not starting with a digit — since the engine uses it as an environment-variable name. Setting `name` alone does not populate it in-container: the engine only derives the sentinel when `proxyManaged: true` is also set. An empty `name` on a v2 spec is a legitimate shape too — the credential is handled entirely proxy-side, with no in-container environment variable — so `sbx kit validate` warns rather than rejects it.
 
 ### OAuth shape
 
@@ -356,7 +358,7 @@ Port publishing is **inbound service exposure** — a separate concern from outb
 
 ## `environment` (P2)
 
-The block is **P2** because v2 removed its `proxyManaged` field as part of the credentials redesign — the proxy-managed semantic now lives implicitly on `credentials[].apiKey.name`.
+The block is **P2** because v2 removed its `proxyManaged` field as part of the credentials redesign — the proxy-managed semantic now lives on `credentials[].apiKey.proxyManaged` (paired with `apiKey.name`).
 
 ```yaml
 environment:
@@ -366,7 +368,7 @@ environment:
 
 Composition: `variables` union with last-wins.
 
-The proxy-managed env-var semantic that lived under `environment.proxyManaged` in v1 is now implicit on `credentials[].apiKey.name`. There's no `proxyManaged` list to maintain separately.
+The proxy-managed env-var semantic that lived under `environment.proxyManaged` in v1 now lives on `credentials[].apiKey.proxyManaged`. There's no `proxyManaged` list to maintain separately.
 
 ### Reserved env-var prefixes
 
