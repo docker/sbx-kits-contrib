@@ -1,0 +1,37 @@
+schemaVersion: 2
+kind: sandbox
+name: freebuff
+displayName: Freebuff
+description: Freebuff AI coding agent sandbox
+sandbox:
+  image: docker/sandbox-templates:shell-docker
+  entrypoint:
+    - freebuff
+
+agentInstructions:
+  filename: AGENTS.md
+  content: |
+    ## Sandbox environment
+
+    You are running inside a Docker sandbox. The workspace is mounted at
+    its absolute host path. `sudo` is passwordless; use it for package
+    installs.
+
+permissions:
+  network:
+    allow:
+      - freebuff.com
+      - "codebuff.com:443"
+      - registry.npmjs.org
+      - "*.cloudflarestorage.com"
+      - "*.s3.amazonaws.com"
+
+environment:
+  variables:
+    FREEBUFF_CODING_AGENT_DIR: "~"
+
+setup:
+  install:
+    - command: npm install -g freebuff
+      user: 1000
+      description: Install Freebuff
