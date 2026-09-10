@@ -52,3 +52,8 @@ func TestBuildCreateArgsMixinWithKitArgFlags(t *testing.T) {
 		got,
 		"kit-arg flags must land between --name and the agent/workspace positionals")
 }
+
+func TestBuildCreateArgsTreatsOnlyKindSandboxAsBase(t *testing.T) {
+	args := buildCreateArgs(spec.KindAgent, "/abs/k", "n", "claude", "/ws", nil)
+	require.Contains(t, args, "--kit", "an unnormalized v1 kind is not recognized as a base here")
+}

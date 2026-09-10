@@ -462,10 +462,8 @@ const promptMessage = "what version are you running"
 // shape is kind-aware:
 //
 //   - kind:sandbox: `create <absKit> --name <name> [kit-arg flags] <workspace>`.
-//     sbx rejects --kit for a kind:sandbox spec ("must be kind \"mixin\""),
-//     and resolves a bare agent name to a published kit rather than this
-//     local checkout — so the kit's own directory is the first positional,
-//     with no separate agent argument.
+//     Passing the kit's own directory as the positional avoids sbx's
+//     deprecated --kit path entirely, including its built-in-name failure.
 //   - kind:mixin: `create --kit <absKit> --name <name> [kit-arg flags] <agent> <workspace>`,
 //     composing the mixin onto agent (the default agent or its declared
 //     base-agent affinity).
