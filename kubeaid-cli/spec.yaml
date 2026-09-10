@@ -1,0 +1,122 @@
+schemaVersion: "2"
+kind: mixin
+name: kubeaid-cli
+displayName: KubeAid CLI
+description: Installs kubeaid-cli, the operator CLI for KubeAid-managed Kubernetes clusters (bootstrap/upgrade/recover/test/delete across AWS, Azure, Hetzner, and bare metal), pinned to a signed release with a checked binary hash.
+
+permissions:
+  network:
+    allow:
+      # Version lookup + release asset download (install time).
+      - api.github.com
+      - github.com
+      - objects.githubusercontent.com
+      - release-assets.githubusercontent.com
+
+agentInstructions:
+  content: |
+    ## KubeAid CLI
+
+    `kubeaid-cli` is installed and on PATH (`kubeaid-cli version` to check;
+    `kubeaid-cli --help` for the full command tree).
+
+    ### What it is
+
+    `kubeaid-cli` is Obmondo's operator CLI for the KubeAid platform: it
+    owns the full GitOps-native lifecycle of a Kubernetes cluster —
+    bootstrap, upgrade, recover, test, and delete — across AWS (self-managed
+    or EKS), Azure (self-managed or AKS), Hetzner (cloud or bare metal
+    Robot), and generic bare metal. It's the CLI half of a repo trio:
+    `kubeaid-cli` (this binary) drives `KubeAid` (a curated, version-pinned
+    fork of upstream Helm charts) into a per-customer "KubeAid Config" git
+    repo, which ArgoCD then reconciles continuously.
+
+    ### The bootstrap flow, concretely (`kubeaid-cli cluster bootstrap`)
+
+    1. **Config**: reads `general.yaml`/`secrets.yaml` (produced by
+       `kubeaid-cli config generate`, an interactive prompt) — cluster name,
+       k8s version, cloud provider block, fork URLs, git auth.
+    2. **Local K3D "management cluster"**: spins up a short-lived K3D cluster
+       in the sandbox's own nested Docker daemon (`devenv create`). This is
+       the only host dependency — no cloud account is needed just to reach
+       this stage.
+    3. **Cluster API provisioning**: Cluster API + the matching provider
+       (CAPA/CAPZ/hcloud, or KubeOne for bare metal) create the real target
+       cluster from the management cluster.
+    4. **Pivot**: `clusterctl move` transfers Cluster API CRDs from the
+       throwaway management cluster onto the real cluster, which becomes
+       self-managing.
+    5. **Render + push + sync**: renders manifests from `general.yaml` into
+       the KubeAid Config repo, pushes over git SSH, and ArgoCD reconciles a
+       strict dependency order: cloud-controller-manager → traefik →
+       cert-manager → cloudnative-pg → keycloakx → netbird — each step
+       gated on real readiness (not just "Synced").
+    6. **Host-firewall lockdown**: applies a live Cilium `CiliumClusterwideNetworkPolicy`
+       immediately via server-side apply, then opens a *separate* PR to
+       persist it in git. If that PR is left unmerged before the next
+       ArgoCD sync, the lockdown silently reverts (fail-open) — flag this to
+       a human if a bootstrap run left one open.
+    7. **NetBird operator gate**: `cluster bootstrap` pauses interactively
+       until a NetBird API-key Secret exists; the NetBird operator's webhook
+       has `failurePolicy: Fail`, so pods cluster-wide can't schedule
+       without it — this is intentional, not a bug.
+
+    ### What this kit provisions vs. what it doesn't
+
+    This kit installs the binary only, with network access limited to
+    GitHub (for the pinned-checksum install). It does **not** provision:
+    - **Git SSH access** to the KubeAid Config repo — `cluster bootstrap`
+      needs to push there. Don't hand it a raw private key. Instead:
+      `ssh-add` the deploy key into your **host's** SSH agent before
+      starting the sandbox — sandboxes forward `SSH_AUTH_SOCK`
+      automatically, so the key material never enters the VM. Set
+      `git.useSSHAgent: true` in `general.yaml` (instead of
+      `privateKeyFilePath`) so `kubeaid-cli` dials the forwarded agent for
+      signing instead of expecting a key file on disk. Combine with the
+      `github-ssh` mixin from this repo if the KubeAid Config repo lives on
+      GitHub, to also pre-populate `known_hosts` for it.
+    - **Cloud credentials** (AWS/Azure/Hetzner) — add via `sbx secret
+      set-custom` (proxy-injected, HTTP-header based) plus the matching
+      cloud API host in `permissions.network.allow`. Note: `cloud.local`
+      in `general.yaml` needs neither — it targets the K3D management
+      cluster directly and is the fastest way to smoke-test the CLI.
+
+    ### Guardrails already enforced by the CLI itself (don't route around them)
+
+    - `cluster upgrade` and `cluster recover` refuse to run against EKS/AKS
+      clusters — those are GitOps-only there by design.
+    - K8s version is checked against a live EOL table; an EOL version fails
+      config validation outright (this is a real, current check — not a
+      lint warning).
+    - `kube-prometheus` version selection is also version-gated; an
+      unsupported k8s/kube-prometheus pairing fails validation the same way.
+
+setup:
+  install:
+    - command: |
+        set -euo pipefail
+        KUBEAID_CLI_VERSION=v0.31.7
+        ARCH=$(dpkg --print-architecture)
+        case "$ARCH" in
+          amd64)
+            TARBALL="kubeaid-cli_Linux_x86_64.tar.gz"
+            SHA256="dc4f633907e8abd7da393549b5311b23cf3c1f07296f9608573e99b452380eb7"
+            ;;
+          arm64)
+            TARBALL="kubeaid-cli_Linux_arm64.tar.gz"
+            SHA256="60a84f85e78dffc4b75c284e90481a25e43cb821d05006ef22ffbf70b19e87ea"
+            ;;
+          *)
+            echo "unsupported sandbox arch: $ARCH (expected amd64 or arm64)" >&2
+            exit 1
+            ;;
+        esac
+        URL="https://github.com/Obmondo/kubeaid-cli/releases/download/${KUBEAID_CLI_VERSION}/${TARBALL}"
+        curl --proto '=https' --tlsv1.2 -fsSL -o /tmp/kubeaid-cli.tgz "$URL"
+        echo "${SHA256}  /tmp/kubeaid-cli.tgz" | sha256sum -c -
+        tar -C /tmp -xzf /tmp/kubeaid-cli.tgz kubeaid-cli
+        install -m 0755 /tmp/kubeaid-cli /usr/local/bin/kubeaid-cli
+        rm -rf /tmp/kubeaid-cli.tgz /tmp/kubeaid-cli
+        kubeaid-cli version
+      user: "0"
+      description: "Install kubeaid-cli v0.31.7, version+digest pinned"
