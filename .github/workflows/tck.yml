@@ -37,6 +37,8 @@ jobs:
           # Add filters for shared packages that should trigger all kits
           filters=$(printf '%s\ntck: "tck/**"\nspec: "spec/**"\nscripts: "scripts/**"' "$filters")
 
+          filters=$(printf '%s\nworkflows: [".github/workflows/e2e.yml", ".github/workflows/tck.yml"]' "$filters")
+
           echo "filters<<EOF" >> "$GITHUB_OUTPUT"
           echo "$filters" >> "$GITHUB_OUTPUT"
           echo "EOF" >> "$GITHUB_OUTPUT"
@@ -53,16 +55,18 @@ jobs:
       - name: Collect kits to test
         id: collect
         run: |
-          # If tck/ or spec/ changed, run all kits
+          # Shared code or workflow changes run all kits
           tck_changed="${{ steps.filter.outputs.tck }}"
           spec_changed="${{ steps.filter.outputs.spec }}"
 
-          if [ "$tck_changed" = "true" ] || [ "$spec_changed" = "true" ]; then
+          workflows_changed="${{ steps.filter.outputs.workflows }}"
+
+          if [ "$tck_changed" = "true" ] || [ "$spec_changed" = "true" ] || [ "$workflows_changed" = "true" ]; then
             kits=$(for f in */spec.yaml */spec.yml; do [ -f "$f" ] && dirname "$f"; done | sort -u | jq -R . | jq -sc .)
           else
             # Only kits that changed
             changes='${{ steps.filter.outputs.changes }}'
-            kits=$(echo "$changes" | jq -r '.[]' | grep -vE '^(tck|spec|scripts)$' | jq -R . | jq -sc .)
+            kits=$(echo "$changes" | jq -r '.[]' | grep -vE '^(tck|spec|scripts|workflows)$' | jq -R . | jq -sc .)
           fi
 
           echo "kits=${kits:-[]}" >> "$GITHUB_OUTPUT"
