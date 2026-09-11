@@ -153,7 +153,8 @@ jobs:
     with:
       kits: ${{ needs.detect-changes.outputs.kits }}
       channel: release
-    secrets: inherit
+    secrets:
+      DOCKERPUBLICBOT_WRITE_PAT: ${{ secrets.DOCKERPUBLICBOT_WRITE_PAT }}
 
   e2e-nightly:
     needs: detect-changes
@@ -167,7 +168,8 @@ jobs:
     with:
       kits: ${{ needs.detect-changes.outputs.kits }}
       channel: nightly
-    secrets: inherit
+    secrets:
+      DOCKERPUBLICBOT_WRITE_PAT: ${{ secrets.DOCKERPUBLICBOT_WRITE_PAT }}
 
   e2e-rc:
     needs: detect-changes
@@ -181,7 +183,8 @@ jobs:
     with:
       kits: ${{ needs.detect-changes.outputs.kits }}
       channel: rc
-    secrets: inherit
+    secrets:
+      DOCKERPUBLICBOT_WRITE_PAT: ${{ secrets.DOCKERPUBLICBOT_WRITE_PAT }}
 
   # Stable gate for branch protection. Configure the repo's required status
   # check to be `e2e` (not the dynamic `e2e-release (<kit>)` matrix legs,

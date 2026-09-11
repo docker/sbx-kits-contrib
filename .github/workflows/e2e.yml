@@ -25,6 +25,10 @@ on:
         description: sbx build channel to test against — "release", "nightly", or "rc".
         required: true
         type: string
+    secrets:
+      DOCKERPUBLICBOT_WRITE_PAT:
+        description: Docker Hub PAT for the "Sign in to Docker Hub via sbx" step.
+        required: true
 
 permissions:
   contents: read
@@ -157,7 +161,15 @@ jobs:
         # `ApplyKitNetworkPolicyScoped` in
         # docker/sandboxes:sandboxd/pkg/server/options_governance.go);
         # kit deny-rules win over allow-rules (deny-wins).
-        run: ./scripts/test-kit-e2e.sh "${{ matrix.kit }}"
+        #
+        # matrix.kit comes from directory names in the checked-out repo
+        # (discover-kits.sh); passed via env rather than interpolated into
+        # the script text so a directory name containing shell
+        # metacharacters can't inject commands into a job that holds a
+        # live Docker Hub credential.
+        env:
+          KIT: ${{ matrix.kit }}
+        run: ./scripts/test-kit-e2e.sh "$KIT"
 
       - name: Sign out of Docker Hub
         if: always()
