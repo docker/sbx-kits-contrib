@@ -25,10 +25,11 @@ sbx run --kit "git+https://github.com/docker/sbx-kits-contrib.git#dir=claude-mem
 
 Search past sessions with the bundled `mem-search` skill or the
 `mcp-search` MCP tools. The worker (viewer UI + live activity stream)
-listens on port 37700:
+listens on `127.0.0.1:37700` and is bridged to port 37800, which is the
+one to publish for host access (see [Design notes](#design-notes)):
 
 ```console
-sbx ports <sandbox> --publish 37700/tcp
+sbx ports <sandbox> --publish 37800/tcp
 ```
 
 ## Design notes
@@ -64,6 +65,30 @@ sbx ports <sandbox> --publish 37700/tcp
   OpenRouter) need a browser OAuth pairing or a preconfigured personal
   API key. Upstream's README still describes the pre-13.20.0 behavior —
   see [thedotmack/claude-mem#3893](https://github.com/thedotmack/claude-mem/issues/3893).
+- **Worker on loopback, viewer bridged to 37800**: claude-mem reads
+  `CLAUDE_MEM_WORKER_HOST` as *both* the address the worker binds and the
+  address every client dials — the hooks, the `mcp-search` MCP server and
+  the CLI all build `http://<host>:<port><path>` from it. A published port
+  has to be served from eth0, but binding the worker to `0.0.0.0` to get
+  that makes every client dial `0.0.0.0` too, and the sandbox's `NO_PROXY`
+  only exempts loopback (`localhost,127.0.0.1,::1,gateway.docker.internal`)
+  while `NODE_USE_ENV_PROXY=1` is injected. The requests go to the egress
+  proxy, which answers `Blocked by network policy: domain 0.0.0.0:37700` —
+  and Node's `fetch` *hangs* on that denial rather than failing. Measured on
+  a sandbox built from this kit: the `SessionStart` hook gives up with
+  `{"status":"error","message":"Failed to start worker"}`, no worker is left
+  running, and memory never works at all. The worker therefore stays on
+  `127.0.0.1:37700`, where every
+  client bypasses the proxy, and a ~30-line TCP relay
+  (`files/home/.local/bin/claude-mem-viewer-relay.js`, started from
+  `setup.startup`) serves 37800 on eth0 and forwards to it. Inbound
+  connections through a published port never touch the proxy, so the viewer
+  stays reachable from the host. Appending `0.0.0.0` to `NO_PROXY` instead
+  was rejected: `/etc/sandbox-persistent.sh` is only sourced by `bash`
+  (via `BASH_ENV`), so a client spawned through `sh`/`dash` or exec'd
+  directly still hangs — a hang is a worse failure than a clean error, and
+  the kit would be overwriting a runtime-owned variable
+  ([SPEC §9.5](../spec/SPEC-v2.md#95-environment-injected-by-the-runtime)).
 - **Settings reconciler**: claude-mem's installer merges
   `enabledPlugins` into `~/.claude/settings.json`, while the platform
   seeds the same file at startup *only when missing* — and the two race
@@ -90,6 +115,15 @@ sbx ports <sandbox> --publish 37700/tcp
 
 ```console
 sbx exec <sandbox> -- cat /tmp/claude-mem-reconcile.log
+sbx exec <sandbox> -- cat /tmp/claude-mem-viewer-relay.log
 sbx exec <sandbox> -- cat /home/agent/.claude/settings.json
 sbx exec <sandbox> -- ls /home/agent/.claude-mem/
+```
+
+The worker is reachable in-sandbox on loopback only; check it there, and
+check the relay on the port that gets published:
+
+```console
+sbx exec <sandbox> -- curl -s http://127.0.0.1:37700/api/health
+sbx exec <sandbox> -- curl -s http://127.0.0.1:37800/api/health
 ```
