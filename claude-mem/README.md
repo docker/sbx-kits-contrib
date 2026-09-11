@@ -79,11 +79,17 @@ sbx ports <sandbox> --publish 37800/tcp
   `{"status":"error","message":"Failed to start worker"}`, no worker is left
   running, and memory never works at all. The worker therefore stays on
   `127.0.0.1:37700`, where every
-  client bypasses the proxy, and a ~30-line TCP relay
+  client bypasses the proxy, and a small TCP relay
   (`files/home/.local/bin/claude-mem-viewer-relay.js`, started from
   `setup.startup`) serves 37800 on eth0 and forwards to it. Inbound
   connections through a published port never touch the proxy, so the viewer
-  stays reachable from the host. Appending `0.0.0.0` to `NO_PROXY` instead
+  stays reachable from the host. The relay binds `::` (falling back to
+  `0.0.0.0` where IPv6 is unavailable) so that both publish protocols work:
+  `sbx ports --publish 37800:37800/tcp` binds the host dual-stack and hands
+  an IPv6 connection to the sandbox's IPv6 address, and an IPv4-only relay
+  resets exactly the request a browser makes — `localhost` resolves to `::1`
+  first and the host side is listening, so nothing falls back to IPv4.
+  Appending `0.0.0.0` to `NO_PROXY` instead
   was rejected: `/etc/sandbox-persistent.sh` is only sourced by `bash`
   (via `BASH_ENV`), so a client spawned through `sh`/`dash` or exec'd
   directly still hangs — a hang is a worse failure than a clean error, and

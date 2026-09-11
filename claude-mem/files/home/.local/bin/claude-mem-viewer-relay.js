@@ -25,6 +25,16 @@ const WORKER_PORT = Number(process.env.CLAUDE_MEM_WORKER_PORT) || 37700;
 // claude-mem's own default range (37700 + uid % 100 spans 37700-37799) so it
 // cannot collide with a worker that lands on a port other than the pinned one.
 const RELAY_PORT = 37800;
+// `::` accepts both families (Node leaves ipv6Only off), which a published port
+// needs: `sbx ports --publish <host>:37800/tcp` binds the host dual-stack and
+// forwards an IPv6 connection to the sandbox's IPv6 address, so an IPv4-only
+// relay resets every request a browser makes to `http://localhost:37800` --
+// `localhost` resolves to `::1` first, and the host side is listening, so
+// nothing falls back to IPv4. 0.0.0.0 is the fallback for an image or host
+// without IPv6, where binding `::` fails outright.
+const BIND_HOSTS = ["::", "0.0.0.0"];
+
+let bindIndex = 0;
 
 const server = net.createServer((client) => {
   const worker = net.connect(WORKER_PORT, "127.0.0.1");
@@ -44,12 +54,29 @@ const server = net.createServer((client) => {
 server.on("error", (err) => {
   // startup runs on every container start; a relay from an earlier start in the
   // same container already owns the port. Exit quietly instead of crash-looping.
+  if (err.code === "EADDRINUSE") {
+    console.error("[claude-mem-viewer-relay] " + err.message);
+    process.exit(0);
+  }
+  if (bindIndex < BIND_HOSTS.length - 1) {
+    bindIndex += 1;
+    console.error(
+      "[claude-mem-viewer-relay] " + err.message + "; retrying on " + BIND_HOSTS[bindIndex]
+    );
+    server.listen(RELAY_PORT, BIND_HOSTS[bindIndex]);
+    return;
+  }
   console.error("[claude-mem-viewer-relay] " + err.message);
-  process.exit(err.code === "EADDRINUSE" ? 0 : 1);
+  process.exit(1);
 });
 
-server.listen(RELAY_PORT, "0.0.0.0", () => {
+server.listen(RELAY_PORT, BIND_HOSTS[bindIndex], () => {
   console.log(
-    "[claude-mem-viewer-relay] 0.0.0.0:" + RELAY_PORT + " -> 127.0.0.1:" + WORKER_PORT
+    "[claude-mem-viewer-relay] " +
+      BIND_HOSTS[bindIndex] +
+      ":" +
+      RELAY_PORT +
+      " -> 127.0.0.1:" +
+      WORKER_PORT
   );
 });
