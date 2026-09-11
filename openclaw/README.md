@@ -56,11 +56,11 @@ has given up, pair it with `/readyz` if you need proof the gateway is live now
 
 ## What this kit assumes
 
-**Local sandboxes only.** The gateway is a long-lived process whose state lives
-in the sandbox, and the kit is built around a host workspace. A cloud sandbox
-(`sbx --cloud …`) has no host filesystem to bind-mount, and it is deleted when
-its `--ttl` lapses — one hour by default, server-side — so it is not a fit for
-a gateway you mean to keep.
+**A sandbox that sticks around, with a workspace from the host.** The gateway
+is a long-lived process whose state lives in the sandbox — its token, its
+session store, the credential the bootstrap resolved — and the kit mounts your
+workspace in from the host. Anything that discards the sandbox, or has no host
+workspace to mount, is not what this kit is shaped for.
 
 **Egress is only as narrow as the host policy.** The `network.allow` list in
 `spec.yaml` declares what this kit needs, and the runtime turns it into
@@ -216,10 +216,9 @@ sbx run --kit "docker.io/sbx/openclaw-kit:<kit-tag>" \
 ```
 
 Both together fix the whole thing: kit content, and the OpenClaw, Node and
-Chromium versions inside. Two caveats. This is a **local**-only combination —
-a cloud create rejects `--template` alongside a kit, because its bake owns the
-base image. And the two tags are not derivable from each other: they match per
-build, one date computed for the whole run, but the image is also rebuilt
+Chromium versions inside. One caveat: the two tags are not derivable from each
+other. They match per build, one date computed for the whole run, but the
+image is also rebuilt
 nightly on an unchanged commit, so it carries dated tags whose sha repeats and
 which have no kit counterpart. So read both lists rather than deriving one tag
 from the other — that is why the two are written as separate placeholders
