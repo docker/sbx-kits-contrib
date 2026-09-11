@@ -1,0 +1,177 @@
+# Docker Sandboxes kit for a Gitea instance.
+# Usage, prerequisites and design notes: see README.md in this directory.
+schemaVersion: "2"
+kind: mixin
+name: gitea
+version: "0.1.0"
+displayName: Gitea
+description: Wires a Gitea access token into the sandbox proxy so git-over-HTTPS and the Gitea API both authenticate against your instance, self-hosted or gitea.com. The token stays on the host.
+licenses:
+  - MIT
+
+# Which Gitea instance this sandbox talks to. Overridable at install time:
+#   sbx run --kit docker.io/sbx/gitea-kit:latest --kit-arg gitea.host=git.example.com claude
+args:
+  host:
+    default: "gitea.com"
+    description: >-
+      Hostname of the Gitea instance, without a scheme or path (for example
+      git.example.com). Defaults to gitea.com, Gitea's own hosted instance.
+    # A bare hostname, optionally with a port for an instance that is not
+    # behind a reverse proxy on 443 (the common `:3000` deployment).
+    pattern: '^[A-Za-z0-9]([A-Za-z0-9.-]*[A-Za-z0-9])?(:[0-9]{1,5})?$'
+
+credentials:
+  # One credential, one inject rule -- deliberately. The engine reads
+  # ApiKey.Inject[0] and nothing else (sandboxlib/kit/agent.go,
+  # GetServiceAuthConfig: "multi-header services should have one credential per
+  # header"), so a second rule on the same domain would be silently ignored.
+  # That, not auth-scheme sniffing, is why the sibling `gitlab` kit could not
+  # cover git-over-HTTPS and the API at once. Gitea does not need two rules --
+  # see README, "How auth works".
+  - service: gitea
+    description: Gitea access token with the `write:repository` scope (add `write:issue` for issue/PR work). Stored on the host; the sandbox only sees a placeholder and the proxy injects the real value on requests to the instance.
+    required: true
+    apiKey:
+      # proxyManaged sets GITEA_TOKEN to the sentinel inside the container. The
+      # proxy replaces the Authorization header with the real token on outbound
+      # requests to the instance, and on no other host.
+      name: GITEA_TOKEN
+      proxyManaged: true
+      inject:
+        - domain: "${{ kit.args.host }}"
+          # `token %s` rather than the `scheme: bearer` sugar: this is Gitea's
+          # own documented header form, and Gitea's OAuth2 auth method accepts
+          # it on the API *and* on the git-over-HTTP routes.
+          #
+          # Do NOT reach for `scheme: basic` here. It is a decode-time sugar
+          # with no runtime behind it: normalizeV2 expands it to Format "%s"
+          # and leaves Header empty, GetServiceAuthConfig copies that empty
+          # header through, and the proxy's SetAuthHeaderFormat discards a
+          # config with an empty header name -- the request then goes out
+          # unauthenticated. `inject[].username` has no consumer at all.
+          header: Authorization
+          format: "token %s"
+
+# Every destination the kit needs. e2e runs under deny-all, so a host that is
+# not listed here is blocked. SPEC-v2 5.2 also requires every inject domain to
+# appear in this list; the engine does not derive egress from credentials.
+permissions:
+  network:
+    allow:
+      - "${{ kit.args.host }}"
+      # The pinned `tea` binary and its checksum, fetched once at install time.
+      - dl.gitea.com
+
+environment:
+  variables:
+    # Never block on a git credential prompt in a non-interactive session. The
+    # proxy injects the Authorization header before the request leaves the
+    # sandbox, so git never sees a 401 and never needs a credential helper --
+    # but if the host is ever misconfigured, failing beats hanging.
+    GIT_TERMINAL_PROMPT: "0"
+
+agentInstructions:
+  content: |
+    ## Gitea
+
+    This sandbox is wired to the Gitea instance at `${{ kit.args.host }}`.
+
+    `GITEA_TOKEN` holds a sentinel value, not the real token: the sandbox proxy
+    swaps it for the real one on requests to that host, and nowhere else. Do
+    not read, print, or reconfigure it, and do not put it in a remote URL.
+
+    **Git over HTTPS works directly.** Clone, pull, and push with plain HTTPS
+    remotes -- no SSH key, no credential helper, no token in the URL:
+
+        git clone https://${{ kit.args.host }}/<owner>/<repo>.git
+        git push origin <branch>
+
+    The proxy adds the `Authorization` header on the way out, including on
+    git's first unauthenticated request, so private repositories work the same
+    as public ones.
+
+    **The REST API needs no auth header from you.** Send the request without
+    one and the proxy fills it in:
+
+        curl -s https://${{ kit.args.host }}/api/v1/user
+        curl -s https://${{ kit.args.host }}/api/v1/repos/<owner>/<repo>/pulls
+
+    Setting your own `Authorization` header is harmless -- the proxy replaces
+    it -- but it is never necessary.
+
+    **`tea`, Gitea's CLI, is installed and already logged in** against this
+    host. Use it for the things it models well -- `tea pr`, `tea issue`,
+    `tea repo`, `tea login ls` -- and `tea api` or `curl` for anything it does
+    not cover. Its stored token is the same sentinel; do not try to "fix" it.
+
+setup:
+  install:
+    # Install tea from a pinned, digest-verified Gitea release (same pattern as
+    # the sibling `gitlab` kit: no curl|sh, version AND SHA256 pinned in git).
+    # To bump: change TEA_VERSION plus the per-arch SHA256 below, sourced from
+    # https://dl.gitea.com/tea/<version>/tea-<version>-linux-<arch>.sha256
+    - command: |
+        set -euo pipefail
+        TEA_VERSION=0.15.1
+        ARCH=$(dpkg --print-architecture)
+        case "$ARCH" in
+          amd64)
+            SHA256="aac99cc6e650a81ae7b5061f8c75bc0eade4509c828d97b6072e1f0a3bd24357"
+            ;;
+          arm64)
+            SHA256="0db109df6696bfe01f9203402f503404692404d4ea9c16a540ecaeecc8e6bab2"
+            ;;
+          *)
+            echo "unsupported sandbox arch: $ARCH (expected amd64 or arm64)" >&2
+            exit 1
+            ;;
+        esac
+        URL="https://dl.gitea.com/tea/${TEA_VERSION}/tea-${TEA_VERSION}-linux-${ARCH}"
+        curl --proto '=https' --tlsv1.2 -fsSL -o /tmp/tea "$URL"
+        echo "${SHA256}  /tmp/tea" | sha256sum -c -
+        install -m 0755 /tmp/tea /usr/local/bin/tea
+        rm -f /tmp/tea
+        tea --version
+      user: "0"
+      description: "Install tea v0.15.1, version+digest pinned"
+
+    # Seed tea's login so it starts out authenticated. Written directly rather
+    # than via `tea login add`, which calls the instance to validate the token
+    # and would fail sandbox creation whenever no credential is bound (the e2e
+    # case). Runs as the agent user so the file needs no chown afterwards, and
+    # writes the literal home path because $HOME is not guaranteed here.
+    #
+    # The token written here is whatever GITEA_TOKEN holds -- the proxy-managed
+    # sentinel -- so tea sends `Authorization: token <sentinel>` and the proxy
+    # replaces it. Nothing secret is on disk.
+    #
+    # printf rather than a heredoc: this is a YAML block scalar, so a heredoc
+    # body would have to stay indented and tea would read back a config that is
+    # itself indented into nonsense.
+    - command: |
+        set -euo pipefail
+        if [ -z "${GITEA_TOKEN:-}" ]; then
+          echo "GITEA_TOKEN unset (mode=${SBX_CRED_GITEA_MODE:-none}); skipping tea login" >&2
+          exit 0
+        fi
+        mkdir -p /home/agent/.config/tea
+        cfg=/home/agent/.config/tea/config.yml
+        : > "$cfg"
+        chmod 0600 "$cfg"
+        printf 'logins:\n' >> "$cfg"
+        printf '  - name: sbx\n' >> "$cfg"
+        printf '    url: https://%s\n' '${{ kit.args.host }}' >> "$cfg"
+        printf '    token: %s\n' "$GITEA_TOKEN" >> "$cfg"
+        printf '    default: true\n' >> "$cfg"
+        printf '    ssh_host: ""\n' >> "$cfg"
+        printf '    ssh_key: ""\n' >> "$cfg"
+        printf '    insecure: false\n' >> "$cfg"
+        printf '    ssh_agent: false\n' >> "$cfg"
+        # No self-update check: unrelated egress, and the version is whatever
+        # this kit pinned above.
+        printf '    version_check: false\n' >> "$cfg"
+        printf '    user: ""\n' >> "$cfg"
+        printf '    created: 0\n' >> "$cfg"
+      user: "1000"
+      description: "Point tea at the instance, authenticated with the proxy-managed sentinel"
