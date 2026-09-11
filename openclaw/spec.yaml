@@ -123,8 +123,11 @@ setup:
     # sandbox had no gateway at all: the declared port 18789 answered nothing
     # and `sbx exec <sandbox> -- openclaw ...` failed on a dead socket. Bring
     # it up with the container instead. The script returns as soon as /readyz
-    # is green (~2s) and is a no-op when the gateway is already running, so
-    # the entrypoint still calls it after a stop/start.
+    # is green (~2s on a warm sandbox; a first boot also waits on the
+    # tool-call image pull) and is a no-op when the gateway is already
+    # running, so a stop/start is covered. The entrypoint waits for its result
+    # rather than running it too -- two concurrent runs each mint a different
+    # token.
     # Invoked through `sh` rather than executed: files under `files/home/` land
     # 0644 -- the artifact loader does not carry the source exec bit -- so a
     # direct exec fails with EACCES, silently, and the gateway never starts.

@@ -5,12 +5,13 @@
 # here reaches an existing sandbox on its next create without republishing
 # docker.io/sbx/openclaw-image.
 #
-# Called from two places: `setup.startup` in spec.yaml, so a *created*
-# sandbox has a live gateway -- and therefore a live published port and a
-# working `sbx exec <sandbox> -- openclaw ...` -- without anyone attaching
-# the TUI, and the interactive entrypoint, which needs the same guarantee
-# after a stop/start. Both paths are a single /readyz probe once the gateway
-# is already up.
+# Called from `setup.startup` in spec.yaml, so a *created* sandbox has a live
+# gateway -- and therefore a live published port and a working
+# `sbx exec <sandbox> -- openclaw ...` -- without anyone attaching the TUI.
+# It runs on every container start, not just create, so a stop/start is
+# covered too, and it costs a single /readyz probe once the gateway is up.
+# The entrypoint waits for the result rather than running this itself: two
+# concurrent runs would each mint a different gateway token.
 set -e
 
 # Startup commands run with a minimal PATH that may not include the npm
