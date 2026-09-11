@@ -42,27 +42,19 @@ sandbox:
 
 credentials:
   - service: cursor
+    # The service name itself is load-bearing beyond this file: the sandbox
+    # proxy's Cursor session bootstrap keys on it, so renaming it here would
+    # silently disable that bootstrap.
+    #
     # NOT marked `required: true`. Cursor is usable with nothing bound: with no
     # credential it starts its own in-agent sign-in, and failing fast at
-    # `sbx create` would take that path away. (Contrast `droid`, which cannot
-    # authenticate at all without a bound credential and so declares it
-    # required.)
+    # `sbx create` would take that path away.
     apiKey:
       name: CURSOR_API_KEY
-      # Deliberately NOT `proxyManaged: true`, unlike most apiKey-bearing kits
-      # in this repo.
-      #
-      # `proxyManaged` sets the env var to the sentinel unconditionally, for
-      # every sandbox. cursor-agent treats a set-but-unbacked CURSOR_API_KEY as
-      # a real key and reports it invalid instead of falling back to
-      # interactive sign-in — so on a host with no cursor credential, turning
-      # this on would replace a working login prompt with an authentication
-      # error.
-      #
-      # sbx already populates this variable with the sentinel for this agent
-      # *conditionally*, only when a host credential actually exists, which is
-      # the behaviour Cursor needs. Declaring it here too would not add the
-      # variable — it would remove that condition. See the README's
+      # Deliberately NOT `proxyManaged: true`. That flag would set
+      # CURSOR_API_KEY to the sentinel unconditionally, and cursor-agent
+      # treats an unbacked CURSOR_API_KEY as a real (invalid) key rather than
+      # falling back to sign-in, so it stays absent. See the README's
       # "What this kit does not own yet".
       #
       # Spelled out as header + format rather than with the `scheme: bearer`
@@ -118,13 +110,8 @@ credentials:
       # That last step is not expressible in this spec today — see the
       # README's "What this kit does not own yet".
       #
-      # Carried over verbatim from the agent this kit replaces, and a no-op
-      # here: `schemaVersion: "2"` selects binding-driven credential
-      # resolution, which never consults host environment variables (a host
-      # env var must not override the user's binding). Kept rather than
-      # dropped so a diff against the built-in stays minimal, and because the
-      # intended precedence — API key beats OAuth — is already what declaring
-      # both shapes on one credential gives you.
+      # Inert under this kit's binding-driven credential resolution, which
+      # never consults host environment variables; kept for spec fidelity.
       skipIfEnv:
         - CURSOR_API_KEY
       # Cursor's token response is camelCase, not the OAuth-standard
@@ -180,14 +167,6 @@ permissions:
       - security.ubuntu.com       # Ubuntu security updates (amd64)
       - ports.ubuntu.com          # Ubuntu archive/security (arm64)
       - download.docker.com       # Docker's apt repo, pre-added by shell-docker
-      #
-      # TODO(cursor-extraction): this list has not been verified end-to-end
-      # under deny-all from this repo — `sbx` does not run inside a sandbox,
-      # so nobody has watched a real cursor-agent session against it yet.
-      # Confirm or widen from a live run:
-      #
-      #   ./scripts/test-kit-e2e.sh cursor
-      #   sbx --app-name sbx-kits-contrib-tck policy log <sandbox>
 
 environment:
   variables:
@@ -220,11 +199,6 @@ setup:
     # --yolo bypasses tool approvals but NOT this gate, and cursor-agent's
     # --trust flag only applies to headless (-p) mode, not the interactive TUI
     # that `sbx run cursor` opens.
-    #
-    # Written brace-free ($VAR, not ${VAR}) on purpose: released sbx builds
-    # scan inline spec content for `${...}` placeholders and accept only
-    # ${WORKDIR}, so a defaulted expansion here would be rejected by a
-    # validator this repo's own tooling does not model.
     - command: |
         [ -n "$WORKSPACE_DIR" ] || { echo "WORKSPACE_DIR unset; skipping Cursor workspace pre-trust" >&2; exit 0; }
         ws="$WORKSPACE_DIR"
