@@ -28,20 +28,22 @@ jobs:
         id: filter-setup
         run: |
           filters=""
-          # Add a filter for each kit directory (spec.yaml or spec.yml)
-          for f in */spec.yaml */spec.yml; do
-            [ -f "$f" ] || continue
-            kit=$(dirname "$f")
+          # Add a filter for each kit directory. discover-kits.sh is the
+          # single source of truth for "what is a kit" — delegate to it here
+          # too instead of re-globbing spec.yaml/spec.yml.
+          while IFS= read -r kit; do
             filters=$(printf '%s\n%s: "%s/**"' "$filters" "$kit" "$kit")
-          done
+          done < <(./scripts/discover-kits.sh)
           # Add filters for shared packages that should trigger all kits
           filters=$(printf '%s\ntck: "tck/**"\nspec: "spec/**"\nscripts: "scripts/**"' "$filters")
 
           filters=$(printf '%s\nworkflows: [".github/workflows/e2e.yml", ".github/workflows/tck.yml"]' "$filters")
 
-          echo "filters<<EOF" >> "$GITHUB_OUTPUT"
-          echo "$filters" >> "$GITHUB_OUTPUT"
-          echo "EOF" >> "$GITHUB_OUTPUT"
+          {
+            echo "filters<<EOF"
+            echo "$filters"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
 
       - name: Filter changes
         id: filter
@@ -62,11 +64,14 @@ jobs:
           workflows_changed="${{ steps.filter.outputs.workflows }}"
 
           if [ "$tck_changed" = "true" ] || [ "$spec_changed" = "true" ] || [ "$workflows_changed" = "true" ]; then
-            kits=$(for f in */spec.yaml */spec.yml; do [ -f "$f" ] && dirname "$f"; done | sort -u | jq -R . | jq -sc .)
+            kits=$(./scripts/discover-kits.sh | jq -R . | jq -sc .)
           else
-            # Only kits that changed
+            # Only kits that changed. `grep -vE` exits 1 (no output, no
+            # match) when $changes is `[]` — e.g. a doc-only PR — which
+            # would abort this step under bash's default -e/pipefail in
+            # GitHub Actions. `|| true` keeps an empty result a success.
             changes='${{ steps.filter.outputs.changes }}'
-            kits=$(echo "$changes" | jq -r '.[]' | grep -vE '^(tck|spec|scripts|workflows)$' | jq -R . | jq -sc .)
+            kits=$(echo "$changes" | jq -r '.[]' | { grep -vE '^(tck|spec|scripts|workflows)$' || true; } | jq -R . | jq -sc .)
           fi
 
           echo "kits=${kits:-[]}" >> "$GITHUB_OUTPUT"
@@ -95,7 +100,15 @@ jobs:
         # local workflow stay 1:1. Pass the matrix kit name as a positional
         # arg (the script resolves it against the repo root) and forward
         # `-timeout 30m` to `go test`.
-        run: ./scripts/test-kit.sh "${{ matrix.kit }}" -timeout 30m
+        #
+        # matrix.kit comes from directory names in the PR's own checkout
+        # (discover-kits.sh); passed via env rather than interpolated into
+        # the script text so a directory name containing shell metacharacters
+        # can't inject commands. Unlike the e2e jobs, this one has no
+        # fork-PR restriction.
+        env:
+          KIT: ${{ matrix.kit }}
+        run: ./scripts/test-kit.sh "$KIT" -timeout 30m
 
   test-tck:
     needs: detect-changes
