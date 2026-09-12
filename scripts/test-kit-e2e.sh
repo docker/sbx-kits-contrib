@@ -12,7 +12,8 @@
 #   - Scopes every sbx call to APP_NAME=sbx-kits-contrib-tck so the test
 #     daemon, sandboxes, policy, and cache are isolated from your main
 #     sbx state. Nothing the script does touches your day-to-day daemon.
-#     The Go harness uses the same app-name internally (tck/e2e_test.go).
+#     The Go harness reads the same APP_NAME this script exports
+#     (tck/e2e_test.go).
 #   - Sets the scoped daemon's default network policy to `deny-all` so
 #     the run is a real contract test of permissions.network.allow — the same
 #     baseline CI runs under.
