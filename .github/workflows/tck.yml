@@ -7,6 +7,7 @@ on:
 
 permissions:
   contents: read
+  actions: read
 
 env:
   APP_NAME: sbx-kits-contrib-tck
@@ -153,7 +154,9 @@ jobs:
     with:
       kits: ${{ needs.detect-changes.outputs.kits }}
       channel: release
-    secrets: inherit
+      dockerhub-username: ${{ vars.DOCKERPUBLICBOT_USERNAME }}
+    secrets:
+      DOCKERHUB_TOKEN: ${{ secrets.DOCKERPUBLICBOT_WRITE_PAT }}
 
   e2e-nightly:
     needs: detect-changes
@@ -167,7 +170,9 @@ jobs:
     with:
       kits: ${{ needs.detect-changes.outputs.kits }}
       channel: nightly
-    secrets: inherit
+      dockerhub-username: ${{ vars.DOCKERPUBLICBOT_USERNAME }}
+    secrets:
+      DOCKERHUB_TOKEN: ${{ secrets.DOCKERPUBLICBOT_WRITE_PAT }}
 
   e2e-rc:
     needs: detect-changes
@@ -181,7 +186,9 @@ jobs:
     with:
       kits: ${{ needs.detect-changes.outputs.kits }}
       channel: rc
-    secrets: inherit
+      dockerhub-username: ${{ vars.DOCKERPUBLICBOT_USERNAME }}
+    secrets:
+      DOCKERHUB_TOKEN: ${{ secrets.DOCKERPUBLICBOT_WRITE_PAT }}
 
   # Stable gate for branch protection. Configure the repo's required status
   # check to be `e2e` (not the dynamic `e2e-release (<kit>)` matrix legs,

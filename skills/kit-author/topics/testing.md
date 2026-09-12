@@ -288,7 +288,7 @@ cd my-kit
 
 That's the whole recipe — no manual policy dance. The script:
 
-- Scopes every `sbx` call to `--app-name sbx-kits-contrib-tck`, the same app-name the e2e harness uses internally ([`tck/e2e_test.go:415`](../../../tck/e2e_test.go#L415)). The test daemon's sandboxes, policy, secrets, and cache are isolated from your day-to-day sbx state.
+- Scopes every `sbx` call to `--app-name sbx-kits-contrib-tck`, the same default the e2e harness falls back to when `$APP_NAME` is unset ([`tck/e2e_test.go:35`](../../../tck/e2e_test.go#L35)). The test daemon's sandboxes, policy, secrets, and cache are isolated from your day-to-day sbx state.
 - Sets the scoped daemon's default network policy to `deny-all` — the same baseline CI uses, so any host your install or startup hooks reach for must be in `permissions.network.allow` or the request is blocked.
 - Runs `go test -tags=e2e` with `KIT_UNDER_TEST` exported.
 - On non-zero exit, prints a hint pointing at `sbx --app-name sbx-kits-contrib-tck policy log <sandbox>`.
