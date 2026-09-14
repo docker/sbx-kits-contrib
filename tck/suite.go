@@ -34,7 +34,7 @@ type Suite struct {
 	// Artifact is the loaded and validated kit artifact.
 	Artifact *spec.Artifact
 
-	// Dir is the kit directory the artifact was loaded from. Assertions that
+	// Dir is the kit directory the suite was built from. Assertions that
 	// need kit-supplied expectations (rather than ones derived from the spec)
 	// read them from <Dir>/testdata/. Empty when the suite was built from an
 	// already-loaded artifact rather than a directory.

@@ -40,7 +40,7 @@ For kits that have a corresponding tutorial on [docs.docker.com](https://docs.do
 
 ## Network policy: declare every domain
 
-Your kit's `network.allowedDomains` is the **complete** outbound contract — the CI e2e job runs under `deny-all`, so anything you don't list is blocked.
+Your kit's `permissions.network.allow` is the **complete** outbound contract — the CI e2e job runs under `deny-all`, so anything you don't list is blocked.
 
 Watch out for package managers: `apt-get update`, `npm install`, `pip install`, etc. each refresh metadata for every configured source, not just yours. For kits built on `shell-docker` / `*-docker` templates that means `download.docker.com` must be in your list even if you only `apt-get install` from Ubuntu's main archive — `apt-get update` fails the install otherwise. List `archive.ubuntu.com`, `security.ubuntu.com`, **and** `ports.ubuntu.com` so the kit works on both amd64 (CI) and arm64 (Apple Silicon).
 
@@ -72,7 +72,7 @@ cd my-kit && ../scripts/test-kit-e2e.sh
 That single command:
 
 - scopes every `sbx` call to `--app-name sbx-kits-contrib-tck`, so the test daemon (sandboxes, policy, cache) is isolated from your main sbx state and nothing the script does touches your day-to-day setup,
-- sets the scoped daemon's default network policy to `deny-all` — the same baseline CI uses, so any host your install or startup hooks reach for must be in `network.allowedDomains` or the request is blocked, and
+- sets the scoped daemon's default network policy to `deny-all` — the same baseline CI uses, so any host your install or startup hooks reach for must be in `permissions.network.allow` or the request is blocked, and
 - runs `TestE2EKit` (env, files, tmpfs, agentContext, and — for `kind: sandbox` kits with a `testdata/tck.yaml` — a non-interactive prompt to the agent).
 
 The script is idempotent (re-runs converge on the same state) and non-interactive (no prompts).
@@ -83,7 +83,7 @@ One-time setup per machine — the scoped daemon has its own credential store, s
 sbx --app-name sbx-kits-contrib-tck login
 ```
 
-When the test fails, the script prints how to dump the proxy log. The recurring fix is the same loop: read the log, add the blocked host to `network.allowedDomains`, re-run.
+When the test fails, the script prints how to dump the proxy log. The recurring fix is the same loop: read the log, add the blocked host to `permissions.network.allow`, re-run.
 
 ```console
 sbx --app-name sbx-kits-contrib-tck ls                          # find the tck-e2e-* sandbox
@@ -180,7 +180,7 @@ For deeper background, see GitHub's docs on [managing commit signature verificat
 A useful PR description has:
 
 - **Summary** — what changed.
-- **Spec choices worth flagging for review** — decisions a reviewer should sanity-check (an unusual image choice, a deliberately narrow `allowedDomains`, a workaround for a known bug).
+- **Spec choices worth flagging for review** — decisions a reviewer should sanity-check (an unusual image choice, a deliberately narrow `permissions.network.allow`, a workaround for a known bug).
 - **Test plan** — what CI covers, plus any manual end-to-end you ran.
 - **Origin** — where the kit came from. One sentence is enough.
 
