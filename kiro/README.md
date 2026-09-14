@@ -80,10 +80,9 @@ self-update.
 > ([#185](https://github.com/docker/sbx-kits-contrib/issues/185)), plus two
 > more surfaced by a live deny-all run (`q.us-east-1.amazonaws.com`, Kiro's
 > Amazon Q chat backend, and `view.awsapps.com`, the AWS access portal used
-> by device-flow auth), are listed in `permissions.network.allow`. Login and
-> chat are now verified end-to-end under `sbx policy init deny-all`, but
-> other kiro-cli features may still reach further hosts. If something fails
-> under deny-all, inspect what was blocked and widen the list:
+> by device-flow auth), are listed in `permissions.network.allow`. Other
+> kiro-cli features may still reach further hosts. If something fails under
+> deny-all, inspect what was blocked and widen the list:
 >
 > ```console
 > $ sbx policy log

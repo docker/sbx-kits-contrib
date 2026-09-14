@@ -74,15 +74,6 @@ permissions:
       - runtime.us-east-1.kiro.dev
       - q.us-east-1.amazonaws.com  # Amazon Q backend — Kiro's chat API
       - view.awsapps.com           # AWS access portal / Identity Center device-flow auth
-      #
-      # TODO(kiro-extraction): login and chat have now been verified
-      # end-to-end under deny-all from a live run, which is what surfaced the
-      # two hosts above (they were missing before). Other kiro-cli features
-      # may still reach further endpoints not exercised by that run. Confirm
-      # or widen from a live run:
-      #
-      #   sbx run --kit ./kiro kiro       # then attempt a login + a prompt
-      #   sbx policy log                  # lists every blocked host + reason
 
 setup:
   install:
