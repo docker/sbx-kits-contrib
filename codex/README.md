@@ -186,6 +186,13 @@ the base image ships with — the last of those because the startup hook runs
 `apt-get update`, which fails wholesale if any configured source is
 unreachable.
 
+Two entries are wildcarded rather than exact: `*.chatgpt.com` and
+`*.oaiusercontent.com`. Live testing surfaced ChatGPT-backed content and auth
+traffic landing on subdomains of both rather than the bare apex, and OpenAI
+shards this across a set that isn't fixed or enumerable, so the wildcard is
+deliberate here — unlike the `*.githubusercontent.com` case below, which is
+left out because it has not been confirmed to be needed at all.
+
 Hosts are listed without a port qualifier. The built-in agent's spec pinned
 `:443` and `:80`; this kit does not, matching the other kits in this repo. On
 the apt mirrors in particular a hardcoded `:80` would break `apt-get update`

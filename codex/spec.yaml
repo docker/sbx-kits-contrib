@@ -113,6 +113,14 @@ permissions:
       - chatgpt.com
       # Hit during a session for attachments and uploads.
       - files.openai.com
+      # ChatGPT-backed content and auth hosts Codex reaches at runtime,
+      # surfaced by the kit owner's live testing. Wildcarded deliberately —
+      # unlike the AWS case in kiro/spec.yaml — because OpenAI shards both
+      # of these across subdomains rather than a fixed, enumerable set:
+      # chatgpt.com serves session/auth traffic from named subdomains, and
+      # oaiusercontent.com is the CDN apex for per-upload content hosts.
+      - '*.chatgpt.com'
+      - '*.oaiusercontent.com'
       # `codex update` reinstalls the CLI from npm, and `codex plugin add`
       # pulls from a marketplace snapshot. Same registry the image build uses,
       # but these are the runtime paths, not the build one.
