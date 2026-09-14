@@ -1,6 +1,6 @@
 schemaVersion: "2"
 kind: mixin
-name: glab
+name: gitlab
 displayName: GitLab CLI (glab)
 description: Installs the GitLab CLI (glab) with proxy-injected personal access token auth for gitlab.com, so agents can work with GitLab projects the way gh works with GitHub.
 
@@ -20,6 +20,13 @@ credentials:
       # glab reads GITLAB_TOKEN and treats itself as logged in. proxyManaged
       # sets it to the sentinel inside the container; the proxy replaces the
       # Authorization header with the real token on outbound gitlab.com calls.
+      #
+      # A second inject rule with `scheme: basic` (for git-over-HTTPS) was
+      # tried and confirmed NOT to work: the proxy does not disambiguate two
+      # inject rules on the same domain by which auth scheme the client sent,
+      # so the Basic-auth request is never rewritten and GitLab rejects the
+      # literal sentinel. See README for the SSH-based workaround (gitlab-ssh)
+      # and the upstream feature request this gap warrants.
       name: GITLAB_TOKEN
       proxyManaged: true
       inject:
@@ -35,8 +42,15 @@ agentInstructions:
     sandbox proxy — `GITLAB_TOKEN` is a proxy-managed placeholder, never the
     real token. Use `glab api ...` for arbitrary GitLab REST calls and the
     usual `glab mr` / `glab issue` / `glab repo` subcommands. Verify auth
-    with `glab auth status`. Git-over-HTTPS push auth is not wired up by
-    this kit; use `glab api` or read-only clones of public repos.
+    with `glab auth status`.
+
+    Git-over-HTTPS push/pull auth is NOT wired up by this kit (the sandbox
+    proxy cannot rewrite git's Basic auth on gitlab.com without breaking the
+    Bearer auth `glab`/the API rely on — same domain, two schemes). For
+    `git clone` / `git push` / `git pull` against GitLab, use SSH remotes
+    (`git@gitlab.com:group/project.git`) — add the `gitlab-ssh` kit for
+    passwordless host-key verification, and load your key with `ssh-add`
+    on the host so it forwards into the sandbox.
 
 setup:
   install:

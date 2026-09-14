@@ -14,7 +14,7 @@
 #     sbx state. Nothing the script does touches your day-to-day daemon.
 #     The Go harness uses the same app-name internally (tck/e2e_test.go).
 #   - Sets the scoped daemon's default network policy to `deny-all` so
-#     the run is a real contract test of network.allowedDomains — the same
+#     the run is a real contract test of permissions.network.allow — the same
 #     baseline CI runs under.
 #   - For a kit that ships its own Dockerfile: builds that image and
 #     side-loads it into the scoped daemon's image store, so e2e runs against
@@ -295,7 +295,7 @@ EOF
 fi
 
 # Auto-diagnose on failure — the most common e2e failure is a missing entry
-# in network.allowedDomains, which `sbx policy log` surfaces precisely. In CI
+# in permissions.network.allow, which `sbx policy log` surfaces precisely. In CI
 # the runner (and its scoped daemon) is destroyed the moment the job ends, so
 # printing instructions for a human to run afterward is useless there — by
 # the time anyone reads the log, there's nothing left to inspect. Instead,
@@ -327,16 +327,47 @@ on_exit() {
     echo "e2e test failed (exit $rc)." >&2
 
     if [ -s "$sbx_name_log" ]; then
+      saw_blocked_requests=0
+      policy_log_read_failed=0
       while IFS= read -r sbox; do
         [ -n "$sbox" ] || continue
         echo "" >&2
         echo "Policy log for sandbox $sbox (policy: ${POLICY:-current default}):" >&2
-        sbx --app-name "$APP_NAME" policy log "$sbox" >&2 || true
+        if policy_log_out=$(sbx --app-name "$APP_NAME" policy log "$sbox" 2>&1); then
+          echo "$policy_log_out" >&2
+          case "$policy_log_out" in
+            *"Blocked requests"*) saw_blocked_requests=1 ;;
+          esac
+        else
+          echo "$policy_log_out" >&2
+          policy_log_read_failed=1
+        fi
       done < "$sbx_name_log"
-      cat >&2 <<EOF
+
+      # A failed read must never be conflated with a clean, empty log: each
+      # gets its own conclusion below, and a blocked-rows sighting always
+      # wins over a same-run read failure on another sandbox.
+      if [ "$saw_blocked_requests" -eq 1 ]; then
+        cat >&2 <<EOF
 
 Every row under 'Blocked requests' above is a host your kit reached for. Add
-it to network.allowedDomains in spec.yaml and re-run this script.
+it to permissions.network.allow in spec.yaml and re-run this script.
+EOF
+      elif [ "$policy_log_read_failed" -eq 1 ]; then
+        cat >&2 <<EOF
+
+The policy log could not be read for one or more sandboxes above, so this
+failure could not be ruled egress-related or not.
+EOF
+      else
+        cat >&2 <<EOF
+
+The policy log above reported no blocked requests, so this failure is
+probably not egress-related.
+EOF
+      fi
+
+      cat >&2 <<EOF
 
 If the sandbox still exists (e.g. a failure other than a rolled-back create),
 it was left running for further inspection:

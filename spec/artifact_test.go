@@ -80,7 +80,7 @@ func TestLoadFromDirectory(t *testing.T) {
 		// Egress under caps.network (not the removed network block).
 		require.NotNil(t, a.Caps)
 		require.NotNil(t, a.Caps.Network)
-		require.ElementsMatch(t, []string{"api.anthropic.com", "api.openai.com:443", "*.example.com"}, a.Caps.Network.Allow)
+		require.ElementsMatch(t, []string{"api.anthropic.com", "api.openai.com:443", "api.github.com", "github.com", "*.example.com"}, a.Caps.Network.Allow)
 		require.ElementsMatch(t, []string{"telemetry.example.com"}, a.Caps.Network.Deny)
 
 		// Unified credentials[].
