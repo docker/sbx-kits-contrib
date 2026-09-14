@@ -157,6 +157,9 @@ permissions:
       # fetch here (observed while building this kit's image), and the agent's
       # self-update uses the same host. Not covered by cursor.com.
       - downloads.cursor.com
+      # cursor-agent's update check and npm-backed features reach the npm
+      # registry at runtime.
+      - registry.npmjs.org
       # `apt-get update` (the startup hook below) refreshes metadata for every
       # configured apt source and returns exit 100 if any one of them fails.
       # The shell-docker base ships three sources, so all three must be
