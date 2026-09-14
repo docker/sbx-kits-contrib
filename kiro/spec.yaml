@@ -72,10 +72,13 @@ permissions:
       - prod.us-east-1.auth.desktop.kiro.dev
       - prod.us-east-1.telemetry-v2.kiro.dev
       - runtime.us-east-1.kiro.dev
+      - q.us-east-1.amazonaws.com  # Amazon Q backend — Kiro's chat API
+      - view.awsapps.com           # AWS access portal / Identity Center device-flow auth
       #
-      # TODO(kiro-extraction): the domains above are the ones reported in
-      # #185; they have not been verified end-to-end under deny-all from this
-      # repo, and other kiro-cli features may reach further endpoints. Confirm
+      # TODO(kiro-extraction): login and chat have now been verified
+      # end-to-end under deny-all from a live run, which is what surfaced the
+      # two hosts above (they were missing before). Other kiro-cli features
+      # may still reach further endpoints not exercised by that run. Confirm
       # or widen from a live run:
       #
       #   sbx run --kit ./kiro kiro       # then attempt a login + a prompt
