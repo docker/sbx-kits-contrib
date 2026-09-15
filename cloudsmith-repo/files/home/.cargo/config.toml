@@ -1,0 +1,18 @@
+# Cargo config (added by sbx-kits-contrib/cloudsmith-repo). Replaces crates.io with the Cloudsmith
+# sparse registry so plain `cargo add` / `cargo build` resolve through the
+# repository. The token cargo requires locally comes from the environment
+# (CARGO_REGISTRIES_CLOUDSMITH_TOKEN, a placeholder the sandbox proxy
+# replaces); nothing secret lives in this file.
+
+[registries.cloudsmith]
+index = "sparse+https://${{ kit.args.cargo-host }}${{ kit.args.path }}/"
+credential-provider = "cargo:token"
+
+[source.crates-io]
+replace-with = "cloudsmith"
+
+[source.cloudsmith]
+registry = "sparse+https://${{ kit.args.cargo-host }}${{ kit.args.path }}/"
+
+[registry]
+global-credential-providers = ["cargo:token"]
