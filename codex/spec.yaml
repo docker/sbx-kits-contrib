@@ -121,13 +121,17 @@ permissions:
       # oaiusercontent.com is the CDN apex for per-upload content hosts.
       - '*.chatgpt.com'
       - '*.oaiusercontent.com'
-      # `codex update` reinstalls the CLI from npm, and `codex plugin add`
-      # pulls from a marketplace snapshot. Same registry the image build uses,
-      # but these are the runtime paths, not the build one.
+      # `codex plugin add` pulls from a marketplace snapshot.
       - registry.npmjs.org
+      # `codex update` re-runs the same standalone installer the image build
+      # uses (see Dockerfile): it curls chatgpt.com — already allowed above —
+      # for the install script, and the script downloads the release package
+      # itself from here. Required at runtime, not just at build time.
+      - releases.openai.com
       # Codex's native binary checks GitHub releases for updates and pulls
       # skills and plugins from repository archives. A distinct concern from
-      # the npm upgrade path above, which is why both are listed.
+      # the plugin-marketplace and CLI-update paths above, which is why all
+      # three are listed separately.
       - api.github.com
       - github.com
       - codeload.github.com

@@ -41,10 +41,10 @@ RUN mkdir -p /home/agent/.codex
 # patch the script to strip its own name out of $BROWSER before consulting it,
 # so it falls through to the browser list instead of recursing.
 #
-# Deliberately placed above the npm layer below. That layer floats on
-# `@openai/codex@latest` and re-runs on every nightly rebuild; this one has
-# nothing to do with which Codex version is installed, and above it stays a
-# cache hit.
+# Deliberately placed above the Codex install layer below. That layer floats
+# on whatever the installer resolves as "latest" and re-runs on every nightly
+# rebuild; this one has nothing to do with which Codex version is installed,
+# and above it stays a cache hit.
 USER root
 RUN apt-get update && \
     apt-get install -y --no-install-recommends xdg-utils && \
@@ -52,43 +52,36 @@ RUN apt-get update && \
     command -v xdg-open
 USER agent
 
-# Codex's npm package is ~370 MB, so the default fetch timeout is not enough on
-# a slow or proxied network: raise it and retry rather than failing the whole
-# image build on one stalled request.
+# OpenAI ships Codex as a native Rust binary and leads with this standalone
+# installer in its own docs; npm and Homebrew are listed as secondary paths.
+# It downloads a prebuilt binary and checks it against a signed SHA-256
+# manifest, so there is no npm registry fetch, no corepack/global-npm
+# interaction, and no optional-dependency footgun to work around.
 #
-# --include=optional is load-bearing, not hygiene. The platform-specific native
-# binary (@openai/codex-linux-x64 and friends) ships as an optional dependency,
-# so omitting the flag produces an install that exits 0 and leaves no working
-# binary behind.
+# CODEX_NON_INTERACTIVE=true is required, not cosmetic: left unset, the
+# installer asks which shell profile to append PATH to, and a Docker build has
+# no TTY to answer that prompt — the RUN would hang.
 #
-# Plain `npm`, deliberately. The built-in agent's image drives this install
-# through `corepack npm` and then tries to `corepack disable npm`; both halves
-# are worth dropping here:
+# CODEX_INSTALL_DIR is pinned explicitly rather than left to the installer's
+# default so this Dockerfile owns the path it symlinks below, the same reason
+# BASE_IMAGE is re-declared above rather than trusted to inheritance. It
+# resolves to a directory the base image already puts on PATH, so no ENV PATH
+# edit is needed here.
 #
-#   * `corepack npm` downloads an unpinned npm over the network on every build
-#     and then warns that that npm does not support this image's Node — a
-#     warning today, a hard failure whenever npm decides to enforce it.
-#   * `corepack disable npm` cannot succeed anyway. This layer runs as the
-#     non-root `agent` user inherited from the base, so unlinking the
-#     root-owned /usr/bin/npm fails EACCES; the `|| echo` fallback next to it
-#     is what keeps the build green. It has nothing to remove either, because
-#     nothing in this image ever ran `corepack enable`.
+# The symlink exists because codex-app-server — a sibling mixin that composes
+# onto this kit — shadows `codex` on PATH with a wrapper that execs the binary
+# at the base image's npm-global bin path unconditionally (see
+# codex-app-server/spec.yaml). The installer never writes there, so without
+# this symlink that wrapper would exec a binary that no longer exists at the
+# path it hardcodes.
 #
-# The end state that actually matters is unchanged and verified below: the real
-# apt-installed /usr/bin/npm is the npm on PATH at runtime, which is what Codex
-# needs — its self-updater spawns `npm` directly and dies with ENOENT against a
-# corepack shim.
-#
-# `codex --version` last, deliberately: an install command's exit code says
-# only that npm exited 0, not that a usable binary landed. This asserts the
-# outcome instead of trusting the exit code.
-RUN npm install -g @openai/codex@latest \
-      --include=optional \
-      --fetch-timeout=300000 \
-      --fetch-retries=3 \
-      --fetch-retry-mintimeout=60000 \
+# `codex --version` last, deliberately: the installer's exit code says only
+# that the script ran, not that a usable binary landed on PATH.
+ENV CODEX_INSTALL_DIR=/home/agent/.local/bin
+RUN CODEX_NON_INTERACTIVE=true sh -c "$(curl -fsSL https://chatgpt.com/codex/install.sh)" \
  && codex --version \
- && command -v npm
+ && mkdir -p /usr/local/share/npm-global/bin \
+ && ln -sf "${CODEX_INSTALL_DIR}/codex" /usr/local/share/npm-global/bin/codex
 
 # Inherited from the base image, but re-declared deliberately so the value is
 # owned here rather than depending on inheritance from an image this repository

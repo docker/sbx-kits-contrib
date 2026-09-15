@@ -160,10 +160,11 @@ Affinity matching is by exact name, which is one reason this kit's directory and
 
 > [!NOTE]
 > `codex-app-server` shadows `codex` on `PATH` with a wrapper that execs the
-> binary at its npm global path. This kit installs Codex to exactly that path
-> (the base image sets npm's global prefix and the kit does not change it), so
-> the two stay compatible — but it is a coupling to keep in mind if the install
-> location ever moves.
+> binary at the base image's npm global path unconditionally. This kit
+> installs Codex via its standalone installer to `~/.local/bin`, not that
+> path, so the `Dockerfile` symlinks the npm global path to the installed
+> binary to keep the two compatible — a coupling to keep in mind if either
+> install location ever moves.
 
 ## Credential exposure worth reviewing
 
@@ -180,11 +181,11 @@ can rule the last path out.
 ## Network policy
 
 `permissions.network.allow` covers every domain the credential injects into or
-authenticates against, the hosts Codex reaches during a session (uploads, npm
-self-upgrade, GitHub release checks and skill downloads), and the apt sources
-the base image ships with — the last of those because the startup hook runs
-`apt-get update`, which fails wholesale if any configured source is
-unreachable.
+authenticates against, the hosts Codex reaches during a session (uploads,
+`codex update` re-running the standalone installer, GitHub release checks and
+skill downloads), and the apt sources the base image ships with — the last of
+those because the startup hook runs `apt-get update`, which fails wholesale if
+any configured source is unreachable.
 
 Two entries are wildcarded rather than exact: `*.chatgpt.com` and
 `*.oaiusercontent.com`. Live testing surfaced ChatGPT-backed content and auth
@@ -251,12 +252,12 @@ are below.
 docker build -t docker.io/sbx/codex-image:latest codex
 ```
 
-Expect this to take a while: Codex's npm package is around 370 MB. The install
-raises npm's fetch timeout and adds retries for exactly that reason, and passes
-`--include=optional` because the platform-specific native binary ships as an
-optional dependency — without the flag npm exits 0 and leaves no working
-binary. The build ends with `codex --version` so a broken install fails the
-image rather than shipping.
+Codex installs via its standalone installer script, which downloads a
+platform-matched native binary and verifies it against a signed SHA-256
+manifest — the path OpenAI's own docs lead with over the npm package. The
+build ends with `codex --version` so a broken install fails the image rather
+than shipping, and also symlinks the binary into the base image's npm global
+path for `codex-app-server` compatibility (see the note above).
 
 `BASE_IMAGE` is a build arg, so the base can be re-pointed or digest-pinned
 without editing the `Dockerfile`: `--build-arg BASE_IMAGE=…` accepts a tag or a
