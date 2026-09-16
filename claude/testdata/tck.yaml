@@ -1,0 +1,49 @@
+# TCK configuration for the claude kit.
+#
+# claude is still a built-in agent in released sbx builds, and sbx refuses to
+# load a kit whose name collides with a built-in ("built-in agents cannot be
+# overridden by a kit"). This flag turns that one specific `sbx create` failure
+# into a skip, so the kit can land and be reviewed here before the built-in is
+# removed from sbx.
+#
+# Nothing needs re-enabling later: once a released sbx no longer registers the
+# built-in, `sbx create` succeeds, the full e2e runs, and the test logs a notice
+# prompting you to check whether this line is still needed.
+extractedFromBuiltin: true
+#
+# `promptArgs` is deliberately omitted for now, which skips the e2e `prompt`
+# subtest. The invocation is not in doubt — `claude -p <prompt>` is the
+# documented non-interactive form and it is what the TCK's own reference table
+# lists for this agent. What is missing is a model to answer with: the prompt
+# subtest reaches Anthropic's hosted API, and no anthropic credential exists on
+# the runner. Wiring `promptArgs: ["-p"]` before one does would land a subtest
+# that can only fail the moment the built-in is dropped and e2e starts running
+# for real. Add the line together with the credential, not before it.
+#
+# The remaining subtests (env, files, tmpfs, agentContext) still run and are
+# what actually gate this kit — for as long as the built-in exists they are
+# skipped too, so read a green run here as "TCK passed", not "e2e passed".
+#
+# No `binary:` override is needed. The loader derives the binary from
+# sandbox.entrypoint[0], which is `claude` already.
+#
+# No `mcp:` block either, and unlike the omission above that one is permanent.
+# The block records the *config format* an agent's registration is written in,
+# and it is asserted against the registration script itself. This kit does not
+# write a config file: it shells out to `claude mcp add --transport http
+# --scope user`, and Claude Code writes the entry into ~/.claude.json on its
+# own behalf. So there is no `"url":` key in the script to match a
+# `transportKey` against, and every key name a `forbiddenKeys` list could name
+# is absent from the script by construction — which would make the assertion
+# read as coverage while providing none, exactly the failure mode the TCK's own
+# mcp notes warn about. The format-independent assertions (no-op guard,
+# $MCP_GATEWAY_URL written rather than only tested, $MCP_SENTINEL_TOKEN_NAME
+# referenced, no literal token, non-root user) still run and are what verify
+# this kit's registration.
+#
+# For the record, since it is what a reviewer would otherwise have to run the
+# agent to find out: `claude mcp add mcp-gateway <url> --transport http --scope
+# user --header 'Authorization: Bearer <name>'` produces
+# `mcpServers["mcp-gateway"] = {"type": "http", "url": …, "headers": {…}}` in
+# ~/.claude.json. Re-running it exits 1 with "already exists in user config",
+# which is why both hooks end in `|| true`.
