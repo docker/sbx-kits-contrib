@@ -518,7 +518,12 @@ func (s *Suite) RunOAuthPolicyTests(t *testing.T) {
 				require.NotEmpty(t, oauth.TokenEndpoint.Path, "oauth.tokenEndpoint.path is required")
 			})
 
+			// Passthrough policies have no sentinels by design, mirroring
+			// spec.ValidateOAuth's exemption for them.
 			t.Run("sentinels", func(t *testing.T) {
+				if oauth.Passthrough {
+					return
+				}
 				require.NotEmpty(t, oauth.Sentinels.AccessToken, "oauth.sentinels.accessToken is required")
 				require.NotEmpty(t, oauth.Sentinels.RefreshToken, "oauth.sentinels.refreshToken is required")
 			})
