@@ -1,6 +1,7 @@
 package tck
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -9,6 +10,8 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+	"github.com/testcontainers/testcontainers-go"
+	tcexec "github.com/testcontainers/testcontainers-go/exec"
 	"go.yaml.in/yaml/v3"
 )
 
@@ -68,6 +71,17 @@ type mcpExpectations struct {
 	// plausible-but-wrong spellings a neighbouring agent uses for the same
 	// concept. Also written bare, and also matched per ConfigFormat.
 	ForbiddenKeys []string `yaml:"forbiddenKeys"`
+
+	// PreservesSiblings opts the kit into the mcp_merge subtest, which runs
+	// the registration script twice against a config that already holds
+	// another server and asserts that server is still there afterwards.
+	//
+	// Opt-in: an agent whose MCP config file nothing but this script ever
+	// writes may write it whole, and the subtest would fail it for doing so.
+	//
+	// Requires ConfigPath, TransportKey, and JSON ConfigFormat — the
+	// assertions read the result with jq.
+	PreservesSiblings bool `yaml:"preservesSiblings"`
 }
 
 // mcpGuard is the no-op guard every registration script must open with. It is
@@ -314,4 +328,106 @@ func (s *Suite) loadMCPExpectations(t *testing.T) *mcpExpectations {
 	require.NoErrorf(t, yaml.Unmarshal(data, &doc), "parse %s", p)
 
 	return doc.MCP
+}
+
+// Fixtures for the mcp_merge subtest below.
+const (
+	// mcpGatewayName is the key every gateway registration in this repo
+	// writes its server under.
+	mcpGatewayName = "mcp-gateway"
+
+	// mcpSiblingName and mcpSiblingURL stand in for a server the user
+	// registered inside the sandbox with the agent's own `mcp add`.
+	mcpSiblingName = "tck-sibling"
+	mcpSiblingURL  = "http://tck-sibling.invalid/mcp"
+
+	// mcpMergeGatewayURL and mcpMergeSentinel stand in for the values
+	// sandboxd injects when a gateway has been reserved.
+	mcpMergeGatewayURL = "http://tck-gateway.invalid/mcp"
+	mcpMergeSentinel   = "TCK_MCP_SENTINEL"
+)
+
+// RunMCPMergeTests runs the kit's gateway-registration script in the container,
+// twice, against a config that already holds another server, and asserts that
+// server survives both runs.
+//
+// Startup commands replay on every container start, so a script that writes its
+// config file whole deletes every server the user added inside the sandbox — a
+// data-loss bug the sandbox reports no error for. Reading the script cannot
+// tell a merge from an overwrite, so this executes it.
+//
+// Opt in with `mcp.preservesSiblings` in testdata/tck.yaml; kits that own their
+// MCP config file outright are allowed to write it whole and do not.
+func (s *Suite) RunMCPMergeTests(t *testing.T, ctx context.Context, container testcontainers.Container) {
+	want := s.loadMCPExpectations(t)
+	if want == nil || !want.PreservesSiblings {
+		return
+	}
+
+	script, user, ok := s.mcpStartupCommand()
+	require.True(t, ok,
+		"testdata/tck.yaml sets mcp.preservesSiblings, but the kit has no startup command reading $MCP_GATEWAY_URL")
+
+	t.Run("mcp_merge", func(t *testing.T) {
+		require.NotEmpty(t, want.ConfigPath, "mcp.preservesSiblings requires mcp.configPath")
+		require.NotEmpty(t, want.TransportKey, "mcp.preservesSiblings requires mcp.transportKey")
+		require.Equal(t, mcpFormatJSON, want.format(), "mcp.preservesSiblings only applies to JSON configs")
+
+		// ConfigPath is recorded as it appears in the script, so $HOME is
+		// still unexpanded; the assertions below address the file directly.
+		cfg := strings.ReplaceAll(want.ConfigPath, "$HOME", HomeDir)
+
+		exec := func(what string, argv ...string) string {
+			t.Helper()
+			code, reader, err := container.Exec(ctx, argv, tcexec.WithUser(user), tcexec.Multiplexed())
+			require.NoErrorf(t, err, "exec %s", what)
+			out := readOutput(t, reader)
+			require.Equalf(t, 0, code, "%s exited %d\n%s", what, code, out)
+			return out
+		}
+
+		// Paths and JSON are passed as positional arguments rather than
+		// interpolated into the script text, so neither needs quoting.
+		exec("seed",
+			"sh", "-c", `mkdir -p "$(dirname "$1")" && printf '%s' "$2" > "$1"`, "sh",
+			cfg, fmt.Sprintf(`{"mcpServers":{%q:{"url":%q}}}`, mcpSiblingName, mcpSiblingURL))
+
+		register := []string{
+			"env",
+			// Docker does not set HOME for an exec that overrides the user.
+			"HOME=" + HomeDir,
+			"MCP_GATEWAY_URL=" + mcpMergeGatewayURL,
+			"MCP_SENTINEL_TOKEN_NAME=" + mcpMergeSentinel,
+			"sh", "-c", script,
+		}
+
+		exec("registration on first start", register...)
+		first := exec("read config after first start", "cat", cfg)
+		exec("registration on restart", register...)
+		second := exec("read config after restart", "cat", cfg)
+
+		require.Equal(t, first, second,
+			"replaying the registration must converge on the same config, not keep rewriting it")
+
+		assert := func(what, filter string) {
+			t.Helper()
+			code, reader, err := container.Exec(ctx, []string{
+				"jq", "-e",
+				"--arg", "gateway", mcpGatewayName,
+				"--arg", "sibling", mcpSiblingName,
+				"--arg", "siblingURL", mcpSiblingURL,
+				"--arg", "transport", want.TransportKey,
+				"--arg", "url", mcpMergeGatewayURL,
+				filter, cfg,
+			}, tcexec.WithUser(user), tcexec.Multiplexed())
+			require.NoErrorf(t, err, "exec jq for %s", what)
+			require.Equalf(t, 0, code, "%s\n  filter: %s\n  jq: %s\n  config after two starts:\n%s",
+				what, filter, readOutput(t, reader), second)
+		}
+
+		assert("a server the user added must survive the restart",
+			`.mcpServers[$sibling].url == $siblingURL`)
+		assert("the gateway must be registered with the injected URL",
+			`.mcpServers[$gateway][$transport] == $url`)
+	})
 }

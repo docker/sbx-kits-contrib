@@ -9,6 +9,8 @@
 // This is a thin wrapper around the exported tck.RunE2EKit — see tck/e2e.go
 // for the actual e2e logic, which any module importing this package (e.g.
 // sbx-kits-internal) can drive against its own app-name.
+//
+// SBX_E2E_PULL_POLICY, when set, is passed to `sbx create --pull`.
 
 package tck_test
 
@@ -33,5 +35,8 @@ func TestE2EKit(t *testing.T) {
 	kitPath := os.Getenv("KIT_UNDER_TEST")
 	require.NotEmpty(t, kitPath, "KIT_UNDER_TEST must point at a kit directory")
 
-	tck.RunE2EKit(t, kitPath, tck.E2EOptions{AppName: appName})
+	tck.RunE2EKit(t, kitPath, tck.E2EOptions{
+		AppName:    appName,
+		PullPolicy: os.Getenv("SBX_E2E_PULL_POLICY"),
+	})
 }
