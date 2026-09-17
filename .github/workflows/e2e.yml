@@ -2,7 +2,9 @@ name: Kit e2e
 
 # Reusable e2e runner. Installs a real `sbx` CLI for the requested
 # `channel`, authenticates against Docker Hub non-interactively, and runs
-# `./scripts/test-kit-e2e.sh <kit>` across the caller-supplied kit matrix.
+# the e2e TCK across the caller-supplied kit matrix, using this repo's own
+# harness (scripts/, tck/) checked out at the exact revision the caller
+# pinned in its `uses:` line. tck.yml calls this once per channel below.
 #
 # The whole point of parametrizing `channel` here — instead of hardcoding a
 # version — is that tck.yml calls this three times:
@@ -25,12 +27,32 @@ on:
         description: sbx build channel to test against — "release", "nightly", or "rc".
         required: true
         type: string
+      app-name:
+        description: >-
+          sbx --app-name scoping every sbx call. Callers should pass their own
+          so e2e state never collides with this repo's.
+        required: false
+        type: string
+        default: sbx-kits-contrib-tck
+      dockerhub-username:
+        description: >-
+          Docker Hub username for the non-interactive `sbx login`. Any account
+          that can pull the public sandbox template images is sufficient.
+        required: true
+        type: string
+    secrets:
+      DOCKERHUB_TOKEN:
+        description: >-
+          Docker Hub personal access token for `dockerhub-username`. Read
+          access to public images is enough.
+        required: true
 
 permissions:
   contents: read
+  actions: read
 
 env:
-  APP_NAME: sbx-kits-contrib-tck
+  APP_NAME: ${{ inputs.app-name }}
 
 jobs:
   prepare-sbx:
@@ -95,12 +117,50 @@ jobs:
     timeout-minutes: 30
     permissions:
       contents: read
+      actions: read
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Resolve the pinned sbx-kits-contrib revision
+        id: harness
+        # The expression context has no SHA for the *called* workflow (only
+        # the top-level caller's) — the run's `referenced_workflows` does,
+        # so this reads that instead. Requires `permissions: actions: read`
+        # on the caller.
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          entry=$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}" \
+            --jq '[.referenced_workflows[]? | select(.path | test("/\\.github/workflows/e2e\\.yml@"))] | first // empty | "\(.path) \(.sha)"')
+          if [ -z "$entry" ]; then
+            echo "::error::could not resolve this workflow's own revision from the run's referenced_workflows; the caller must grant 'actions: read'."
+            exit 1
+          fi
+          path=${entry% *}
+          sha=${entry##* }
+          repo=${path%%/.github/workflows/*}
+          echo "Using ${repo} e2e harness at ${sha}"
+          {
+            echo "repo=${repo}"
+            echo "sha=${sha}"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Check out the sbx-kits-contrib e2e harness
+        # Hidden path so the caller's `*/spec.yaml` kit discovery never sees
+        # this repo's own kits.
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ steps.harness.outputs.repo }}
+          ref: ${{ steps.harness.outputs.sha }}
+          path: .sbx-kits-contrib
+          persist-credentials: false
 
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version-file: go.mod
+          go-version-file: .sbx-kits-contrib/go.mod
 
       - name: Enable KVM access
         run: |
@@ -128,11 +188,11 @@ jobs:
 
       - name: Sign in to Docker Hub via sbx
         env:
-          USERNAME: ${{ vars.DOCKERPUBLICBOT_USERNAME }}
-          TOKEN: ${{ secrets.DOCKERPUBLICBOT_WRITE_PAT }}
+          USERNAME: ${{ inputs.dockerhub-username }}
+          TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
         run: |
           if [ -z "${USERNAME}" ] || [ -z "${TOKEN}" ]; then
-            echo "DOCKERPUBLICBOT_USERNAME / DOCKERPUBLICBOT_WRITE_PAT not configured; cannot run e2e."
+            echo "dockerhub-username input / DOCKERHUB_TOKEN secret not configured; cannot run e2e."
             exit 1
           fi
           # Defensive trim: GH preserves any whitespace pasted into the
@@ -157,7 +217,18 @@ jobs:
         # `ApplyKitNetworkPolicyScoped` in
         # docker/sandboxes:sandboxd/pkg/server/options_governance.go);
         # kit deny-rules win over allow-rules (deny-wins).
-        run: ./scripts/test-kit-e2e.sh "${{ matrix.kit }}"
+        #
+        # matrix.kit comes from directory names in the checked-out repo
+        # (discover-kits.sh); passed via env rather than interpolated into
+        # the script text so a directory name containing shell
+        # metacharacters can't inject commands into a job that holds a
+        # live Docker Hub credential.
+        #
+        # Absolute kit path: the script resolves relative paths against its
+        # own repo root.
+        env:
+          KIT: ${{ matrix.kit }}
+        run: .sbx-kits-contrib/scripts/test-kit-e2e.sh "${GITHUB_WORKSPACE}/${KIT}"
 
       - name: Sign out of Docker Hub
         if: always()

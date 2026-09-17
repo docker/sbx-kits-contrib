@@ -273,7 +273,7 @@ Each subtest (`env`, `files/<path>`, `tmpfs/<path>`, `memory`) reports independe
 
 ### Running in CI
 
-The e2e legs in [`.github/workflows/tck.yml`](.github/workflows/tck.yml) run alongside the default `test-kit` job, via the reusable [`.github/workflows/e2e.yml`](.github/workflows/e2e.yml). Each signs in to Docker Hub using `DOCKERPUBLICBOT_USERNAME` / `DOCKERPUBLICBOT_WRITE_PAT` repo secrets, then runs the e2e test once per detected kit — against three `sbx` channels:
+The e2e legs in [`.github/workflows/tck.yml`](.github/workflows/tck.yml) run alongside the default `test-kit` job, via the reusable [`.github/workflows/e2e.yml`](.github/workflows/e2e.yml). `tck.yml` passes this repo's `DOCKERPUBLICBOT_USERNAME` variable and `DOCKERPUBLICBOT_WRITE_PAT` secret into e2e.yml's generic `dockerhub-username` input and `DOCKERHUB_TOKEN` secret, which e2e.yml uses to sign in to Docker Hub, then runs the e2e test once per detected kit — against three `sbx` channels:
 
 - **`e2e-release`** downloads the latest tagged `sbx` release. This is the channel users have today, so it **gates the PR** through the stable `e2e` job (the required status check).
 - **`e2e-nightly`** downloads the rolling `nightly` build, so kits are also exercised against what `sbx` will ship next. It is **informational only** — a broken nightly shows a red check but never blocks merge. The `e2e-nightly-report` job echoes its outcome to the run log and the job summary.
@@ -282,6 +282,48 @@ The e2e legs in [`.github/workflows/tck.yml`](.github/workflows/tck.yml) run alo
 **All e2e legs are skipped on fork PRs** because GitHub does not expose secrets to fork-triggered workflows — so for the typical contributor, e2e never runs in CI on their PR, and the reviewer sees a green check that does **not** cover the e2e assertions.
 
 That makes a local e2e run **mandatory** before opening a PR from a fork. Run `./scripts/test-kit-e2e.sh <kit>` — the script applies the same `deny-all` baseline CI uses on a scoped daemon (`--app-name sbx-kits-contrib-tck`), so the network contract gets tested without touching your main sbx state. See [Declare every domain your kit needs](#declare-every-domain-your-kit-needs) for the recurring "read the proxy log, add a host, re-run" loop.
+
+#### Calling e2e.yml from another kit repository
+
+`.github/workflows/e2e.yml` is self-contained: it checks out this repository
+at the exact commit the caller pinned and runs its own `scripts/test-kit-e2e.sh`
+and `tck/` Go harness against the caller's kit directories. A minimal caller
+looks like:
+
+```yaml
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  e2e-release:
+    uses: docker/sbx-kits-contrib/.github/workflows/e2e.yml@<sha> # vX.Y.Z
+    with:
+      kits: ${{ needs.detect-changes.outputs.kits }}
+      channel: release
+      app-name: my-kits-tck
+      dockerhub-username: ${{ vars.DOCKERHUB_USERNAME }}
+    secrets:
+      DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+```
+
+- Pin `uses:` to a full commit SHA, not a branch or tag alone.
+- The caller needs only its own kit directories — the harness, Go module,
+  and scripts all come from this repo at the pinned SHA.
+- Grant `actions: read` (shown above at the caller workflow's top level, or
+  on the calling job) — the reusable workflow resolves its own pinned
+  revision from the run's `referenced_workflows` via the Actions API, and a
+  reusable workflow's token permissions can never exceed what the caller
+  grants.
+- Pass exactly the one secret shown above, never `secrets: inherit`.
+- Any Docker Hub account works — a read-only PAT is enough to pull the
+  public sandbox template images. The variable and secret names on the
+  caller side (`DOCKERHUB_USERNAME` / `DOCKERHUB_TOKEN` above) are the
+  caller's own choice; this repo's own `tck.yml` maps its
+  `DOCKERPUBLICBOT_USERNAME` / `DOCKERPUBLICBOT_WRITE_PAT` bot credentials
+  onto the same `dockerhub-username` input and `DOCKERHUB_TOKEN` secret.
+- Choose an `app-name` distinct from this repo's own, so e2e state (daemon,
+  credential store, policy) never collides.
 
 ## Extending a Parent Agent
 
