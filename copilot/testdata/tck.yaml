@@ -36,9 +36,14 @@ extractedFromBuiltin: true
 # The forbidden keys are the two wrong answers nearest to hand: `httpUrl` is
 # Gemini's spelling of `url`, and `transport` is the name of the `copilot mcp
 # add` flag rather than a key in the config file (the file spells it `type`).
+#
+# `copilot mcp add` writes user servers into this same file, so the hook has to
+# merge rather than overwrite. preservesSiblings runs it twice against a config
+# that already holds another server and checks that server is still there.
 mcp:
   configPath: $HOME/.copilot/mcp-config.json
   transportKey: url
+  preservesSiblings: true
   forbiddenKeys:
     - httpUrl
     - transport
