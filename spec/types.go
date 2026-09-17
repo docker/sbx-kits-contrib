@@ -380,9 +380,8 @@ func (c Credential) RoutingHosts() []string {
 
 // ApiKey describes an api-key-shaped credential. Inject is the fan-out
 // of which domains/headers the proxy injects the resolved value into;
-// Name is the env-var name the proxy populates inside the container
-// (set to the literal "proxy-managed" by the engine when this credential
-// is wired up).
+// Name is the env-var name, set to the literal "proxy-managed" sentinel
+// inside the container only when ProxyManaged is true.
 type ApiKey struct {
 	Name string `json:"name" yaml:"name"`
 	// ProxyManaged, when true, makes the engine set Name to the literal

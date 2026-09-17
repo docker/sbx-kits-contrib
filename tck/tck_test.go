@@ -292,6 +292,25 @@ func TestRunOAuthPolicyTests(t *testing.T) {
 		},
 	}
 	suite2.RunOAuthPolicyTests(t)
+
+	// Regression: a passthrough policy has no sentinels, per spec.ValidateOAuth.
+	suite3 := &Suite{
+		Artifact: &spec.Artifact{
+			Manifest: spec.Manifest{
+				SchemaVersion: spec.SchemaVersion,
+				Kind:          spec.KindMixin,
+				Name:          "oauth-passthrough-test",
+			},
+			Credentials: []spec.Credential{{
+				Service: "test-svc",
+				OAuth: &spec.OAuth{
+					TokenEndpoint: spec.OAuthTokenEndpoint{Host: "auth.example.com", Path: "/token"},
+					Passthrough:   true,
+				},
+			}},
+		},
+	}
+	suite3.RunOAuthPolicyTests(t)
 }
 
 func TestRunNetworkPolicyTests_NoNetwork(t *testing.T) {

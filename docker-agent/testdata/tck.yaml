@@ -1,0 +1,36 @@
+# TCK configuration for the docker-agent kit.
+#
+# docker-agent is still a built-in agent in released sbx builds, and sbx refuses
+# to load a kit whose name collides with a built-in ("built-in agents cannot be
+# overridden by a kit"). This flag turns that one specific `sbx create` failure
+# into a skip, so the kit can land and be reviewed here before the built-in is
+# removed from sbx.
+#
+# Nothing needs re-enabling later: once a released sbx no longer registers the
+# built-in, `sbx create` succeeds, the full e2e runs, and the test logs a notice
+# that this line is obsolete and can be deleted.
+extractedFromBuiltin: true
+#
+# `promptArgs` is deliberately omitted, which skips the e2e `prompt` subtest.
+# Two reasons, either of which is sufficient:
+#
+#   - The entrypoint cannot answer a prompt. It launches the full-screen agent
+#     picker, and the picker is mutually exclusive with the binary's own
+#     non-interactive `--exec` mode — appending `--exec` to that argv is an
+#     error, not an override. A working recipe has to re-spell the whole
+#     invocation (`run --yolo --exec …`), not append a flag to this one, which
+#     is more than a `promptArgs` list expresses.
+#   - Auth. With no provider credential on the runner the agent falls back to a
+#     locally served model, which the e2e sandbox does not provision, so the
+#     prompt would fail for reasons unrelated to the kit.
+#
+# Wire promptArgs once a known-working non-interactive recipe with a real
+# provider credential exists, rather than guessing at flags that could flake or
+# hang CI.
+#
+# The remaining subtests (env, files, tmpfs, agentContext) still run and are
+# what actually gate this kit — for as long as the built-in exists they are
+# skipped too, so read a green run here as "TCK passed", not "e2e passed".
+
+# The docker-agent kit's hooks do no MCP-gateway registration, so no `mcp:`
+# block is needed here.

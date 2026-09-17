@@ -519,6 +519,9 @@ func (s *Suite) RunOAuthPolicyTests(t *testing.T) {
 			})
 
 			t.Run("sentinels", func(t *testing.T) {
+				if oauth.Passthrough {
+					t.Skip("passthrough OAuth declares no sentinels by design; spec.ValidateOAuth exempts it")
+				}
 				require.NotEmpty(t, oauth.Sentinels.AccessToken, "oauth.sentinels.accessToken is required")
 				require.NotEmpty(t, oauth.Sentinels.RefreshToken, "oauth.sentinels.refreshToken is required")
 			})

@@ -1,0 +1,57 @@
+# TCK configuration for the codex kit.
+#
+# codex is still a built-in agent in released sbx builds, and sbx refuses to
+# load a kit whose name collides with a built-in ("built-in agents cannot be
+# overridden by a kit"). This flag turns that one specific `sbx create` failure
+# into a skip, so the kit can land and be reviewed here before the built-in is
+# removed from sbx.
+#
+# Nothing needs re-enabling later: once a released sbx no longer registers the
+# built-in, `sbx create` succeeds, the full e2e runs, and the test logs a notice
+# that this line is obsolete and can be deleted.
+extractedFromBuiltin: true
+#
+# `promptArgs` is deliberately omitted for now, which skips the e2e `prompt`
+# subtest. Codex does have a non-interactive mode — `codex exec <prompt>` — so
+# unlike kiro this is not a permanent opt-out. What is missing is a credential:
+# every auth path this kit configures needs a real OpenAI credential on the
+# runner, and none is wired up here. The built-in agent's own e2e test does not
+# exercise a non-interactive prompt either, so there is no known-working recipe
+# to carry over. Wire `promptArgs: [exec]` once a credential exists on the
+# runner, rather than landing an invocation that can only fail or hang.
+#
+# The remaining subtests (env, files, tmpfs, agentContext) still run and are
+# what actually gate this kit.
+
+# Shape of the MCP-gateway registration written by the startup hook in
+# spec.yaml, checked by the TCK's mcp_registration subtest. The
+# format-independent parts (no-op guard, env-var indirection, no literal token,
+# non-root user) are asserted for every kit and need no configuration here.
+#
+# `configFormat: toml` is what makes the two key assertions below mean
+# anything. Codex is the first kit here whose MCP config is TOML rather than
+# JSON, so it is the first to need it: a TOML key is a bare word followed by
+# `=`, or the last segment of a `[table.header]`, and the TCK matches keys
+# accordingly. Kits that omit the field get JSON, which is what every kit
+# written before it expected.
+#
+# `forbiddenKeys` are the plausible-but-wrong spellings, and the first one is
+# not hypothetical:
+#
+#   * `headers` — the spelling every JSON-configured agent in this repo uses
+#     for the same concept, and the one this kit was originally ported with.
+#     Codex spells it `http_headers` and ignores unknown keys without
+#     complaining, so a `headers` table registers a gateway that looks healthy
+#     in `codex mcp get` and sends no Authorization header at all. That is a
+#     silent auth failure, which is exactly the class of bug this subtest is
+#     for. Note the check is segment-anchored, so the correct
+#     `[mcp_servers.mcp-gateway.http_headers]` does not read as the wrong one.
+#   * `httpUrl` — Gemini's spelling of `url`, the wrong answer nearest to hand
+#     when transliterating an MCP config from another agent.
+mcp:
+  configPath: $HOME/.codex/config.toml
+  configFormat: toml
+  transportKey: url
+  forbiddenKeys:
+    - headers
+    - httpUrl
