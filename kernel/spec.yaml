@@ -2,8 +2,10 @@ schemaVersion: "2"
 kind: mixin
 name: kernel
 displayName: Kernel Browser
-description: |
-  Cloud-hosted Chromium for AI agents via kernel.sh. Sessions start in <30ms with stealth mode, managed auth, and live session replay built in.
+description: Cloud-hosted Chromium for AI agents with stealth, managed auth, and live session replay
+sourceURL: https://github.com/docker/sbx-kits-contrib/tree/main/kernel
+licenses:
+  - Apache-2.0
 permissions:
   network:
     allow:
@@ -34,6 +36,8 @@ credentials:
   # *.onkernel.com traffic, including the CDP WebSocket proxy and any CDN
   # traffic — that corrupts the connection. List only the auth-bearing host.
   - service: kernel
+    description: Kernel API key
+    required: true
     apiKey:
       name: KERNEL_API_KEY
       # KERNEL_API_KEY is proxy-managed: the sandbox receives a placeholder;
@@ -43,6 +47,11 @@ credentials:
         - domain: api.onkernel.com
           header: Authorization
           format: Bearer %s
+agentInstructions:
+  content: |
+    The Kernel CLI is installed for cloud browser automation. Before using it,
+    read /home/agent/.kernel/quickstart.md for current CLI and SDK examples.
+    Delete browser sessions when work is complete.
 setup:
   install:
     - command: npm install -g @onkernel/cli
