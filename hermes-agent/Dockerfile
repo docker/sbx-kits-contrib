@@ -12,21 +12,32 @@ ARG BASE_IMAGE
 # (hermes_cli/setup_terminal.py) -- commands run in this container, and
 # Docker is just one of seven equally unprovisioned backends.
 
-# HERMES_REF selects the GitHub releases API path segment: "latest"
-# resolves the newest tagged release, or "tags/vX.Y.Z" to pin one. BuildKit
-# re-fetches the URL on every build to compute its digest, so this layer
-# re-runs exactly when the resolved release changes.
-ARG HERMES_REF=latest
-ADD --chmod=644 https://api.github.com/repos/NousResearch/hermes-agent/releases/${HERMES_REF} /tmp/hermes-release.json
+# Empty resolves upstream's newest stable release at build time; a release tag
+# pins it. Pinning does not pin the layer: the cache key below is independent of
+# this arg, so a pinned build still re-runs the install layer whenever upstream
+# publishes.
+ARG HERMES_VERSION=""
 
-# /tmp/hermes-release.json is root-owned (this ADD runs before the USER switch
-# below) inside /tmp's sticky bit, so the agent user below can read it but
-# cannot unlink it -- an `rm` on it as agent fails the build. It is also never
-# removed: the file lives in the ADD's own layer, so deleting it in a later
-# layer would only add a whiteout on top of the ~1 KB that ships either way.
+# Cache key only -- the RUN below never reads this file. BuildKit re-fetches the
+# URL on every build to compute the layer's digest, and the feed changes on
+# every published release, which is what invalidates the install layer below. A
+# pre-release changes it too, costing one rebuild that still resolves the newest
+# stable tag. The feed is roughly 340 KB and ships in the image. It is
+# root-owned under /tmp's sticky bit (this ADD precedes the USER switch below),
+# so an `rm` of it as agent would fail the RUN, and a later-layer delete would
+# only add a whiteout on top of this layer.
+ADD --chmod=644 https://github.com/NousResearch/hermes-agent/releases.atom /tmp/hermes-releases.atom
+
 USER agent
 WORKDIR /home/agent
 
+# The tag comes from github.com's own /releases/latest redirect, not from the
+# releases API: unauthenticated api.github.com quota is counted per source IP
+# and hosted CI runners share egress addresses, so the API intermittently
+# rate-limits the fetch mid-build, and BuildKit's URL fetch carries no token to
+# lift that limit. The redirect resolves the newest release, skipping drafts and
+# pre-releases.
+#
 # scripts/install.sh, not `pip install hermes-agent`: PyPI trails the git
 # tags by weeks, too stale for a nightly-rebuilt image. Fetched from the
 # resolved tag (not main) so the installer and the code it installs match.
@@ -41,8 +52,14 @@ WORKDIR /home/agent
 # `hermes --version` is the build-time gate: a broken release fails the
 # build instead of shipping a non-starting agent.
 RUN set -eu; \
-    tag="$(grep -oP '"tag_name":\s*"\K[^"]+' /tmp/hermes-release.json)"; \
-    [ -n "$tag" ]; \
+    tag="${HERMES_VERSION}"; \
+    if [ -z "$tag" ]; then \
+        tag="$(curl -fsSI -o /dev/null -w '%{redirect_url}' https://github.com/NousResearch/hermes-agent/releases/latest | sed -n 's#.*/releases/tag/##p')"; \
+    fi; \
+    if [ -z "$tag" ]; then \
+        echo "Failed to resolve a hermes-agent release tag: HERMES_VERSION is empty and the request to github.com/NousResearch/hermes-agent/releases/latest failed or did not redirect to a release tag (curl's own error, if any, is printed above). Pass --build-arg HERMES_VERSION=<tag>." >&2; \
+        exit 1; \
+    fi; \
     curl -fsSL "https://raw.githubusercontent.com/NousResearch/hermes-agent/${tag}/scripts/install.sh" -o /tmp/hermes-install.sh; \
     chmod +x /tmp/hermes-install.sh; \
     /tmp/hermes-install.sh --branch "$tag" --skip-setup --skip-browser --skip-computer-use --non-interactive; \
