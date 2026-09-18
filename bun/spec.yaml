@@ -2,14 +2,19 @@ schemaVersion: "2"
 kind: mixin
 name: bun
 displayName: Bun
-description: Installs the Bun JavaScript runtime and package manager from a pinned GitHub release.
+description: Installs the Bun JavaScript runtime and package manager from a SHA256-verified GitHub release.
+args:
+  version:
+    default: "1.4.0"
+    description: Bun release to install (semver without a leading v, or latest for the current GitHub release). Default is the kit-tested pin.
+    pattern: '^(latest|[0-9]+\.[0-9]+\.[0-9]+)$'
 agentInstructions:
   content: |
     ## Bun
 
-    The `bun` CLI v1.4.0 is on PATH. Use it as a runtime (`bun run`),
-    a package manager (`bun install`), and a test runner (`bun test`).
-    Run `bun --version` to confirm.
+    The `bun` CLI v${{ kit.args.version }} is on PATH. Use it as a runtime
+    (`bun run`), a package manager (`bun install`), and a test runner
+    (`bun test`). Run `bun --version` to confirm.
 
     `bun install` reaches the npm registry and often GitHub; those
     hosts are not in this kit's allowlist (install time only covers
@@ -17,46 +22,64 @@ agentInstructions:
     needs to fetch packages:
 
         sbx policy allow network --sandbox <name> "registry.npmjs.org,github.com,objects.githubusercontent.com"
+
+    To pick another release at create time:
+
+        sbx run claude --kit ./bun/ --kit-arg version=1.3.0
+        sbx run claude --kit ./bun/ --kit-arg version=latest
 permissions:
   network:
     allow:
-      # Release zip download (install time, one-shot).
+      # Release zip + SHASUMS256.txt (install time, one-shot).
       # github.com 302-redirects to objects.githubusercontent.com for
       # binary downloads; release-assets.githubusercontent.com kept
       # alongside it since that isn't guaranteed for every asset.
+      # `version=latest` uses /releases/latest/download (a github.com
+      # redirect), not api.github.com.
       - github.com
       - objects.githubusercontent.com
       - release-assets.githubusercontent.com
 setup:
   install:
-    # Install Bun from a pinned, SHA256-verified GitHub release.
-    # Do NOT use `curl | bash` from bun.sh — that pattern is unsigned
-    # and unpinned. Do NOT query api.github.com for releases/latest
-    # (CI IPs hit the 60 req/hr limit). To bump: change BUN_VERSION
-    # plus the per-arch SHA256 below (from the release SHASUMS256.txt).
+    # Install Bun from a GitHub release zip and verify it against that
+    # same release's SHASUMS256.txt. Do NOT use `curl | bash` from
+    # bun.sh. Do NOT query api.github.com for releases/latest (CI IPs
+    # hit the 60 req/hr limit). The default version is pinned in
+    # args.version; override with --kit-arg version=<semver|latest>.
     # Archives are zip files; python3's zipfile is used so we do not
     # need an apt unzip and the extra Ubuntu/Docker apt hosts.
     - command: |
         set -euo pipefail
-        BUN_VERSION=1.4.0
+        BUN_VERSION="${{ kit.args.version }}"
         ARCH=$(dpkg --print-architecture)
         case "$ARCH" in
           amd64)
             ZIP="bun-linux-x64.zip"
-            SHA256="2d03fb5fb83ac8b567aca0a281b2ce1a1a19d488f56c2968d88c3f25e92fe452"
             ;;
           arm64)
             ZIP="bun-linux-aarch64.zip"
-            SHA256="4b1a332ee861983eb93bcfe6f770fff94e3e31b2c388bdaea3c8ed35e58eed0e"
             ;;
           *)
             echo "unsupported sandbox arch: $ARCH (expected amd64 or arm64)" >&2
             exit 1
             ;;
         esac
+        if [ "$BUN_VERSION" = latest ]; then
+          BASE="https://github.com/oven-sh/bun/releases/latest/download"
+        else
+          BASE="https://github.com/oven-sh/bun/releases/download/bun-v${BUN_VERSION}"
+        fi
+        curl --proto '=https' --tlsv1.2 -fsSL \
+          -o /tmp/bun-SHASUMS256.txt \
+          "${BASE}/SHASUMS256.txt"
         curl --proto '=https' --tlsv1.2 -fsSL \
           -o /tmp/bun.zip \
-          "https://github.com/oven-sh/bun/releases/download/bun-v${BUN_VERSION}/${ZIP}"
+          "${BASE}/${ZIP}"
+        SHA256=$(awk -v z="$ZIP" '$2 == z { print $1; exit }' /tmp/bun-SHASUMS256.txt)
+        if [ -z "$SHA256" ]; then
+          echo "bun: ${ZIP} not listed in SHASUMS256.txt for ${BUN_VERSION}" >&2
+          exit 1
+        fi
         echo "${SHA256}  /tmp/bun.zip" | sha256sum -c -
         python3 -c "
         import pathlib, stat, zipfile, sys
@@ -68,7 +91,7 @@ setup:
         dest.write_bytes(z.read(name))
         dest.chmod(dest.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
         "
-        rm /tmp/bun.zip
+        rm -f /tmp/bun.zip /tmp/bun-SHASUMS256.txt
         bun --version
       user: "0"
-      description: Install Bun CLI v1.4.0, version+digest pinned
+      description: Install Bun CLI ${{ kit.args.version }}, digest verified from the release SHASUMS256.txt

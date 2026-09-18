@@ -1,8 +1,9 @@
 # bun
 
-A mixin kit that installs [Bun](https://bun.sh/) **v1.4.0** from a
-pinned, SHA256-verified GitHub release so agents can use `bun` as a
-runtime, package manager, and test runner inside the sandbox.
+A mixin kit that installs [Bun](https://bun.sh/) from a SHA256-verified
+GitHub release so agents can use `bun` as a runtime, package manager,
+and test runner inside the sandbox. The default release is **v1.4.0**;
+override it with `--kit-arg version=`.
 
 ## Usage
 
@@ -22,6 +23,13 @@ Or with a local clone of this repo:
 sbx run claude --kit ./bun/ .
 ```
 
+Pick another release (semver without a leading `v`, or `latest`):
+
+```console
+sbx run claude --kit ./bun/ --kit-arg version=1.3.0 .
+sbx run claude --kit ./bun/ --kit-arg version=latest .
+```
+
 Inside the sandbox:
 
 ```console
@@ -38,16 +46,20 @@ sbx policy allow network --sandbox <name> "registry.npmjs.org,github.com,objects
 
 ## How it works
 
-### Why a pinned GitHub zip, not `curl | bash`
+### Why a GitHub zip, not `curl | bash`
 
 The upstream installer (`curl -fsSL https://bun.sh/install | bash`) is
 unpinned and unsigned. This kit downloads
 `bun-linux-x64.zip` / `bun-linux-aarch64.zip` from
-`github.com/oven-sh/bun` at **v1.4.0**, checks the SHA256 from that
-release's `SHASUMS256.txt`, and extracts the `bun` binary with
-`python3` (zipfile) so we do not need `apt-get install unzip` or the
-Ubuntu/Docker apt hosts. To bump: change `BUN_VERSION` and both SHA256
-values in `spec.yaml`.
+`github.com/oven-sh/bun` and checks the SHA256 published in that same
+release's `SHASUMS256.txt`. The zip is extracted with `python3`
+(zipfile) so we do not need `apt-get install unzip` or the Ubuntu/Docker
+apt hosts.
+
+`args.version` defaults to `1.4.0` so CI and deny-all e2e stay
+reproducible. `latest` is an explicit opt-in (`--kit-arg version=latest`)
+and follows GitHub's `/releases/latest/download` redirect — it does
+**not** call `api.github.com`.
 
 ### Why these domains
 
@@ -56,7 +68,7 @@ runs e2e under a `deny-all` policy.
 
 | Domain | Why |
 | --- | --- |
-| `github.com` | Release page entry point (302-redirects) |
+| `github.com` | Release page entry point (302-redirects), including `/releases/latest/download` |
 | `objects.githubusercontent.com` | Typical redirect target for this repo's assets |
 | `release-assets.githubusercontent.com` | Kept alongside it; redirect host is not guaranteed |
 
