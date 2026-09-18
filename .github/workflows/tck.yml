@@ -28,18 +28,22 @@ jobs:
         id: filter-setup
         run: |
           filters=""
-          # Add a filter for each kit directory (spec.yaml or spec.yml)
-          for f in */spec.yaml */spec.yml; do
-            [ -f "$f" ] || continue
-            kit=$(dirname "$f")
+          # Add a filter for each kit directory. discover-kits.sh is the
+          # single source of truth for "what is a kit" — delegate to it here
+          # too instead of re-globbing spec.yaml/spec.yml.
+          while IFS= read -r kit; do
             filters=$(printf '%s\n%s: "%s/**"' "$filters" "$kit" "$kit")
-          done
+          done < <(./scripts/discover-kits.sh)
           # Add filters for shared packages that should trigger all kits
           filters=$(printf '%s\ntck: "tck/**"\nspec: "spec/**"\nscripts: "scripts/**"' "$filters")
 
-          echo "filters<<EOF" >> "$GITHUB_OUTPUT"
-          echo "$filters" >> "$GITHUB_OUTPUT"
-          echo "EOF" >> "$GITHUB_OUTPUT"
+          filters=$(printf '%s\nworkflows: [".github/workflows/e2e.yml", ".github/workflows/tck.yml"]' "$filters")
+
+          {
+            echo "filters<<EOF"
+            echo "$filters"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
 
       - name: Filter changes
         id: filter
@@ -53,16 +57,21 @@ jobs:
       - name: Collect kits to test
         id: collect
         run: |
-          # If tck/ or spec/ changed, run all kits
+          # Shared code or workflow changes run all kits
           tck_changed="${{ steps.filter.outputs.tck }}"
           spec_changed="${{ steps.filter.outputs.spec }}"
 
-          if [ "$tck_changed" = "true" ] || [ "$spec_changed" = "true" ]; then
-            kits=$(for f in */spec.yaml */spec.yml; do [ -f "$f" ] && dirname "$f"; done | sort -u | jq -R . | jq -sc .)
+          workflows_changed="${{ steps.filter.outputs.workflows }}"
+
+          if [ "$tck_changed" = "true" ] || [ "$spec_changed" = "true" ] || [ "$workflows_changed" = "true" ]; then
+            kits=$(./scripts/discover-kits.sh | jq -R . | jq -sc .)
           else
-            # Only kits that changed
+            # Only kits that changed. `grep -vE` exits 1 (no output, no
+            # match) when $changes is `[]` — e.g. a doc-only PR — which
+            # would abort this step under bash's default -e/pipefail in
+            # GitHub Actions. `|| true` keeps an empty result a success.
             changes='${{ steps.filter.outputs.changes }}'
-            kits=$(echo "$changes" | jq -r '.[]' | grep -vE '^(tck|spec|scripts)$' | jq -R . | jq -sc .)
+            kits=$(echo "$changes" | jq -r '.[]' | { grep -vE '^(tck|spec|scripts|workflows)$' || true; } | jq -R . | jq -sc .)
           fi
 
           echo "kits=${kits:-[]}" >> "$GITHUB_OUTPUT"
@@ -91,7 +100,15 @@ jobs:
         # local workflow stay 1:1. Pass the matrix kit name as a positional
         # arg (the script resolves it against the repo root) and forward
         # `-timeout 30m` to `go test`.
-        run: ./scripts/test-kit.sh "${{ matrix.kit }}" -timeout 30m
+        #
+        # matrix.kit comes from directory names in the PR's own checkout
+        # (discover-kits.sh); passed via env rather than interpolated into
+        # the script text so a directory name containing shell metacharacters
+        # can't inject commands. Unlike the e2e jobs, this one has no
+        # fork-PR restriction.
+        env:
+          KIT: ${{ matrix.kit }}
+        run: ./scripts/test-kit.sh "$KIT" -timeout 30m
 
   test-tck:
     needs: detect-changes
@@ -123,7 +140,7 @@ jobs:
       - name: Run scripts tests
         run: go test -v -timeout 10m -count=1 ./scripts/...
 
-  # End-to-end tests run against two sbx channels via the reusable e2e.yml:
+  # End-to-end tests run against three sbx channels via the reusable e2e.yml:
   #
   #   * e2e-release — the last tagged sbx release. This is the channel users
   #     have today, so it GATES the PR: the stable `e2e` job below requires it.
@@ -131,8 +148,12 @@ jobs:
   #     what sbx will ship next. Informational only — its result never feeds
   #     the `e2e` gate, so a broken nightly shows red on the PR but does NOT
   #     block merge.
+  #   * e2e-rc — the latest sbx-releases prerelease ("*-rcN"), so kits are
+  #     exercised against what's currently being validated for the next
+  #     stable cut. Also informational only, for the same reason as nightly:
+  #     an unreleased build failing shouldn't block a kit PR from merging.
   #
-  # Both are skipped for fork PRs (Docker Hub secrets are not exposed there).
+  # All three are skipped for fork PRs (Docker Hub secrets are not exposed there).
   e2e-release:
     needs: detect-changes
     if: >-
@@ -161,12 +182,26 @@ jobs:
       channel: nightly
     secrets: inherit
 
+  e2e-rc:
+    needs: detect-changes
+    if: >-
+      (github.event_name == 'push' ||
+       github.event.pull_request.head.repo.full_name == github.repository) &&
+      needs.detect-changes.outputs.kits != '[]' &&
+      needs.detect-changes.outputs.kits != 'null' &&
+      needs.detect-changes.outputs.kits != ''
+    uses: ./.github/workflows/e2e.yml
+    with:
+      kits: ${{ needs.detect-changes.outputs.kits }}
+      channel: rc
+    secrets: inherit
+
   # Stable gate for branch protection. Configure the repo's required status
   # check to be `e2e` (not the dynamic `e2e-release (<kit>)` matrix legs,
-  # whose names change per PR, and NOT `e2e-nightly`). It reflects ONLY the
-  # release leg: it fails iff release e2e failed or was cancelled, and passes
-  # when release succeeded or was skipped (fork PRs / no kits changed). It
-  # always runs so a required check is never left pending.
+  # whose names change per PR, and NOT `e2e-nightly`/`e2e-rc`). It reflects
+  # ONLY the release leg: it fails iff release e2e failed or was cancelled,
+  # and passes when release succeeded or was skipped (fork PRs / no kits
+  # changed). It always runs so a required check is never left pending.
   e2e:
     needs: [e2e-release]
     if: always()
@@ -205,6 +240,31 @@ jobs:
           echo "${emoji} ${msg}"
           {
             echo "## ${emoji} Nightly e2e (non-blocking)"
+            echo ""
+            echo "${msg}"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  # Surface the rc leg's outcome the same way as e2e-nightly-report — visible
+  # in the run log and step summary, never affecting mergeability.
+  e2e-rc-report:
+    needs: [e2e-rc]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Report rc e2e state
+        run: |
+          result="${{ needs.e2e-rc.result }}"
+          echo "rc e2e result: ${result}"
+          case "${result}" in
+            success)   emoji="✅"; msg="sbx **rc** e2e passed — kits compose against the current release candidate." ;;
+            failure)   emoji="🕯️"; msg="sbx **rc** e2e failed — informational only, does **not** block this PR. Track the sbx rc build." ;;
+            cancelled) emoji="⚠️"; msg="sbx **rc** e2e was cancelled." ;;
+            skipped)   emoji="⏭️"; msg="sbx **rc** e2e was skipped (fork PR or no kits changed)." ;;
+            *)         emoji="❔"; msg="sbx **rc** e2e ended in an unexpected state: ${result}." ;;
+          esac
+          echo "${emoji} ${msg}"
+          {
+            echo "## ${emoji} RC e2e (non-blocking)"
             echo ""
             echo "${msg}"
           } >> "$GITHUB_STEP_SUMMARY"

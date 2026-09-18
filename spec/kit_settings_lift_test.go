@@ -51,8 +51,9 @@ func findSettingsInstall(t *testing.T, c *CommandsPolicy) InstallCommand {
 
 // runSettingsInstallScript executes the kit's settings-seeding install script
 // in a temp dir, rewriting the absolute /home/agent paths to the temp dir and
-// making chown non-fatal (the test process is not root), then returns the
-// content of the produced settings.json.
+// making both the recursive and enumerated chown forms non-fatal (the test
+// process is not root), then returns the content of the produced
+// settings.json.
 func runSettingsInstallScript(t *testing.T, script, modeEnv string) string {
 	t.Helper()
 	tmp := t.TempDir()
@@ -60,8 +61,13 @@ func runSettingsInstallScript(t *testing.T, script, modeEnv string) string {
 	// /home/agent -> tmp so the script writes inside the sandbox of the test.
 	script = strings.ReplaceAll(script, "/home/agent", tmp)
 	// chown will fail for a non-root test process; keep it non-fatal so the
-	// `set -e` script does not abort before/after writing the file.
+	// `set -e` script does not abort before/after writing the file. Two
+	// patterns: kits still on the recursive form, and kits enumerating
+	// specific paths. The two ReplaceAll calls can't double-substitute each
+	// other: "chown -R agent:agent" doesn't contain "chown agent:agent" as a
+	// substring, since "-R " sits between "chown" and "agent:agent".
 	script = strings.ReplaceAll(script, "chown -R agent:agent", "chown -R agent:agent 2>/dev/null || true #")
+	script = strings.ReplaceAll(script, "chown agent:agent", "chown agent:agent 2>/dev/null || true #")
 
 	cmd := exec.Command("sh", "-c", script)
 	cmd.Env = append(os.Environ(), modeEnv)

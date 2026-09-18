@@ -1,0 +1,99 @@
+schemaVersion: "2"
+kind: sandbox
+name: antigravity
+version: "1.0.0"
+displayName: Google Antigravity
+description: Google's agent-first development platform, available as the agy terminal coding agent.
+
+sandbox:
+  image: docker.io/sbx/antigravity-image:latest
+  entrypoint:
+    - agy
+  command:
+    default:
+      - --dangerously-skip-permissions
+
+agentInstructions:
+  filename: AGENTS.md
+
+credentials:
+  - service: google
+    description: Gemini API key for Antigravity's headless API-key mode
+    apiKey:
+      name: GEMINI_API_KEY
+      proxyManaged: true
+      inject:
+        - domain: generativelanguage.googleapis.com
+          header: x-goog-api-key
+          format: "%s"
+
+permissions:
+  network:
+    allow:
+      - accounts.google.com
+      - oauth2.googleapis.com
+      - www.googleapis.com
+      - lh3.googleusercontent.com
+      - aicode.googleapis.com
+      - cloudcode-pa.googleapis.com
+      - daily-cloudcode-pa.googleapis.com
+      - generativelanguage.googleapis.com
+      - antigravity.google
+      - antigravity.google.com
+      - antigravity-unleash.goog
+      - play.googleapis.com
+      - safebrowsing.googleapis.com
+      - www.gstatic.com
+      - antigravity-cli-auto-updater-974169037036.us-central1.run.app
+      - storage.googleapis.com
+      - raw.githubusercontent.com
+
+environment:
+  variables:
+    BROWSER: xdg-open
+
+setup:
+  startup:
+    - command:
+        - sh
+        - -c
+        - |
+          set -e
+          cfg="$HOME/.gemini/antigravity-cli/settings.json"
+          mkdir -p "$(dirname "$cfg")"
+          [ -s "$cfg" ] || echo '{}' > "$cfg"
+          if [ "${SBX_CRED_GOOGLE_MODE:-none}" = apikey ]; then
+            jq '.modelProvider = "gemini"' "$cfg" > "$cfg.tmp"
+          else
+            jq 'del(.modelProvider)' "$cfg" > "$cfg.tmp"
+          fi
+          mv "$cfg.tmp" "$cfg"
+      user: "1000"
+      description: Select Gemini API-key mode only when a Google credential is available
+    - command:
+        - sh
+        - -c
+        - |
+          set -e
+          [ -n "$MCP_GATEWAY_URL" ] || exit 0
+          cfg="$HOME/.gemini/config/mcp_config.json"
+          mkdir -p "$(dirname "$cfg")"
+          [ -s "$cfg" ] || echo '{}' > "$cfg"
+          frag=/tmp/antigravity-mcp-gateway.json
+          cat > "$frag" <<EOF
+          {
+            "mcpServers": {
+              "mcp-gateway": {
+                "serverUrl": "$MCP_GATEWAY_URL",
+                "headers": {
+                  "Authorization": "Bearer $MCP_SENTINEL_TOKEN_NAME"
+                }
+              }
+            }
+          }
+          EOF
+          jq -s '.[0] * .[1]' "$cfg" "$frag" > "$cfg.tmp"
+          mv "$cfg.tmp" "$cfg"
+          rm -f "$frag"
+      user: "1000"
+      description: Register the sandbox MCP gateway in Antigravity's user configuration

@@ -99,14 +99,19 @@ setup:
     # reserved. The sentinel name is not a credential — the proxy substitutes
     # the real token at request time keyed by this name. No-op when MCP isn't
     # enabled, which is what the guard is for.
+    #
+    # `copilot mcp add` writes into this same file and startup replays on every
+    # container start, so only the mcp-gateway entry may be written.
     - command:
         - sh
         - -c
         - |
           set -e
           [ -n "$MCP_GATEWAY_URL" ] || exit 0
-          mkdir -p "$HOME/.copilot"
-          cat > "$HOME/.copilot/mcp-config.json" <<EOF
+          cfg="$HOME/.copilot/mcp-config.json"
+          dir=$(dirname "$cfg")
+          mkdir -p "$dir"
+          gateway=$(cat <<EOF
           {
             "mcpServers": {
               "mcp-gateway": {
@@ -120,6 +125,29 @@ setup:
             }
           }
           EOF
+          )
+          # Two overlapping starts would read-modify-write the same file.
+          exec 9>>"$dir/.mcp-config.lock"
+          flock 9
+          # mv would nest the config inside a directory here and still exit 0.
+          if [ -e "$cfg" ] && [ ! -f "$cfg" ]; then
+            echo "mcp-config.json is not a regular file; leaving the MCP gateway unregistered" >&2
+            exit 0
+          fi
+          if ! merged=$({ if [ -s "$cfg" ]; then cat "$cfg"; else echo '{}'; fi; printf '%s\n' "$gateway"; } | jq -s '
+              if length != 2 or (.[0] | type) != "object" or ((.[0].mcpServers // {}) | type) != "object" then
+                error("mcp-config.json must hold one JSON object whose mcpServers is an object")
+              else
+                .[0] + {mcpServers: ((.[0].mcpServers // {}) + .[1].mcpServers)}
+              end'); then
+            echo "mcp-config.json is not readable as JSON; leaving the MCP gateway unregistered" >&2
+            exit 0
+          fi
+          # The temp name is unpredictable, so a stale or crashed leftover is never installed.
+          tmp=$(mktemp "$dir/mcp-config.json.XXXXXX")
+          trap 'rm -f "$tmp"' EXIT
+          printf '%s\n' "$merged" > "$tmp"
+          mv -f "$tmp" "$cfg"
       user: "agent"
       description: Register the sandbox MCP gateway in ~/.copilot/mcp-config.json
   files:

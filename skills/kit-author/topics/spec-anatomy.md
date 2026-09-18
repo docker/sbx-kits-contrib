@@ -69,9 +69,11 @@ args:
     required: true                     # installer must supply a value
 ```
 
-Each argument declares exactly one of `default` or `required: true`, and constrains its value with at most one of `enum` or `pattern` (a Go RE2 regexp matched against the whole value). Values are always strings: quote the placeholder in a string-valued field (`VERSION: "${{ kit.args.version }}"`), or a value like `1.20` is read as a float.
+Each argument declares exactly one of `default` or `required: true`, and constrains its value with at most one of `enum` or `pattern` (a Go RE2 regexp matched against the whole value). Values are always strings: quote the placeholder in a string-valued field (`VERSION: "${{ kit.args.version }}"`), or a value like `1.20` is read as a float. Write `$${{` where you want a literal `${{` and no substitution — except in a mapping key, which is rejected for naming an argument whether escaped or not (see [SPEC-v2 §2.1](../../../spec/SPEC-v2.md#21-args)).
 
 `args` is v2-only, and unrelated to `sandbox.build.args` (Docker build arguments). Because the block lives in `spec.yaml`, a signature covers the declarations and defaults; the values an installer supplies do not.
+
+In this repository the TCK is the installer that supplies them — it reads them from your kit's `testdata/tck.yaml`. See [Testing — Kits that declare `args`](testing.md#kits-that-declare-args).
 
 ### `mixins`
 
@@ -225,7 +227,8 @@ credentials:
     description: "Anthropic API key"           # surfaced in interactive prompts
     required: false                            # resolver fails fast if true and unbound
     apiKey:
-      name: ANTHROPIC_API_KEY                  # env var the proxy populates in-container
+      name: ANTHROPIC_API_KEY                  # env var the engine names
+      proxyManaged: true                       # required for the engine to set the sentinel in-container
       inject:
         - domain: api.anthropic.com
           header: x-api-key
@@ -233,6 +236,7 @@ credentials:
   - service: github
     apiKey:
       name: GITHUB_TOKEN
+      proxyManaged: true
       inject:
         - domain: api.github.com
           scheme: bearer                       # sugar for header: Authorization, format: "Bearer %s"
@@ -241,7 +245,7 @@ credentials:
           username: x-access-token             # required with scheme: basic
 ```
 
-`apiKey.name` is set to the literal `proxy-managed` inside the container by the engine — the sentinel-swap proxy replaces it on outbound requests. Authors **don't** put real values in the spec.
+With `proxyManaged: true`, `apiKey.name` is set to the literal `proxy-managed` inside the container by the engine — the sentinel-swap proxy replaces it on outbound requests. Authors **don't** put real values in the spec.
 
 ### `scheme` — header-encoding sugar (v2)
 
@@ -256,7 +260,11 @@ credentials:
 
 `bearer` supplies `header: Authorization` only when you left `header` empty, so writing an explicit `header:` alongside it still wins. `basic` is username-driven at the proxy rather than a header encoding, so it sets no `header` at all — write one yourself if the service needs a specific one.
 
-**Enforcement:** every `apiKey.inject[].domain` MUST appear in `permissions.network.allow`. There is no auto-derived egress from credentials. The spec validator does not cross-check the two lists; the engine enforces the rule, and a missing domain surfaces at load or sandbox-create time (SPEC-v2 §6).
+**Enforcement:** every `apiKey.inject[].domain` MUST appear in `permissions.network.allow`. There is no auto-derived egress from credentials. `sbx kit validate` warns (but does not fail) when it detects an uncovered domain; the engine performs the authoritative enforcement, and a missing domain surfaces at load or sandbox-create time (SPEC-v2 §6).
+
+An inject entry SHOULD set at least one of `header` or `username` — one with neither injects nothing into requests and only maps the domain to the credential's service for routing/policy purposes; that's a legitimate shape (e.g. associating a domain with a service without a header to inject), but `sbx kit validate` warns since it usually means a forgotten `header`/`username`. A `header`-bearing entry with no `username` MUST also set `format`, or there is no template to substitute the credential into. `username` MUST NOT contain `:` — HTTP Basic (RFC 7617) treats the first colon as the user/password delimiter, so a colon-bearing username can't authenticate as declared; `sbx kit validate` rejects it.
+
+Whenever `apiKey.name` is set (v1 or v2) it MUST be a valid shell identifier — letters, digits, underscores, not starting with a digit — since the engine uses it as an environment-variable name. Setting `name` alone does not populate it in-container: the engine only derives the sentinel when `proxyManaged: true` is also set. An empty `name` on a v2 spec is a legitimate shape too — the credential is handled entirely proxy-side, with no in-container environment variable — so `sbx kit validate` warns rather than rejects it.
 
 ### OAuth shape
 
@@ -315,12 +323,12 @@ Entry formats:
 
 | Pattern | Example | Matches | Status |
 |---|---|---|---|
-| `<domain>` | `api.example.com` | Exact host, default port 443 | **P2 — implemented** |
+| `<domain>` | `api.example.com` | Exact host, no port — matches any port | **P2 — implemented** |
 | `<domain>:<port>` | `api.example.com:8080` | Exact host, specific port | **P2 — implemented** |
 | `*.<domain>` | `*.example.com` | Exactly one DNS label (e.g. `api.example.com`, `cdn.example.com`). Does **not** match `example.com` itself or `a.b.example.com`. | **P2 — implemented** |
-| `**.<domain>` | `**.example.com` | One or more DNS labels (e.g. `api.example.com`, `a.b.example.com`). | **P3 — pending** |
-| `<domain>:<lo>-<hi>` | `api.example.com:80-443` | Port range | **P3 — pending** |
-| `<domain>:*` | `api.example.com:*` | Port wildcard | **P3 — pending** |
+| `**.<domain>` | `**.example.com` | One or more DNS labels (e.g. `api.example.com`, `a.b.example.com`). | **Enforced** |
+| `<domain>:<lo>-<hi>` | `api.example.com:80-443` | Port range | **P3 — pending**; never matches a request |
+| `<domain>:*` | `api.example.com:*` | Port wildcard | **Enforced** — identical to omitting the port |
 | CIDR | `10.0.0.0/8` | IP block | **P3 — pending** |
 
 **Deny precedence.** When the same host matches both `allow` and `deny`, **deny wins** — the request is rejected. Overlap is legal (and intentional: a parent kit can allow `*.example.com` while a child or mixin denies `telemetry.example.com`).
@@ -350,7 +358,7 @@ Port publishing is **inbound service exposure** — a separate concern from outb
 
 ## `environment` (P2)
 
-The block is **P2** because v2 removed its `proxyManaged` field as part of the credentials redesign — the proxy-managed semantic now lives implicitly on `credentials[].apiKey.name`.
+The block is **P2** because v2 removed its `proxyManaged` field as part of the credentials redesign — the proxy-managed semantic now lives on `credentials[].apiKey.proxyManaged` (paired with `apiKey.name`).
 
 ```yaml
 environment:
@@ -360,7 +368,7 @@ environment:
 
 Composition: `variables` union with last-wins.
 
-The proxy-managed env-var semantic that lived under `environment.proxyManaged` in v1 is now implicit on `credentials[].apiKey.name`. There's no `proxyManaged` list to maintain separately.
+The proxy-managed env-var semantic that lived under `environment.proxyManaged` in v1 now lives on `credentials[].apiKey.proxyManaged`. There's no `proxyManaged` list to maintain separately.
 
 ### Reserved env-var prefixes
 

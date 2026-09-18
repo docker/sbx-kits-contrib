@@ -78,7 +78,7 @@ Requires Start-Up or Enterprise plan.
 
     const { replay_id: replayId } = await kernel.browsers.replays.start(session.session_id);
     // ... do work ...
-    await kernel.browsers.replays.stop(replayId, { id: session.session_id });
+    await kernel.browsers.replays.stop(replayId, { id_or_name: session.session_id });
 
 Download recordings from the Kernel dashboard or via API.
 
@@ -93,7 +93,7 @@ Download recordings from the Kernel dashboard or via API.
 
 ---
 
-## Managed auth (persist login state across sessions)
+## Browser profiles (persist login state across sessions)
 
     const profile = await kernel.profiles.create({ name: 'my-account' });
     const session = await kernel.browsers.create({
