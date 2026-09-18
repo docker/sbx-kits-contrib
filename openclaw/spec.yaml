@@ -76,11 +76,11 @@ credentials:
         - domain: console.anthropic.com
           header: x-api-key
           format: '%s'
-    # Without this block a host whose stored anthropic credential is an OAuth
-    # login -- what `sbx login` produces, and what CONTRIBUTING documents as
-    # the one-time e2e setup -- has no usable credential here at all: the
-    # apiKey sentinel reaches Anthropic unswapped and every model call is a
-    # 401. Declaring oauth lets the proxy authenticate egress with it.
+    # For a host whose stored anthropic credential is an OAuth login -- signed
+    # in from a `claude` sandbox. Without this block such a host has no usable
+    # credential here at all: the apiKey sentinel reaches Anthropic unswapped
+    # and every model call is a 401. Declaring oauth lets the proxy
+    # authenticate egress with it.
     # credentialFile is what makes the OAuth path detectable from inside the
     # sandbox. SBX_CRED_ANTHROPIC_MODE reports "none" even when this credential
     # resolves, so it cannot discriminate oauth from apikey; the materialized

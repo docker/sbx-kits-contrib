@@ -1,0 +1,8 @@
+schemaVersion: "2"
+kind: mixin
+name: args-undeclared
+description: "TCK fixture: a reference to an argument no args: block declares."
+
+environment:
+  variables:
+    ARGS_FIXTURE_TOKEN: "${{ kit.args.token }}"

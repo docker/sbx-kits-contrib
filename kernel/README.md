@@ -1,43 +1,43 @@
-# kernel
+# Kernel Browser
 
-A mixin kit (`kind: mixin`) that gives any sbx agent access to
-[Kernel](https://www.kernel.sh/) — cloud-hosted Chromium for AI agents.
-Kernel spins up sandboxed browser sessions in under 30ms with stealth mode,
-managed auth, and live session replay built in.
+A mixin kit (`kind: mixin`) that gives any Docker Sandbox agent access to
+[Kernel](https://www.kernel.sh/) cloud browsers. The kit installs the Kernel
+CLI, adds an agent quick-reference guide, and routes API authentication through
+the sandbox proxy so the real credential never enters the sandbox.
 
 ## Prerequisites
 
-- A [Kernel](https://www.kernel.sh/) account with an API key.
-- `KERNEL_API_KEY` exported on your host:
+Create a [Kernel](https://www.kernel.sh/) account and store its API key once in
+Docker Sandboxes' host-side secret store:
 
-  ```console
-  export KERNEL_API_KEY=<your-api-key>
-  ```
-
-  The kit reads this from your host as a `credentials[].apiKey` secret.
-  The real value never enters the sandbox — the proxy injects it into
-  outbound requests to `api.onkernel.com`.
+```console
+sbx secret set kernel
+```
 
 ## Usage
 
+The primary form is the published OCI artifact on Docker Hub:
+
 ```console
-sbx run claude --kit "docker.io/sbx/kernel-kit:latest"
+sbx run --kit "docker.io/sbx/kernel-kit:latest" claude
 ```
 
-Or from a git URL targeting this repo:
+Or target this repo directly over git:
 
 ```console
-# From this repo (tracks default branch)
-sbx run claude --kit "git+https://github.com/docker/sbx-kits-contrib.git#dir=kernel"
+sbx run --kit "git+https://github.com/docker/sbx-kits-contrib.git#dir=kernel" claude
+```
 
-# Pinned to a tag — recommended for production
-sbx run claude --kit "git+https://github.com/docker/sbx-kits-contrib.git#ref=v1.0.0&dir=kernel"
+Or use a local clone:
 
-# Local development
-sbx run claude --kit ./kernel/
+```console
+sbx run --kit ./kernel/ claude
+```
 
-# Stack with another mixin
-sbx run claude --kit ./kernel/ --kit ./ruff-lint/
+Mix it with another kit by repeating `--kit`:
+
+```console
+sbx run --kit ./kernel/ --kit ./ruff-lint/ claude
 ```
 
 The kit works with any agent that ships npm. It installs the `kernel` CLI
@@ -85,7 +85,8 @@ which would corrupt them.
 
 `KERNEL_API_KEY` is declared with `apiKey.proxyManaged: true`: the sandbox
 holds a placeholder value; the proxy substitutes the real credential at
-request time. The real key comes from `KERNEL_API_KEY` set as a host secret.
+request time. The real key comes from the host secret stored under the
+`kernel` service name.
 
 ## What gets installed
 

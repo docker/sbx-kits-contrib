@@ -226,16 +226,10 @@ func LoadArtifactFromBytes(yamlBytes []byte) (*Artifact, error) {
 }
 
 // LoadFromBytes parses spec.yaml bytes into a normalized SpecFile using the v1
-// grammar only. Normalization (v1 sugar folding, legacy field removal) happens
-// inside this call.
-//
-// Unlike LoadArtifactFromBytes it does not fork on schemaVersion, so what happens
-// to a schemaVersion: "2" document depends on which keys it uses. Names the v1
-// grammar does not have (permissions, setup, agentInstructions) fail the strict
-// decode and return an error naming this limitation. Names v1 also has
-// (environment, credentials, sandbox) decode under the v1 shape instead, as does
-// a document carrying none of them — so a v2 spec can appear to load here. Treat
-// neither outcome as a contract: this entry point is not version-aware.
+// grammar. schemaVersion must be "1" or omitted; any other declared value is
+// rejected before the v1 decode runs, naming the version and pointing to
+// LoadArtifactFromBytes. A malformed document is not rejected here — it falls
+// through to the v1 decoder so its actual syntax error surfaces.
 //
 // For v2 (or version-agnostic) input, load the artifact and project it back to
 // the v2 grammar instead:
@@ -249,6 +243,9 @@ func LoadArtifactFromBytes(yamlBytes []byte) (*Artifact, error) {
 // Deprecated: LoadFromBytes only understands the frozen v1 grammar. Use
 // LoadArtifactFromBytes with NewV2View.
 func LoadFromBytes(yamlBytes []byte) (*SpecFile, error) {
+	if version, err := peekSchemaVersion(yamlBytes); err == nil && version != "" && version != "1" {
+		return nil, fmt.Errorf("spec: %s declares schemaVersion %q, which LoadFromBytes does not accept — it understands schemaVersion \"1\" (or omitted) only; use LoadArtifactFromBytes (then NewV2View for the v2 grammar shape)", specFileName, version)
+	}
 	return parseSpecFileBytes(yamlBytes)
 }
 
@@ -333,17 +330,11 @@ func decodeSpecFile(data []byte) (SpecFile, error) {
 }
 
 // parseSpecFileBytes decodes spec.yaml bytes with the frozen v1 grammar and
-// normalizes them. There is deliberately no schemaVersion fork here — SpecFile
-// is the v1 shape — but a v2 document failing strict decoding produces a raw
-// unknown-field error naming an internal Go type, which tells the author
-// nothing. Detect that case and say what actually happened, keeping the
-// underlying error wrapped.
+// normalizes them. Callers gate on schemaVersion before reaching this
+// function, so it only performs the decode itself.
 func parseSpecFileBytes(data []byte) (*SpecFile, error) {
 	spec, err := decodeSpecFile(data)
 	if err != nil {
-		if peekSchemaVersion(data) == "2" {
-			return nil, fmt.Errorf("spec: %s declares schemaVersion \"2\", which this loader does not decode — it understands the v1 grammar only; use LoadArtifactFromBytes (then NewV2View for the v2 grammar shape): %w", specFileName, err)
-		}
 		return nil, fmt.Errorf("spec: invalid %s: %w", specFileName, err)
 	}
 	w := &warnings{}
@@ -354,16 +345,14 @@ func parseSpecFileBytes(data []byte) (*SpecFile, error) {
 	return &spec, nil
 }
 
-// peekSchemaVersion does a cheap, non-strict decode of just the
-// schemaVersion field so the loader can fork on it before committing to a
-// version-specific grammar. A malformed document returns "" (routed to the
-// v1 decoder, which surfaces the real parse error).
-func peekSchemaVersion(data []byte) string {
+// peekSchemaVersion decodes just the schemaVersion field. The returned error
+// is non-nil only for a malformed document; omitted schemaVersion returns ("", nil).
+func peekSchemaVersion(data []byte) (string, error) {
 	var probe struct {
 		SchemaVersion string `yaml:"schemaVersion"`
 	}
-	_ = yaml.Unmarshal(data, &probe)
-	return probe.SchemaVersion
+	err := yaml.Unmarshal(data, &probe)
+	return probe.SchemaVersion, err
 }
 
 // parseArtifactBytes decodes spec.yaml bytes and applies normalization.
@@ -377,7 +366,7 @@ func peekSchemaVersion(data []byte) string {
 // produce the same canonical Artifact and preserve Manifest.SchemaVersion —
 // the signal the credential-binding regime keys on.
 func parseArtifactBytes(data []byte) (*Artifact, error) {
-	if peekSchemaVersion(data) == "2" {
+	if version, _ := peekSchemaVersion(data); version == "2" {
 		return parseArtifactV2(data)
 	}
 	spec, err := decodeSpecFile(data)

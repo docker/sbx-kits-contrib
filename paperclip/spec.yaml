@@ -11,7 +11,14 @@ sandbox:
   # ../PUBLISHING.md) -- no bespoke workflow needed, same as kiro/copilot.
   image: docker.io/sbx/paperclip-image:latest
   entrypoint:
-    - /usr/local/bin/paperclip-start
+    # Kit content wrapping the image-baked start script: the entrypoint has to
+    # source the Anthropic auth env file the startup hook writes, and an
+    # image-baked entrypoint only picks that up after a republish. Invoked
+    # through `sh` because files under `files/home/` land 0644 -- the artifact
+    # loader does not carry the source exec bit, so a direct exec fails with
+    # EACCES.
+    - sh
+    - /home/agent/.local/bin/paperclip-start.sh
 permissions:
   network:
     allow:
@@ -22,6 +29,9 @@ permissions:
       - api.anthropic.com
       - claude.ai
       - console.anthropic.com
+      # The anthropic credential's OAuth token endpoint, for the refresh the
+      # proxy performs once the access token expires.
+      - platform.claude.com:443
       - registry.npmjs.org
       - '*.npmjs.org'
       - github.com:443
@@ -46,6 +56,34 @@ credentials:
         - domain: console.anthropic.com
           header: x-api-key
           format: '%s'
+    # For a host whose stored anthropic credential is an OAuth login -- signed
+    # in from a `claude` sandbox rather than an API key. Without this block
+    # such a host gets no usable credential at all: the apiKey sentinel reaches
+    # Anthropic unswapped and every claude_local run 401s.
+    #
+    # credentialFile is Claude Code's own store, which is what the claude_local
+    # adapter's "subscription login" path reads (docs/adapters/claude-local.md),
+    # so nothing has to translate the credential -- only to drop the
+    # ANTHROPIC_API_KEY sentinel that would otherwise put the CLI in API-key
+    # mode, which paperclip-anthropic-auth.sh does. The file holds sentinels,
+    # not real tokens.
+    oauth:
+      tokenEndpoint:
+        host: platform.claude.com
+        path: /v1/oauth/token
+      resourceHosts:
+        - api.anthropic.com
+      sentinels:
+        accessToken: sk-ant-oat01-proxy-managed
+        refreshToken: sk-ant-ort01-proxy-managed
+      credentialFile:
+        path: ~/.claude/.credentials.json
+        structure:
+          claudeAiOauth:
+            accessToken: '{{.AccessToken}}'
+            refreshToken: '{{.RefreshToken}}'
+            expiresAt: '{{.ExpiresAt}}'
+            scopes: '{{.Scopes}}'
 environment:
   variables:
     HOST: 0.0.0.0
@@ -54,3 +92,13 @@ environment:
     PAPERCLIP_HOME: /home/agent/.paperclip
     PAPERCLIP_TELEMETRY_DISABLED: "1"
     SERVE_UI: "true"
+setup:
+  startup:
+    # Runs on every container start, ahead of any attach: the credential state
+    # is wired at create time and a stop/start can follow a change of host
+    # credential, so the env file is recomputed rather than cached.
+    - command:
+        - sh
+        - /home/agent/.local/bin/paperclip-anthropic-auth.sh
+      user: "1000"
+      description: Resolve whether Anthropic auth is an API key, a subscription login, or absent, and record it for the entrypoint and `sbx exec` shells
