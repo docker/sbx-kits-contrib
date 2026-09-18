@@ -72,14 +72,8 @@ permissions:
       - prod.us-east-1.auth.desktop.kiro.dev
       - prod.us-east-1.telemetry-v2.kiro.dev
       - runtime.us-east-1.kiro.dev
-      #
-      # TODO(kiro-extraction): the domains above are the ones reported in
-      # #185; they have not been verified end-to-end under deny-all from this
-      # repo, and other kiro-cli features may reach further endpoints. Confirm
-      # or widen from a live run:
-      #
-      #   sbx run --kit ./kiro kiro       # then attempt a login + a prompt
-      #   sbx policy log                  # lists every blocked host + reason
+      - q.us-east-1.amazonaws.com  # Amazon Q backend — Kiro's chat API
+      - view.awsapps.com           # AWS access portal / Identity Center device-flow auth
 
 setup:
   install:

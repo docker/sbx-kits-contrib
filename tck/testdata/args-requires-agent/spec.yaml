@@ -1,0 +1,13 @@
+schemaVersion: "2"
+kind: mixin
+name: args-requires-agent
+description: "TCK fixture: an argument substituted into requires.agent, a field the spec pattern-checks."
+
+args:
+  agent:
+    default: "codex"
+    enum: ["codex", "claude"]
+    description: "Base-agent affinity, so the container image follows the argument."
+
+requires:
+  agent: "${{ kit.args.agent }}"

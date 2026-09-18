@@ -1,0 +1,8 @@
+# TCK configuration for the aidlc-claude kit.
+#
+# aidlc-claude declares `requires.agent: claude-bedrock` (spec.yaml), and
+# creating a claude-bedrock sandbox fails unless an AWS profile is already
+# stored on the host via `sbx --app-name sbx-kits-contrib-tck secret set
+# bedrock`. CI stores no such per-agent cloud credential, so this kit's e2e
+# is skipped there and must be run locally instead.
+requiresHostCredentials: ["bedrock"]

@@ -14,12 +14,13 @@
 #     sbx state. Nothing the script does touches your day-to-day daemon.
 #     The Go harness uses the same app-name internally (tck/e2e_test.go).
 #   - Sets the scoped daemon's default network policy to `deny-all` so
-#     the run is a real contract test of network.allowedDomains — the same
+#     the run is a real contract test of permissions.network.allow — the same
 #     baseline CI runs under.
 #   - For a kit that ships its own Dockerfile: builds that image and
 #     side-loads it into the scoped daemon's image store, so e2e runs against
 #     the image this working tree produces rather than a published one (or
-#     none at all). Skip with SBX_KIT_SKIP_IMAGE_LOAD=1.
+#     none at all), and creates the sandbox with --pull=never so that image
+#     is what runs. Skip with SBX_KIT_SKIP_IMAGE_LOAD=1.
 #   - Runs `go test -tags=e2e ./tck/...` with KIT_UNDER_TEST exported.
 #   - On failure, prints how to read `sbx policy log` to find the missing
 #     domains.
@@ -47,6 +48,9 @@
 #   POLICY   — change the default network policy applied to the scoped
 #              daemon (default: deny-all). Set POLICY= (empty) to skip
 #              the policy step entirely.
+#   SBX_E2E_PULL_POLICY — passed to `sbx create --pull`. Defaults to never
+#              when this script side-loaded an image, otherwise unset (sbx
+#              default). Set explicitly to override.
 #
 # Mirrors scripts/test-kit.sh — keep the resolution logic in sync.
 
@@ -103,7 +107,11 @@ kit_sandbox_prefix="e2e-$(basename "$kit_abs" | tr '[:upper:]_' '[:lower:]-')-"
 # fails ~minutes into the test), but the same probe also catches a dead
 # daemon, KVM access issues, etc. `sbx ls` exercises the runtime and is
 # a no-op when everything is fine, making it safe to run unconditionally.
-probe_err=$(sbx --app-name "$APP_NAME" ls 2>&1 >/dev/null) || {
+# stdin comes from /dev/null so an interactive sbx prompt (e.g. "Docker
+# Sandboxes has been updated and needs to restart. Restart now? (y/N)" after
+# a CLI upgrade) fails the probe with its message instead of waiting on a
+# terminal behind the suppressed output, which looks like a silent hang.
+probe_err=$(sbx --app-name "$APP_NAME" ls 2>&1 >/dev/null </dev/null) || {
   cat >&2 <<EOF
 ERROR: smoke test failed — sbx --app-name $APP_NAME is not usable.
 
@@ -156,10 +164,11 @@ done
 
 # Configure the scoped daemon's global network policy. `policy init` is
 # one-time per daemon (sbx errors with "already initialized" on the second
-# call), so to stay idempotent we try `init` first and fall back to
-# `reset --force` + `init` when a policy is already set — that lands the
-# scoped daemon on the desired baseline regardless of prior state. The
-# `--force` skips the confirmation prompt about stopping running sandboxes
+# call), so to stay idempotent we try `init` first and fall back to a reset
+# when a policy is already set — that lands the scoped daemon on the desired
+# baseline regardless of prior state (a reused local daemon is the normal
+# case; CI runners are always fresh, so the first `init` succeeds there).
+# The `--force` skips the confirmation prompt about stopping running sandboxes
 # (a stale one from a previous failed run was just removed above; a
 # currently-running sandbox here would mean a concurrent invocation, which
 # isn't a supported use of this script). Skipped when POLICY is explicitly
@@ -167,7 +176,25 @@ done
 if [ -n "$POLICY" ]; then
   echo "Initializing --app-name=$APP_NAME global policy to $POLICY"
   if ! sbx --app-name "$APP_NAME" policy init "$POLICY" >/dev/null 2>&1; then
-    sbx --app-name "$APP_NAME" policy init "$POLICY"
+    # `policy reset` wipes the store, restarts the daemon, and then — when its
+    # stdin is a terminal — opens the interactive policy chooser ITSELF, which
+    # is how a reused daemon ended up on allow-all/balanced behind this
+    # script's back. With stdin from /dev/null it skips the chooser and may
+    # exit non-zero complaining the policy is not initialized: that is exactly
+    # the state we want, so its exit code is ignored and the `init` below is
+    # the real check.
+    reset_out=$(sbx --app-name "$APP_NAME" policy reset --force </dev/null 2>&1) || true
+    printf '%s\n' "$reset_out"
+    # `init` sets the preset and prints 'Global network policy initialized to
+    # "<preset>"'. If anything else initialized the policy first, `init` fails
+    # as already initialized, which aborts the run instead of testing under a
+    # baseline we did not ask for.
+    init_out=$(sbx --app-name "$APP_NAME" policy init "$POLICY" </dev/null 2>&1) || {
+      printf '%s\n' "$init_out" >&2
+      echo "ERROR: could not re-initialize the --app-name=$APP_NAME global policy to $POLICY after reset" >&2
+      exit 1
+    }
+    printf '%s\n' "$init_out"
   fi
 fi
 
@@ -252,27 +279,30 @@ if [ -f "$kit_abs/Dockerfile" ] && [ -z "${SBX_KIT_SKIP_IMAGE_LOAD:-}" ]; then
     exit "$load_rc"
   fi
 
+  # The side-loaded image must be what the sandbox runs, not a re-pulled tag.
+  export SBX_E2E_PULL_POLICY="${SBX_E2E_PULL_POLICY:-never}"
+
   # Verify the tag survived the round trip. `sbx create` resolves the spec's
-  # image reference verbatim, so if the import landed the image under a
-  # different name the test still fails at PREPARE IMAGE — with a confusing
-  # 403 rather than anything pointing here. Warn rather than fail: `template
-  # ls` output is not a contract, and a false negative here should not block a
-  # run that would otherwise work.
+  # image reference verbatim and runs with --pull=never, so if the import
+  # landed the image under a different name the run fails at PREPARE IMAGE
+  # with an image-not-cached error rather than anything pointing here. Warn
+  # rather than fail: `template ls` output is not a contract, and a false
+  # negative here should not block a run that would otherwise work.
   if ! sbx --app-name "$APP_NAME" template ls 2>/dev/null | grep -qF "${kit_image%%:*}"; then
     cat >&2 <<EOF
 
 WARNING: after 'template load', '${kit_image}' was not visible in:
   sbx --app-name $APP_NAME template ls
 
-If the run below fails at PREPARE IMAGE with a pull error, the import likely
-stored the image under a different reference. Check the list above and either
-retag before saving, or point the kit's sandbox.image at what landed.
+The create uses --pull=never, so if the run below fails at PREPARE IMAGE with
+the image not cached, the import stored it under a different reference. Check
+the list above and either retag before saving, or point sandbox.image at it.
 EOF
   fi
 fi
 
 # Auto-diagnose on failure — the most common e2e failure is a missing entry
-# in network.allowedDomains, which `sbx policy log` surfaces precisely. In CI
+# in permissions.network.allow, which `sbx policy log` surfaces precisely. In CI
 # the runner (and its scoped daemon) is destroyed the moment the job ends, so
 # printing instructions for a human to run afterward is useless there — by
 # the time anyone reads the log, there's nothing left to inspect. Instead,
@@ -304,16 +334,47 @@ on_exit() {
     echo "e2e test failed (exit $rc)." >&2
 
     if [ -s "$sbx_name_log" ]; then
+      saw_blocked_requests=0
+      policy_log_read_failed=0
       while IFS= read -r sbox; do
         [ -n "$sbox" ] || continue
         echo "" >&2
         echo "Policy log for sandbox $sbox (policy: ${POLICY:-current default}):" >&2
-        sbx --app-name "$APP_NAME" policy log "$sbox" >&2 || true
+        if policy_log_out=$(sbx --app-name "$APP_NAME" policy log "$sbox" 2>&1); then
+          echo "$policy_log_out" >&2
+          case "$policy_log_out" in
+            *"Blocked requests"*) saw_blocked_requests=1 ;;
+          esac
+        else
+          echo "$policy_log_out" >&2
+          policy_log_read_failed=1
+        fi
       done < "$sbx_name_log"
-      cat >&2 <<EOF
+
+      # A failed read must never be conflated with a clean, empty log: each
+      # gets its own conclusion below, and a blocked-rows sighting always
+      # wins over a same-run read failure on another sandbox.
+      if [ "$saw_blocked_requests" -eq 1 ]; then
+        cat >&2 <<EOF
 
 Every row under 'Blocked requests' above is a host your kit reached for. Add
-it to network.allowedDomains in spec.yaml and re-run this script.
+it to permissions.network.allow in spec.yaml and re-run this script.
+EOF
+      elif [ "$policy_log_read_failed" -eq 1 ]; then
+        cat >&2 <<EOF
+
+The policy log could not be read for one or more sandboxes above, so this
+failure could not be ruled egress-related or not.
+EOF
+      else
+        cat >&2 <<EOF
+
+The policy log above reported no blocked requests, so this failure is
+probably not egress-related.
+EOF
+      fi
+
+      cat >&2 <<EOF
 
 If the sandbox still exists (e.g. a failure other than a rolled-back create),
 it was left running for further inspection:
@@ -325,6 +386,10 @@ EOF
     fi
 
     cat >&2 <<EOF
+
+If the failure was PREPARE IMAGE reporting the image is not cached with
+pull_policy=never, a registry mirror on the host rewrites Docker Hub
+references so the side-loaded tag is never consulted.
 
 If the scoped daemon is wedged, wipe it (your main sbx is unaffected):
 

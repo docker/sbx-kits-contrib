@@ -4,30 +4,93 @@ name: hermes-agent
 displayName: Hermes Agent
 description: The self-improving AI agent by Nous Research — creates skills from experience, supports 200+ models via OpenRouter, and runs anywhere
 sandbox:
-  image: docker/sandbox-templates:shell-docker
+  # Pre-baked image: Hermes at the latest upstream release, on the shell
+  # template (no Docker engine -- Hermes' default terminal backend is
+  # "local", so it does not need one). Built and published by
+  # build-and-publish-kits.yml, the shared kit-image pipeline (see
+  # ../PUBLISHING.md) -- no bespoke workflow needed, same as
+  # pi/openclaw/kiro/copilot. Sandbox creation only pulls the image; the
+  # pipeline's nightly rebuild keeps Hermes current (rolling updates, no
+  # deliberate version bump -- see the Dockerfile).
+  image: docker.io/sbx/hermes-agent-image:latest
   entrypoint:
-    - /usr/local/bin/hermes-start
+    # Kit content, not a script written at install time: the entrypoint has to
+    # source the Anthropic auth env file the startup hook writes, and it is
+    # invoked through `sh` because files under `files/home/` land 0644 -- the
+    # artifact loader does not carry the source exec bit, so a direct exec
+    # fails with EACCES.
+    - sh
+    - /home/agent/.local/bin/hermes-start.sh
 agentInstructions:
   filename: AGENTS.md
 permissions:
   network:
     allow:
-      - github.com
-      - raw.githubusercontent.com
-      - objects.githubusercontent.com
-      - pypi.org
-      - files.pythonhosted.org
-      - astral.sh
+      # A credential's inject domains are not allowed implicitly, and e2e
+      # runs every kit under deny-all -- see README, "How auth works".
+      #
+      # No pypi.org/files.pythonhosted.org: the image sets
+      # HERMES_DISABLE_LAZY_INSTALLS=1 (see Dockerfile), so Hermes refuses
+      # every runtime pip install rather than reaching PyPI for a provider,
+      # search backend, or skill dependency outside what is baked in. That
+      # switch only closes pip installs, though -- it has no effect on the
+      # plain HTTP fetches below, which are a separate, genuine runtime
+      # surface and stay allowed on their own merits.
       - openrouter.ai
       - '*.openrouter.ai'
       - api.openai.com
       - api.anthropic.com
-      - portal.nousresearch.com
-      - duckduckgo.com        # install.sh connectivity probe alongside pypi.org
-      - archive.ubuntu.com    # Ubuntu archive (amd64 main)
-      - security.ubuntu.com   # Ubuntu security updates (amd64)
-      - ports.ubuntu.com      # Ubuntu archive/security (arm64)
-      - download.docker.com   # Docker's apt repo
+      # The anthropic credential's OAuth token endpoint, for the refresh the
+      # proxy performs once the access token expires.
+      - platform.claude.com:443
+      # model.provider: "auto" in config.yaml (see hermes-anthropic-auth.sh)
+      # makes hermes_cli/auth.py's resolve_provider() run on every launch, and
+      # part of that resolution -- and the startup banner's own update/model
+      # checks -- depend on these, confirmed against a real sandbox run under
+      # deny-all:
+      # models.dev: agent/models_dev.py's provider/model catalogue
+      # ("primary database for providers and models"), disk-cached at
+      # ~/.hermes/models_dev_cache.json but fetched over the network whenever
+      # that cache is missing or its 4h TTL has lapsed.
+      - models.dev
+      # opencode.ai: hermes_cli/doctor_connectivity.py probes
+      # https://opencode.ai/zen/v1/models as part of the same
+      # provider-availability sweep that feeds "auto" resolution and the
+      # `hermes model` picker.
+      - opencode.ai
+      # github.com / api.github.com: hermes_cli/banner.py's
+      # prefetch_update_check(), which every launch's startup banner kicks
+      # off in the background -- `git ls-remote` against this kit's own
+      # upstream checkout (a real git clone; install.sh clones it) hits
+      # github.com, and counting exactly how many commits behind falls back
+      # to the GitHub compare API (api.github.com/repos/.../compare/...)
+      # when the checkout is shallow.
+      - github.com
+      - api.github.com
+      # raw.githubusercontent.com: not pinned to a specific call site within
+      # this investigation, but observed contacted on the same real run as
+      # the two hosts above and consistent with the same
+      # update/skills-metadata machinery reading a file out of the repo
+      # rather than cloning it.
+      - raw.githubusercontent.com
+      # api.githubcopilot.com: not confirmed from source. Hypothesis, stated
+      # as such: this kit declares no GitHub Copilot credential, but the
+      # sandbox's own base template unconditionally exports GH_TOKEN for git
+      # operations, and hermes_cli/auth.py's provider registry lists GH_TOKEN
+      # as a Copilot credential candidate. Copilot is excluded from
+      # auto-*selection* (_NO_AUTO_DETECT_PROVIDERS), but that exclusion does
+      # not obviously cover *discovery* (populating `hermes model`'s
+      # provider-availability list), which would explain an attempt to
+      # validate the ambient GH_TOKEN against Copilot's API. Flagged rather
+      # than asserted -- verify against a real sandbox run before trusting it.
+      - api.githubcopilot.com
+      # The project's own domain, confirmed contacted on a real sandbox run.
+      # Exact call site not pinned, but hermes_cli/subcommands/egress.py
+      # links docs here -- evidence this is the CLI's own front door, not
+      # portal.nousresearch.com. This kit declares no "nous" credential and a
+      # real run under deny-all never reached portal.nousresearch.com, so it
+      # is dropped rather than kept on faith.
+      - hermes-agent.nousresearch.com
 credentials:
   - service: anthropic
     apiKey:
@@ -37,6 +100,33 @@ credentials:
         - domain: api.anthropic.com
           header: x-api-key
           format: '%s'
+    # For a host whose stored anthropic credential is an OAuth login -- signed
+    # in from a `claude` sandbox rather than an API key. Without this block
+    # such a host gets no usable credential at all: the apiKey sentinel reaches
+    # Anthropic unswapped and every model call 401s.
+    #
+    # credentialFile points at Claude Code's own store because Hermes reads it
+    # natively and refreshes it in place (agent/anthropic_credentials.py), so
+    # no bootstrap has to translate the credential -- only to drop the
+    # ANTHROPIC_API_KEY sentinel that would otherwise shadow it, which
+    # hermes-anthropic-auth.sh does. The file holds sentinels, not real tokens.
+    oauth:
+      tokenEndpoint:
+        host: platform.claude.com
+        path: /v1/oauth/token
+      resourceHosts:
+        - api.anthropic.com
+      sentinels:
+        accessToken: sk-ant-oat01-proxy-managed
+        refreshToken: sk-ant-ort01-proxy-managed
+      credentialFile:
+        path: ~/.claude/.credentials.json
+        structure:
+          claudeAiOauth:
+            accessToken: '{{.AccessToken}}'
+            refreshToken: '{{.RefreshToken}}'
+            expiresAt: '{{.ExpiresAt}}'
+            scopes: '{{.Scopes}}'
   - service: openai
     apiKey:
       name: OPENAI_API_KEY
@@ -57,10 +147,12 @@ environment:
   variables:
     HERMES_HOME: /home/agent/.hermes
 setup:
-  install:
-    - command: printf '#!/bin/sh\nif ! [ -f /home/agent/.hermes-installed ]; then\n  echo "Waiting for Hermes Agent installation (~3 min)..." >&2\n  until [ -f /home/agent/.hermes-installed ]; do sleep 3; done\nfi\nexec /home/agent/.local/bin/hermes "$@"\n' > /usr/local/bin/hermes-start && chmod +x /usr/local/bin/hermes-start
-      user: "0"
-      description: Create entrypoint wrapper that polls for install completion before launching hermes
-    - command: printf '#!/bin/bash\nset -e\ncurl -fsSL https://raw.githubusercontent.com/NousResearch/hermes-agent/main/scripts/install.sh | bash -s -- --skip-setup\ntouch /home/agent/.hermes-installed\n' > /home/agent/hermes-install.sh && chmod +x /home/agent/hermes-install.sh && setsid /home/agent/hermes-install.sh > /home/agent/hermes-install.log 2>&1 &
+  startup:
+    # Runs on every container start, ahead of any attach: the credential state
+    # is wired at create time and a stop/start can follow a change of host
+    # credential, so the env file is recomputed rather than cached.
+    - command:
+        - sh
+        - /home/agent/.local/bin/hermes-anthropic-auth.sh
       user: "1000"
-      description: Install Hermes Agent via official installer in detached background session (~3 minutes; writes .hermes-installed flag on completion)
+      description: Resolve which of the anthropic/openai/openrouter credentials are genuinely bound, record the result for the entrypoint and `sbx exec` shells, and pin the active provider in config.yaml when only an Anthropic OAuth login is bound

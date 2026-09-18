@@ -1,0 +1,15 @@
+schemaVersion: "2"
+kind: mixin
+name: args-block-literal
+description: "TCK fixture: an args: block whose own text is reference-shaped and must reach the artifact untouched."
+
+args:
+  other:
+    default: "resolved"
+  literal:
+    default: "${{ kit.args.other }}"
+    description: "prose naming ${{ kit.args.nosuch }}, which no declaration answers for"
+
+environment:
+  variables:
+    ARGS_FIXTURE_LITERAL: "${{ kit.args.literal }}"

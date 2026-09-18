@@ -55,6 +55,15 @@ sbx ports <sandbox> --publish 37700/tcp
   inheriting whatever regressions ship in a new claude-mem release
   (claude-mem's issue tracker shows a fairly high rate of worker-lifecycle
   regressions). Re-introduce a pin if this trade proves worse in practice.
+- **Explicit `--provider claude`**: mandatory for an unattended install.
+  Since claude-mem v13.20.0 the installer aborts before doing any work
+  when stdin is not a TTY and no provider was given, so the flag is what
+  keeps this step from failing outright. `claude` is also the only
+  provider that completes without interaction: it uses the sandbox's own
+  Anthropic credentials, where the alternatives (CMEM Pro, Gemini,
+  OpenRouter) need a browser OAuth pairing or a preconfigured personal
+  API key. Upstream's README still describes the pre-13.20.0 behavior —
+  see [thedotmack/claude-mem#3893](https://github.com/thedotmack/claude-mem/issues/3893).
 - **Settings reconciler**: claude-mem's installer merges
   `enabledPlugins` into `~/.claude/settings.json`, while the platform
   seeds the same file at startup *only when missing* — and the two race
@@ -63,9 +72,14 @@ sbx ports <sandbox> --publish 37700/tcp
   driven by `SBX_CRED_ANTHROPIC_MODE`) and the `enabledPlugins` entry
   are present, never overwriting existing keys. Trace at
   `/tmp/claude-mem-reconcile.log`.
-- **Telemetry off at the source**: upstream's PostHog telemetry is ON by
-  default; the kit sets `DO_NOT_TRACK=1` + `CLAUDE_MEM_TELEMETRY=0` and
-  does not allow-list `us.i.posthog.com`.
+- **Telemetry off at the source, scoped to claude-mem**: upstream's
+  PostHog telemetry is ON by default; the kit sets
+  `CLAUDE_MEM_TELEMETRY=0` and does not allow-list `us.i.posthog.com`.
+  The cross-tool `DO_NOT_TRACK` convention is deliberately *not* set — it
+  would silence the base claude kit and every other tool in the sandbox,
+  which is not a mixin's call to make. The missing allow-list entry is
+  the durable half of this: it holds even if upstream renames the
+  variable.
 - First memory compression uses your existing claude auth (the proxy
   wiring from the parent kit); first embed lazily downloads Chroma's
   ONNX model (~80MB, allow-listed S3 host).

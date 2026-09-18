@@ -34,6 +34,8 @@ permissions:
     allow:
       - api.anthropic.com
       - api.openai.com:443
+      - api.github.com
+      - github.com
       - "*.example.com"
     deny:
       - telemetry.example.com
