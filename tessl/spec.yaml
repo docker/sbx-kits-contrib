@@ -1,0 +1,128 @@
+schemaVersion: "2"
+kind: mixin
+name: tessl
+displayName: Tessl
+description: Installs the Tessl CLI with proxy-injected API-key auth and wires the Tessl MCP server into the sandboxed agent, so it can search and install skills and tiles from the Tessl registry.
+sourceURL: https://github.com/shelajev/tessl-sbx-kit
+licenses:
+  - Apache-2.0
+
+args:
+  version:
+    # Exported as TESSL_VERSION so a cached kit installs the same CLI every
+    # time, rather than whatever get.tessl.io currently serves.
+    default: "0.109.0"
+    description: "Tessl CLI version to install"
+    pattern: '^[0-9]+\.[0-9]+\.[0-9]+$'
+
+agentInstructions:
+  content: |
+    ## Tessl
+
+    The Tessl CLI is installed and authenticated. `TESSL_TOKEN` holds a
+    placeholder, never the real key — the sandbox proxy swaps in the real
+    token on requests to api.tessl.io. `tessl whoami` confirms auth. Don't
+    unset or overwrite TESSL_TOKEN; the placeholder is what makes the CLI
+    send a request at all, and the real key isn't available in here.
+
+    - `tessl search <query>` — search the registry for skills and tiles
+    - `tessl list` — list what is installed in this project
+    - `tessl install <name>` — install a skill or tile into this project
+
+    The Tessl MCP server is wired up as well (see `.mcp.json`), so its tools
+    are callable directly without shelling out to the CLI.
+
+    Only `*.tessl.io` is reachable from this sandbox, so `tessl install
+    <github-url>` fails unless the host's network policy also allows the
+    GitHub hosts — that's a host-side change you can't make from in here.
+
+permissions:
+  network:
+    allow:
+      # Covers get.tessl.io (install script), install.tessl.io (tarball and
+      # signed manifest), api.tessl.io (CLI and MCP), and the registry hosts
+      # `tessl search` resolves to — including dynamically-named ones, which
+      # is why this is a wildcard rather than a list.
+      - "*.tessl.io:443"
+      # `*.` matches exactly one label, never zero, so the apex needs its own
+      # rule.
+      - tessl.io:443
+
+credentials:
+  - service: tessl
+    description: Tessl API key, minted on the host with `tessl api-key create`. Stored on the host; the sandbox only ever sees a placeholder and the proxy injects the real value on requests to api.tessl.io.
+    required: true
+    apiKey:
+      # No `proxyManaged: true` here — see TESSL_TOKEN under environment.
+      name: TESSL_TOKEN
+      inject:
+        - domain: api.tessl.io
+          scheme: bearer
+
+environment:
+  variables:
+    # The in-container placeholder, not a credential — a fixed dummy that
+    # authenticates nothing. `proxyManaged: true` would set this to
+    # "proxy-managed", which the CLI rejects client-side (it requires an
+    # "sk_" prefix) and then never sends a request for the proxy to inject
+    # into. Injection is keyed on the destination domain, not on this value.
+    TESSL_TOKEN: "sk_proxy_managed"
+
+    # Opts out of the installer's anonymous PostHog ping, so the kit's egress
+    # stays *.tessl.io rather than needing an analytics host allowlisted.
+    TESSL_TELEMETRY: "off"
+
+setup:
+  install:
+    # Deliberately not a digest-pinned tarball: the installer verifies an
+    # ECDSA P-256 signature over its SHA256SUMS manifest and fails closed, so
+    # a hand-copied SHA256 here would be the weaker check. The version is
+    # pinned via TESSL_VERSION instead.
+    - command: |
+        set -eu
+        if command -v tessl >/dev/null 2>&1; then
+          tessl --version
+          exit 0
+        fi
+        for tool in curl tar sed openssl; do
+          command -v "$tool" >/dev/null 2>&1 || {
+            echo "tessl kit: '$tool' not found; the Tessl installer needs it to verify the release signature" >&2
+            exit 1
+          }
+        done
+        command -v sha256sum >/dev/null 2>&1 || command -v shasum >/dev/null 2>&1 || {
+          echo "tessl kit: neither sha256sum nor shasum found; the Tessl installer needs one to verify the download" >&2
+          exit 1
+        }
+        TESSL_VERSION="${{ kit.args.version }}"
+        export TESSL_VERSION
+        curl --proto '=https' --tlsv1.2 -fsSL https://get.tessl.io | sh
+        "$HOME/.local/bin/tessl" --version
+      user: "1000"
+      description: "Install the Tessl CLI v${{ kit.args.version }} into the agent user's ~/.local/bin"
+
+    # ~/.local/bin is only on PATH for the agent user's interactive shells.
+    # Guarded so it never clobbers another kit's binary.
+    - command: |
+        set -eu
+        TESSL_BIN=/home/agent/.local/bin/tessl
+        if [ -x "$TESSL_BIN" ] && [ ! -e /usr/local/bin/tessl ]; then
+          ln -sfn "$TESSL_BIN" /usr/local/bin/tessl
+        fi
+      user: "0"
+      description: Put tessl on PATH for every shell in the sandbox
+
+  startup:
+    # Writes tessl.json and per-agent MCP config; each agent reads only its
+    # own file, so initialising all of them keeps this mixin base-agnostic.
+    # Skipped once tessl.json exists, so a restart never re-touches a project.
+    #
+    # WORKSPACE_DIR, not PWD: a startup hook's PWD is /home/agent/workspace,
+    # which is the real working directory only for a cloned workspace. Under a
+    # direct mount it's an unrelated empty directory, and writing there yields
+    # config the agent never reads while `tessl init` still reports success.
+    #
+    # Every --agent value must be one tessl recognises; one bad value aborts
+    # the command and writes nothing. Check `tessl init --help` before adding.
+    - command: ["sh", "-c", "cd \"${WORKSPACE_DIR:-$PWD}\" || exit 1; [ -f tessl.json ] || tessl init --name \"$(basename \"$PWD\")\" --agent claude-code --agent codex --agent copilot --agent cursor --agent gemini --agent antigravity --agent openhands --agent openclaw"]
+      description: Initialize the Tessl project and wire up MCP for any supported agent
