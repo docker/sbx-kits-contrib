@@ -1,0 +1,85 @@
+# Docker Sandboxes kit: Mem0 memory layer wired to a local Docker Model Runner.
+# Usage and design notes: see README.md in this directory.
+schemaVersion: "2"
+kind: mixin
+name: mem0
+version: "1.0.0"
+displayName: Mem0 (Docker Model Runner)
+description: "Adds the Mem0 memory layer (mem0ai) to an agent, pre-wired to a local Docker Model Runner for both the LLM and the embedder. No cloud credentials, no external vector database."
+licenses:
+  - Apache-2.0
+
+# DMR runs on the host and is reached at host.docker.internal:12434, which
+# NO_PROXY (below) routes around the sandbox proxy. pypi + the spaCy model
+# download are the only real egress; localhost:12434 is listed for the local
+# engine endpoint. OpenAI and Gemini backends live in sibling kits (mem0-openai,
+# mem0-gemini) - they need cloud egress and a stored key, which this DMR variant
+# deliberately avoids.
+permissions:
+  network:
+    allow:
+      - pypi.org
+      - files.pythonhosted.org
+      - raw.githubusercontent.com
+      - github.com
+      - release-assets.githubusercontent.com
+      - localhost:12434
+
+environment:
+  variables:
+    OPENAI_BASE_URL: "http://host.docker.internal:12434/engines/v1"
+    OPENAI_API_KEY: "dmr"
+    MEM0_TELEMETRY: "false"
+    NO_PROXY: "localhost,127.0.0.1,host.docker.internal"
+    no_proxy: "localhost,127.0.0.1,host.docker.internal"
+
+setup:
+  install:
+    - command: "pip install --break-system-packages 'mem0ai[nlp]==2.0.5' click"
+      user: "1000"
+      description: "Install Mem0 with NLP extras (spaCy lemmatization) plus click (spaCy CLI dep)"
+    - command: "PIP_BREAK_SYSTEM_PACKAGES=1 python3 -m spacy download en_core_web_sm"
+      user: "1000"
+      description: "Download spaCy English model (env var lets spacy's internal pip call bypass PEP 668)"
+  files:
+    - path: /home/agent/.mem0/config.json
+      mode: "0644"
+      onlyIfMissing: true
+      description: "Mem0 config wired to Docker Model Runner (editable)"
+      content: |
+        {
+          "vector_store": {
+            "provider": "qdrant",
+            "config": {
+              "collection_name": "mem0",
+              "path": "/home/agent/.mem0/qdrant",
+              "on_disk": true,
+              "embedding_model_dims": 1024
+            }
+          },
+          "llm": {
+            "provider": "openai",
+            "config": {
+              "model": "ai/gemma3",
+              "openai_base_url": "http://host.docker.internal:12434/engines/v1",
+              "api_key": "dmr"
+            }
+          },
+          "embedder": {
+            "provider": "openai",
+            "config": {
+              "model": "ai/mxbai-embed-large",
+              "openai_base_url": "http://host.docker.internal:12434/engines/v1",
+              "api_key": "dmr",
+              "embedding_dims": 1024
+            }
+          }
+        }
+
+agentInstructions:
+  content: |
+    ## Mem0 memory layer
+
+    The `mem0ai` package is installed and pre-wired to a local Docker Model
+    Runner (config at `~/.mem0/config.json`), so `Memory.from_config(...)`
+    add/search works with no cloud keys or external vector database.
