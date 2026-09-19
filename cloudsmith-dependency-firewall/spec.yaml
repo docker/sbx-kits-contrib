@@ -1,0 +1,87 @@
+schemaVersion: "2"
+kind: mixin
+name: cloudsmith-dependency-firewall
+displayName: Cloudsmith dependency firewall
+description: Denies the public package registries at the proxy so clients cannot fall back from Cloudsmith.
+
+# Enforcement half of the Cloudsmith pair. Compose it after the
+# `cloudsmith-repo` kit, which points pip/uv, npm, Go, cargo, Maven, NuGet, Docker and curl at a
+# Cloudsmith repository:
+#
+#   sbx run claude --kit <cloudsmith> --kit <cloudsmith-dependency-firewall> .
+#
+# `permissions.network.deny` wins over any `allow` from the base agent or other
+# kits, and the lists only append across kits, so a tool that silently falls
+# back to a public registry (a stale lockfile, a per-project .npmrc, an
+# unpinned `pip install` in a script) hits a policy block visible in
+# `sbx policy log` instead of bypassing Cloudsmith. Kept as its own mixin so
+# `cloudsmith-repo` alone stays permissive for teams that only want the redirect.
+# The `cloudsmith-cli` kit's install is unaffected: it downloads from
+# dl.cloudsmith.io, which this kit does not deny.
+
+permissions:
+  network:
+    deny:
+      # PyPI simple index. Blocks `pip`/`uv` resolving against the public index
+      # when a --index-url flag or a project config overrides the kit's PIP_INDEX_URL.
+      - pypi.org
+      # PyPI file host. Wheels and sdists are served from here, not pypi.org,
+      # so denying only the index would still let direct-URL downloads through.
+      - files.pythonhosted.org
+      # npm public registry. Blocks npm/pnpm/yarn falling back to it via a
+      # per-project .npmrc or a lockfile with hard-coded public resolved URLs.
+      - registry.npmjs.org
+      # Same registry under its .com alias. Cloudsmith answers a request for a
+      # package its npm repository does not hold (and has no upstream for)
+      # with a 302 to https://registry.npmjs.com/<pkg>; verified in-sandbox.
+      - registry.npmjs.com
+      # Yarn classic's default registry, a mirror of registry.npmjs.org that
+      # yarn v1 uses unless told otherwise.
+      - registry.yarnpkg.com
+      # Go module mirror. Blocks the `GOPROXY` default and the `,direct`
+      # fallback chain's first hop when GOPROXY is unset in a subshell.
+      - proxy.golang.org
+      # crates.io: the sparse index, the crate download host and the legacy
+      # site cargo falls back to when a project overrides the kit's source
+      # replacement.
+      - index.crates.io
+      - static.crates.io
+      - crates.io
+      # Maven Central under both of its names (a pom.xml <repository> or a
+      # settings.xml without the kit's mirror would reach them).
+      - repo1.maven.org
+      - repo.maven.apache.org
+      # nuget.org v3 feed and its flat-container CDN.
+      - api.nuget.org
+      # nuget.org legacy v2 feed (www.nuget.org/api/v2, still served) and the
+      # CDN its package downloads 302 to; both verified from the host. The v3
+      # service index also names the two Azure search hosts.
+      - www.nuget.org
+      - globalcdn.nuget.org
+      - azuresearch-usnc.nuget.org
+      - azuresearch-ussc.nuget.org
+      # Docker Hub: registry, token endpoint, both blob CDN names seen in
+      # redirects (cloudfront verified live on 2026-09-10), and the legacy index.
+      - registry-1.docker.io
+      - auth.docker.io
+      - production.cloudfront.docker.com
+      - production.cloudflare.docker.com
+      - index.docker.io
+
+agentInstructions:
+  content: |
+    ## Cloudsmith: public registries denied
+
+    The public package registries (PyPI, npmjs, yarnpkg, the Go mirror,
+    crates.io, Maven Central, nuget.org, Docker Hub) are denied by sandbox
+    policy; a request to one fails with "Blocked by network policy". Package
+    and image traffic must go through the Cloudsmith repository the
+    `cloudsmith-repo` kit configured.
+
+    When a package cannot be installed, do not change registry or index
+    settings (`pip.conf`, `uv.toml`, `.npmrc`, `GOPROXY`, `--index-url`,
+    `--registry`) or fetch it from a direct URL or git instead. Report the
+    ecosystem, package, version, the host contacted and the status: 403 with
+    "quarantined" is a Cloudsmith policy decision, 404 means the repository
+    and its upstreams do not have it, "Blocked by network policy" means a
+    tool fell back to a denied host. Do not paste URLs that carry tokens.
