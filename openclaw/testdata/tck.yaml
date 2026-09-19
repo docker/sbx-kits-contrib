@@ -1,8 +1,11 @@
 binary: "openclaw"
 # `setup.startup` does not block `sbx exec`, so the prompt subtest can beat
 # the gateway's boot and get GatewayCredentialsRequiredError instead of a
-# real answer. Wait for the sentinel openclaw-gateway-up.sh writes once
-# /readyz is green.
+# real answer. Wait for the sentinel openclaw-gateway-up.sh writes once the
+# gateway is up and the tool-call image is local -- the prompt subtest needs
+# both, since a turn fails outright while that image is missing. Note the
+# detached pull can also write it after gateway-up itself has given up, so it
+# proves the image, and only that the gateway was up when it was written.
 readyFile: /home/agent/.openclaw/gateway-ready
 # `openclaw agent` requires an explicit target: without a selector it exits
 # with "No target session selected" before contacting the agent at all,
