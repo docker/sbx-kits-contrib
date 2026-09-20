@@ -51,18 +51,32 @@ RUN apt-get update && apt-get install -y --no-install-recommends xvfb && \
 # its own directory, so an overlay cannot reach the sibling workload's files/,
 # and `diff -r` between the two is what catches drift. Copied without an exec
 # bit, as the workload copies them, because both are invoked through `sh`.
-COPY --chown=agent:agent files/home/ /out/home/agent/
+#
+# Deliberately without the `--chown=agent:agent` the workload's copy of this
+# same tree carries: BuildKit applies --chown to every parent directory it
+# creates, so chowning into /out/home/agent/ also stamps uid 1000 onto
+# /out/home, and the `chown -R /out/home/agent` at the end of the next stanza
+# starts one level too deep to undo it. The overlay would then ship `home/`
+# owned by the agent -- an overlay's directory entries override the base's, so
+# that hands away a directory this kit does not own. Root-owned parents here;
+# agent ownership is applied below, starting exactly at the agent's home.
+COPY files/home/ /out/home/agent/
 
 # The specific paths the three installs produced.
 #
-# The npm prefix is asked for rather than hardcoded: `n` installs node under
-# N_PREFIX (/usr/local by default) and npm's global prefix follows it, so a
-# future `n` or template change that moves either would otherwise produce an
-# overlay that silently contains nothing. Paths are preserved absolutely,
-# which is what keeps npm's relative bin symlink into the package resolving.
-# (The workload additionally re-points that symlink with `ln -sf` to guarantee
-# a PATH entry; that step has nothing to add here, where the path npm wrote is
-# already the one being copied.)
+# There are two prefixes here, not one. The template base exports
+# NPM_CONFIG_PREFIX=/usr/local/share/npm-global, so a `npm install -g` lands
+# the package there, while `n` installs the node runtime -- and the npm that
+# comes inside the node tarball -- under N_PREFIX (/usr/local). npm is
+# therefore not a global package on this base and does not appear under
+# `npm root -g` at all; it sits beside node, in node's own prefix. Both
+# prefixes are asked for rather than hardcoded, and both are asserted, so a
+# future `n` or template change that moves either fails this build instead of
+# producing an overlay that silently contains nothing.
+#
+# Paths are preserved absolutely, which is what keeps npm's relative bin
+# symlink into the package ($prefix/bin/openclaw -> ../lib/node_modules/
+# openclaw/...) resolving once it lands.
 #
 # npm rides along with node deliberately: openclaw installs plugins and
 # externalized channels from the registry at run time (`/plugins install`),
@@ -72,20 +86,53 @@ COPY --chown=agent:agent files/home/ /out/home/agent/
 RUN <<'EOF'
 set -eux
 
+# Where global packages go (openclaw) ...
 prefix="$(npm prefix -g)"
 root="$(npm root -g)"
+# ... and where the runtime itself went (node, npm, npx). Derived from the
+# binary rather than assumed to equal $prefix, which is the assumption that
+# made this stanza look for npm under the global root.
+node_prefix="$(dirname "$(dirname "$(readlink -f "$(command -v node)")")")"
 
-# Fail loudly rather than shipping an overlay with nothing in it.
+# Fail loudly rather than shipping an overlay with nothing in it. Four
+# assertions because there are four independently movable things below, and a
+# missing one is invisible at build time and fatal at run time.
 test -d "$root/openclaw"
+test -e "$prefix/bin/openclaw"
+test -x "$node_prefix/bin/node"
+test -d "$node_prefix/lib/node_modules/npm"
 
-mkdir -p "/out${prefix}/bin" "/out${root}" /out/usr/local/bin /out/opt /out/etc/profile.d
+mkdir -p "/out${prefix}/bin" "/out${root}" \
+         "/out${node_prefix}/bin" "/out${node_prefix}/lib/node_modules" \
+         /out/usr/local/bin /out/opt /out/etc/profile.d
 
 cp -a "$root/openclaw" "/out${root}/openclaw"
-cp -a "$root/npm" "/out${root}/npm"
 cp -a "$prefix/bin/openclaw" "/out${prefix}/bin/openclaw"
-for b in node npm npx; do
-  if [ -e "$prefix/bin/$b" ]; then cp -a "$prefix/bin/$b" "/out${prefix}/bin/$b"; fi
+
+cp -a "$node_prefix/bin/node" "/out${node_prefix}/bin/node"
+cp -a "$node_prefix/lib/node_modules/npm" "/out${node_prefix}/lib/node_modules/npm"
+# npm and npx are relative symlinks into the tree copied a line above, so they
+# travel as symlinks and resolve. corepack is deliberately not copied: its
+# link would dangle without its own module tree, which nothing here needs.
+for b in npm npx; do
+  cp -a "$node_prefix/bin/$b" "/out${node_prefix}/bin/$b"
 done
+
+# The base owns the global prefix root as agent:agent, so the agent can
+# `npm install -g` without sudo -- which is exactly what openclaw's runtime
+# plugin installs do. mkdir above created it root-owned, and an overlay's
+# directory entries override the base's, so without this the overlay would
+# quietly take that away.
+chown 1000:1000 "/out${prefix}"
+
+# /usr/local/bin/openclaw, the same symlink the workload pins. Not redundant
+# here, despite the copy of npm's own bin entry above: $prefix/bin is only on
+# PATH because *this* base puts it there, an overlay lands on a base that may
+# not, and openclaw-gateway-up.sh resets PATH to /usr/local/bin:/usr/bin:/bin
+# for exactly that reason -- so without this, the kit's own startup hook
+# cannot find the agent the overlay just delivered. Absolute, because a copy
+# of npm's relative link would resolve against /usr/local/lib from here.
+ln -sf "$prefix/bin/openclaw" /out/usr/local/bin/openclaw
 
 cp -a /opt/ms-playwright /out/opt/ms-playwright
 
@@ -93,6 +140,8 @@ cp -a /opt/ms-playwright /out/opt/ms-playwright
 # the shell.
 install -m 0755 /out/home/agent/.local/bin/openclaw-start.sh /out/usr/local/bin/openclaw-start
 
+# Starts exactly at the agent's home: /out/home stays root-owned, as the base
+# has it.
 chown -R 1000:1000 /out/home/agent
 EOF
 

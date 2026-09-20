@@ -16,6 +16,11 @@ description: Runs the Codex ACP adapter inside a Codex sandbox over stdio.
 
 kind: mixin
 
+# The kit's own version, not the version of anything it installs: it is the
+# tag this kit publishes under, and the fallback that versions an unversioned
+# provide at publish. Bump it when this kit's declarations change.
+version: "1.0.0"
+
 # MIGRATION NOTE: v2's `requires: {agent: codex}` — a single base-agent
 # affinity matched against a sandbox kit's `name`. v3 has one flat capability
 # namespace instead, so this becomes a requires entry over the name the codex

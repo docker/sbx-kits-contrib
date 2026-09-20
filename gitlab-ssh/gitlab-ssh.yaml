@@ -5,6 +5,11 @@ description: Appends a GitLab instance's SSH host keys to ~/.ssh/known_hosts so 
 
 kind: mixin
 
+# The kit's own version, not the version of anything it installs: it is the
+# tag this kit publishes under, and the fallback that versions an unversioned
+# provide at publish. Bump it when this kit's declarations change.
+version: "1.0.0"
+
 # Neither arg carries `env:` or `buildArg:`. Both are consumed entirely by
 # descriptor expansion — the runtime allow entry, the install hook's shell
 # string, and the context body — and v3 args are private by default, so

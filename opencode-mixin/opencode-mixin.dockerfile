@@ -16,6 +16,21 @@ FROM ${BASE_IMAGE} AS build
 # which is why the descriptor's provide is unversioned.
 ARG OPENCODE_VERSION=""
 
+# /opt belongs to root and this base runs as the unprivileged `agent` (uid
+# 1000), so npm cannot create the prefix it is pointed at. The prefix is
+# created as root and handed over rather than the install being run as root,
+# because root is exactly the wrong user for the corepack line below: corepack
+# `disable` unlinks npm's bin path WITHOUT checking that a corepack shim is
+# what sits there -- its removePosixLink is an unconditional unlink. As root
+# that deletes this base's distro /usr/bin/npm symlink outright, and the
+# install on the next line then has no npm to run; as the agent it is the
+# harmless EACCES the `||` branch exists for. Running as the base's own user
+# is also what keeps this install identical to the workload's, which is the
+# whole reason this stage builds on the workload's base.
+USER root
+RUN mkdir -p /opt/opencode && chown agent:agent /opt/opencode
+USER agent
+
 # Installed from npm rather than through the standalone
 # `curl https://opencode.ai/install | bash` script upstream's README leads
 # with: the npm route resolves nothing through the unauthenticated GitHub
@@ -60,9 +75,28 @@ EOF
 # shim that assumed one shape would break on the other. Prepending
 # /usr/local/bin is what makes the node case work, since the overlay's own node
 # lands there.
+#
+# Root for the staging step only -- everything above deliberately runs as the
+# base's `agent` user, and /out cannot be created under a root-owned /. The
+# staged tree is chowned back because an overlay's directory entries override
+# the base's: /opt and /usr/local/bin are root's on every base this composes
+# onto, and root's mkdir here gives them that, but `cp -a` would otherwise
+# carry the install's uid onto /opt/opencode and hand a 180 MB executable the
+# launcher runs to whoever uid 1000 turns out to be on that base. Nothing
+# writes into the prefix at run time -- see the self-update note below.
+# Numeric because scratch carries no /etc/passwd for a name to resolve against.
+# No node is copied out. The package's bin entry resolves to a native ELF that
+# links only libc, libpthread and libdl, so the overlay needs no runtime --
+# verified by composing this overlay onto a node-free ubuntu:24.04, where
+# `opencode --version` reports 1.18.31. Copying the template's node would also
+# be worse than useless: Debian's /usr/bin/node is a small launcher linked
+# against libnode.so.127, which a bare copy cannot resolve, and /usr/local/bin
+# precedes /usr/bin on PATH -- so it would shadow a working node on any base
+# that has one with a broken one.
+USER root
 RUN mkdir -p /out/opt /out/usr/local/bin \
  && cp -a /opt/opencode /out/opt/opencode \
- && cp -a "$(command -v node)" /out/usr/local/bin/node
+ && chown -R 0:0 /out/opt/opencode
 
 COPY --chmod=755 <<'EOF' /out/usr/local/bin/opencode
 #!/bin/sh

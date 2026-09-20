@@ -10,12 +10,18 @@
 # The base is a floating tag and Vibe is installed from a `latest` channel,
 # which is why CI also rebuilds on a schedule.
 ARG BASE_IMAGE=docker/sandbox-templates:shell-docker
-FROM ${BASE_IMAGE}
 
-# Re-declared inside the stage: an ARG defined before the first FROM is a
-# global build arg, visible only to FROM lines. Without this the LABEL below
-# would expand to an empty string.
-ARG BASE_IMAGE
+# MIGRATION NOTE: the install runs in a build stage, where the v2 recipe had a
+# single one. mistral-vibe depends on miniaudio, which publishes no arm64 wheel,
+# so uv builds it from source and needs a C++ compiler the template does not
+# carry -- the v2 recipe therefore could only ever build for amd64, even though
+# CI asked for both platforms. The compiler is installed here and stays behind
+# in this stage, so the published kit does not carry a toolchain it never uses.
+#
+# Both stages are the same base and the install lands at the same absolute
+# paths, which is what makes the copy below equivalent to what the v2
+# single-stage build produced.
+FROM ${BASE_IMAGE} AS build
 
 # PyPI version of mistral-vibe: "latest", or an exact number such as 2.25.0 to
 # pin the image to a known release. Not a kit arg: the descriptor's provide is
@@ -23,14 +29,43 @@ ARG BASE_IMAGE
 # to pin.
 ARG VIBE_VERSION=latest
 
+USER root
+RUN set -ex; \
+    apt-get update; \
+    apt-get install -y --no-install-recommends g++; \
+    rm -rf /var/lib/apt/lists/*
+
 # uv ships with the template at /usr/local/bin/uv, and `uv tool install` puts
 # the executables in ~/.local/bin, which is already on the template's PATH --
 # so the ENTRYPOINT below can stay the bare name `vibe`.
+#
+# --managed-python is the other half of the arm64 fix, and it is not
+# interchangeable with the compiler above: miniaudio's extension needs a
+# compiler AND CPython's headers. The template's own python3.14 ships neither
+# `pyconfig.h` nor an apt package that provides it -- there is no
+# `python3-dev` candidate in its sources at all -- so uv downloads a managed
+# interpreter that carries its headers. The version is pinned to 3.14 to match
+# the interpreter the v2 image ran on, so this changes where Python comes from
+# and not which Python it is.
 USER agent
 RUN set -ex; \
     if [ "${VIBE_VERSION}" = "latest" ]; then SPEC="mistral-vibe"; else SPEC="mistral-vibe==${VIBE_VERSION}"; fi; \
-    uv tool install "${SPEC}"; \
+    uv tool install --managed-python --python 3.14 "${SPEC}"; \
     vibe --version
+
+FROM ${BASE_IMAGE}
+
+# Re-declared inside the stage: an ARG defined before the first FROM is a
+# global build arg, visible only to FROM lines. Without this the LABEL below
+# would expand to an empty string.
+ARG BASE_IMAGE
+
+# uv bakes absolute interpreter paths into the tool venv, so the tree has to
+# land at exactly the path it was installed to. The final stage is the same
+# base rather than scratch, so /home and /home/agent already exist with the
+# ownership the platform floor expects and the copy only owns what it brings.
+COPY --from=build --chown=agent:agent /home/agent/.local /home/agent/.local
+USER agent
 
 # Requests Docker-in-Docker from the runtime. Inherited from the base image,
 # but re-declared so the value is owned here rather than depending on

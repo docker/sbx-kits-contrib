@@ -2,6 +2,11 @@
 # Migration of this kit's v2 spec.yaml. Deltas are marked MIGRATION NOTE inline.
 schemaVersion: "3"
 kind: mixin
+
+# The kit's own version, not the version of anything it installs: it is the
+# tag this kit publishes under, and the fallback that versions an unversioned
+# provide at publish. Bump it when this kit's declarations change.
+version: "1.0.0"
 displayName: AI-DLC Quick Start
 description: Starter Kit for AWS AI-DLC — installs a pinned Bun, clones the latest aidlc-workflows main commit for a fresh project or the commit that project already recorded, and copies its Claude harness into the workspace, merging its settings.json keys and .gitignore rules into the files a project already has.
 

@@ -19,6 +19,12 @@
 # to, so a base already carrying an `opencode-ai` there loses it to this one.
 FROM docker/sandbox-templates:opencode-docker AS build
 
+# Root for the staging step, which is the whole of this stage: / is root-owned
+# and the template's default user is the unprivileged `agent` (uid 1000), so
+# /out cannot be created. Unlike the sibling opencode mixin there is no install
+# here to keep unprivileged -- the template already ran it.
+USER root
+
 RUN <<'EOF'
 set -eux
 
@@ -37,10 +43,26 @@ mkdir -p "/out${root}" "/out${prefix}/bin" /out/usr/local/bin
 cp -a "$root/opencode-ai" "/out${root}/opencode-ai"
 cp -a "$prefix/bin/opencode" "/out${prefix}/bin/opencode"
 
-# npm's bin entry resolves node through `#!/usr/bin/env node`, so the overlay
-# carries a node for bases that have none. A base that already has one keeps
-# whichever PATH finds first; both run the same package.
-cp -a "$(command -v node)" /out/usr/local/bin/node
+# No node is copied out. npm's bin entry is a symlink to a native ELF that
+# links only libc, libpthread and libdl, so the overlay needs no runtime --
+# verified by composing the sibling opencode overlay onto a node-free
+# ubuntu:24.04, where `opencode --version` answers. Copying the template's node
+# would also be worse than useless: Debian's /usr/bin/node is a small launcher
+# linked against libnode.so.127, which a bare copy cannot resolve, and
+# /usr/local/bin precedes /usr/bin on PATH -- so it would shadow a working node
+# on any base that has one with a broken one.
+
+# `mkdir -p` above created every missing level as root, which is what /usr,
+# /usr/local, /usr/local/share and /usr/local/bin are in the template -- but
+# it is not what the npm prefix is. The template hands the agent its global
+# prefix so `npm install -g` works unprivileged, and an overlay's directory
+# entries override the base's, so shipping the prefix root-owned would take
+# the composed base's global npm prefix away from the user that installs into
+# it. The chown therefore starts exactly at the prefix and no level above it.
+# Numeric because scratch carries no /etc/passwd for a name to resolve
+# against; 1000:1000 is the platform floor's `agent`, and it is the ownership
+# `cp -a` just preserved on the copied tree.
+chown -R 1000:1000 "/out${prefix}"
 EOF
 
 # No profile.d snippet: v2 declared no `environment.variables` for this kit,

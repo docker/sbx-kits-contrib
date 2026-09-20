@@ -5,6 +5,11 @@ description: Configures git to sign commits using the SSH key forwarded from the
 
 kind: mixin
 
+# The kit's own version, not the version of anything it installs: it is the
+# tag this kit publishes under, and the fallback that versions an unversioned
+# provide at publish. Bump it when this kit's declarations change.
+version: "1.0.0"
+
 # MIGRATION NOTE: no network-policy@1 entry, faithfully. The v2 kit
 # declared no `permissions.network` block and this kit reaches nothing:
 # the key is resolved from the forwarded SSH agent over a unix socket, and

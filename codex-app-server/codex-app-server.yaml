@@ -22,6 +22,11 @@ description: >-
 
 kind: mixin
 
+# The kit's own version, not the version of anything it installs: it is the
+# tag this kit publishes under, and the fallback that versions an unversioned
+# provide at publish. Bump it when this kit's declarations change.
+version: "1.0.0"
+
 # MIGRATION NOTE: v2's `requires: {agent: codex}` — sshd + a codex bridge, only
 # meaningful on the codex base agent. v2 declared base-agent affinity instead
 # of `extends:` because a mixin already runs in the base agent's container and

@@ -5,6 +5,11 @@ description: Installs the GitLab CLI (glab) with proxy-injected personal access 
 
 kind: mixin
 
+# The kit's own version, not the version of anything it installs: it is the
+# tag this kit publishes under, and the fallback that versions an unversioned
+# provide at publish. Bump it when this kit's declarations change.
+version: "1.0.0"
+
 args:
   host:
     default: "gitlab.com"

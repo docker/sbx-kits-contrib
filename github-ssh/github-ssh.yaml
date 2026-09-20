@@ -5,6 +5,11 @@ description: Pre-populates GitHub host keys so SSH operations work without inter
 
 kind: mixin
 
+# The kit's own version, not the version of anything it installs: it is the
+# tag this kit publishes under, and the fallback that versions an unversioned
+# provide at publish. Bump it when this kit's declarations change.
+version: "1.0.0"
+
 capabilities:
   # MIGRATION NOTE: v2 declared one flat allow list (github.com,
   # api.github.com) that applied to the whole sandbox life. v3 scopes egress

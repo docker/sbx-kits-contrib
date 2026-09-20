@@ -6,12 +6,17 @@
 #
 # The build stage is the workload's own base, verbatim.
 #
-# GitHub's installer takes no target-directory option and lays the CLI under
-# $HOME/.local, so the relocation runs it against a scratch HOME and moves the
-# tree afterwards rather than trying to talk the installer into writing
-# somewhere else. The tree lands at a stable /opt path with a /usr/local/bin
-# shim: an overlay that wrote into /home/agent would land inside whatever the
-# base (or a mounted volume) has already put there.
+# GitHub's installer does take a target-directory option — PREFIX, documented in
+# the script's own header, installing to $PREFIX/bin. What it does not honor is
+# HOME: it picks the prefix from the effective uid, defaulting to /usr/local for
+# root and only falling back to $HOME/.local for the non-root case. This stage
+# runs as root, so redirecting the install with HOME=/build is a no-op — the CLI
+# lands in the stage's own /usr/local/bin and the overlay ships nothing.
+#
+# So PREFIX points straight at the staging tree and the CLI arrives in its final
+# layout in one step, with no post-hoc move. The tree lands at a stable /opt path
+# with a /usr/local/bin shim: an overlay that wrote into /home/agent would land
+# inside whatever the base (or a mounted volume) has already put there.
 ARG BASE_IMAGE=docker/sandbox-templates:shell-docker
 FROM ${BASE_IMAGE} AS build
 USER root
@@ -21,27 +26,35 @@ USER root
 # install command proves an exit code, not an installed binary, and an overlay
 # with no agent in it would otherwise build "successfully".
 #
-# The whole installed tree moves rather than a hand-picked list of files: the
-# vendor owns that layout, and a release that grows a sibling asset would
-# otherwise be silently truncated by the overlay.
+# The whole prefix is staged rather than a hand-picked list of files: the vendor
+# owns that layout, and a release that grows a sibling asset beside the binary
+# would otherwise be silently truncated by the overlay.
 #
 # The install floats: no version pin, which is why the descriptor's
 # `provides: ["copilot"]` is unversioned and leans on its `version:` fallback.
 RUN <<EOF
 set -exo pipefail
-mkdir -p /build /out/opt /out/usr/local/bin
-HOME=/build bash -c 'curl -fsSL https://gh.io/copilot-install | bash'
-test -x /build/.local/bin/copilot
-cp -a /build/.local /out/opt/copilot-cli
-# The installer may leave bin/copilot as a symlink into a versions tree under
-# the scratch HOME. Rewrite that prefix to the overlay's /opt path so the shim
-# resolves once the tree has moved; a plain file needs no rewrite.
-if [ -L /build/.local/bin/copilot ]; then
-    target=$(readlink -f /build/.local/bin/copilot | sed 's#^/build/\.local#/opt/copilot-cli#')
-else
-    target=/opt/copilot-cli/bin/copilot
-fi
-ln -s "$target" /out/usr/local/bin/copilot
+mkdir -p /out/opt /out/usr/local/bin
+export PREFIX=/out/opt/copilot-cli
+# The staging bin dir goes on PATH so the installer's own `command -v copilot`
+# check passes. Without it the installer takes its "not in your PATH" branch,
+# which opens /dev/tty to offer appending a PATH line to root's .profile — log
+# noise here, and a write to a file the overlay has no business carrying.
+export PATH="$PREFIX/bin:$PATH"
+curl -fsSL https://gh.io/copilot-install | bash
+# Asserted against the literal path rather than $PREFIX: the guard is here to
+# catch the overlay's contract breaking, and one phrased in the same variable
+# that chose the location would agree with itself wherever that location moved.
+test -x /out/opt/copilot-cli/bin/copilot
+# The release tarball records uid 1001, which a root `tar -xz` preserves. On an
+# unknown base that uid belongs to somebody, so the binary sitting on the shared
+# PATH is normalized to root; the directories around it are already root-owned.
+chown -R 0:0 /out/opt/copilot-cli
+# A plain file, not a symlink into a versions tree — the installer's entire
+# install step is `tar -xz -C $PREFIX/bin` plus a chmod. And since PREFIX staged
+# the tree where it will finally sit, there is no relocation for the shim to
+# chase: it is a fixed link to the path the overlay lands the tree on.
+ln -s /opt/copilot-cli/bin/copilot /out/usr/local/bin/copilot
 EOF
 
 # No /etc/profile.d drop: the v2 copilot kit declared no environment.variables,

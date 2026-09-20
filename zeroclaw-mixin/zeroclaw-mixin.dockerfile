@@ -43,7 +43,12 @@ RUN set -eu; \
 # from here. The two must move together -- see this kit's README. Copied
 # without an exec bit, as the workload copies them, because
 # zeroclaw-anthropic-key.sh is invoked through `sh`.
-COPY --chown=agent:agent files/home/ /out/home/agent/
+# No --chown here: BuildKit applies it to every parent it creates, which
+# stamps uid 1000 onto /out/home and hands /home away on every base this
+# composes onto. The `chown -R /out/home/agent` below starts one level too
+# deep to undo that, so the copy leaves parents root-owned and the chown
+# owns exactly the agent home and its contents.
+COPY files/home/ /out/home/agent/
 
 # zeroclaw-start.sh additionally lands as a 0755 launcher on PATH. A mixin
 # sets no entrypoint, and unlike picoclaw this kit's daemon is started by the

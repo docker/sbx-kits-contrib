@@ -2,6 +2,11 @@
 # Migration of this kit's v2 spec.yaml. Deltas are marked MIGRATION NOTE inline.
 schemaVersion: "3"
 kind: mixin
+
+# The kit's own version, not the version of anything it installs: it is the
+# tag this kit publishes under, and the fallback that versions an unversioned
+# provide at publish. Bump it when this kit's declarations change.
+version: "1.0.0"
 displayName: claude-mem (persistent memory)
 description: 'Persistent context across Claude Code sessions: captures session activity into SQLite+FTS5, compresses with the Agent SDK, and injects relevant memory at session start. Tracks the latest claude-mem release.'
 

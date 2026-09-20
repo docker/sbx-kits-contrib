@@ -26,6 +26,21 @@ USER root
 RUN mkdir -p /out/home/agent/.local /out/etc/profile.d /out/usr/local/bin \
  && chown -R agent:agent /out/home/agent
 
+# mistral-vibe depends on miniaudio, which publishes no arm64 wheel, so uv
+# builds it from source and needs a C++ compiler the template does not carry.
+# The compiler belongs to this build stage only -- the overlay copies specific
+# paths out, so a toolchain here never reaches the composed sandbox.
+RUN set -ex; \
+    apt-get update; \
+    apt-get install -y --no-install-recommends g++; \
+    rm -rf /var/lib/apt/lists/*
+
+# The compiler is only half of it: miniaudio's extension also needs CPython's
+# headers, and the template's own python3.14 ships neither `pyconfig.h` nor an
+# apt package that provides one. --managed-python below has uv download an
+# interpreter that carries its headers, pinned to the same 3.14 the template
+# runs, so this changes where Python comes from and not which Python it is.
+
 # The install, unmodified from the workload recipe. uv ships with the
 # template at /usr/local/bin/uv, and `uv tool install` puts the executables
 # in ~/.local/bin. `vibe --version` is the build-time gate.
@@ -33,7 +48,7 @@ USER agent
 WORKDIR /home/agent
 RUN set -ex; \
     if [ "${VIBE_VERSION}" = "latest" ]; then SPEC="mistral-vibe"; else SPEC="mistral-vibe==${VIBE_VERSION}"; fi; \
-    uv tool install "${SPEC}"; \
+    uv tool install --managed-python --python 3.14 "${SPEC}"; \
     vibe --version
 
 # The specific resulting paths: the tool venv and any managed interpreter
