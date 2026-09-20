@@ -1,0 +1,95 @@
+# syntax=docker/sandbox-kit:3
+# Migration of the v2 `amp` sandbox kit. This one shipped no Dockerfile at
+# all: v2's sandbox.image pointed straight at a published template and the
+# install hook did the rest. A v3 workload MUST have content, so the companion
+# recipe states exactly that -- the same template as its base, plus the launch
+# config the image config now owns. Deltas are marked MIGRATION NOTE inline.
+schemaVersion: "3"
+displayName: Amp
+description: The frontier coding agent.
+
+kind: workload
+
+# MIGRATION NOTE: v2 declared no version, and the install floats -- install.sh
+# resolves whatever Amp currently publishes, with no pin to reference -- so the
+# provide is unversioned and `version:` supplies the fallback that publishing
+# needs it to carry.
+version: "1.0.0"
+
+provides: ["amp"]
+
+capabilities:
+  # This workload is an agent sandbox: the host launches the agent rather than
+  # running the image's entrypoint as PID 1, and honors the identity the image
+  # config declares instead of assuming one.
+  - type: com.docker.sandbox/sbx@1
+
+  # MIGRATION NOTE: v2's one flat allow list becomes phase-scoped, and this is
+  # the one kit in this group with a real install phase to scope -- Amp is
+  # installed by the hook below at sandbox create, not baked into the image.
+  # Both entries appear in both phases, because both phases genuinely reach
+  # them:
+  #   * install -- install.sh is served from ampcode.com, and vendor install
+  #     scripts routinely redirect the payload to a sibling label, which the
+  #     wildcard is what admits. v2's single list covered both for the hook,
+  #     and narrowing install to the apex alone would be a change of behavior
+  #     dressed up as a migration.
+  #   * runtime -- ampcode.com is the credential's inject domain (v3 validates
+  #     that it appears in the matching phase's allow list), and the agent's
+  #     own API traffic is what the wildcard covers.
+  # The union of the two phases is exactly v2's list; no host is lost.
+  #
+  # MIGRATION NOTE: entries are portless, this repo's house style. v2 wrote
+  # `ampcode.com:443`; a portless pattern matches any port, so this only
+  # widens within a host the list already names.
+  - type: com.docker.sandbox/network-policy@1
+    config:
+      install:
+        allow:
+          - ampcode.com
+          - "*.ampcode.com"
+      runtime:
+        allow:
+          - ampcode.com
+          - "*.ampcode.com"
+
+  # MIGRATION NOTE: `optional: true` preserves v2 behavior. v2 credentials
+  # default to not-required and the v3 default inverts, so without this a
+  # sandbox with no Amp key bound would fail to create where v2 created one
+  # that Amp's own sign-in could still complete.
+  #
+  # No proxyManaged, faithfully: v2 did not set it, and adding it would plant
+  # a sentinel in AMP_API_KEY on hosts with no credential bound at all --
+  # in-container tooling would then read a placeholder as a real token.
+  - type: com.docker.sandbox/credential@1
+    optional: true
+    description: Amp API access
+    config:
+      service: amp
+      phase: runtime
+      apiKey:
+        name: AMP_API_KEY
+        inject:
+          - {domain: ampcode.com, header: Authorization, format: "Bearer %s"}
+
+  - type: com.docker.sandbox/lifecycle@1
+    config:
+      install:
+        # v2's setup.install, verbatim -- including `user: "1000"`. install.sh
+        # is a per-user installer with no --prefix, so it has to run as the
+        # user that will run the agent or it lands the binary somewhere the
+        # agent cannot reach. It needs nothing beyond the platform baseline
+        # ($HOME to install into, $PATH to find curl), so it declares no env.
+        - command: curl -fsSL https://ampcode.com/install.sh | bash
+          user: "1000"
+          description: Install Amp
+
+  # v2's agentInstructions, body moved verbatim into the staged context file.
+  - type: com.docker.sandbox/agent-context@1
+    config:
+      filename: AGENTS.md
+      contentFile: ./amp-context.md
+
+  # MIGRATION NOTE: no agent-sessions@1. The verbs are declarable only where a
+  # working non-interactive invocation was already recorded, and this kit
+  # shipped no testdata/tck.yaml and so no promptArgs.

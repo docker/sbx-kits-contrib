@@ -70,11 +70,13 @@ The real key never enters the sandbox. Each credential sets
 `*_API_KEY` env var inside the container so Crush sees the variables it
 expects to find.
 
-`permissions.network.allow` covers every provider API host and nothing else —
-Crush is baked into the image (see [Base image](#base-image) below), so
-`repo.charm.sh` (the apt index and GPG key) and the hosts it redirects package
-downloads to are install-time-only and do not need to be reachable from a
-running sandbox.
+The `network-policy@1` capability's `runtime` allow list covers every provider
+API host and nothing else — Crush is baked into the kit's content (see
+[Content](#content) below), so `repo.charm.sh` (the apt index and GPG key) and
+the hosts it redirects package downloads to are build-time-only and do not
+need to be reachable from a running sandbox. The policy declares no `install`
+phase at all, because a build runs before any phase the policy scopes and this
+kit has no lifecycle hooks.
 
 ### Anthropic: API key only, no Claude subscription
 
@@ -99,51 +101,57 @@ the container defeats `proxyManaged: true`, since from there it is
 readable by the agent and by anything the agent runs. Keep credentials
 host-side.
 
-## Base image
+## Content
 
-Unlike most kits here — which are `kind: mixin` or `kind: agent` and layer
-onto an existing `docker/sandbox-templates` image — a `kind: sandbox` kit *is*
-the whole environment, so it names the image the sandbox boots from. This kit
-builds and publishes its own, from the `Dockerfile` in this directory:
+Unlike a `kind: mixin` kit, which layers onto an existing environment, a
+`kind: workload` kit *is* the whole environment: its layers are the root
+filesystem, so the kit has content rather than a reference to an image built
+elsewhere. That content is built from
+[`crush.dockerfile`](./crush.dockerfile), the companion recipe the descriptor
+finds by filename stem:
 
 ```
-docker.io/sbx/crush-image
+crush (the kit)
 └── FROM docker/sandbox-templates:shell
     └── crush (apt, from Charm's own repository)
 ```
+
+There is also a [`crush-mixin`](../crush-mixin) variant, which carries the
+same binary as an overlay for layering onto a shell workload.
 
 Crush is a single statically-linked Go binary with no runtime installer of its
 own — LSPs and MCP servers are commands the user configures in `crushrc` and
 Crush execs directly, it does not fetch or install them — so once it lands in
 this layer there is nothing left for the image to seal off.
 
-The `-image` suffix distinguishes the base image from the kit itself: the kit
-is published separately as an OCI artifact at `docker.io/sbx/crush-kit` (see
-[Usage](#usage) above).
+A v3 kit is one OCI image carrying both its declarations and its content, so
+there is no longer a separate `-image` artifact beside the kit: the descriptor
+rides in a manifest annotation on the same image its layers belong to.
 
 ### Building and publishing
 
-How the image is named, tagged, verified and pushed is the same for every kit
-in this repo that builds its own image — see
-**[PUBLISHING.md](../PUBLISHING.md)** for the pipeline. There is no
-kit-specific build script or workflow; CI builds and publishes this image the
-same way it does for `hermes-agent`/`pi`/`openclaw`/`kiro`/`copilot`.
+How the kit is named, tagged, verified and pushed is the same for every kit in
+this repo — see **[PUBLISHING.md](../PUBLISHING.md)** for the pipeline. There
+is no kit-specific build script or workflow.
 
-Crush's tagged releases land roughly weekly, so this image rolls: the
-`Dockerfile`'s `ADD` against the GitHub releases Atom feed forces a fresh apt
-install whenever a new release is published, and the pipeline's nightly
-scheduled rebuild picks one up within a day either way. The installed version
-always comes from Charm's apt repository, not from the feed, so there is no
-build arg to pin a specific release here.
+Crush's tagged releases land roughly weekly, so this kit rolls: the recipe's
+`ADD` against the GitHub releases Atom feed forces a fresh apt install
+whenever a new release is published, and the pipeline's nightly scheduled
+rebuild picks one up within a day either way. The installed version always
+comes from Charm's apt repository, not from the feed, so there is no build arg
+to pin a specific release here — which is also why the descriptor declares no
+`args` and publishes an unversioned `provides: ["crush"]` under its `version:`
+fallback.
 
 ### Building locally
 
 ```console
-docker build -t docker.io/sbx/crush-image:latest crush
 ./scripts/test-kit.sh crush
 ```
 
-`scripts/test-kit.sh` builds the kit's own image before running the suite
-(`SBX_KIT_SKIP_IMAGE_BUILD=1` to skip and reuse what's already built). Until
-the image is first published — pull requests build it but never push it — the
-TCK's `container` subtest can only pull it locally, so build before you test.
+The build is driven by the frontend the descriptor's first line names
+(`# syntax=docker/sandbox-kit:3`), which validates `crush.yaml`, builds
+`crush.dockerfile` as the kit's content, and publishes both as one image —
+see **[PUBLISHING.md](../PUBLISHING.md)**. Until the kit is first published —
+pull requests build it but never push it — only a local build is available, so
+build before you test.

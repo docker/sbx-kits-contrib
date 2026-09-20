@@ -1,0 +1,145 @@
+# syntax=docker/sandbox-kit:3
+# Migration of the v2 `zeroclaw` sandbox kit. v2 pointed `sandbox.image` at
+# docker.io/sbx/zeroclaw-image:latest, a pre-baked image built from the
+# Dockerfile in this directory; a v3 workload's layers *are* the root
+# filesystem, so the two collapse into one recipe (zeroclaw.dockerfile) and
+# v2's environment.variables and sandbox.entrypoint move into the image
+# config. Deltas are marked MIGRATION NOTE inline.
+schemaVersion: "3"
+displayName: ZeroClaw
+description: >-
+  Fast, small, fully autonomous AI assistant infrastructure (Rust, single
+  binary) — gateway with 30+ channels and ~20 providers, pre-baked at a
+  pinned upstream release.
+sourceUrl: https://github.com/zeroclaw-labs/zeroclaw
+
+kind: workload
+
+# The release is pinned deliberately (the recipe fetches it by exact tag with
+# a hardcoded per-arch digest), so the version is declared once: validated
+# here, handed to the recipe as the release pin, expanded into the provide.
+#
+# MIGRATION NOTE: the v2 build arg's value was `v0.8.0`; a v3 version is
+# `[0-9]+(\.…)*` with no `v` prefix, so the arg holds `0.8.0` and the recipe
+# spells the tag `v${ZEROCLAW_VERSION}`. Same release, one spelling of the
+# version.
+args:
+  version:
+    default: "0.8.0"
+    pattern: '^[0-9]+\.[0-9]+\.[0-9]+$'
+    description: ZeroClaw release to install
+    buildArg: ZEROCLAW_VERSION
+
+provides: ["zeroclaw@${{ kit.args.version }}"]
+
+capabilities:
+  # v2 `kind: sandbox`: the host launches the agent rather than running the
+  # image's entrypoint as PID 1, and honors the identity the image config
+  # declares.
+  - type: com.docker.sandbox/sbx@1
+
+  # v2's permissions.network.allow, entirely in the runtime phase. The
+  # release download and its digest check happen at build, which this policy
+  # does not govern, and the kit's one hook runs at startup — the runtime
+  # phase — so there is nothing an install phase would need to open. An
+  # absent phase grants nothing, which is the correct statement.
+  #
+  # MIGRATION NOTE: v2's `platform.claude.com:443` is carried portless for
+  # the contrib house style; port suffixes are ignored for allow-list
+  # membership, so the grant is unchanged.
+  - type: com.docker.sandbox/network-policy@1
+    config:
+      runtime:
+        allow:
+          # Every domain the anthropic credential injects into -- required
+          # here too, not just there: this repo's e2e runs every kit under
+          # `sbx policy init deny-all`, so a domain absent from this list is
+          # unreachable regardless of what the credential declares. v3 makes
+          # that structural: inject domains are validated against this list.
+          - api.anthropic.com
+          - claude.ai
+          - console.anthropic.com
+          # The anthropic credential's OAuth token endpoint, for the refresh
+          # the proxy performs once the access token expires.
+          - platform.claude.com
+          - '*.telegram.org'
+          - '*.discord.com'
+          - gateway.discord.gg
+          - '*.matrix.org'
+          - '*.slack.com'
+
+  - type: com.docker.sandbox/port@1
+    config: {name: gateway, container: 42617}
+
+  # MIGRATION NOTE: `optional: true` preserves v2 behavior. v2 credentials
+  # default to not-required and v3's default inverts; zeroclaw starts with the
+  # `__ANTHROPIC_API_KEY__` placeholder still in config.toml when nothing is
+  # bound, so a required entry would fail resolution on a host that never
+  # bound one.
+  - type: com.docker.sandbox/credential@1
+    optional: true
+    description: Anthropic API access (API key or claude.ai OAuth)
+    config:
+      service: anthropic
+      phase: runtime
+      apiKey:
+        name: ANTHROPIC_API_KEY
+        proxyManaged: true
+        inject:
+          - {domain: api.anthropic.com, header: x-api-key, format: "%s"}
+          - {domain: claude.ai, header: x-api-key, format: "%s"}
+          - {domain: console.anthropic.com, header: x-api-key, format: "%s"}
+      # For a host whose stored anthropic credential is an OAuth login --
+      # signed in from a `claude` sandbox rather than an API key. Without this
+      # block such a host gets no usable credential at all: the apiKey sentinel
+      # reaches Anthropic unswapped and every model call 401s.
+      #
+      # ZeroClaw reads its credential from config.toml, not from this file, so
+      # credentialFile serves two narrower purposes: it is what makes the OAuth
+      # path detectable from inside the sandbox (SBX_CRED_ANTHROPIC_MODE reports
+      # "none" even when this credential resolves, so it cannot discriminate
+      # oauth from apikey), and it carries the sentinel that
+      # zeroclaw-anthropic-key.sh templates into config.toml. The file holds
+      # sentinels, not real tokens.
+      oauth:
+        tokenEndpoint: {host: platform.claude.com, path: /v1/oauth/token}
+        resourceHosts: [api.anthropic.com]
+        sentinels:
+          accessToken: sk-ant-oat01-proxy-managed
+          refreshToken: sk-ant-ort01-proxy-managed
+        credentialFile:
+          path: ~/.claude/.credentials.json
+          structure:
+            claudeAiOauth:
+              accessToken: "{{.AccessToken}}"
+              refreshToken: "{{.RefreshToken}}"
+              expiresAt: "{{.ExpiresAt}}"
+              scopes: "{{.Scopes}}"
+
+  - type: com.docker.sandbox/lifecycle@1
+    config:
+      startup:
+        # Runs on every container start, ahead of any attach, so a sandbox
+        # nobody attaches to (the gateway on the published port) is configured
+        # too. The script is idempotent -- the placeholder it matches is gone
+        # after the first substitution -- which is why the entrypoint can call
+        # it again.
+        #
+        # MIGRATION NOTE: `env:` is new and load-bearing, and it settles
+        # something v2 could only work around. ANTHROPIC_API_KEY is the
+        # API-key branch: the script's comment records that a v2 startup hook
+        # ran with a minimal environment and never saw it, so the branch
+        # no-oped and the entrypoint did the work on the second pass. v3 hook
+        # environments are declared rather than minimal, so naming it here is
+        # what lets the hook resolve the credential at start; the entrypoint's
+        # second call stays as the idempotent backstop. $HOME is the platform
+        # baseline.
+        - command: [sh, /home/agent/.local/bin/zeroclaw-anthropic-key.sh]
+          user: "1000"
+          env: [ANTHROPIC_API_KEY]
+          description: Resolve the host's Anthropic credential into config.toml at sandbox start
+
+# MIGRATION NOTE: no agent-context@1 and no agent-sessions@1. v2 declared no
+# agentInstructions, and no testdata/tck.yaml recorded a non-interactive
+# invocation -- zeroclaw is driven as a daemon over its gateway, not by an
+# argv tail -- so there are no session verbs to state and none are invented.

@@ -1,0 +1,144 @@
+# syntax=docker/sandbox-kit:3
+# Playwright as a declaration-only MIXIN. The v2 kit shipped no Dockerfile —
+# it installed everything through setup hooks — and v3 lets a mixin have no
+# recipe at all, so the descriptor is the whole kit and there is nothing to
+# build.
+#
+# MIGRATION NOTE: v2's `environment.variables` has no v3 field here. A mixin's
+# image config is not the composed image's, and a recipe-less mixin has no
+# overlay to drop an /etc/profile.d file into at build time either — so the
+# first install hook below writes that drop instead. Both variables stayed
+# fixed values rather than becoming args with `env:`: neither is a knob. The
+# agent context tells the agent not to override PLAYWRIGHT_BROWSERS_PATH, and
+# the install hooks create and chmod that exact path, so an installer-supplied
+# value would point the runtime at a directory the install never made. NODE_PATH
+# is likewise a fact about the base's npm prefix, not a choice.
+schemaVersion: "3"
+displayName: Playwright
+description: >-
+  Playwright browser-automation toolchain for sandbox agents — the playwright
+  CLI and @playwright/test v1.61.1 with Chromium, installed to a shared system
+  browsers path so the agent user can run headless browser automation and
+  end-to-end tests entirely inside the sandbox.
+
+kind: mixin
+
+# The install hook pins 1.61.1 and npm verifies the tarballs against the
+# registry metadata's sha512 integrity values, so this version is a fact about
+# what the kit installs rather than a release number. To bump: edit the hook,
+# this entry, the agent context and the README together.
+provides: ["playwright@1.61.1"]
+
+capabilities:
+  # MIGRATION NOTE: v2's one flat allow list, split by the phase that reaches
+  # each host. The union loses nothing; what narrows is that the apt mirrors and
+  # the npm registry are now unreachable once the agent starts, which is what
+  # the v2 comments already said they were for.
+  - type: com.docker.sandbox/network-policy@1
+    config:
+      install:
+        allow:
+          # npm packages: playwright + @playwright/test tarballs.
+          - registry.npmjs.org
+          # Browser binaries. cdn.playwright.dev is the primary CDN, the
+          # prss.microsoft.com host is the documented fallback Playwright
+          # rotates to on CDN failure.
+          - cdn.playwright.dev
+          - playwright.download.prss.microsoft.com
+          # On amd64, Playwright's Chromium is a "Chrome for Testing" build:
+          # cdn.playwright.dev only issues a 302 redirect and the actual
+          # chrome-linux64.zip is served from Google's Chrome-for-Testing bucket
+          # on storage.googleapis.com. Without this, `playwright install chromium`
+          # fails with a proxy 403 (Blocked by network policy) under deny-all.
+          # (arm64 builds come from prss.microsoft.com instead, hence the split.)
+          - storage.googleapis.com
+          # `playwright install --with-deps` apt-installs Chromium's system
+          # libraries. `apt-get update` refreshes every configured source, so all
+          # template sources must be reachable: Ubuntu hosts amd64 packages on
+          # archive/security and arm64 packages on ports.ubuntu.com, and the
+          # *-docker templates pre-add Docker's apt repo. Install-only: nothing
+          # the agent does reaches apt.
+          - archive.ubuntu.com
+          - security.ubuntu.com
+          - ports.ubuntu.com
+          - download.docker.com
+      runtime:
+        allow:
+          # The three browser-download hosts are in both phases: the v2 comment
+          # called this out — a project pinning a different Playwright version
+          # fetches its matching build with `npx playwright install chromium` at
+          # runtime, and /opt/ms-playwright is left writable for exactly that.
+          - cdn.playwright.dev
+          - playwright.download.prss.microsoft.com
+          - storage.googleapis.com
+
+  - type: com.docker.sandbox/lifecycle@1
+    config:
+      install:
+        # Stands in for v2's `environment.variables`, and runs first because
+        # that block was in effect before any v2 hook ran. The hooks below still
+        # export PLAYWRIGHT_BROWSERS_PATH themselves, so install does not depend
+        # on this drop being sourced.
+        #
+        # NODE_PATH lets `require('@playwright/test')` resolve from the global
+        # npm install in zero-config runs (a bare .spec.js with no package.json).
+        # Node only searches node_modules up the file's directory tree; NODE_PATH
+        # adds the global root as a fallback. Projects with their own
+        # node_modules are unaffected — the local copy always wins.
+        #
+        # PLAYWRIGHT_BROWSERS_PATH: install hooks run as root but the agent runs
+        # as uid 1000, so the default per-user ~/.cache/ms-playwright would leave
+        # the browsers in root's home where the agent can't see them. A fixed
+        # system path shared by every user (the same trick the official Playwright
+        # Docker image uses) fixes that.
+        - command: |
+            set -eu
+            mkdir -p /etc/profile.d
+            cat > /etc/profile.d/playwright-env.sh <<'EOF'
+            # Installed by sbx-kits-contrib/playwright. See playwright.yaml for
+            # why each of these is a fixed path rather than a tunable.
+            export NODE_PATH=/usr/local/share/npm-global/lib/node_modules
+            export PLAYWRIGHT_BROWSERS_PATH=/opt/ms-playwright
+            EOF
+            chmod 0644 /etc/profile.d/playwright-env.sh
+          user: "0"
+          description: Drop NODE_PATH and PLAYWRIGHT_BROWSERS_PATH into /etc/profile.d
+        - command: |
+            set -euo pipefail
+            command -v npm >/dev/null || { echo "npm not found: this mixin needs a base image with Node.js >= 18 (all standard agent templates ship it)" >&2; exit 1; }
+            if [ -n "${HTTP_PROXY:-}" ]; then
+              npm config set proxy "$HTTP_PROXY"
+              npm config set https-proxy "$HTTP_PROXY"
+            fi
+            PLAYWRIGHT_VERSION=1.61.1
+            npm install -g "playwright@${PLAYWRIGHT_VERSION}" "@playwright/test@${PLAYWRIGHT_VERSION}"
+            ln -sf "$(command -v playwright)" /usr/local/bin/playwright
+            playwright --version
+          user: "0"
+          env: [HTTP_PROXY]
+          description: Install playwright + @playwright/test v1.61.1 from registry.npmjs.org, version pinned
+        # MIGRATION NOTE: this body reads no variable itself, but the work it
+        # drives does — Playwright's Node downloader and the apt-get run behind
+        # `--with-deps` both take the proxy from the environment, and v2's
+        # unrestricted hook environment handed it to them. Under v3's
+        # deny-by-default hook env they have to be declared or every browser
+        # download fails behind the sandbox's forced proxy. npm's own proxy
+        # config from the hook above does not cover them.
+        - command: |
+            set -euo pipefail
+            export PLAYWRIGHT_BROWSERS_PATH=/opt/ms-playwright
+            playwright install --with-deps chromium
+            rm -rf /var/lib/apt/lists/*
+            # World-writable like the official Playwright image: lets the agent
+            # user (uid 1000) add matching browser builds at runtime when a
+            # project pins a different Playwright version.
+            chmod -R 777 /opt/ms-playwright
+          user: "0"
+          env: [HTTP_PROXY, HTTPS_PROXY]
+          description: Install Chromium (+ headless shell) into /opt/ms-playwright and its system libraries via apt
+
+  # No `filename:` — that is workload-only, and this mixin contributes a body
+  # to whichever agent owns the profile.
+  - type: com.docker.sandbox/agent-context@1
+    config:
+      contentFile: ./playwright-context.md

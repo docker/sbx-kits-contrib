@@ -1,6 +1,6 @@
 # copilot
 
-A standalone sandbox kit (`kind: sandbox`, `schemaVersion: "2"`) for
+A standalone workload kit (`kind: workload`, `schemaVersion: "3"`) for
 [GitHub Copilot CLI](https://github.com/github/copilot-cli), GitHub's agentic
 coding CLI. The kit runs `copilot --yolo` as the entrypoint and authenticates
 through two separate credentials the sandbox proxy injects per request: a
@@ -8,9 +8,15 @@ through two separate credentials the sandbox proxy injects per request: a
 Copilot's own API.
 
 Copilot was previously a built-in `sbx` agent, run as `sbx run copilot`. This
-kit replaces that, and is backed by a base image built from the
-[`Dockerfile`](./Dockerfile) in this directory rather than by the
+kit replaces that. A v3 workload's layers *are* the sandbox's root filesystem,
+so the kit is its own image: the content recipe is
+[`copilot.dockerfile`](./copilot.dockerfile) beside the descriptor, built on
+`docker/sandbox-templates:shell-docker` rather than tracking the
 `docker/sandbox-templates` release train.
+
+Prefer Copilot layered onto something else rather than as the whole sandbox?
+See [`copilot-mixin`](../copilot-mixin/), which makes the same declarations as
+an overlay.
 
 ## Prerequisites
 
@@ -47,8 +53,10 @@ Or with a local clone of this repo:
 sbx run --kit ./copilot/ copilot
 ```
 
-The trailing `copilot` is required, not redundant: for `kind: sandbox` kits,
-`sbx` enforces that the agent name matches the kit's own `name`.
+The trailing `copilot` is required, not redundant: `sbx` enforces that the agent
+name matches the workload kit being run. A v3 descriptor carries no `name:` —
+identity is the reference the kit is consumed by — and the matchable name the
+kit offers is its `provides: ["copilot"]`.
 
 ## Passing arguments
 
@@ -82,10 +90,19 @@ fail until `COPILOT_GITHUB_TOKEN` is set up too.
 
 ## Network policy
 
-`permissions.network.allow` mirrors every domain either credential block
-injects into, plus the apt sources the base image ships with (needed because
-the startup hook runs `apt-get update`, which fails wholesale if any
-configured source is unreachable).
+The `network-policy@1` capability's `runtime.allow` list mirrors every domain
+either credential injects into, plus the apt sources the base image ships with
+(needed because the startup hook runs `apt-get update`, which fails wholesale
+if any configured source is unreachable). v3 validates the other direction too:
+every inject domain must appear in the matching phase's allow list, so an inject
+rule the policy could never admit is a build error rather than dead config.
+
+Everything sits in the `runtime` phase and the `install` phase is absent, which
+grants nothing there. That is not an oversight: v3 scopes egress by phase and
+closes the install grants before the entrypoint starts, and neither install hook
+opens a socket — one is a `mkdir`/`chown`, the other writes the trusted-folders
+config. The apt mirrors need a *runtime* grant because the hook that uses them
+is a startup hook, and startup hooks run at boot.
 
 > [!IMPORTANT]
 > This list has not been verified end-to-end under `sbx policy init deny-all`
@@ -97,7 +114,8 @@ configured source is unreachable).
 > $ sbx policy log
 > ```
 >
-> then add the reported hosts to `permissions.network.allow` in `spec.yaml`.
+> then add the reported hosts to the `network-policy@1` capability's
+> `runtime.allow` list in [`copilot.yaml`](./copilot.yaml).
 
 ## MCP
 
@@ -115,27 +133,28 @@ entry, so servers you add inside the sandbox with `copilot mcp add` survive a
 
 ## Base image
 
-Unlike most kits here — which are `kind: mixin` or `kind: agent` and layer onto
-an existing `docker/sandbox-templates` image — a `kind: sandbox` kit *is* the
-whole environment, so it names the image the sandbox boots from. This kit
-builds and publishes its own, from the `Dockerfile` in this directory.
+Unlike a mixin, which layers onto whatever it lands on, a `kind: workload` kit
+*is* the whole environment: its layers are the sandbox's root filesystem and its
+image config carries the launch contract. So this kit builds that filesystem
+itself, from [`copilot.dockerfile`](./copilot.dockerfile) beside the descriptor.
 
-The image is **`docker.io/sbx/copilot-image`**, built on
-`docker/sandbox-templates:shell-docker`, so it carries a Docker engine and
-requests Docker-in-Docker.
+The recipe builds on `docker/sandbox-templates:shell-docker`, so the result
+carries a Docker engine and requests Docker-in-Docker.
 
-The `-image` suffix distinguishes the base image from the kit itself: the kit
-itself is published as an OCI artifact at `docker.io/sbx/copilot-kit` (see
-[Usage](#usage) above).
-The name is derived from the kit directory and enforced repo-wide — see
+There is one artifact rather than two. Under v2 this kit named a separately
+published `docker.io/sbx/copilot-image` in `sandbox.image` and the kit itself
+shipped as `docker.io/sbx/copilot-kit`; a v3 kit is one OCI image carrying both
+the declarations (in a manifest annotation) and the content (in its layers), so
+the published kit *is* the image the sandbox boots. The name is derived from the
+kit directory and enforced repo-wide — see
 [PUBLISHING.md](../PUBLISHING.md#naming).
 
 There is no flavour suffix and no dockerless variant. The sandbox templates
 distinguish `copilot` from `copilot-docker` because a user picks a template
-directly, but a kit picks its own image — so the Docker-in-Docker detail never
+directly, but a kit picks its own base — so the Docker-in-Docker detail never
 reaches the user, just as `sbx run copilot` already resolves to the Docker
-flavour today. And a `kind: sandbox` kit names exactly one `sandbox.image`, so
-a second image would be unreachable without a second kit to consume it.
+flavour today. And a workload kit has exactly one content recipe, so a second
+image would be unreachable without a second kit to consume it.
 
 ### Building and publishing
 
@@ -148,9 +167,18 @@ parts are below.
 ### Building locally
 
 ```console
-docker build -t docker.io/sbx/copilot-image:latest copilot
+docker build -f copilot/copilot.dockerfile -t docker.io/sbx/copilot:latest copilot
+```
+
+That builds the content alone. To build the kit — content plus the validated,
+expanded descriptor in its manifest annotation — build
+[`copilot.yaml`](./copilot.yaml) instead, which its
+`# syntax=docker/sandbox-kit:3` line dispatches to the kit frontend:
+
+```console
+docker build -f copilot/copilot.yaml -t docker.io/sbx/copilot:latest copilot
 ```
 
 `BASE_IMAGE` is a build arg, so the base can be re-pointed or digest-pinned
-without editing the `Dockerfile`: `--build-arg BASE_IMAGE=…` accepts a tag or a
-digest.
+without editing [`copilot.dockerfile`](./copilot.dockerfile): `--build-arg
+BASE_IMAGE=…` accepts a tag or a digest.

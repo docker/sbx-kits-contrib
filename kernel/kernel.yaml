@@ -1,0 +1,102 @@
+# syntax=docker/sandbox-kit:3
+schemaVersion: "3"
+displayName: Kernel Browser
+description: Cloud-hosted Chromium for AI agents with stealth, managed auth, and live session replay
+sourceUrl: https://github.com/docker/sbx-kits-contrib/tree/main/kernel
+licenses:
+  - Apache-2.0
+
+kind: mixin
+
+# `npm install -g @onkernel/cli` takes whatever the registry publishes as
+# latest, so the provide floats and `version:` is the fallback a resolver
+# reads for it.
+provides: ["kernel"]
+version: "1.0.0"
+
+capabilities:
+  - type: com.docker.sandbox/network-policy@1
+    config:
+      # MIGRATION NOTE: v2's single flat list is split by phase, following what
+      # its own comments said each host was for. The npm and PyPI hosts are
+      # named in both phases — the CLI install needs npm at create, and the v2
+      # comments put the SDK installs (which the README documents as something
+      # the agent does in its project) in steady state. The GitHub hosts stay
+      # install-only: v2 tied them specifically to @onkernel/cli's postinstall.
+      # A runtime `npm install` of some *other* package that fetches a GitHub
+      # release asset would now be refused; add them back to `runtime` in a
+      # fork if that is the workflow you want.
+      install:
+        allow:
+          # npm — the CLI install itself
+          - registry.npmjs.org
+          - '*.npmjs.org'
+          # @onkernel/cli's postinstall (install.js, GoReleaser-generated) downloads
+          # the actual kernel binary from a GitHub release asset
+          # (github.com/kernel/cli/releases/download/...). The 302 redirect target
+          # isn't a fixed constant -- confirmed by hand to land on
+          # objects.githubusercontent.com once and release-assets.githubusercontent.com
+          # on a real e2e run -- so both are allowed. Without these, `npm install -g
+          # @onkernel/cli` fails under a deny-all policy even though the npm
+          # registry fetch itself succeeds.
+          - github.com
+          - objects.githubusercontent.com
+          - release-assets.githubusercontent.com
+      runtime:
+        allow:
+          # CDP WebSocket proxy URLs take the form:
+          #   wss://proxy.<region>.onkernel.com:8443/browser/cdp?jwt=...
+          # The wildcard covers all regional proxy hosts without auth injection.
+          - '*.onkernel.com'
+          # MIGRATION NOTE: api.onkernel.com is now listed literally beside the
+          # wildcard that already covered it. v3 validates every credential
+          # inject domain against the same phase's allow list by exact host and
+          # deliberately does not expand a glob there, so that an inject rule
+          # stays auditable against the list it rides on. This grants nothing
+          # `*.onkernel.com` did not.
+          - api.onkernel.com
+          # npm — for agents that install @onkernel/sdk or playwright-core
+          - registry.npmjs.org
+          - '*.npmjs.org'
+          # PyPI — for agents that install the kernel Python SDK
+          - pypi.org
+          - files.pythonhosted.org
+
+  # Narrow inject domain: only the REST API host gets auth injection.
+  # A wildcard here would put the proxy into TLS-intercept mode for all
+  # *.onkernel.com traffic, including the CDP WebSocket proxy and any CDN
+  # traffic — that corrupts the connection. List only the auth-bearing host.
+  #
+  # No `optional:` here, deliberately: v2 declared `required: true`, and a v3
+  # entry is required unless it opts out, so the default already says it. The
+  # kit is useless without the key — every CLI call is an authenticated REST
+  # call — so failing resolution closed is the honest behavior.
+  - type: com.docker.sandbox/credential@1
+    description: Kernel API key
+    config:
+      service: kernel
+      phase: runtime
+      apiKey:
+        name: KERNEL_API_KEY
+        # KERNEL_API_KEY is proxy-managed: the sandbox receives a placeholder;
+        # the proxy substitutes the real value on outbound requests to api.onkernel.com.
+        proxyManaged: true
+        inject:
+          - {domain: api.onkernel.com, header: Authorization, format: "Bearer %s"}
+
+  - type: com.docker.sandbox/lifecycle@1
+    config:
+      install:
+        # No `env:` — the body reads nothing from the environment, and v3 hooks
+        # see only what they declare plus the platform baseline.
+        - command: npm install -g @onkernel/cli
+          user: "0"
+          description: Install the Kernel CLI
+
+  # MIGRATION NOTE: v2's `agentInstructions.content` moves into a file beside
+  # this descriptor. No `filename:` — that field names the profile the agent
+  # reads and belongs to the workload that owns the environment; a mixin
+  # contributes a body and nothing else.
+  - type: com.docker.sandbox/agent-context@1
+    config:
+      contentFile: ./kernel-context.md

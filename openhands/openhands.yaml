@@ -1,0 +1,177 @@
+# syntax=docker/sandbox-kit:3
+# Migration of the v2 `openhands` sandbox kit. v2 split this kit in two --
+# a pre-baked image (docker.io/sbx/openhands-image:latest, built from the
+# Dockerfile in this directory) that `sandbox.image` pointed at -- and v3
+# collapses them: a workload's content *is* the image, so openhands.dockerfile
+# is that same recipe with v2's environment.variables and sandbox.entrypoint
+# folded into the image config. Deltas are marked MIGRATION NOTE inline.
+schemaVersion: "3"
+displayName: OpenHands
+description: >-
+  AI software engineering agent. Resolves issues, writes code, runs tests,
+  and opens PRs — all autonomously.
+
+kind: workload
+
+# The install floats: OPENHANDS_VERSION defaults to empty, which makes the
+# recipe resolve whatever `openhands` is newest on PyPI (the pipeline's
+# nightly rebuild is the update mechanism). So the provide carries no
+# version of its own and `version:` below answers for it. v2 declared no
+# version, hence 1.0.0.
+version: "1.0.0"
+provides: ["openhands"]
+
+capabilities:
+  # v2 `kind: sandbox`: the host launches the agent rather than running the
+  # image's entrypoint as PID 1, and honors the identity the image config
+  # declares.
+  - type: com.docker.sandbox/sbx@1
+
+  # v2's permissions.network.allow, entirely in the runtime phase: this kit
+  # declares no install hooks that reach the network (its one lifecycle hook
+  # resolves a credential from local state), and every host below is one the
+  # running agent or the CLI itself contacts. An absent install phase grants
+  # nothing, which is the correct statement here.
+  #
+  # MIGRATION NOTE: v2's `platform.claude.com:443` is carried portless, the
+  # contrib house style for this list. Port suffixes are ignored for
+  # allow-list membership, so the grant is unchanged.
+  - type: com.docker.sandbox/network-policy@1
+    config:
+      runtime:
+        allow:
+          # Every domain the credentials below inject into -- required here
+          # too, not just there: this repo's e2e runs every kit under
+          # `sbx policy init deny-all`, so a domain absent from this list is
+          # unreachable regardless of what the credential declares. v3 makes
+          # that structural: inject domains are validated against this list.
+          - api.anthropic.com
+          # The anthropic credential's OAuth token endpoint, for the refresh
+          # the proxy performs once the access token expires.
+          - platform.claude.com
+          - api.openai.com
+          - generativelanguage.googleapis.com
+          - github.com
+          - api.github.com
+          - raw.githubusercontent.com
+          # The CLI's splash screen calls this on every interactive launch
+          # (openhands_cli/version_check.py: a GET to pypi.org/pypi/openhands/json
+          # with a 2s timeout, swallowed on failure) to show an "update available"
+          # notice. It never downloads a package here -- that only happened at
+          # `uv tool install`/`uv tool upgrade`, both gone now that the CLI is
+          # baked into the image -- so files.pythonhosted.org (the wheel/sdist
+          # host) is dropped, but this metadata host stays.
+          - pypi.org
+          # OpenHands' `openhands mcp add <name> --transport stdio npx -- ...`
+          # (see the kit README) launches MCP servers via `npx`, a genuine
+          # runtime feature of the shipped CLI, not an install-time artifact.
+          - registry.npmjs.org
+          - api.tavily.com
+
+  # litellm (which OpenHands uses under the hood) checks these env vars are
+  # present *before* it ever makes a request -- if the var is unset it raises
+  # its own "Missing API Key" error locally, and the proxy never gets a chance
+  # to inject the real credential. proxyManaged: true is what makes the engine
+  # populate a placeholder value for each of these automatically; the actual
+  # secret comes from the service-keyed store.
+  #
+  # MIGRATION NOTE: all three carry `optional: true`. v2 credentials default
+  # to not-required and v3's default inverts, so this is what preserves the
+  # v2 behavior -- OpenHands starts with no binding at all and reports "no
+  # credential configured" rather than failing resolution.
+  - type: com.docker.sandbox/credential@1
+    optional: true
+    description: Anthropic API access (API key or claude.ai OAuth)
+    config:
+      service: anthropic
+      phase: runtime
+      apiKey:
+        name: ANTHROPIC_API_KEY
+        proxyManaged: true
+        inject:
+          - {domain: api.anthropic.com, header: x-api-key, format: "%s"}
+      # For a host whose stored anthropic credential is an OAuth login --
+      # signed in from a `claude` sandbox rather than an API key. Without this
+      # block such a host gets no usable credential at all: the apiKey sentinel
+      # reaches Anthropic unswapped and every model call 401s.
+      #
+      # openhands never reads this file directly, nor ANTHROPIC_API_KEY: its
+      # LLM config lives in ~/.openhands/agent_settings.json, populated from
+      # LLM_API_KEY/LLM_MODEL when openhands-anthropic-auth.sh resolves a
+      # credential. So credentialFile serves two narrower purposes here: it is
+      # what makes the OAuth path detectable from inside the sandbox
+      # (SBX_CRED_ANTHROPIC_MODE reports "none" even when this credential
+      # resolves, so it cannot discriminate oauth from apikey), and it carries
+      # the sentinel openhands-anthropic-auth.sh exports. The file holds
+      # sentinels, not real tokens.
+      oauth:
+        tokenEndpoint: {host: platform.claude.com, path: /v1/oauth/token}
+        resourceHosts: [api.anthropic.com]
+        sentinels:
+          accessToken: sk-ant-oat01-proxy-managed
+          refreshToken: sk-ant-ort01-proxy-managed
+        credentialFile:
+          path: ~/.claude/.credentials.json
+          structure:
+            claudeAiOauth:
+              accessToken: "{{.AccessToken}}"
+              refreshToken: "{{.RefreshToken}}"
+              expiresAt: "{{.ExpiresAt}}"
+              scopes: "{{.Scopes}}"
+
+  # google (not gemini) is the canonical service name for this provider
+  # across the repo -- matches crush/junie's credentials[].service, so a
+  # binding set for one kit is reused by another.
+  - type: com.docker.sandbox/credential@1
+    optional: true
+    description: Google Gemini API access
+    config:
+      service: google
+      phase: runtime
+      apiKey:
+        name: GEMINI_API_KEY
+        proxyManaged: true
+        inject:
+          - {domain: generativelanguage.googleapis.com, header: x-goog-api-key, format: "%s"}
+
+  - type: com.docker.sandbox/credential@1
+    optional: true
+    description: OpenAI API access
+    config:
+      service: openai
+      phase: runtime
+      apiKey:
+        name: OPENAI_API_KEY
+        proxyManaged: true
+        inject:
+          - {domain: api.openai.com, header: Authorization, format: "Bearer %s"}
+
+  - type: com.docker.sandbox/lifecycle@1
+    config:
+      startup:
+        # Runs on every container start, ahead of any attach: the credential
+        # state is wired at create time and a stop/start can follow a change
+        # of host credential, so the env file is recomputed rather than cached.
+        #
+        # MIGRATION NOTE: `env:` is new and load-bearing. v3 hook environments
+        # are deny-by-default, and this script branches on
+        # SBX_CRED_ANTHROPIC_MODE to tell an API-key host from one with no
+        # credential; unlisted, the variable would read as unset and every
+        # host would land in the no-credential branch. $HOME is the platform
+        # baseline, so it needs no declaration (the script's own
+        # `HOME="${HOME:-/home/agent}"` guard stays as the standalone path).
+        - command: [sh, /home/agent/.local/bin/openhands-anthropic-auth.sh]
+          user: "1000"
+          env: [SBX_CRED_ANTHROPIC_MODE]
+          description: Resolve whether Anthropic auth is an API key, an OAuth login, or absent, and record it for the entrypoint and `sbx exec` shells
+
+  # MIGRATION NOTE: v2's agentInstructions.content moves verbatim into
+  # openhands-context.md, with one edit -- its `${WORKDIR}` reference is
+  # spelled `$WORKSPACE_DIR`, the v3 name for that variable. v2 never
+  # substituted the placeholder here either (only setup.files[].content got
+  # that treatment), so this is prose naming a variable, and naming the one
+  # the runtime actually defines is the point of the line.
+  - type: com.docker.sandbox/agent-context@1
+    config:
+      filename: AGENTS.md
+      contentFile: ./openhands-context.md

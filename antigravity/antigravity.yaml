@@ -1,0 +1,165 @@
+# syntax=docker/sandbox-kit:3
+# Migration of the v2 `antigravity` sandbox kit. v2's sandbox.image named the
+# pre-baked docker.io/sbx/antigravity-image:latest, which the Dockerfile beside
+# the spec built -- in v3 a workload's content *is* its image, so that recipe
+# becomes this kit's companion (antigravity.dockerfile) and the published-image
+# indirection disappears with it. Deltas are marked MIGRATION NOTE inline.
+schemaVersion: "3"
+displayName: Google Antigravity
+description: >-
+  Google's agent-first development platform, available as the agy terminal
+  coding agent.
+
+kind: workload
+
+# The KIT's version, carried over from v2. The binary inside the image floats:
+# Google's install.sh takes its target from a manifest it fetches itself and
+# exposes no version variable a caller can set, so there is no pin to declare
+# as an arg and nothing for a versioned provide to reference. `version:` is
+# the fallback publishing uses for the unversioned provide below.
+version: "1.0.0"
+
+provides: ["antigravity"]
+
+capabilities:
+  # This workload is an agent sandbox: the host launches the agent rather than
+  # running the image's entrypoint as PID 1, and honors the identity the image
+  # config declares instead of assuming one.
+  - type: com.docker.sandbox/sbx@1
+
+  # MIGRATION NOTE: v2's one flat allow list becomes phase-scoped, and every
+  # entry lands in `runtime`. There is no `install` phase, and its absence is
+  # accurate rather than an omission: agy is baked into the image (see
+  # antigravity.dockerfile), so the install.sh fetch happens at image build,
+  # which no network-policy phase governs. The two lifecycle hooks below are
+  # `startup` hooks -- they run at boot, in the runtime phase -- and they reach
+  # nothing off-box anyway; they only rewrite JSON with jq.
+  - type: com.docker.sandbox/network-policy@1
+    config:
+      runtime:
+        allow:
+          # Google sign-in and account hosts: agy's browser OAuth flow.
+          - accounts.google.com
+          - oauth2.googleapis.com
+          - www.googleapis.com
+          - lh3.googleusercontent.com
+          # The agent's own model and platform backends. generativelanguage is
+          # also the credential's inject domain below, which v3 validates
+          # appears in this phase's allow list.
+          - aicode.googleapis.com
+          - cloudcode-pa.googleapis.com
+          - daily-cloudcode-pa.googleapis.com
+          - generativelanguage.googleapis.com
+          # Antigravity's own product hosts and feature-flag service.
+          - antigravity.google
+          - antigravity.google.com
+          - antigravity-unleash.goog
+          - play.googleapis.com
+          - safebrowsing.googleapis.com
+          - www.gstatic.com
+          # The CLI's self-updater and the bucket it pulls bundles from.
+          - antigravity-cli-auto-updater-974169037036.us-central1.run.app
+          - storage.googleapis.com
+          - raw.githubusercontent.com
+
+  # MIGRATION NOTE: `optional: true` preserves v2 behavior. v2 credentials
+  # default to not-required and the v3 default inverts, so without this a
+  # sandbox with no Google key bound would fail to create -- and an unbound
+  # sandbox is the normal starting point here, because agy's other mode is an
+  # interactive Google sign-in the user completes inside the sandbox. The
+  # startup hook below reads the surfaced mode and configures accordingly.
+  - type: com.docker.sandbox/credential@1
+    optional: true
+    description: Gemini API key for Antigravity's headless API-key mode
+    config:
+      service: google
+      phase: runtime
+      apiKey:
+        name: GEMINI_API_KEY
+        proxyManaged: true
+        inject:
+          - {domain: generativelanguage.googleapis.com, header: x-goog-api-key, format: "%s"}
+
+  - type: com.docker.sandbox/lifecycle@1
+    config:
+      startup:
+        # v2's setup.startup hooks, verbatim. MIGRATION NOTE: hook
+        # environments are deny-by-default in v3, so each one now names the
+        # variables it reads. $HOME is in the platform baseline and needs no
+        # declaration; SBX_CRED_GOOGLE_MODE, MCP_GATEWAY_URL and
+        # MCP_SENTINEL_TOKEN_NAME are not, and a hook that failed to declare
+        # them would silently take the else branch on every boot.
+        #
+        # Both are whole-file-converging rewrites, which is what makes them
+        # safe to re-run on every boot: the first sets or deletes exactly one
+        # key, the second deep-merges one server entry.
+        - command: |
+            set -e
+            cfg="$HOME/.gemini/antigravity-cli/settings.json"
+            mkdir -p "$(dirname "$cfg")"
+            [ -s "$cfg" ] || echo '{}' > "$cfg"
+            if [ "${SBX_CRED_GOOGLE_MODE:-none}" = apikey ]; then
+              jq '.modelProvider = "gemini"' "$cfg" > "$cfg.tmp"
+            else
+              jq 'del(.modelProvider)' "$cfg" > "$cfg.tmp"
+            fi
+            mv "$cfg.tmp" "$cfg"
+          user: "1000"
+          env: [SBX_CRED_GOOGLE_MODE]
+          description: Select Gemini API-key mode only when a Google credential is available
+
+        # Gateway-first MCP registration. MCP_GATEWAY_URL and
+        # MCP_SENTINEL_TOKEN_NAME are injected into the container env when a
+        # gateway has been reserved for the sandbox; the hook no-ops when there
+        # is none. The sentinel is a NAME, not a credential -- the proxy
+        # substitutes the real token per request, keyed by it.
+        #
+        # Deep-merged with jq rather than written whole: mcp_config.json is the
+        # agent's entire MCP surface, so truncating it would delete servers the
+        # user added. Antigravity keys an HTTP MCP server by `serverUrl`, not
+        # `url` (opencode, Devin) and not `httpUrl` (Gemini's own spelling) --
+        # the nearest wrong answers when transliterating from a sibling kit.
+        - command: |
+            set -e
+            [ -n "$MCP_GATEWAY_URL" ] || exit 0
+            cfg="$HOME/.gemini/config/mcp_config.json"
+            mkdir -p "$(dirname "$cfg")"
+            [ -s "$cfg" ] || echo '{}' > "$cfg"
+            frag=/tmp/antigravity-mcp-gateway.json
+            cat > "$frag" <<EOF
+            {
+              "mcpServers": {
+                "mcp-gateway": {
+                  "serverUrl": "$MCP_GATEWAY_URL",
+                  "headers": {
+                    "Authorization": "Bearer $MCP_SENTINEL_TOKEN_NAME"
+                  }
+                }
+              }
+            }
+            EOF
+            jq -s '.[0] * .[1]' "$cfg" "$frag" > "$cfg.tmp"
+            mv "$cfg.tmp" "$cfg"
+            rm -f "$frag"
+          user: "1000"
+          env: [MCP_GATEWAY_URL, MCP_SENTINEL_TOKEN_NAME]
+          description: Register the sandbox MCP gateway in Antigravity's user configuration
+
+  # v2 declared `agentInstructions.filename: AGENTS.md` with no body -- the
+  # profile the agent reads, and nothing to put in it.
+  #
+  # MIGRATION NOTE: a body is added here, which v2 deliberately went without.
+  # The v2 reasoning was that an AGENTS.md section saying little costs context
+  # on every session; v3's agent-context is surfaced *progressively* (the
+  # profile carries a per-kit index and the agent reads a kit's body on
+  # demand), so that cost no longer applies and the kit can say what is
+  # actually specific to this environment.
+  - type: com.docker.sandbox/agent-context@1
+    config:
+      filename: AGENTS.md
+      contentFile: ./antigravity-context.md
+
+  # MIGRATION NOTE: no agent-sessions@1. The kit's testdata/tck.yaml recorded
+  # only an `mcp:` block and no promptArgs, so no working non-interactive
+  # invocation was ever established; inventing flags here is what the
+  # capability exists to avoid.

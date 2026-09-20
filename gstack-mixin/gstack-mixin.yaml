@@ -1,0 +1,129 @@
+# syntax=docker/sandbox-kit:3
+# gstack as a MIXIN: the same declarations as the standalone workload kit
+# (../gstack), minus what only the kit that owns the environment can carry —
+# the entrypoint (the base workload's launch command stays; you run `claude`
+# from the shell and the slash commands from inside it), the context-file
+# profile (`filename` is workload-only, so this kit contributes `contentFile`
+# alone), and `sbx@1`.
+schemaVersion: "3"
+displayName: gstack (mixin)
+description: >-
+  Garry Tan's Claude Code skill pack as a mixin — the gstack checkout at a
+  pinned commit with its setup run, Bun, and the headless-Chromium browse
+  bundle, in an overlay. Layer it onto a shell base that already carries
+  Claude Code and run `claude`.
+
+kind: mixin
+
+# Upstream's own VERSION for the commit the `ref` arg defaults to, and the
+# fallback version for the unversioned provide below. The real authority is
+# the 40-char commit SHA, which v3 cannot carry in a provide (a version must
+# be dotted-numeric, SPEC-v3 §5.2), so overriding `ref` leaves this stale —
+# move them together. Tracks ../gstack.
+version: "1.57.10.0"
+
+args:
+  ref:
+    # gstack has no release tags; pin a commit SHA.
+    default: "a5833c413f98b13f105beac96262e8098b628461"
+    pattern: '^[0-9a-f]{40}$'
+    description: gstack commit to check out and run ./setup from
+    buildArg: GSTACK_REF
+  bunVersion:
+    default: "1.3.10"
+    pattern: '^[0-9]+\.[0-9]+\.[0-9]+$'
+    description: Bun release the gstack binaries are built with
+    buildArg: BUN_VERSION
+
+# Same name the workload provides, so composing this mixin with ../gstack is
+# refused rather than installing the pack twice (SPEC-v3 §5.3). `claude` is
+# not provided: this kit does not install it, and it requires a base that
+# already carries it.
+provides: ["gstack"]
+
+# The skill pack drives Claude Code; it is not an agent of its own. Stated so
+# resolution refuses a composition with nothing to drive, rather than the
+# sandbox failing at the first slash command.
+requires: ["claude"]
+
+capabilities:
+  # The agent's own egress rides with the kit that ships the agent: the base
+  # grants nothing for services it doesn't carry.
+  #
+  # No `install:` phase — like the workload, this kit runs no install hooks;
+  # everything is baked into the overlay at image-build time, which is outside
+  # any sandbox phase. The build-time hosts stay in `runtime` because the
+  # running agent genuinely uses them: /gstack-upgrade reads the checkout's
+  # git remote, and the skills fetch from the others.
+  #
+  # MIGRATION NOTE: v2 wrote some entries with `:443` and some without.
+  # Normalized to the contrib house style of portless entries; port suffixes
+  # are ignored for allow-list membership anyway.
+  - type: com.docker.sandbox/network-policy@1
+    config:
+      runtime:
+        allow:
+          # Every domain the anthropic credential injects into, plus the OAuth
+          # token endpoint -- required here too, not just below: a domain
+          # absent from this list is unreachable regardless of what the
+          # credential declares, and v3 validates the pairing rather than
+          # leaving it conventional.
+          - api.anthropic.com
+          - claude.ai
+          - console.anthropic.com
+          - platform.claude.com
+          - downloads.claude.ai
+          - claude.com
+          - github.com
+          - raw.githubusercontent.com
+          - registry.npmjs.org
+          - '*.npmjs.org'
+          - huggingface.co
+          - '*.huggingface.co'
+
+  # optional, faithfully: v2 credentials default to not-required and the v3
+  # default inverts. Claude also runs without any binding at all (it falls
+  # back to /login), so required would warn spuriously on exactly the healthy
+  # OAuth setup.
+  #
+  # Declared here even though the base may carry Claude Code: a composed
+  # sandbox's credential entries union on (service, phase), and two kits
+  # declaring the same pair with the same config is one ask, not a conflict.
+  - type: com.docker.sandbox/credential@1
+    optional: true
+    description: Anthropic API access (API key or claude.ai OAuth)
+    config:
+      service: anthropic
+      phase: runtime
+      apiKey:
+        name: ANTHROPIC_API_KEY
+        proxyManaged: true
+        inject:
+          - {domain: api.anthropic.com, header: x-api-key, format: "%s"}
+          - {domain: claude.ai, header: x-api-key, format: "%s"}
+          - {domain: console.anthropic.com, header: x-api-key, format: "%s"}
+      # v2 already wrote this declaratively rather than as a Go template, so
+      # `credentialFile.structure` carries over unchanged.
+      oauth:
+        tokenEndpoint: {host: platform.claude.com, path: /v1/oauth/token}
+        sentinels:
+          accessToken: sk-ant-oat01-proxy-managed
+          refreshToken: sk-ant-ort01-proxy-managed
+        credentialFile:
+          path: ~/.claude/.credentials.json
+          structure:
+            claudeAiOauth:
+              accessToken: "{{.AccessToken}}"
+              refreshToken: "{{.RefreshToken}}"
+              expiresAt: "{{.ExpiresAt}}"
+              scopes: "{{.Scopes}}"
+
+  # MIGRATION NOTE: no `agent-skills@1`, for the same reason as the workload —
+  # ~/.claude/skills is where this kit's OWN pack lives, not an empty mount
+  # point, so a host store mounted there would shadow it. See ../gstack.
+
+  # No `filename:` — the profile belongs to the workload that owns the
+  # environment, and declaring it on a mixin is a validation error.
+  - type: com.docker.sandbox/agent-context@1
+    config:
+      contentFile: ./gstack-mixin-context.md

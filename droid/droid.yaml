@@ -1,0 +1,157 @@
+# syntax=docker/sandbox-kit:3
+# Migration of the v2 `droid` sandbox kit (spec.yaml, schemaVersion "2").
+# v2's sandbox.image and sandbox.entrypoint have no v3 fields: a workload's
+# content *is* its image, so both moved into droid.dockerfile, which the
+# filename-stem convention pairs with this descriptor. Every other v2 stanza
+# lands in a capability below; the deltas are marked MIGRATION NOTE inline.
+schemaVersion: "3"
+displayName: Droid
+description: Droid CLI by Factory, an agentic coding CLI.
+
+kind: workload
+
+# The KIT's version, not Droid's. It covers this descriptor, the network
+# policy and the hooks — the agent inside the image floats, so a newer
+# droid-cli does not bump this and this does not track releases of droid-cli.
+#
+# MIGRATION NOTE: in v3 this field does a second job — it is the fallback
+# version for the unversioned provide below (SPEC-v3 §9.2 refuses a published
+# provide with no version at all). The install is `curl -fsSL
+# https://app.factory.ai/cli | sh`, which takes no pin, so there is no droid
+# release this kit could honestly name; the kit's own release number answers
+# instead. v2's comment about `vnd.docker.sandbox.kit.version` is stale: v3
+# derives `org.opencontainers.image.version` from this field (§9.3).
+version: "1.0.0"
+
+# Nothing a v2 kit offered was requirable by name. Stated now so a mixin can
+# ask for `droid` — and so this kit and a future droid mixin cannot both be
+# composed into one sandbox, which is what SPEC-v3 §5.3's one-provider rule
+# exists to refuse.
+provides: ["droid"]
+
+capabilities:
+  # This workload is an agent sandbox: the host launches the agent rather
+  # than running the image's entrypoint as PID 1, and honors the identity
+  # the image config declares instead of assuming one. Every v2
+  # `kind: sandbox` kit is one of these.
+  - type: com.docker.sandbox/sbx@1
+
+  # Built-in agents ship no egress policy of their own: they inherit whatever
+  # the host policy is, which defaults to permissive. A community kit cannot
+  # rely on that — this repo's e2e runs every kit under
+  # `sbx policy init deny-all`, so the kit gets exactly the reachability it
+  # declares here and nothing more.
+  #
+  # MIGRATION NOTE: v2's single flat allow list is phase-scoped in v3, and an
+  # absent phase grants nothing. Every host below is in `runtime` and none in
+  # `install`, which is the honest split for this kit: droid-cli is installed
+  # at *image build* time (droid.dockerfile), not by a lifecycle install hook,
+  # and the one install hook this kit does declare only mkdirs and chowns. The
+  # apt hosts are runtime because startup hooks run at boot, inside the
+  # runtime phase. So the install phase reaches nothing, and the union of the
+  # two phases is exactly v2's list.
+  - type: com.docker.sandbox/network-policy@1
+    config:
+      runtime:
+        allow:
+          # Every domain the credential injects into — required here too, not
+          # just in the credential entry: a domain absent from this list is
+          # unreachable regardless of what the credential declares. v3 now
+          # enforces the converse as well (an inject domain MUST appear in the
+          # matching phase's allow list), so this pairing is checked rather
+          # than merely conventional.
+          - api.factory.ai
+          - app.factory.ai
+          - relay.factory.ai
+          # The OAuth token endpoint.
+          - api.workos.com
+          # `apt-get update` (the startup hook below) refreshes metadata for
+          # every configured apt source and returns exit 100 if any one of
+          # them fails. The shell-docker base ships three sources, so all
+          # three must be reachable. Ubuntu serves amd64 from
+          # archive/security and arm64 from ports.ubuntu.com, so all three
+          # Ubuntu hosts are listed to keep the kit working cross-arch.
+          - archive.ubuntu.com        # Ubuntu archive (amd64 main)
+          - security.ubuntu.com       # Ubuntu security updates (amd64)
+          - ports.ubuntu.com          # Ubuntu archive/security (arm64)
+          - download.docker.com       # Docker's apt repo, pre-added by shell-docker
+          #
+          # TODO(droid-extraction): the domains above are the ones the
+          # credential block already declared; they have not been verified
+          # end-to-end under deny-all from this repo, and Droid CLI may reach
+          # further hosts (telemetry, self-update, extension registry).
+          # Confirm or widen from a live run:
+          #
+          #   sbx run --kit ./droid droid   # then attempt a prompt
+          #   sbx policy log                # lists every blocked host + reason
+
+  # Droid cannot authenticate at all without this service — either the apiKey
+  # below or the OAuth block. NOT marked `optional`, deliberately: v2 set
+  # `required: true` here, and v3's default is required, so the faithful
+  # migration is to state nothing. `sbx create` then says so up front when no
+  # credential is available; without it the sandbox starts clean and the first
+  # sign of trouble is the CLI failing with an opaque 401 once you are already
+  # inside.
+  - type: com.docker.sandbox/credential@1
+    description: Factory API access for Droid (API key or WorkOS OAuth)
+    config:
+      service: droid
+      phase: runtime
+      apiKey:
+        name: FACTORY_API_KEY
+        # Most apiKey-based kits in this repo set this (pi, nanobot, crush,
+        # junie); copilot's own credentials notably don't, with no recorded
+        # reason. Following the majority here — but it has NOT been verified
+        # end-to-end whether Droid's OAuth device/token-exchange flow below
+        # still resolves correctly when FACTORY_API_KEY holds the proxy's
+        # sentinel value instead of a raw key the CLI reads directly. Needs a
+        # live `sbx run --kit ./droid droid` check; see the PR description.
+        proxyManaged: true
+        inject:
+          - {domain: api.factory.ai, header: Authorization, format: "Bearer %s"}
+          - {domain: app.factory.ai, header: Authorization, format: "Bearer %s"}
+          - {domain: relay.factory.ai, header: Authorization, format: "Bearer %s"}
+      # Ported close to verbatim from the built-in spec: the OAuth
+      # device/token flow itself is generic engine machinery on the consuming
+      # side, not something this kit implements differently. When both apiKey
+      # and oauth are declared on the same credential (as here), the apiKey
+      # takes precedence whenever it resolves, so a host with FACTORY_API_KEY
+      # bound never triggers the OAuth path.
+      #
+      # MIGRATION NOTE: v2's `oauth.skipIfEnv: [FACTORY_API_KEY]` is dropped.
+      # It has no v3 spelling because mode resolution is binding-driven — the
+      # host's credential store decides, not a probe of a host env var — which
+      # is what v2's own comment already observed it to be ("a no-op for a
+      # schemaVersion \"2\" credential like this one"). Dropping provably dead
+      # config rather than carrying it forward as a second, stale answer.
+      oauth:
+        tokenEndpoint: {host: api.workos.com, path: /user_management/authenticate}
+        sentinels:
+          accessToken: droid-oat-proxy-managed
+          refreshToken: droid-ort-proxy-managed
+
+  - type: com.docker.sandbox/lifecycle@1
+    config:
+      install:
+        - command: mkdir -p /home/agent/.factory && chown agent:agent /home/agent/.factory
+          user: "0"
+          description: Ensure .factory is owned by agent before bind mounts run
+      startup:
+        # MIGRATION NOTE: v2 backgrounded this with a trailing `&` inside the
+        # `sh -c` string. v3 has a field for it, so the shell trick is gone
+        # and the declaration says what it means. The command is otherwise
+        # verbatim, including the `|| true` that keeps apt's exit 100 (any one
+        # unreachable source) from failing the boot.
+        - command: ["sh", "-c", "command -v apt-get > /dev/null 2>&1 && (apt-get update -qq -y > /dev/null 2>&1 || true)"]
+          user: "root"
+          background: true
+          description: Update apt package cache in background
+
+  # MIGRATION NOTE: v2 declared `agentInstructions.filename: AGENTS.md` with
+  # no `content`, so there is no body to move into a droid-context.md and none
+  # is invented here. The entry still carries the profile the agent reads,
+  # which is the whole of what v2 asked for; the host seeds it with its own
+  # guidance and mixins contribute the bodies.
+  - type: com.docker.sandbox/agent-context@1
+    config:
+      filename: AGENTS.md

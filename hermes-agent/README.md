@@ -1,6 +1,6 @@
 # hermes-agent
 
-A standalone sandbox kit (`kind: sandbox`, the v2 spec naming) for
+A standalone workload kit (`kind: workload`, `schemaVersion: "3"`) for
 [Hermes Agent](https://github.com/NousResearch/hermes-agent) — the
 self-improving AI agent by [Nous Research](https://nousresearch.com). It
 creates skills from experience, improves them during use, maintains persistent
@@ -15,6 +15,17 @@ Docker engine (unlike this kit's previous base image): Hermes' default
 terminal backend runs commands in the sandbox itself and does not need one,
 so if your workflow shells out to `docker` inside the agent, it will not
 find it here.
+
+The declarations live in [`hermes-agent.yaml`](./hermes-agent.yaml); the
+recipe beside it ([`hermes-agent.dockerfile`](./hermes-agent.dockerfile)) is
+found by the filename-stem convention. To layer Hermes onto a shell base you
+already have, use [`../hermes-agent-mixin`](../hermes-agent-mixin) instead.
+
+The scripts under [`files/`](./files) are staged by the recipe's `COPY` lines
+rather than by a loader convention: v3 has no counterpart to v2's
+`files/home/` auto-staging, since the descriptor's only file mechanism
+(`lifecycle.files[].content`) carries inline text rather than a path. The
+absolute paths the entrypoint and the startup hook name are unchanged.
 
 ## Supported providers, and what is not baked in
 
@@ -90,8 +101,8 @@ start chatting.
 
 ## How auth works
 
-Each entry in the kit's `credentials:` list maps a provider to a domain and the
-header to inject on outbound requests to that domain:
+Each of the kit's three `credential@1` capabilities maps a provider to a domain
+and the header to inject on outbound requests to that domain:
 
 - `api.anthropic.com` → injects `x-api-key: <key>`
 - `api.openai.com` → injects `Authorization: Bearer <key>`

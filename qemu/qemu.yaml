@@ -1,0 +1,141 @@
+# syntax=docker/sandbox-kit:3
+# QEMU binfmt registration as a declaration-only MIXIN. The v2 kit shipped no
+# Dockerfile — it registers emulators by running a container at startup — and
+# v3 lets a mixin have no recipe at all, so the descriptor is the whole kit.
+schemaVersion: "3"
+displayName: QEMU (multi-arch binfmt)
+description: >-
+  Registers QEMU user-mode emulators with the kernel's binfmt_misc via Docker
+  (tonistiigi/binfmt) so the sandbox can run and build container images for
+  other CPU architectures. Requires a Docker-in-Docker base template.
+
+kind: mixin
+
+# MIGRATION NOTE: the provide is named after the kit, not after qemu, and the
+# version is the kit's own. This kit installs no qemu build it could speak for:
+# the emulators come from whatever `tonistiigi/binfmt` resolves to at startup,
+# on a floating tag. `provides: ["qemu"]` under this fallback would publish
+# qemu@1.0.0 — the kit's release number wearing the emulator's name.
+provides: ["qemu-binfmt"]
+version: "1.0.0"
+
+# MIGRATION NOTE: v3 could express this kit's hard dependency on a
+# Docker-in-Docker base as `requires: ["docker-engine"]`, which v2 had no field
+# for — the v2 kit could only say it in prose and check at runtime. It is left
+# unstated because `requires` is judged as a closed set: no sandbox template
+# declares a matching `provides`, so stating it would fail resolution for every
+# base instead of only the ones actually missing docker. The startup hook's own
+# `command -v docker` check stays the enforcement.
+
+capabilities:
+  # MIGRATION NOTE: v2's one flat allow list, split by the phase that reaches
+  # each host. This kit splits cleanly, because its two hooks run in different
+  # phases: apt is the install hook's, Docker Hub is the startup hook's, and a
+  # startup hook runs at boot — in the runtime phase.
+  - type: com.docker.sandbox/network-policy@1
+    config:
+      install:
+        allow:
+          # apt: install `mount` if the base image lacks it.
+          # `apt-get update` refreshes every configured source, so all of the
+          # *-docker template's Ubuntu + Docker apt hosts must be reachable. Ubuntu
+          # serves amd64 from archive/security and arm64 from ports.ubuntu.com.
+          - archive.ubuntu.com
+          - security.ubuntu.com
+          - ports.ubuntu.com
+          - download.docker.com
+      runtime:
+        allow:
+          # Docker Hub: the in-sandbox docker daemon pulls tonistiigi/binfmt for the
+          # startup step. registry-1.docker.io serves the manifest, auth.docker.io
+          # issues the pull token, and layer blobs come from Cloudflare. index.docker.io
+          # is the legacy index some client flows still touch. These stay open past
+          # install on purpose: the agent context documents re-running the
+          # registration by hand, and the foreign-arch `docker run` examples pull
+          # their own images.
+          - registry-1.docker.io
+          - auth.docker.io
+          - production.cloudflare.docker.com
+          - index.docker.io
+
+  - type: com.docker.sandbox/lifecycle@1
+    config:
+      # `mount` only buys the startup hook's idempotency fast path, so failing to
+      # install it must not fail sandbox creation: hence no `set -e`, explicit
+      # branching, and `exit 0`. install hooks run once, as root, before the
+      # entrypoint — the right place for apt, since the in-sandbox docker daemon is
+      # not up yet.
+      #
+      # No `env:` — the body reads nothing. DEBIAN_FRONTEND is exported, not
+      # consumed from the environment, and apt takes its proxy from the
+      # template's own apt config rather than from here.
+      install:
+        - command: |
+            set -u
+            if ! command -v mount >/dev/null 2>&1; then
+              export DEBIAN_FRONTEND=noninteractive
+              if ! { apt-get update && apt-get install -y --no-install-recommends mount; }; then
+                echo "warning: could not install mount; the binfmt_misc fast path is unavailable (registration is unaffected)" >&2
+              fi
+              rm -rf /var/lib/apt/lists/*
+            fi
+            exit 0
+          user: "0"
+          description: Install `mount` for the binfmt_misc fast path (best-effort)
+      # Registering QEMU emulators needs the in-sandbox docker daemon (DinD), which
+      # only comes up once the container is running — hence a startup hook. startup
+      # runs on EVERY start, so the body is idempotent.
+      #
+      # MIGRATION NOTE: the body reads no variable, but every `docker` call in it
+      # does — DOCKER_HOST is how a base template points the CLI at a socket that
+      # is not /var/run/docker.sock, and v2's unrestricted hook environment
+      # carried it through. Declared so this hook keeps finding the daemon on
+      # such a base; harmlessly absent on one that uses the default socket.
+      startup:
+        - command:
+            - sh
+            - -c
+            - |
+              set -eu
+              # A missing docker is the only hard failure: it is a composition error
+              # the user has to fix. Everything after it is best-effort, because a
+              # non-zero exit from a startup command leaves the whole sandbox unable
+              # to start — so the rest only warns into the startup log.
+              if ! command -v docker >/dev/null 2>&1; then
+                echo "docker not found: the qemu kit needs a Docker-in-Docker base (compose it onto a *-docker template, e.g. docker/sandbox-templates:shell-docker)" >&2
+                exit 1
+              fi
+              # Registration happens inside the binfmt container's own mount
+              # namespace and does not need this mount; it only powers the fast path
+              # below and `ls /proc/sys/fs/binfmt_misc/qemu-*` in the sandbox.
+              if [ ! -e /proc/sys/fs/binfmt_misc/register ]; then
+                mount -t binfmt_misc binfmt_misc /proc/sys/fs/binfmt_misc || echo "warning: could not mount binfmt_misc; ls /proc/sys/fs/binfmt_misc will stay empty (registration is unaffected)" >&2
+              fi
+              # binfmt_misc registrations are kernel-global and survive sandbox
+              # restarts, so skip the network-heavy install when they are visible.
+              if ls /proc/sys/fs/binfmt_misc/qemu-* >/dev/null 2>&1; then
+                echo "QEMU binfmt emulators already registered; skipping install."
+                exit 0
+              fi
+              # The sandbox start waits for this hook and gives up after five
+              # minutes, so every network step here is bounded (60s + 180s).
+              deadline=$(( $(date +%s) + 60 ))
+              until timeout 5 docker info >/dev/null 2>&1; do
+                if [ "$(date +%s)" -ge "$deadline" ]; then
+                  echo "warning: docker daemon not reachable after 60s; QEMU emulators not registered. Register manually with: docker run --privileged --rm tonistiigi/binfmt --install all" >&2
+                  exit 0
+                fi
+                sleep 1
+              done
+              # `--install all` exits 0 even when an arch fails; its
+              # `installing: <arch> OK` log lines are the only success signal.
+              timeout 180 docker run --privileged --rm tonistiigi/binfmt --install all || echo "warning: tonistiigi/binfmt did not complete; QEMU emulators may be missing. Retry with: docker run --privileged --rm tonistiigi/binfmt --install all" >&2
+          user: "0"
+          env: [DOCKER_HOST]
+          description: Register QEMU binfmt emulators via Docker (best-effort)
+
+  # No `filename:` — that is workload-only, and this mixin contributes a body
+  # to whichever agent owns the profile.
+  - type: com.docker.sandbox/agent-context@1
+    config:
+      contentFile: ./qemu-context.md

@@ -1,0 +1,60 @@
+# syntax=docker/sandbox-kit:3
+# Migration of this kit's v2 spec.yaml. Deltas are marked MIGRATION NOTE inline.
+#
+# This is a declaration-only kit: it ships a launcher as a lifecycle file and
+# nothing else, so it has no companion dockerfile. A v3 mixin is allowed to carry
+# no recipe — the published image is then the staged descriptor alone.
+schemaVersion: "3"
+kind: mixin
+displayName: Claude ACP
+description: Runs the Claude ACP adapter inside a Claude sandbox over stdio.
+
+# MIGRATION NOTE: v2's `requires: {agent: claude}`, same name so it keeps
+# resolving against either shape of the claude kit. The adapter execs the
+# sandboxed Claude Code binary; composing onto any other base agent yields a
+# sandbox with an adapter and no agent behind it.
+requires: ["claude"]
+
+# MIGRATION NOTE: no `provides`. v2 declared none, and nothing in this repo
+# requires this kit by name. (The runtime-kits example of the same adapter does
+# provide `claude-acp@<version>`, because it builds the package into an overlay
+# at a build-phase-pinned version. This kit resolves the package with `npx` at
+# invocation time, so there is no build arg for a versioned provide to expand
+# from, and a create-phase reference would not survive publish.)
+
+capabilities:
+  # MIGRATION NOTE: v2's flat list becomes phase-scoped. Everything here is
+  # `runtime` and there is no `install` block, which is the opposite split from
+  # the claude-mem kit next door and for a concrete reason: this kit downloads
+  # nothing at create. The launcher resolves the adapter with `npx -y` at the
+  # moment a host runs it (`sbx exec -i`), which is steady state — so an
+  # install-phase grant would be closed by the time it was needed.
+  - type: com.docker.sandbox/network-policy@1
+    config:
+      runtime:
+        allow:
+          - api.github.com
+          - gist.github.com
+          - github.com
+          - registry.npmjs.org
+          - raw.githubusercontent.com
+
+  - type: com.docker.sandbox/lifecycle@1
+    config:
+      files:
+        - path: /home/agent/.local/bin/claude-acp
+          mode: "0755"
+          description: Launch the Claude ACP adapter with the sandboxed Claude binary.
+          content: |
+            #!/bin/bash
+            set -e
+            if [ -z "$CLAUDE_CODE_EXECUTABLE" ]; then
+              export CLAUDE_CODE_EXECUTABLE=claude
+            fi
+            exec npx -y @agentclientprotocol/claude-agent-acp@0.51.0 "$@"
+
+  # `filename:` is workload-only — it names the profile, which belongs to the
+  # claude kit this one composes onto. A mixin contributes a body.
+  - type: com.docker.sandbox/agent-context@1
+    config:
+      contentFile: ./claude-acp-context.md

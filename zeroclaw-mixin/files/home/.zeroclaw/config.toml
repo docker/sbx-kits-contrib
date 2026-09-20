@@ -1,0 +1,23 @@
+# Seeded by the zeroclaw kit; the entrypoint substitutes the proxy-managed
+# Anthropic key sentinel on first start. Gateway settings mirror upstream's
+# official container image (public bind inside the sandbox is safe — the
+# sandbox port-forwarder exposes it on the host's loopback only).
+
+api_key = "__ANTHROPIC_API_KEY__"
+default_provider = "anthropic"
+default_model = "claude-opus-4-6"
+default_temperature = 0.7
+
+[gateway]
+port = 42617
+host = "0.0.0.0"
+allow_public_bind = true
+require_pairing = false
+
+# Tools already run inside the sandbox microVM; zeroclaw's own Landlock/
+# Bubblewrap backends are unavailable in-container.
+sandbox_backend = "none"
+
+[risk_profiles.default]
+level = "supervised"
+auto_approve = ["file_read", "file_write", "file_edit", "memory_recall", "memory_store", "web_search_tool", "web_fetch", "calculator", "glob_search", "content_search", "image_info", "weather", "git_operations"]

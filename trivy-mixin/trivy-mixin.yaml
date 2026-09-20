@@ -1,0 +1,56 @@
+# syntax=docker/sandbox-kit:3
+# Trivy as a MIXIN: the same declarations as the standalone workload kit
+# (../trivy), minus what only the kit that owns the environment can carry --
+# the entrypoint (the base workload's launch command stays; run `trivy fs .`
+# from the shell), the context-file profile (`filename` is workload-only) and
+# sbx@1 (a mixin's image config never becomes the composed image's).
+#
+# MIGRATION NOTE: this mixin also loses the workload's lifecycle install hook
+# and, with it, the install phase of its network policy -- and that is the
+# point of the overlay shape rather than an omission. The workload installs
+# the scanner at sandbox create, which is why it opens github.com and the two
+# release-asset hosts for the duration of that hook. An overlay ships the
+# verified binary in its layers instead, so by the time the sandbox exists
+# there is nothing left to download: the grant would be an install phase with
+# no installer in it. Only the vulnerability-DB hosts remain, in the runtime
+# phase, exactly as in the workload. The pin and both digests move to the
+# recipe, unchanged.
+schemaVersion: "3"
+displayName: Trivy (mixin)
+description: >-
+  Aqua's open source vulnerability scanner as a mixin — the pinned,
+  SHA256-verified release binary in an overlay, with the egress its
+  vulnerability-database pull needs. Layer it onto a shell base and run
+  `trivy`.
+sourceUrl: https://github.com/aquasecurity/trivy
+
+kind: mixin
+
+# Stated literally, as in the workload: the recipe pins by version *and* per
+# arch SHA256, so a version an installer supplied would fail the digest check
+# rather than install that release. Bumping is the three-place edit the
+# workload's README documents -- the recipe's TRIVY_VERSION, both SHA256s,
+# and this entry, together.
+provides: ["trivy@0.70.0"]
+
+capabilities:
+  # The scanner's own egress rides with the kit that ships the scanner: the
+  # base grants nothing for services it does not carry. Runtime-only here --
+  # see the MIGRATION NOTE above for why the workload's install phase has no
+  # counterpart in an overlay.
+  - type: com.docker.sandbox/network-policy@1
+    config:
+      runtime:
+        allow:
+          # Vulnerability DB pull at runtime. Trivy's default chain is
+          # mirror.gcr.io (primary) with ghcr.io as a fallback for the
+          # trivy-db OCI artifact; we declare both openly in the allowlist
+          # rather than relying on env-var overrides to redirect the source.
+          # The trust footprint is intentionally explicit at the policy layer.
+          - mirror.gcr.io
+          - ghcr.io
+          - pkg-containers.githubusercontent.com
+
+  - type: com.docker.sandbox/agent-context@1
+    config:
+      contentFile: ./trivy-mixin-context.md

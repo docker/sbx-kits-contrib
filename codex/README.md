@@ -1,6 +1,6 @@
 # codex
 
-A standalone sandbox kit (`kind: sandbox`, `schemaVersion: "2"`) for
+A standalone workload kit (`kind: workload`, `schemaVersion: "3"`) for
 [Codex CLI](https://developers.openai.com/codex/cli), OpenAI's agentic coding
 CLI. The kit runs `codex` as the entrypoint with Codex's own approval gate and
 filesystem sandbox turned off — the container is the sandbox — and authenticates
@@ -8,9 +8,15 @@ through a single `openai` credential that works from either an API key or a
 ChatGPT login.
 
 Codex was previously a built-in `sbx` agent, run as `sbx run codex`. This kit
-replaces that, and is backed by a base image built from the
-[`Dockerfile`](./Dockerfile) in this directory rather than by the
+replaces that. A v3 workload's layers *are* the sandbox's root filesystem, so
+the kit is its own image: the content recipe is
+[`codex.dockerfile`](./codex.dockerfile) beside the descriptor, built on
+`docker/sandbox-templates:shell-docker` rather than tracking the
 `docker/sandbox-templates` release train.
+
+Prefer Codex layered onto something else rather than as the whole sandbox? See
+[`codex-mixin`](../codex-mixin/), which makes the same declarations as an
+overlay.
 
 ## Prerequisites
 
@@ -42,8 +48,10 @@ Or with a local clone of this repo:
 sbx run --kit ./codex/ codex
 ```
 
-The trailing `codex` is required, not redundant: for `kind: sandbox` kits,
-`sbx` enforces that the agent name matches the kit's own `name`.
+The trailing `codex` is required, not redundant: `sbx` enforces that the agent
+name matches the workload kit being run. A v3 descriptor carries no `name:` —
+identity is the reference the kit is consumed by — and the matchable name the
+kit offers is its `provides: ["codex"]`.
 
 ## Passing arguments
 
@@ -144,8 +152,8 @@ With no gateway reserved, the hook exits 0 without touching anything.
 
 ## Related mixins
 
-Two mixins in this repo declare `requires.agent: codex`, so they compose onto
-this kit and nothing else:
+Two mixins in this repo declare `requires: ["codex"]`, so they compose onto a
+kit that provides that name and nothing else:
 
 - [`codex-acp`](../codex-acp/) — runs the Codex ACP adapter over stdio.
 - [`codex-app-server`](../codex-app-server/) — runs sshd so the Codex Mac GUI
@@ -155,16 +163,19 @@ this kit and nothing else:
 sbx run --kit ./codex/ --kit ./codex-acp/ codex
 ```
 
-Affinity matching is by exact name, which is one reason this kit's directory and
-`name:` are both plain `codex` rather than anything more descriptive.
+Matching is by exact capability name, which is one reason this kit's directory
+and its `provides` entry are both plain `codex` rather than anything more
+descriptive. [`codex-mixin`](../codex-mixin/) provides the same name, so both
+mixins compose onto it too — but never onto both kits at once, since one
+capability name has one owner.
 
 > [!NOTE]
 > `codex-app-server` shadows `codex` on `PATH` with a wrapper that execs the
 > binary at the base image's npm global path unconditionally. This kit
 > installs Codex via its standalone installer to `~/.local/bin`, not that
-> path, so the `Dockerfile` symlinks the npm global path to the installed
-> binary to keep the two compatible — a coupling to keep in mind if either
-> install location ever moves.
+> path, so [`codex.dockerfile`](./codex.dockerfile) symlinks the npm global
+> path to the installed binary to keep the two compatible — a coupling to keep
+> in mind if either install location ever moves.
 
 ## Credential exposure worth reviewing
 
@@ -175,17 +186,29 @@ process in the sandbox that happens to fetch `openai.com` gets the real key
 attached on the way out. It is carried over from the built-in agent's spec
 unchanged, because a missing header is a silent 401 on whatever path did want
 it, and "no path wants it" is a negative this port cannot prove. There is a
-matching `TODO` on the entry in `spec.yaml`; it should be dropped once someone
-can rule the last path out.
+matching `TODO` on the entry in [`codex.yaml`](./codex.yaml); it should be
+dropped once someone can rule the last path out.
+
+Note that v3 validates the other direction too: every inject domain must appear
+in the matching phase's allow list, so an inject rule the policy could never
+admit is now a build error rather than dead config.
 
 ## Network policy
 
-`permissions.network.allow` covers every domain the credential injects into or
-authenticates against, the hosts Codex reaches during a session (uploads,
+The `network-policy@1` capability's `runtime.allow` list covers every domain the
+credential injects into or authenticates against, the hosts Codex reaches
+during a session (uploads,
 `codex update` re-running the standalone installer, GitHub release checks and
 skill downloads), and the apt sources the base image ships with — the last of
 those because the startup hook runs `apt-get update`, which fails wholesale if
 any configured source is unreachable.
+
+Everything sits in the `runtime` phase and the `install` phase is absent, which
+grants nothing there. That is not an oversight: v3 scopes egress by phase and
+closes the install grants before the entrypoint starts, and this kit's only
+install hook writes config files without opening a socket. The apt mirrors need
+a *runtime* grant because the hook that uses them is a startup hook, and startup
+hooks run at boot.
 
 Two entries are wildcarded rather than exact: `*.chatgpt.com` and
 `*.oaiusercontent.com`. Live testing surfaced ChatGPT-backed content and auth
@@ -213,30 +236,33 @@ sources use is not something this kit owns.
 > $ sbx policy log
 > ```
 >
-> then add the reported hosts to `permissions.network.allow` in `spec.yaml`.
+> then add the reported hosts to the `network-policy@1` capability's
+> `runtime.allow` list in [`codex.yaml`](./codex.yaml).
 
 ## Base image
 
-Unlike most kits here — which are `kind: mixin` or `kind: agent` and layer onto
-an existing `docker/sandbox-templates` image — a `kind: sandbox` kit *is* the
-whole environment, so it names the image the sandbox boots from. This kit
-builds and publishes its own, from the `Dockerfile` in this directory.
+Unlike a mixin, which layers onto whatever it lands on, a `kind: workload` kit
+*is* the whole environment: its layers are the sandbox's root filesystem and its
+image config carries the launch contract. So this kit builds that filesystem
+itself, from [`codex.dockerfile`](./codex.dockerfile) beside the descriptor.
 
-The image is **`docker.io/sbx/codex-image`**, built on
-`docker/sandbox-templates:shell-docker`, so it carries a Docker engine and
-requests Docker-in-Docker.
+The recipe builds on `docker/sandbox-templates:shell-docker`, so the result
+carries a Docker engine and requests Docker-in-Docker.
 
-The `-image` suffix distinguishes the base image from the kit itself: the kit
-is published as an OCI artifact at `docker.io/sbx/codex-kit` (see
-[Usage](#usage) above). The name is derived from the kit directory and enforced
-repo-wide — see [PUBLISHING.md](../PUBLISHING.md#naming).
+There is one artifact rather than two. Under v2 this kit named a separately
+published `docker.io/sbx/codex-image` in `sandbox.image` and the kit itself
+shipped as `docker.io/sbx/codex-kit`; a v3 kit is one OCI image carrying both
+the declarations (in a manifest annotation) and the content (in its layers), so
+the published kit *is* the image the sandbox boots. The name is derived from the
+kit directory and enforced repo-wide — see
+[PUBLISHING.md](../PUBLISHING.md#naming).
 
 There is no flavour suffix and no dockerless variant. The sandbox templates
 distinguish `codex` from `codex-docker` because a user picks a template
-directly, but a kit picks its own image — so the Docker-in-Docker detail never
+directly, but a kit picks its own base — so the Docker-in-Docker detail never
 reaches the user, just as `sbx run codex` already resolves to the Docker
-flavour today. And a `kind: sandbox` kit names exactly one `sandbox.image`, so
-a second image would be unreachable without a second kit to consume it.
+flavour today. And a workload kit has exactly one content recipe, so a second
+image would be unreachable without a second kit to consume it.
 
 ### Building and publishing
 
@@ -249,7 +275,16 @@ are below.
 ### Building locally
 
 ```console
-docker build -t docker.io/sbx/codex-image:latest codex
+docker build -f codex/codex.dockerfile -t docker.io/sbx/codex:latest codex
+```
+
+That builds the content alone. To build the kit — content plus the validated,
+expanded descriptor in its manifest annotation — build
+[`codex.yaml`](./codex.yaml) instead, which its `# syntax=docker/sandbox-kit:3`
+line dispatches to the kit frontend:
+
+```console
+docker build -f codex/codex.yaml -t docker.io/sbx/codex:latest codex
 ```
 
 Codex installs via its standalone installer script, which downloads a
@@ -260,5 +295,5 @@ than shipping, and also symlinks the binary into the base image's npm global
 path for `codex-app-server` compatibility (see the note above).
 
 `BASE_IMAGE` is a build arg, so the base can be re-pointed or digest-pinned
-without editing the `Dockerfile`: `--build-arg BASE_IMAGE=…` accepts a tag or a
-digest.
+without editing [`codex.dockerfile`](./codex.dockerfile): `--build-arg
+BASE_IMAGE=…` accepts a tag or a digest.

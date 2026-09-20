@@ -1,0 +1,136 @@
+# syntax=docker/sandbox-kit:3
+# Google Antigravity as a MIXIN: the same declarations as the standalone
+# workload kit (../antigravity), minus what only the kit that owns the
+# environment can carry -- the entrypoint (the base workload's launch command
+# stays; run `agy --dangerously-skip-permissions` in the shell), the
+# context-file profile (filename is workload-only; this kit contributes
+# contentFile alone) and sbx@1 (a mixin's image config never becomes the
+# composed image's, so there is no identity for the host to honor).
+schemaVersion: "3"
+displayName: Google Antigravity (mixin)
+description: >-
+  Google's agy terminal coding agent as a mixin -- the CLI in an overlay, with
+  the proxy-managed Gemini credential, Google's egress, and the settings and
+  MCP seeds the agent needs. Layer it onto a shell base and run `agy`.
+
+kind: mixin
+
+# The binary floats: Google's install.sh takes its target from a manifest it
+# fetches itself and exposes no version variable a caller can set, so there is
+# no pin to declare and `version:` is the fallback for the unversioned provide.
+version: "1.0.0"
+
+provides: ["antigravity"]
+
+capabilities:
+  # The agent's own egress rides with the kit that ships the agent: the base
+  # grants nothing for services it does not carry. Runtime only -- the install
+  # happens at image build (see antigravity-mixin.dockerfile), and the two
+  # startup hooks below reach nothing off-box; they only rewrite JSON with jq.
+  - type: com.docker.sandbox/network-policy@1
+    config:
+      runtime:
+        allow:
+          # Google sign-in and account hosts: agy's browser OAuth flow.
+          - accounts.google.com
+          - oauth2.googleapis.com
+          - www.googleapis.com
+          - lh3.googleusercontent.com
+          # The agent's own model and platform backends. generativelanguage is
+          # also the credential's inject domain below, which v3 validates
+          # appears in this phase's allow list.
+          - aicode.googleapis.com
+          - cloudcode-pa.googleapis.com
+          - daily-cloudcode-pa.googleapis.com
+          - generativelanguage.googleapis.com
+          # Antigravity's own product hosts and feature-flag service.
+          - antigravity.google
+          - antigravity.google.com
+          - antigravity-unleash.goog
+          - play.googleapis.com
+          - safebrowsing.googleapis.com
+          - www.gstatic.com
+          # The CLI's self-updater and the bucket it pulls bundles from.
+          - antigravity-cli-auto-updater-974169037036.us-central1.run.app
+          - storage.googleapis.com
+          - raw.githubusercontent.com
+
+  # Optional, matching the workload and v2: an unbound sandbox is the normal
+  # starting point, because agy's other mode is an interactive Google sign-in
+  # the user completes inside the sandbox. The startup hook below reads the
+  # surfaced mode and configures accordingly.
+  - type: com.docker.sandbox/credential@1
+    optional: true
+    description: Gemini API key for Antigravity's headless API-key mode
+    config:
+      service: google
+      phase: runtime
+      apiKey:
+        name: GEMINI_API_KEY
+        proxyManaged: true
+        inject:
+          - {domain: generativelanguage.googleapis.com, header: x-goog-api-key, format: "%s"}
+
+  - type: com.docker.sandbox/lifecycle@1
+    config:
+      startup:
+        # Hook environments are deny-by-default in v3, so each hook names the
+        # variables it reads. $HOME is in the platform baseline and needs no
+        # declaration; the rest are not, and a hook that failed to declare them
+        # would silently take the else branch on every boot.
+        #
+        # Both are whole-file-converging rewrites, which is what makes them
+        # safe to re-run on every boot.
+        - command: |
+            set -e
+            cfg="$HOME/.gemini/antigravity-cli/settings.json"
+            mkdir -p "$(dirname "$cfg")"
+            [ -s "$cfg" ] || echo '{}' > "$cfg"
+            if [ "${SBX_CRED_GOOGLE_MODE:-none}" = apikey ]; then
+              jq '.modelProvider = "gemini"' "$cfg" > "$cfg.tmp"
+            else
+              jq 'del(.modelProvider)' "$cfg" > "$cfg.tmp"
+            fi
+            mv "$cfg.tmp" "$cfg"
+          user: "1000"
+          env: [SBX_CRED_GOOGLE_MODE]
+          description: Select Gemini API-key mode only when a Google credential is available
+
+        # Gateway-first MCP registration; the hook no-ops when no gateway has
+        # been reserved. The sentinel is a NAME, not a credential -- the proxy
+        # substitutes the real token per request, keyed by it. Deep-merged with
+        # jq rather than written whole, because mcp_config.json is the agent's
+        # entire MCP surface and truncating it would delete user-added servers.
+        # Antigravity keys an HTTP MCP server by `serverUrl`, not `url` and not
+        # `httpUrl`.
+        - command: |
+            set -e
+            [ -n "$MCP_GATEWAY_URL" ] || exit 0
+            cfg="$HOME/.gemini/config/mcp_config.json"
+            mkdir -p "$(dirname "$cfg")"
+            [ -s "$cfg" ] || echo '{}' > "$cfg"
+            frag=/tmp/antigravity-mcp-gateway.json
+            cat > "$frag" <<EOF
+            {
+              "mcpServers": {
+                "mcp-gateway": {
+                  "serverUrl": "$MCP_GATEWAY_URL",
+                  "headers": {
+                    "Authorization": "Bearer $MCP_SENTINEL_TOKEN_NAME"
+                  }
+                }
+              }
+            }
+            EOF
+            jq -s '.[0] * .[1]' "$cfg" "$frag" > "$cfg.tmp"
+            mv "$cfg.tmp" "$cfg"
+            rm -f "$frag"
+          user: "1000"
+          env: [MCP_GATEWAY_URL, MCP_SENTINEL_TOKEN_NAME]
+          description: Register the sandbox MCP gateway in Antigravity's user configuration
+
+  # contentFile alone: `filename` is workload-only, the profile belonging to
+  # the kit that owns the environment.
+  - type: com.docker.sandbox/agent-context@1
+    config:
+      contentFile: ./antigravity-mixin-context.md

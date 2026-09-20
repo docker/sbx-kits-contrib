@@ -1,15 +1,20 @@
 # docker-agent
 
-A standalone sandbox kit (`kind: sandbox`, `schemaVersion: "2"`) for
+A standalone workload kit (`kind: workload`, `schemaVersion: "3"`) for
 [Docker Agent](https://github.com/docker/docker-agent), Docker's agentic coding
 CLI. The kit runs `docker-agent run --yolo --agent-picker` as the entrypoint
 and declares eight provider credentials that the sandbox proxy resolves per
 request — no interactive sign-in flow is involved.
 
 `docker-agent` was previously a built-in `sbx` agent, run as
-`sbx run docker-agent` (or its `cagent` alias). This kit replaces that, and is
-backed by a base image built from the [`Dockerfile`](./Dockerfile) in this
-directory rather than by the `docker/sandbox-templates` release train.
+`sbx run docker-agent` (or its `cagent` alias). This kit replaces that, and its
+content is built from
+[`docker-agent.dockerfile`](./docker-agent.dockerfile) in this directory
+rather than taken from the `docker/sandbox-templates` release train.
+
+There is also a [`docker-agent-mixin`](../docker-agent-mixin) variant of the
+same kit, for layering the agent onto a shell workload instead of running a
+sandbox of its own.
 
 > [!IMPORTANT]
 > **This kit does not load yet.** `sbx` refuses a kit whose name collides with
@@ -48,8 +53,11 @@ Or with a local clone of this repo:
 sbx run --kit ./docker-agent/ docker-agent
 ```
 
-The trailing `docker-agent` is required, not redundant: for `kind: sandbox`
-kits, `sbx` enforces that the agent name matches the kit's own `name`.
+The trailing `docker-agent` is required, not redundant: `sbx` enforces that
+the agent name matches the capability the kit provides, which here is
+`docker-agent`. A v3 descriptor carries no `name:` of its own — identity is
+the reference the kit is consumed by, and `provides:` is what the resolver
+matches on.
 
 ## Passing arguments
 
@@ -129,8 +137,9 @@ configuration](https://github.blog/changelog/2026-02-13-network-configuration-ch
 `inject` list. That combination means the proxy sets a sentinel value in the
 environment variable and then routes nothing: no host is associated with the
 service, so the sentinel is never substituted with the real key. Their API
-hosts are correspondingly **not** in `permissions.network.allow` — listing them
-would advertise reachability for a path that cannot authenticate.
+hosts are correspondingly **not** in the network policy's `runtime` allow list
+— listing them would advertise reachability for a path that cannot
+authenticate.
 
 They are kept declared rather than dropped because the service names are what
 make the secrets bindable on the host, and dropping them would silently
@@ -154,16 +163,23 @@ suppresses the startup notice only; it is not what disables reporting.
 
 ## Configuration variables
 
-`TERM`, `COLORTERM`, `LANG` and `TELEMETRY_ENABLED` are set in the kit's
-`environment.variables`. The agent's own knobs — `DOCKER_AGENT_AUTO_UPDATE`,
-`DOCKER_AGENT_NO_TOUR`, `DOCKER_AGENT_HIDE_TELEMETRY_BANNER` — are set as image
-`ENV` in the [`Dockerfile`](./Dockerfile) instead.
+`TERM`, `COLORTERM`, `LANG` and `TELEMETRY_ENABLED`, and the agent's own knobs
+— `DOCKER_AGENT_AUTO_UPDATE`, `DOCKER_AGENT_NO_TOUR`,
+`DOCKER_AGENT_HIDE_TELEMETRY_BANNER` — are all set as image `ENV` in
+[`docker-agent.dockerfile`](./docker-agent.dockerfile).
 
-The split is not cosmetic: the kit spec reserves the `DOCKER_` prefix for the
-sandbox runtime and tells kits not to claim it (SPEC-v2 §5.5), while this
-agent's entire configuration surface happens to live under `DOCKER_AGENT_*`.
-Setting them as image `ENV` puts them in the container environment identically,
-leaves them overridable per sandbox, and keeps the spec inside the rule.
+v2 split them across two places: the kit spec reserved the `DOCKER_` prefix
+for the sandbox runtime and told kits not to claim it (SPEC-v2 §5.5), while
+this agent's entire configuration surface happens to live under
+`DOCKER_AGENT_*`, so those had to be image `ENV` while the rest were the kit's
+`environment.variables`. In v3 there is no second place to put them: the image
+config is where a workload's static environment belongs, and the descriptor
+duplicates none of it — so the rule and the split it forced both go away.
+
+[`docker-agent-mixin`](../docker-agent-mixin) is the exception, because a
+mixin's image config never becomes the composed image's. It exports the same
+seven variables from `/etc/profile.d/docker-agent-env.sh` in its overlay
+instead.
 
 ## Self-update
 
@@ -173,10 +189,11 @@ non-root `agent` user can write, which is why the image installs it to
 `/opt/docker-agent/bin/docker-agent` (agent-owned) and symlinks
 `/usr/local/bin/docker-agent` to it.
 
-The kit's `setup.install` hook re-establishes that layout if `BASE_IMAGE` has
-been re-pointed at an image that put a root-owned binary on `PATH` instead. On
-this kit's own image the hook is a no-op beyond re-pointing an already-correct
-symlink.
+The kit's `lifecycle@1` install hook re-establishes that layout if `BASE_IMAGE`
+has been re-pointed at an image that put a root-owned binary on `PATH`
+instead. On this kit's own content the hook is a no-op beyond re-pointing an
+already-correct symlink. The mixin declares no such hook: its overlay builds
+the agent-owned layout directly, so there is nothing to repair at create.
 
 Self-update reaches `api.github.com` to resolve the release and `github.com`
 for the asset, which redirects to `objects.githubusercontent.com` — all three
@@ -184,10 +201,17 @@ are in the allow-list.
 
 ## Network policy
 
-`permissions.network.allow` lists every host a credential above injects into,
-plus the release-asset host self-update redirects to, plus the apt sources the
-base image ships with (needed because the startup hook runs `apt-get update`,
-which fails wholesale if any configured source is unreachable).
+The `network-policy@1` capability's `runtime` allow list names every host a
+credential above injects into, plus the release-asset host self-update
+redirects to, plus the apt sources the base image ships with (needed because
+the startup hook runs `apt-get update`, which fails wholesale if any
+configured source is unreachable).
+
+Everything is in the `runtime` phase and there is no `install` phase: the
+binary is installed at build time, which no phase of the policy scopes; the
+install hook only relocates a file already in the image; and the apt refresh
+is a *startup* hook, which runs at boot, so its hosts belong to the runtime
+phase rather than to an install list that would already be closed by then.
 
 Entries carry no port: a portless pattern matches any port, and pinning the apt
 hosts to `:80` breaks as soon as a mirror answers over HTTPS — with the same
@@ -201,67 +225,89 @@ wholesale `apt-get update` failure.
 > $ sbx policy log
 > ```
 >
-> then add the reported hosts to `permissions.network.allow` in `spec.yaml`.
+> then add the reported hosts to the `network-policy@1` capability's
+> `runtime.allow` list in `docker-agent.yaml`.
 
 ## Agent instructions
 
-The kit declares `agentInstructions.filename: AGENTS.md`, which is the file
-composed kit context is written into. The agent's own default configuration
-lists `AGENTS.md` among the prompt files it reads, so context contributed by
-mixins composed onto this kit is picked up rather than written somewhere the
-agent never looks.
+The kit declares `agent-context@1` with `filename: AGENTS.md`, which is the
+file composed kit context is written into. The agent's own default
+configuration lists `AGENTS.md` among the prompt files it reads, so context
+contributed by mixins composed onto this kit is picked up rather than written
+somewhere the agent never looks.
 
-## Base image
+The kit also contributes a body,
+[docker-agent-context.md](./docker-agent-context.md), which v2 went without.
+v3 surfaces kit context *progressively* — the profile carries a per-kit index
+and the agent reads a kit's body on demand — so a body no longer costs context
+on every session, and this one states what the agent cannot otherwise
+discover: that every provider variable holds a sentinel, and that Mistral,
+Nebius and xAI are bindable but unroutable.
 
-Unlike most kits here — which are `kind: mixin` or `kind: agent` and layer onto
-an existing `docker/sandbox-templates` image — a `kind: sandbox` kit *is* the
-whole environment, so it names the image the sandbox boots from. This kit
-builds and publishes its own, from the `Dockerfile` in this directory.
+## Content
 
-The image is **`docker.io/sbx/docker-agent-image`**, built on
-`docker/sandbox-templates:shell-docker`, so it carries a Docker engine and
-requests Docker-in-Docker.
+Unlike a `kind: mixin` kit, which layers onto an existing environment, a
+`kind: workload` kit *is* the whole environment: its layers are the sandbox's
+root filesystem, so the kit has content rather than a reference to an image
+built elsewhere. That content is built from
+[`docker-agent.dockerfile`](./docker-agent.dockerfile), the companion recipe
+the descriptor finds by filename stem.
 
-The `-image` suffix distinguishes the base image from the kit itself: the kit
-is published as an OCI artifact at `docker.io/sbx/docker-agent-kit` (see
-[Usage](#usage) above). The name is derived from the kit directory and enforced
-repo-wide — see [PUBLISHING.md](../PUBLISHING.md#naming).
+It is built on `docker/sandbox-templates:shell-docker`, so it carries a Docker
+engine and requests Docker-in-Docker through the
+`com.docker.sandboxes.start-docker` label — which stays a label in v3 rather
+than becoming a capability.
+
+A v3 kit is one OCI image carrying both its declarations and its content, so
+there is no longer a separate `-image` artifact beside the kit: the descriptor
+rides in a manifest annotation on the same image its layers belong to. The
+published name is derived from the kit directory and enforced repo-wide — see
+[PUBLISHING.md](../PUBLISHING.md#naming).
 
 There is no flavour suffix and no dockerless variant. The sandbox templates
 distinguish `docker-agent` from `docker-agent-docker` because a user picks a
-template directly, but a kit picks its own image — so the Docker-in-Docker
-detail never reaches the user, just as `sbx run docker-agent` already resolves
-to the Docker flavour today. And a `kind: sandbox` kit names exactly one
-`sandbox.image`, so a second image would be unreachable without a second kit to
-consume it.
+template directly, but a workload kit carries its own root filesystem — so the
+Docker-in-Docker detail never reaches the user, just as `sbx run docker-agent`
+already resolves to the Docker flavour today. A second variant would need a
+second kit to consume it; the
+[mixin](../docker-agent-mixin) is the supported way to get the agent onto a
+base of your choosing instead.
 
 ### Building and publishing
 
-How the image is named, tagged, verified and pushed is the same for every kit
-in this repo that builds its own image — see
-**[PUBLISHING.md](../PUBLISHING.md)** for the pipeline, the tagging scheme, the
-coordinates, and the Docker Hub OIDC setup. Only the docker-agent-specific
-parts are below.
+How the kit is named, tagged, verified and pushed is the same for every kit in
+this repo — see **[PUBLISHING.md](../PUBLISHING.md)** for the pipeline, the
+tagging scheme, the coordinates, and the Docker Hub OIDC setup. The build is
+driven by the frontend the descriptor's first line names
+(`# syntax=docker/sandbox-kit:3`), which validates `docker-agent.yaml`, builds
+`docker-agent.dockerfile` as the kit's content, and publishes both as one
+image. Only the docker-agent-specific parts are below.
 
 ### Building locally
 
 ```console
-docker build -t docker.io/sbx/docker-agent-image:latest docker-agent
+./scripts/test-kit.sh docker-agent
 ```
 
 Two build args beyond `BASE_IMAGE`:
 
-- `DOCKER_AGENT_VERSION` pins a release tag:
-  `--build-arg DOCKER_AGENT_VERSION=v1.2.3`. Left empty, the build resolves the
-  newest release from github.com's `/releases/latest` redirect.
+- `DOCKER_AGENT_VERSION` pins a release tag. It is declared as the
+  descriptor's `version` arg, so a kit install can supply it; a direct build
+  passes `--build-arg DOCKER_AGENT_VERSION=v1.2.3`. Left empty, the build
+  resolves the newest release from github.com's `/releases/latest` redirect.
+  The kit's `provides` stays unversioned regardless, because
+  `DOCKER_AGENT_AUTO_UPDATE` means the agent replaces its own binary at
+  runtime and any build-time version stops being true the first time it does.
 - `TARGETARCH` is supplied by BuildKit and selects the release asset. It is not
   derived from `uname -m`, which would read the builder rather than the target
   and produce an amd64 binary inside an arm64 image under emulation.
 
 > [!NOTE]
-> Pin the tag directly to avoid depending on the redirect at all:
+> Pin the tag to avoid depending on the redirect at all. Through the kit,
+> supply the `version` arg; through a direct build of the recipe, pass the
+> build arg it maps to:
 >
 > ```console
-> $ docker build --build-arg DOCKER_AGENT_VERSION=v1.2.3 \
->     -t docker.io/sbx/docker-agent-image:latest docker-agent
+> $ docker build -f docker-agent/docker-agent.dockerfile \
+>     --build-arg DOCKER_AGENT_VERSION=v1.2.3 docker-agent
 > ```

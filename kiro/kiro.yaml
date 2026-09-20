@@ -1,0 +1,186 @@
+# syntax=docker/sandbox-kit:3
+# Migration of the v2 `kiro` sandbox kit (spec.yaml, schemaVersion "2").
+# v2's sandbox.image, sandbox.entrypoint and environment.variables have no v3
+# fields — a workload's content IS its image, and the image config owns launch
+# and static env — so all three moved into kiro.dockerfile. Every other v2
+# stanza lands in a capability below; the deltas are marked MIGRATION NOTE.
+schemaVersion: "3"
+displayName: Kiro
+description: Kiro CLI by AWS, with interactive device-flow authentication.
+
+kind: workload
+
+# The KIT's version, not Kiro's. It covers this descriptor, the start.sh
+# launcher, the network policy and the hooks — the agent inside the image
+# floats, so a newer kiro-cli does not bump this and this does not track
+# releases of kiro-cli.
+#
+# MIGRATION NOTE: in v3 this field does a second job — it is the fallback
+# version for the unversioned provide below (SPEC-v3 §9.2 refuses a published
+# provide with no version at all). The install is `curl -fsSL
+# https://cli.kiro.dev/install | bash`, which takes no pin, so there is no
+# kiro-cli release this kit could honestly name. v2's comment about
+# `vnd.docker.sandbox.kit.version` is stale: v3 derives
+# `org.opencontainers.image.version` from this field (§9.3).
+version: "1.0.0"
+
+provides: ["kiro"]
+
+capabilities:
+  # This workload is an agent sandbox: the host launches the agent rather than
+  # running the image's entrypoint as PID 1, and honors the identity the image
+  # config declares instead of assuming one.
+  - type: com.docker.sandbox/sbx@1
+
+  # Built-in agents ship no egress policy of their own: they inherit whatever
+  # the host policy is, which defaults to permissive. A community kit cannot
+  # rely on that — this repo's e2e runs every kit under
+  # `sbx policy init deny-all`, so the kit gets exactly the reachability it
+  # declares here and nothing more.
+  #
+  # MIGRATION NOTE: v2's single flat allow list is phase-scoped in v3, and an
+  # absent phase grants nothing. Kiro's own three hosts are listed in BOTH
+  # phases rather than moved to one: the install hook below runs `kiro-cli
+  # setup --no-confirm` at sandbox-create time, and whether that command
+  # touches the network has not been confirmed from a live run — while the v2
+  # comment establishes that kiro-cli reaches the same hosts in steady state
+  # for version checks and self-update. Listing them twice reproduces v2's
+  # reachability exactly in both phases; the alternative would be guessing
+  # which phase to starve. Everything else is runtime-only: the apt hosts
+  # because startup hooks run at boot inside the runtime phase, and the AWS
+  # endpoints because the device flow happens when the entrypoint's launcher
+  # runs. The union of the two phases is v2's list, host for host.
+  - type: com.docker.sandbox/network-policy@1
+    config:
+      install:
+        # Kiro's own hosts, for `kiro-cli setup --no-confirm`. Install-phase
+        # grants are closed before the agent starts, so this is the narrower
+        # of the two lifetimes.
+        allow:
+          - cli.kiro.dev
+          - prod.download.cli.kiro.dev
+          - kiro.dev
+      runtime:
+        allow:
+          # Kiro's own hosts. The initial install happens at image build time,
+          # but kiro-cli reaches these for version checks and self-update, so
+          # they are required at runtime too. Both are needed, not just the
+          # first: cli.kiro.dev serves the install/update script, which then
+          # fetches the versioned binary from prod.download.cli.kiro.dev
+          # (…/stable/latest/kirocli-<arch>-linux.zip).
+          - cli.kiro.dev
+          - prod.download.cli.kiro.dev
+          - kiro.dev
+          # `apt-get update` (the startup hook below) refreshes metadata for
+          # every configured apt source and returns exit 100 if any one of
+          # them fails. The shell-docker base ships three sources, so all
+          # three must be reachable. Ubuntu serves amd64 from archive/security
+          # and arm64 from ports.ubuntu.com, so all three Ubuntu hosts are
+          # listed to keep the kit working cross-arch.
+          - archive.ubuntu.com        # Ubuntu archive (amd64 main)
+          - security.ubuntu.com       # Ubuntu security updates (amd64)
+          - ports.ubuntu.com          # Ubuntu archive/security (arm64)
+          - download.docker.com       # Docker's apt repo, pre-added by shell-docker
+          #
+          # AWS-backed endpoints Kiro's device-flow auth and chat need,
+          # reported in #185. Not publicly documented beyond that. Exact hosts
+          # rather than a *.us-east-1.amazonaws.com wildcard — that would
+          # reach every AWS service in the region, not just Kiro's own
+          # backend.
+          - client-telemetry.us-east-1.amazonaws.com
+          - cognito-identity.us-east-1.amazonaws.com
+          - desktop-release.q.us-east-1.amazonaws.com
+          - management.us-east-1.kiro.dev
+          - prod.us-east-1.auth.desktop.kiro.dev
+          - prod.us-east-1.telemetry-v2.kiro.dev
+          - runtime.us-east-1.kiro.dev
+          - q.us-east-1.amazonaws.com  # Amazon Q backend — Kiro's chat API
+          - view.awsapps.com           # AWS access portal / Identity Center device-flow auth
+
+  # MIGRATION NOTE: no `credential@1` entry at all — v2 declared none. Kiro
+  # authenticates only through an interactive device flow (the start.sh
+  # launcher runs `kiro-cli login --use-device-flow`), so there is no secret
+  # for the host's credential store to hold and nothing for the proxy to
+  # inject. That is also why testdata/tck.yaml deliberately recorded no
+  # promptArgs, and why no agent-sessions capability is declared below.
+
+  - type: com.docker.sandbox/lifecycle@1
+    config:
+      install:
+        # Also run at image-build time (kiro.dockerfile); re-run here because
+        # the data.sqlite3 it creates under ~/.local/share/kiro-cli may be
+        # shadowed by a volume mounted at create, in which case the baked copy
+        # is not the one the agent reads.
+        - command: "kiro-cli setup --no-confirm"
+          user: "agent"
+          description: Run Kiro CLI setup
+      startup:
+        # MIGRATION NOTE: v2 backgrounded this with a trailing `&` inside the
+        # `sh -c` string. v3 has a field for it, so the shell trick is gone
+        # and the declaration says what it means. The command is otherwise
+        # verbatim, including the `|| true` that keeps apt's exit 100 (any one
+        # unreachable source) from failing the boot.
+        - command: ["sh", "-c", "command -v apt-get > /dev/null 2>&1 && (apt-get update -qq -y > /dev/null 2>&1 || true)"]
+          user: "root"
+          background: true
+          description: Update apt package cache in background
+
+        # Gateway-first MCP registration. sandboxd injects MCP_GATEWAY_URL +
+        # MCP_SENTINEL_TOKEN_NAME into the container env when a gateway has
+        # been reserved. The sentinel name is not a credential — the proxy
+        # substitutes the real token at request time keyed by this name.
+        # No-op when MCP isn't enabled.
+        #
+        # Kiro owns ~/.kiro/settings/mcp.json (no baseline keys to
+        # preserve), so the script writes it fresh via heredoc. mkdir -p
+        # because the settings/ subdir may not exist on first boot.
+        #
+        # Shape: kiro-cli keys an HTTP MCP server by `url` plus a `headers`
+        # object — there is no `type` field and no `httpUrl` (that spelling
+        # is Gemini's, and is the wrong answer most easily reached for).
+        # See the Authorization Example in
+        # https://kiro.dev/docs/cli/mcp/configuration/
+        #
+        # MIGRATION NOTE: hook environments are deny-by-default in v3, so the
+        # two variables this body reads are enumerated in `env:`. $HOME is the
+        # platform baseline and needs no entry. Without this list the hook
+        # would see neither variable, take the no-op branch on every boot, and
+        # silently never register the gateway — which is exactly the failure
+        # the deny-by-default rule is easiest to miss on.
+        - command:
+            - sh
+            - -c
+            - |
+              set -e
+              [ -n "$MCP_GATEWAY_URL" ] || exit 0
+              mkdir -p "$HOME/.kiro/settings"
+              cat > "$HOME/.kiro/settings/mcp.json" <<EOF
+              {
+                "mcpServers": {
+                  "mcp-gateway": {
+                    "url": "$MCP_GATEWAY_URL",
+                    "headers": {
+                      "Authorization": "Bearer $MCP_SENTINEL_TOKEN_NAME"
+                    }
+                  }
+                }
+              }
+              EOF
+          user: "agent"
+          env: [MCP_GATEWAY_URL, MCP_SENTINEL_TOKEN_NAME]
+          description: Register the sandbox MCP gateway in ~/.kiro/settings/mcp.json
+
+  # MIGRATION NOTE: no `agent-sessions@1`. v2's testdata/tck.yaml deliberately
+  # omitted promptArgs — kiro authenticates only via interactive device flow,
+  # so CI has no way to reach an authenticated state, and the `kiro` entrypoint
+  # is the launcher, which blocks waiting on a human when unauthenticated. An
+  # absent verb means "operation unsupported", which is the truthful answer;
+  # flags are not invented.
+
+  # MIGRATION NOTE: v2 declared `agentInstructions.filename: KIRO.md` with no
+  # `content`, so there is no body to move into a kiro-context.md and none is
+  # invented here. KIRO.md rather than AGENTS.md is Kiro's own profile name
+  # and carries over unchanged.
+  - type: com.docker.sandbox/agent-context@1
+    config:
+      filename: KIRO.md

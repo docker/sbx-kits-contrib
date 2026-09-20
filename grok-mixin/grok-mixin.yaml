@@ -1,0 +1,80 @@
+# syntax=docker/sandbox-kit:3
+# Grok Build as a MIXIN: the same declarations as the standalone workload kit
+# (../grok), minus what only the kit that owns the environment can carry — the
+# entrypoint (the base workload's launch command stays; you run `grok` from
+# the shell), the context-file profile (`filename` is workload-only, so this
+# kit contributes `contentFile` alone), `agent-sessions@1` (the verbs drive
+# the workload's entrypoint, which here is the base's shell), and `sbx@1`.
+schemaVersion: "3"
+displayName: Grok Build (mixin)
+description: >-
+  xAI's terminal-based coding agent as a mixin — the CLI in an overlay, with
+  the xAI credential and the egress policy Grok's login and inference need.
+  Layer it onto a shell base and run `grok`.
+
+kind: mixin
+
+# The fallback version for the unversioned provide below: the upstream
+# installer takes no pin, so there is no grok release this kit could honestly
+# name. Tracks ../grok.
+version: "1.0.0"
+
+# Same name the workload provides, so composing this mixin with ../grok is
+# refused rather than installing the agent twice (SPEC-v3 §5.3).
+provides: ["grok"]
+
+capabilities:
+  # The agent's own egress rides with the kit that ships the agent: the base
+  # grants nothing for services it doesn't carry.
+  #
+  # MIGRATION NOTE: no `install:` phase, and `x.ai` is gone with it. In the
+  # workload that host exists for one reason — the setup hook that fetches the
+  # CLI at sandbox-create time. This kit carries the CLI in its overlay
+  # instead, so the install runs at *image-build* time, outside any sandbox
+  # phase and outside this policy entirely. Keeping the grant would open
+  # egress for an install phase that now runs nothing. The runtime phase is
+  # unchanged, host for host, and is the whole of what the agent reaches.
+  #
+  # MIGRATION NOTE: v2 wrote every entry with an explicit `:443`. Dropped for
+  # the contrib house style of portless entries; port suffixes are ignored for
+  # allow-list membership anyway.
+  - type: com.docker.sandbox/network-policy@1
+    config:
+      runtime:
+        allow:
+          # The xAI chat-completions API. Declaring it in the credential's
+          # apiKey.inject (below) wires header injection but does NOT
+          # implicitly allow the domain — it still needs an explicit entry
+          # here, confirmed against a real deny-all sandbox (403 Forbidden
+          # without this line).
+          - api.x.ai
+          # Grok login discovers its OAuth configuration from auth.x.ai, then
+          # uses the Grok chat proxy for authenticated inference and settings.
+          - auth.x.ai
+          - cli-chat-proxy.grok.com
+
+  # optional, faithfully: v2 credentials default to not-required and the v3
+  # default inverts, so stating it preserves the observable behavior.
+  - type: com.docker.sandbox/credential@1
+    optional: true
+    description: xAI API access for Grok
+    config:
+      service: xai
+      phase: runtime
+      # No proxyManaged, faithfully: v2 did not set it, so XAI_API_KEY is
+      # present only when the host really bound a key.
+      apiKey:
+        name: XAI_API_KEY
+        inject:
+          - {domain: api.x.ai, header: Authorization, format: "Bearer %s"}
+
+  # MIGRATION NOTE: no lifecycle entry. The workload's only hook is the
+  # installer, which this kit's overlay performs at build time — and a
+  # lifecycle entry declaring no hooks, no files and no interactive tail is
+  # invalid, so the entry is dropped rather than left empty.
+
+  # No `filename:` — the profile belongs to the workload that owns the
+  # environment, and declaring it on a mixin is a validation error.
+  - type: com.docker.sandbox/agent-context@1
+    config:
+      contentFile: ./grok-mixin-context.md

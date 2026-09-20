@@ -1,0 +1,138 @@
+# syntax=docker/sandbox-kit:3
+# Junie as a MIXIN: the same declarations as the standalone workload kit
+# (../junie), minus what only the kit that owns the environment can carry —
+# the entrypoint (the base workload's launch command stays; you run `junie`
+# from the shell), the context-file profile (`filename` is workload-only, so
+# this kit contributes `contentFile` alone), `agent-sessions@1` (the verbs
+# drive the workload's entrypoint, which here is the base's shell), and
+# `sbx@1`.
+schemaVersion: "3"
+displayName: Junie (mixin)
+description: >-
+  JetBrains' AI coding agent as a mixin — the stable-channel install in an
+  overlay, with the six model-provider credentials Junie can route through and
+  the egress policy they need. Layer it onto a shell base and run `junie`.
+
+kind: mixin
+
+# The fallback version for the unversioned provide below: the install floats
+# (install.sh always takes the current stable build), so there is no junie
+# release this kit could honestly name. Tracks ../junie.
+version: "1.0.0"
+
+# Same name the workload provides, so composing this mixin with ../junie is
+# refused rather than installing the agent twice (SPEC-v3 §5.3).
+provides: ["junie"]
+
+capabilities:
+  # The agent's own egress rides with the kit that ships the agent: the base
+  # grants nothing for services it doesn't carry. Every host is `runtime`;
+  # there is no install phase, because the overlay is built at image-build
+  # time and this kit declares no lifecycle hooks.
+  - type: com.docker.sandbox/network-policy@1
+    config:
+      runtime:
+        allow:
+          # Junie is baked into the overlay rather than installed at
+          # sandbox-create time, and the overlay's profile.d export carries
+          # JUNIE_SKIP_UPDATE_CHECK=1, so the installed binary never checks
+          # for or stages a runtime update. That is why github.com,
+          # raw.githubusercontent.com and release-assets.githubusercontent.com
+          # are absent: all three were reachable only for the vendor
+          # installer's version-resolution feed and the release zip it
+          # downloads, and neither is a credential inject domain.
+          # junie.jetbrains.com stays -- it doubles as the `junie`
+          # credential's inject domain below.
+          - junie.jetbrains.com
+          - api.jetbrains.ai
+          - api.anthropic.com
+          - api.openai.com
+          - generativelanguage.googleapis.com
+          - api.x.ai
+          - openrouter.ai
+
+  # Every credential is `optional: true`, faithfully: v2 credentials default
+  # to not-required and the v3 default inverts. Junie takes whichever model
+  # provider the host has bound, and none of the six is individually
+  # necessary.
+  - type: com.docker.sandbox/credential@1
+    optional: true
+    description: Anthropic API access
+    config:
+      service: anthropic
+      phase: runtime
+      apiKey:
+        name: ANTHROPIC_API_KEY
+        proxyManaged: true
+        inject:
+          - {domain: api.anthropic.com, header: x-api-key, format: "%s"}
+
+  # v1 also accepted GOOGLE_GENERATIVE_AI_API_KEY as a fallback host env var
+  # name for this credential. Neither v2's nor v3's apiKey.name carries an
+  # alias list, so only one can be recognized; GEMINI_API_KEY is Google's
+  # current canonical name for this key.
+  - type: com.docker.sandbox/credential@1
+    optional: true
+    description: Google Gemini API access
+    config:
+      service: google
+      phase: runtime
+      apiKey:
+        name: GEMINI_API_KEY
+        proxyManaged: true
+        inject:
+          - {domain: generativelanguage.googleapis.com, header: x-goog-api-key, format: "%s"}
+
+  - type: com.docker.sandbox/credential@1
+    optional: true
+    description: JetBrains AI / Junie service access
+    config:
+      service: junie
+      phase: runtime
+      apiKey:
+        name: JUNIE_API_KEY
+        proxyManaged: true
+        inject:
+          - {domain: junie.jetbrains.com, header: Authorization, format: "Bearer %s"}
+
+  - type: com.docker.sandbox/credential@1
+    optional: true
+    description: OpenAI API access
+    config:
+      service: openai
+      phase: runtime
+      apiKey:
+        name: OPENAI_API_KEY
+        proxyManaged: true
+        inject:
+          - {domain: api.openai.com, header: Authorization, format: "Bearer %s"}
+
+  - type: com.docker.sandbox/credential@1
+    optional: true
+    description: OpenRouter API access
+    config:
+      service: openrouter
+      phase: runtime
+      apiKey:
+        name: OPENROUTER_API_KEY
+        proxyManaged: true
+        inject:
+          - {domain: openrouter.ai, header: Authorization, format: "Bearer %s"}
+
+  - type: com.docker.sandbox/credential@1
+    optional: true
+    description: xAI API access
+    config:
+      service: xai
+      phase: runtime
+      apiKey:
+        name: XAI_API_KEY
+        proxyManaged: true
+        inject:
+          - {domain: api.x.ai, header: Authorization, format: "Bearer %s"}
+
+  # No `filename:` — the profile belongs to the workload that owns the
+  # environment, and declaring it on a mixin is a validation error.
+  - type: com.docker.sandbox/agent-context@1
+    config:
+      contentFile: ./junie-mixin-context.md

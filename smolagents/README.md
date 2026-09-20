@@ -50,16 +50,31 @@ Python so project dependencies in the workspace do not collide with the kit.
 Use `smolagents-python` when you want to run Python snippets against the
 kit-managed environment.
 
+`SMOLAGENTS_VENV` and `SMOLAGENTS_PYTHON` point at that venv. This kit is a
+mixin with no recipe of its own, so it has no image config to put `ENV` in — an
+install hook writes both to `/etc/profile.d/smolagents-env.sh`, which the base's
+login shell sources, and a second hook appends them plus the
+`smolagents-python` alias to the agent's `~/.bashrc` for interactive non-login
+shells. Both are fixed paths rather than kit args: they name the venv the install
+hooks create.
+
 ## Network policy
 
-The kit's allowlist covers the install path plus a small runtime baseline:
+The kit's allowlist is phase-scoped, and a phase that doesn't name a host cannot
+reach it. The install phase is open only while the kit's install hooks run and is
+closed again before the agent starts.
+
+Install phase:
 
 - `pypi.org` and `files.pythonhosted.org` for pip installs.
+- Ubuntu and Docker apt hosts required by the base sandbox template during
+  `apt-get update`.
+
+Runtime phase:
+
 - `huggingface.co`, `hf.co`, and `router.huggingface.co` for Hugging Face
   Hub and Inference Providers.
 - DuckDuckGo hosts used by the toolkit search helper.
-- Ubuntu and Docker apt hosts required by the base sandbox template during
-  `apt-get update`.
 
 smolagents is model-agnostic. If you point it at OpenAI, Anthropic,
 OpenRouter, Bedrock, a private MCP server, or arbitrary websites through
@@ -78,13 +93,12 @@ daemon access policy.
 
 ## Bumping smolagents
 
-To update the kit, change `SMOLAGENTS_VERSION` in `spec.yaml`, run the TCK,
-and verify the CLIs in a real sandbox:
+To update the kit, change `SMOLAGENTS_VERSION` in the install hook in
+`smolagents.yaml` and the version in that descriptor's `provides`, then verify
+the CLIs in a real sandbox:
 
 ```console
-cd smolagents
-../scripts/test-kit.sh
-sbx run shell --kit ./ ~/tmp-project
+sbx run shell --kit ./smolagents/ ~/tmp-project
 ```
 
 If the new release adds dependencies or changes provider hosts, update the

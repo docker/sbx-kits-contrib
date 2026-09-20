@@ -1,0 +1,182 @@
+# syntax=docker/sandbox-kit:3
+# Migration of this kit's v2 spec.yaml to the v3 kit descriptor grammar. The
+# kit was already `kind: mixin`, so the shape barely moves: what changes is how
+# the base-agent affinity is spelled, that the port declaration becomes a typed
+# capability, that the egress is scoped to the phase that actually needs it,
+# and that the instruction body is now a file beside this one.
+#
+# This is a DECLARATION-ONLY mixin: it has no companion
+# codex-app-server.dockerfile, because the v2 kit had no Dockerfile either.
+# Everything it installs — openssh-server, the host keys, the codex bridge —
+# is installed by install hooks into the composed sandbox, not baked into a
+# layer. v3 permits a mixin with no recipe (SPEC-v3 §3.5); the published
+# artifact is the staged descriptor alone.
+schemaVersion: "3"
+displayName: Codex app-server (via SSH)
+description: >-
+  Runs sshd in the sandbox and pre-populates `authorized_keys` from the host's
+  forwarded SSH agent, so the Codex Mac GUI can add the sandbox as an SSH
+  Connection and drive `codex app-server` remotely. The kit requests port 22
+  through the port capability, so the runtime exposes sshd on an ephemeral host
+  port at sandbox start.
+
+kind: mixin
+
+# MIGRATION NOTE: v2's `requires: {agent: codex}` — sshd + a codex bridge, only
+# meaningful on the codex base agent. v2 declared base-agent affinity instead
+# of `extends:` because a mixin already runs in the base agent's container and
+# inherits its credentials at compose time; v3 says the same thing over the
+# name the codex kit provides. Both the `codex` workload kit and the
+# `codex-mixin` overlay provide it, so this composes onto either.
+#
+# Unconstrained on purpose: v2 could not express a version floor and this
+# migration invents none. An unversioned provide satisfies only an
+# unconstrained require (SPEC-v3 §5.2), and the codex kits' provides are
+# unversioned because their installers float — so a constraint added here would
+# fail to resolve against them rather than bounding them.
+requires: ["codex"]
+
+capabilities:
+  # v2's permissions.network.allow, one flat list, becomes a phase-scoped
+  # policy — and for this kit the whole list moves to `install` rather than
+  # `runtime`. The v2 comment already named the reason: these hosts exist for
+  # the `apt-get update && apt-get install openssh-server` that runs as the
+  # first install hook. Nothing this kit does at runtime reaches out at all —
+  # sshd listens rather than dials, and both startup hooks are local (reading
+  # the forwarded agent socket, starting a daemon).
+  #
+  # The phase split is the one real behavior change in this migration, and it
+  # narrows: v3 closes install-phase egress before the workload's entrypoint
+  # starts, so the running sandbox no longer carries a standing grant to the
+  # apt mirrors on this kit's account. The base agent's own kit declares those
+  # same hosts for its own boot-time apt refresh, so a composition that wants
+  # them at runtime still has them from the kit that owns that concern.
+  - type: com.docker.sandbox/network-policy@1
+    config:
+      install:
+        allow:
+          # `apt-get update` (run by the first install hook) refreshes metadata
+          # for every configured apt source. The codex-docker base template
+          # pre-configures Docker's apt repo, so `download.docker.com` must be
+          # allowed even though this kit only installs `openssh-server` from
+          # Ubuntu's main archive — apt-get exits 100 on the first source
+          # metadata fetch that returns non-2xx. Ubuntu hosts amd64 packages on
+          # archive/security and arm64 packages on ports.ubuntu.com, so all
+          # three Ubuntu hosts are listed for cross-arch coverage.
+          - archive.ubuntu.com        # Ubuntu archive (amd64 main)
+          - security.ubuntu.com       # Ubuntu security updates (amd64)
+          - ports.ubuntu.com          # Ubuntu archive/security (arm64)
+          - download.docker.com       # Docker's apt repo, pre-added by codex-docker
+
+  # MIGRATION NOTE: v2's `ports: [{container: 22, protocol: tcp, name: sshd}]`.
+  # Same three values; v2's `protocol` is spelled `transport` in v3. Inbound
+  # exposure, distinct from the outbound policy above: the runtime publishes
+  # this to an ephemeral host port it allocates itself, which `sbx ports` then
+  # reports.
+  - type: com.docker.sandbox/port@1
+    config:
+      name: sshd
+      container: 22
+      transport: tcp
+
+  - type: com.docker.sandbox/lifecycle@1
+    config:
+      install:
+        - command: apt-get update -qq && apt-get install -y -qq openssh-server
+          user: "0"
+          description: Install openssh-server
+        - command: ssh-keygen -A
+          user: "0"
+          description: Generate sshd host keys
+        - command: install -d -m 0700 -o agent -g agent /home/agent/.ssh
+          user: "0"
+          description: Ensure /home/agent/.ssh exists with correct ownership
+        # The heredoc is quoted (<<'EOF'), so everything between the markers is
+        # written to the file literally — none of the $kv, $@ or /proc/1/environ
+        # references below are read by this hook, which is why it declares no
+        # env of its own.
+        - command: |
+            cat > /usr/local/bin/codex <<'EOF'
+            #!/bin/bash
+            # sshd starts processes with a clean env, so codex spawned via SSH
+            # (which is how the Codex Mac GUI's Connections flow drives it)
+            # doesn't see HTTPS_PROXY, PROXY_CA_CERT_B64, the chatgpt-proxy
+            # bearer-token sentinel mechanism, SSH_AUTH_SOCK (which git-ssh-sign
+            # needs at signing time), etc. Snapshot the relevant vars from
+            # PID 1's environment and re-export them before handing off to
+            # the real codex binary.
+            while IFS= read -rd '' kv; do
+              case "$kv" in
+                HTTP_PROXY=*|HTTPS_PROXY=*|NO_PROXY=*|\
+                http_proxy=*|https_proxy=*|no_proxy=*|\
+                PROXY_CA_CERT_B64=*|NODE_USE_ENV_PROXY=*|NODE_EXTRA_CA_CERTS=*|\
+                SSL_CERT_FILE=*|REQUESTS_CA_BUNDLE=*|JAVA_TOOL_OPTIONS=*|\
+                CODEX_HOME=*|GH_TOKEN=*|SSH_AUTH_SOCK=*)
+                  export "$kv"
+                  ;;
+              esac
+            done < /proc/1/environ
+            exec /usr/local/share/npm-global/bin/codex "$@"
+            EOF
+            chmod 0755 /usr/local/bin/codex
+          user: "0"
+          description: Shadow `codex` on PATH with a bridge that imports PID 1's proxy env before exec'ing the real binary
+      startup:
+        - command:
+            - /home/agent/.local/bin/refresh-authorized-keys
+          user: "1000"
+          # MIGRATION NOTE: v2 had no way to state a hook's environment, and
+          # this script was written around that — sbx ran startup hooks with a
+          # clean env, so it reads SSH_AUTH_SOCK out of /proc/1/environ instead.
+          # v3 hook environments are deny-by-default and enumerable, so the one
+          # variable the script reads is declared here. The /proc/1 fallback
+          # stays the load-bearing path and is unchanged; this only means the
+          # direct read can succeed on a runtime that does pass the variable
+          # through, rather than being dead code by construction.
+          env: [SSH_AUTH_SOCK]
+          description: Refresh authorized_keys from the forwarded SSH agent
+        - command:
+            - sh
+            - -c
+            - pgrep -x sshd >/dev/null || { mkdir -p /var/run/sshd && /usr/sbin/sshd > /tmp/sshd.log 2>&1; }
+          user: "0"
+          description: Start sshd if not already running (recreates /var/run/sshd which is tmpfs-cleared on container restart)
+      files:
+        # Written rather than baked because this kit ships no layer at all. The
+        # content is written verbatim and gets no runtime variable
+        # substitution: $SSH_AUTH_SOCK and the rest are for the shell that runs
+        # the script, and v3 leaves them alone (only `${{ kit.args.* }}` would
+        # expand here, and this kit declares no args).
+        - path: /home/agent/.local/bin/refresh-authorized-keys
+          content: |
+            #!/bin/sh
+            # sbx runs startup hooks with a clean env (no SSH_AUTH_SOCK), so
+            # naïve `ssh-add -L` fails on every wake. Snapshot SSH_AUTH_SOCK
+            # from PID 1's environ — the socket file itself is available at
+            # startup time, just not the env var pointing at it.
+            if [ -z "$SSH_AUTH_SOCK" ]; then
+                SSH_AUTH_SOCK=$(tr '\0' '\n' < /proc/1/environ | grep -m1 '^SSH_AUTH_SOCK=' | cut -d= -f2-)
+                export SSH_AUTH_SOCK
+            fi
+            if [ ! -S "$SSH_AUTH_SOCK" ]; then
+                echo "[sbx-codex] no agent socket; keeping existing authorized_keys" >&2
+                exit 0
+            fi
+            keys=$(ssh-add -L 2>&1)
+            if [ $? -ne 0 ] || [ -z "$keys" ]; then
+                echo "[sbx-codex] ssh-add returned no keys; keeping existing authorized_keys" >&2
+                exit 0
+            fi
+            printf '%s\n' "$keys" > /home/agent/.ssh/authorized_keys
+            chmod 600 /home/agent/.ssh/authorized_keys
+          mode: "0755"
+          description: Refresh /home/agent/.ssh/authorized_keys from the forwarded SSH agent. Invoked by the startup hook; safe to invoke manually too.
+
+  # MIGRATION NOTE: v2's agentInstructions.content moves into
+  # codex-app-server-context.md beside this file, with the one sentence that
+  # quoted v2 grammar ("The kit declares port 22 in its `ports`") reworded to
+  # name the v3 capability. `filename` is workload-only in v3, and the v2 entry
+  # named none anyway, so this kit contributes a body and nothing else.
+  - type: com.docker.sandbox/agent-context@1
+    config:
+      contentFile: ./codex-app-server-context.md

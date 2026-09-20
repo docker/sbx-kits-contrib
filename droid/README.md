@@ -1,6 +1,6 @@
 # droid
 
-A standalone sandbox kit (`kind: sandbox`, `schemaVersion: "2"`) for
+A standalone workload kit (`kind: workload`, `schemaVersion: "3"`) for
 [Droid CLI](https://docs.factory.ai/cli/getting-started/quickstart), Factory's
 agentic coding CLI. The kit runs `droid` as the entrypoint and authenticates
 through a single credential the sandbox proxy resolves per request: an
@@ -9,8 +9,13 @@ device/token flow otherwise.
 
 Droid was previously a built-in `sbx` agent, run as `sbx run droid`. This kit
 replaces that, and is backed by a base image built from the
-[`Dockerfile`](./Dockerfile) in this directory rather than by the
+[`droid.dockerfile`](./droid.dockerfile) in this directory rather than by the
 `docker/sandbox-templates` release train.
+
+The declarations live in [`droid.yaml`](./droid.yaml); the recipe beside it is
+found by the filename-stem convention. If you want Droid layered onto a shell
+base you already have, rather than as the whole environment, use
+[`../droid-mixin`](../droid-mixin) instead.
 
 ## Prerequisites
 
@@ -40,8 +45,8 @@ Or with a local clone of this repo:
 sbx run --kit ./droid/ droid
 ```
 
-The trailing `droid` is required, not redundant: for `kind: sandbox` kits,
-`sbx` enforces that the agent name matches the kit's own `name`.
+The trailing `droid` is required, not redundant: for workload kits, `sbx`
+enforces that the agent name matches the name the kit `provides`.
 
 ## Passing arguments
 
@@ -61,11 +66,16 @@ The kit declares one credential, `droid`, with both an `apiKey` and an
 
 When both are declared on one credential, the `apiKey` takes precedence
 whenever it resolves — a host with `FACTORY_API_KEY` bound never triggers the
-interactive flow. The spec also carries a `skipIfEnv: [FACTORY_API_KEY]` entry
-under `oauth`, inherited unchanged from the built-in agent's spec, but it has
-no effect here: it's a host-env-driven shortcut that only applies to older,
-non-binding kit schemas, not to this kit's binding-driven credential
-resolution. It's kept for parity with the built-in spec rather than dropped.
+interactive flow. The v2 spec also carried a `skipIfEnv: [FACTORY_API_KEY]`
+entry under `oauth`, inherited from the built-in agent's spec. It has no v3
+spelling and is **dropped**: it was a host-env-driven shortcut, and mode
+resolution here is binding-driven — the host's credential store decides, not a
+probe of a host environment variable — which is exactly what the v2 comment
+already observed it to be. Nothing observable changes.
+
+The credential is **required** (v3 entries are required unless they set
+`optional: true`), so `sbx create` reports a missing binding up front rather
+than letting the CLI fail with an opaque 401 once you are inside.
 
 > [!IMPORTANT]
 > This kit sets `apiKey.proxyManaged: true` on `FACTORY_API_KEY`, matching
@@ -81,10 +91,16 @@ resolution. It's kept for parity with the built-in spec rather than dropped.
 
 ## Network policy
 
-`permissions.network.allow` mirrors every domain the credential block injects
-into or resolves against, plus the apt sources the base image ships with
-(needed because the startup hook runs `apt-get update`, which fails wholesale
-if any configured source is unreachable).
+The `network-policy@1` capability mirrors every domain the credential block
+injects into or resolves against, plus the apt sources the base image ships
+with (needed because the startup hook runs `apt-get update`, which fails
+wholesale if any configured source is unreachable).
+
+v3 policy is phase-scoped — `install` for what setup hooks reach, `runtime`
+for the agent's steady state, and an absent phase grants nothing. This kit
+declares `runtime` only: Droid is installed when the image is built, not by an
+install hook, so nothing reaches the network during install. The apt hosts are
+`runtime` because startup hooks run at boot, inside the runtime phase.
 
 > [!IMPORTANT]
 > This list has not been verified end-to-end under `sbx policy init deny-all`
@@ -96,14 +112,14 @@ if any configured source is unreachable).
 > $ sbx policy log
 > ```
 >
-> then add the reported hosts to `permissions.network.allow` in `spec.yaml`.
+> then add the reported hosts under `runtime.allow` in `droid.yaml`.
 
 ## Base image
 
-Unlike most kits here — which are `kind: mixin` or `kind: agent` and layer onto
-an existing `docker/sandbox-templates` image — a `kind: sandbox` kit *is* the
-whole environment, so it names the image the sandbox boots from. This kit
-builds and publishes its own, from the `Dockerfile` in this directory.
+Unlike a `kind: mixin` kit, which layers onto an existing image, a
+`kind: workload` kit's layers *are* the root filesystem — so its recipe names
+the image the sandbox boots from. This kit builds and publishes its own, from
+[`droid.dockerfile`](./droid.dockerfile) in this directory.
 
 The image is **`docker.io/sbx/droid-image`**, built on
 `docker/sandbox-templates:shell-docker`, so it carries a Docker engine and
@@ -119,8 +135,8 @@ There is no flavour suffix and no dockerless variant. The sandbox templates
 distinguish `droid` from `droid-docker` because a user picks a template
 directly, but a kit picks its own image — so the Docker-in-Docker detail never
 reaches the user, just as `sbx run droid` already resolves to the Docker
-flavour today. And a `kind: sandbox` kit names exactly one `sandbox.image`, so
-a second image would be unreachable without a second kit to consume it.
+flavour today. And a workload kit's layers are the one root filesystem, so a
+second image would be unreachable without a second kit to consume it.
 
 ### Building and publishing
 
@@ -133,9 +149,12 @@ are below.
 ### Building locally
 
 ```console
-docker build -t docker.io/sbx/droid-image:latest droid
+docker build -f droid/droid.dockerfile -t docker.io/sbx/droid-image:latest droid
 ```
 
+`-f` is needed now that the recipe is named for its descriptor's stem rather
+than `Dockerfile`; the kit frontend finds it by that convention without one.
+
 `BASE_IMAGE` is a build arg, so the base can be re-pointed or digest-pinned
-without editing the `Dockerfile`: `--build-arg BASE_IMAGE=…` accepts a tag or a
-digest.
+without editing `droid.dockerfile`: `--build-arg BASE_IMAGE=…` accepts a tag
+or a digest.

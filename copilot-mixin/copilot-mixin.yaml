@@ -1,0 +1,190 @@
+# syntax=docker/sandbox-kit:3
+# The GitHub Copilot CLI as a MIXIN: the same declarations as the copilot
+# workload kit beside it — both credentials, the egress, the trusted-folder seed
+# and the MCP registration — minus what only the kit that owns the environment
+# can carry:
+#
+#   - no sbx@1: the host launches the *base workload's* agent, and this kit's
+#     image config never becomes the composed image's.
+#   - no ENTRYPOINT: the base workload's launch command stays as it is. The
+#     user runs `copilot` from the shell.
+#   - no agent-context filename: the AGENTS.md profile belongs to the workload
+#     that owns the environment, so this kit contributes a body and nothing
+#     else.
+#   - no apt-cache-refresh startup hook and no apt mirrors in the policy: which
+#     package manager the base ships and which mirrors it points at are the
+#     base's business, and a mixin that refreshed them would be granting egress
+#     for a base it has never seen.
+#
+# There is no /etc/profile.d drop in the overlay: the v2 copilot kit declared no
+# environment.variables, so unlike the codex and cursor mixins there is nothing
+# for one to carry.
+schemaVersion: "3"
+displayName: GitHub Copilot (mixin)
+description: >-
+  GitHub's Copilot CLI as a mixin — the CLI in an overlay, with the GitHub and
+  Copilot credentials, scoped egress, and the trusted-folder and MCP-gateway
+  seeds the agent needs. Layer it onto a shell base and run `copilot`.
+# The KIT's version, not Copilot's, and the publish-time fallback for the
+# unversioned provide below. Tracks the copilot kit it is derived from.
+version: "1.0.0"
+
+kind: mixin
+
+# Same name the copilot workload provides. Unversioned for the same reason: the
+# vendor installer takes no version pin.
+#
+# The two kits are alternatives, never composed together: one name has one
+# owner (SPEC-v3 §5.3), so resolution refuses copilot + copilot-mixin.
+provides: ["copilot"]
+
+capabilities:
+  # The agent's own egress rides with the kit that ships the agent: the base
+  # grants nothing for services it does not carry. Same list as the workload's
+  # minus the four apt/Docker mirror hosts, which the workload declares because
+  # it owns its base image and refreshes that base's package cache.
+  - type: com.docker.sandbox/network-policy@1
+    config:
+      # Nothing here is reached while install hooks run — one hook is a
+      # mkdir/chown and the other writes a local config file — so the whole
+      # list is runtime, and the absent install phase grants nothing.
+      runtime:
+        allow:
+          # Every domain either credential injects into. v3 validates the
+          # direction: an inject domain outside the matching phase's allow list
+          # is an error rather than dead config.
+          - api.business.githubcopilot.com # Copilot Business
+          - api.enterprise.githubcopilot.com # Copilot Enterprise
+          - api.github.com
+          - api.githubcopilot.com
+          - api.individual.githubcopilot.com # Copilot Pro and Pro+
+          - copilot.github.com
+          - github.com
+
+  # Both entries are optional for the same reason as in the workload kit: v2
+  # credentials default to not-required, Copilot CLI runs unauthenticated and
+  # prompts, and the second exists precisely so a host that has only the
+  # broader github binding still composes.
+  - type: com.docker.sandbox/credential@1
+    optional: true
+    description: GitHub API access for git and gh
+    config:
+      service: github
+      phase: runtime
+      apiKey:
+        name: GH_TOKEN
+        inject:
+          - {domain: api.github.com, header: Authorization, format: "Bearer %s"}
+          - {domain: github.com, header: Authorization, format: "Bearer %s"}
+
+  - type: com.docker.sandbox/credential@1
+    optional: true
+    description: Copilot request access, separable from the broader github token
+    config:
+      service: copilot
+      phase: runtime
+      apiKey:
+        # Copilot CLI prioritizes COPILOT_GITHUB_TOKEN over GH_TOKEN/GITHUB_TOKEN,
+        # so this can hold a separate, fine-grained PAT (copilot request scope)
+        # without affecting the broader github secret used for gh/git access.
+        name: COPILOT_GITHUB_TOKEN
+        inject:
+          - {domain: api.business.githubcopilot.com, header: Authorization, format: "Bearer %s"}     # Copilot Business
+          - {domain: api.enterprise.githubcopilot.com, header: Authorization, format: "Bearer %s"}   # Copilot Enterprise
+          - {domain: api.githubcopilot.com, header: Authorization, format: "Bearer %s"}
+          - {domain: api.individual.githubcopilot.com, header: Authorization, format: "Bearer %s"}   # Copilot Pro and Pro+
+          - {domain: copilot.github.com, header: Authorization, format: "Bearer %s"}
+
+  - type: com.docker.sandbox/lifecycle@1
+    config:
+      install:
+        - command: mkdir -p /home/agent/.copilot && chown agent:agent /home/agent/.copilot
+          user: "0"
+          description: Ensure .copilot is owned by agent before bind mounts and the config seed run
+        # MIGRATION NOTE: this was a v2 `setup.files` entry whose content was
+        # '{"trusted_folders": ["${WORKDIR}"]}' — substituted by the v2 file
+        # writer. A v3 file's content expands `${{ kit.args.* }}` and nothing
+        # else, so the seed becomes an install hook, which is the shape that can
+        # read the path from the environment (WORKDIR is spelled WORKSPACE_DIR
+        # in v3 hooks, and a v3 hook sees only the platform baseline plus the
+        # names it declares). v2's `onlyIfMissing: true` carries over as the
+        # existence guard: `copilot` itself writes this file during a session.
+        - command: |
+            set -e
+            cfg=/home/agent/.copilot/config.json
+            if [ -e "$cfg" ]; then exit 0; fi
+            if [ -z "$WORKSPACE_DIR" ]; then
+              echo "WORKSPACE_DIR unset; skipping Copilot trusted-folder seed" >&2
+              exit 0
+            fi
+            esc=$(printf '%s' "$WORKSPACE_DIR" | sed 's/\\/\\\\/g; s/"/\\"/g')
+            printf '{"trusted_folders": ["%s"]}\n' "$esc" > "$cfg"
+          user: "agent"
+          env: [WORKSPACE_DIR]
+          description: Copilot config with trusted workspace folder
+      startup:
+        # Gateway-first MCP registration, as in the copilot kit. `copilot mcp
+        # add` writes into this same file and startup replays on every container
+        # start, so only the mcp-gateway entry may be written — hence the
+        # jq merge rather than an overwrite. No-op when MCP isn't enabled.
+        - command:
+            - sh
+            - -c
+            - |
+              set -e
+              [ -n "$MCP_GATEWAY_URL" ] || exit 0
+              cfg="$HOME/.copilot/mcp-config.json"
+              dir=$(dirname "$cfg")
+              mkdir -p "$dir"
+              gateway=$(cat <<EOF
+              {
+                "mcpServers": {
+                  "mcp-gateway": {
+                    "type": "http",
+                    "url": "$MCP_GATEWAY_URL",
+                    "headers": {
+                      "Authorization": "Bearer $MCP_SENTINEL_TOKEN_NAME"
+                    },
+                    "tools": ["*"]
+                  }
+                }
+              }
+              EOF
+              )
+              # Two overlapping starts would read-modify-write the same file.
+              exec 9>>"$dir/.mcp-config.lock"
+              flock 9
+              # mv would nest the config inside a directory here and still exit 0.
+              if [ -e "$cfg" ] && [ ! -f "$cfg" ]; then
+                echo "mcp-config.json is not a regular file; leaving the MCP gateway unregistered" >&2
+                exit 0
+              fi
+              if ! merged=$({ if [ -s "$cfg" ]; then cat "$cfg"; else echo '{}'; fi; printf '%s\n' "$gateway"; } | jq -s '
+                  if length != 2 or (.[0] | type) != "object" or ((.[0].mcpServers // {}) | type) != "object" then
+                    error("mcp-config.json must hold one JSON object whose mcpServers is an object")
+                  else
+                    .[0] + {mcpServers: ((.[0].mcpServers // {}) + .[1].mcpServers)}
+                  end'); then
+                echo "mcp-config.json is not readable as JSON; leaving the MCP gateway unregistered" >&2
+                exit 0
+              fi
+              # The temp name is unpredictable, so a stale or crashed leftover is never installed.
+              tmp=$(mktemp "$dir/mcp-config.json.XXXXXX")
+              trap 'rm -f "$tmp"' EXIT
+              printf '%s\n' "$merged" > "$tmp"
+              mv -f "$tmp" "$cfg"
+          user: "agent"
+          env: [MCP_GATEWAY_URL, MCP_SENTINEL_TOKEN_NAME]
+          description: Register the sandbox MCP gateway in ~/.copilot/mcp-config.json
+
+  # contentFile alone: `filename` is workload-only, and the profile belongs to
+  # whichever workload this mixin lands on.
+  #
+  # MIGRATION NOTE: the v2 copilot kit declared a profile name and no body, so
+  # unlike the workload — which carries the name across and nothing else — this
+  # kit needs a body of its own. What it says is specific to the mixin shape
+  # (there is no copilot entrypoint here, so --yolo is not applied for you),
+  # which is exactly the thing the v2 kit had no reason to write down.
+  - type: com.docker.sandbox/agent-context@1
+    config:
+      contentFile: ./copilot-mixin-context.md

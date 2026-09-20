@@ -1,0 +1,110 @@
+# syntax=docker/sandbox-kit:3
+# Migration of the v2 opencode-model-runner kit
+# (opencode-model-runner/spec.yaml). The v2 kit shipped no recipe at all -- it
+# pointed `sandbox.image` straight at a published template. A v3 workload MUST
+# have content, so the companion recipe is the minimal one that says the same
+# thing: that template as the base, plus the entrypoint v2 declared beside it.
+schemaVersion: "3"
+displayName: OpenCode (Docker Model Runner)
+description: >-
+  OpenCode wired to a local Docker Model Runner instance via its
+  OpenAI-compatible API, with automatic model discovery.
+sourceUrl: https://docs.docker.com/ai/model-runner/
+
+kind: workload
+
+# The content is a published template this kit does not build, and the kit's
+# own substance is the provider config below rather than a version of OpenCode.
+#
+# MIGRATION NOTE: v2 declared no `version:`. One is added because an
+# unversioned provide has to publish under something (SPEC-v3 §9.2).
+version: "1.0.0"
+
+# The kit's own name, not bare `opencode`. Both this kit and ../opencode ship
+# an OpenCode, and a capability name has exactly one owner in a composition
+# (SPEC-v3 §5.3) -- claiming `opencode` here would make the two unresolvable
+# together for no gain, since nothing in this repo requires that name.
+provides: ["opencode-model-runner"]
+
+capabilities:
+  # This workload is an agent sandbox: the host launches the agent rather than
+  # running the image's entrypoint as PID 1, and honors the identity the image
+  # config declares instead of assuming one.
+  - type: com.docker.sandbox/sbx@1
+
+  # MIGRATION NOTE: both entries are runtime. The plugin install below happens
+  # when OpenCode starts, not in an install hook -- this kit declares none --
+  # so an absent `install:` block grants nothing, which is correct here.
+  - type: com.docker.sandbox/network-policy@1
+    config:
+      runtime:
+        allow:
+          # The provider baseURL every model request hits.
+          #
+          # MIGRATION NOTE: this one entry deliberately keeps its port, against
+          # the contrib house style of portless entries. The house style reads
+          # a portless pattern as "this service, any port", which is the right
+          # default for a public API host; here the host is the user's own
+          # machine through the sandbox's gateway alias, and the port is the
+          # only thing that narrows the grant to Model Runner rather than to
+          # everything else listening on that machine. Dropping it would widen
+          # the policy, not tidy it.
+          - host.docker.internal:12434
+          # OpenCode installs the opencode-models-discovery plugin from npm at
+          # startup; packument and tarball both come from this host.
+          - registry.npmjs.org
+
+  - type: com.docker.sandbox/lifecycle@1
+    config:
+      files:
+        # MIGRATION NOTE: v2's `setup.files` entry, unchanged. v2 declared no
+        # `onlyIfMissing`, so `overwrite` keeps its v3 default of true and the
+        # config is rewritten on every start -- the same behavior. The `$schema`
+        # key is written literally: file content expands `${{ kit.args.* }}`
+        # only, and this kit declares no args.
+        - path: /home/agent/.config/opencode/opencode.json
+          content: |
+            {
+              "$schema": "https://opencode.ai/config.json",
+              "plugin": [
+                ["opencode-models-discovery", {
+                  "smartModelName": false
+                }]
+              ],
+              "provider": {
+                "dmr": {
+                  "npm": "@ai-sdk/openai-compatible",
+                  "name": "Docker Model Runner",
+                  "options": {
+                    "baseURL": "http://host.docker.internal:12434/v1",
+                    "modelsDiscovery": {
+                      "enabled": true
+                    }
+                  }
+                }
+              }
+            }
+          mode: "0644"
+          description: Configure OpenCode to use the local Docker Model Runner
+
+  # Recorded working non-interactive invocation, carried over from the v2 TCK
+  # harness (testdata/tck.yaml: `promptArgs: ["run"]`). Unlike the sibling
+  # ../opencode kit, this one can actually answer: its model is the local
+  # Docker Model Runner, so no hosted-provider credential has to be bound for
+  # the verb to work.
+  - type: com.docker.sandbox/agent-sessions@1
+    description: Run one prompt against the local Docker Model Runner
+    config:
+      prompt: ["run", "{{.Prompt}}"]
+
+  # No credential@1 entries, faithfully: v2 declared none, and there is nothing
+  # to declare -- every model request goes to a local endpoint that takes no
+  # credential.
+
+  # MIGRATION NOTE: v2's agentInstructions declared a profile filename and no
+  # body, so there is nothing to stage and no `contentFile:` here. OpenCode
+  # reads AGENTS.md from the project root every session, so this is the
+  # filename composed kit context has to land in for the agent to pick it up.
+  - type: com.docker.sandbox/agent-context@1
+    config:
+      filename: AGENTS.md

@@ -1,0 +1,79 @@
+# syntax=docker/sandbox-kit:3
+# T3 Code's sandbox prerequisites as a declaration-only MIXIN. The v2 kit
+# shipped no Dockerfile — it apt-installed a toolchain and npm-installed `t3`
+# through setup hooks — and v3 lets a mixin have no recipe at all, so the
+# descriptor is the whole kit.
+schemaVersion: "3"
+displayName: T3 Code
+description: >-
+  Build toolchain and the t3 npm package that T3 Code's SSH integration needs
+  to run inside a sandbox — node-pty, a t3 dependency, has no Linux prebuilt
+  binaries and must compile from source.
+
+kind: mixin
+
+# MIGRATION NOTE: the provide is named after the kit, not after `t3`, and the
+# version is the kit's own. The install hook asks npm for `t3@latest`, so the
+# kit cannot state what version of the tool it carries; `provides: ["t3"]`
+# under this fallback would publish t3@1.0.0 — the kit's release number
+# wearing the package's name. Pin the hook and this becomes `t3@<version>`.
+provides: ["t3code"]
+version: "1.0.0"
+
+capabilities:
+  # MIGRATION NOTE: v2's one flat allow list becomes an install phase only. Both
+  # hooks are install hooks and the agent context is explicit that the runtime
+  # path needs no registry — pre-installing `t3` is precisely what keeps the
+  # first T3 Code connection off the network. An absent runtime phase grants
+  # nothing, which is the intent stated in prose in v2.
+  - type: com.docker.sandbox/network-policy@1
+    config:
+      install:
+        allow:
+          # npm package: the t3 tarball and its dependencies, including
+          # node-pty, which compiles from source on Linux.
+          - registry.npmjs.org
+          # apt-get update refreshes every configured source, so all template
+          # apt sources must be reachable even though we only install from
+          # Ubuntu's main archive. amd64 uses archive/security, arm64 uses
+          # ports.ubuntu.com. download.docker.com is pre-added to apt sources on
+          # shell-docker / *-docker templates.
+          - archive.ubuntu.com
+          - security.ubuntu.com
+          - ports.ubuntu.com
+          - download.docker.com
+
+  - type: com.docker.sandbox/lifecycle@1
+    config:
+      install:
+        # No `env:` — the body reads nothing. DEBIAN_FRONTEND is exported, not
+        # consumed from the environment.
+        - command: |
+            set -euo pipefail
+            export DEBIAN_FRONTEND=noninteractive
+            apt-get update
+            apt-get install -y g++ make python3
+            rm -rf /var/lib/apt/lists/*
+          user: "0"
+          description: Install the build toolchain node-pty needs to compile from source on Linux
+        - command: |
+            set -euo pipefail
+            command -v npm >/dev/null || { echo "npm not found: this mixin needs a base image with Node.js >= 18 (all standard agent templates ship it)" >&2; exit 1; }
+            if [ -n "${HTTP_PROXY:-}" ]; then
+              npm config set proxy "$HTTP_PROXY"
+            fi
+            if [ -n "${HTTPS_PROXY:-${HTTP_PROXY:-}}" ]; then
+              npm config set https-proxy "${HTTPS_PROXY:-$HTTP_PROXY}"
+            fi
+            npm install -g t3@latest
+            ln -sf "$(command -v t3)" /usr/local/bin/t3
+            t3 --version
+          user: "0"
+          env: [HTTP_PROXY, HTTPS_PROXY]
+          description: Install the t3 npm package globally
+
+  # No `filename:` — that is workload-only, and this mixin contributes a body
+  # to whichever agent owns the profile.
+  - type: com.docker.sandbox/agent-context@1
+    config:
+      contentFile: ./t3code-context.md

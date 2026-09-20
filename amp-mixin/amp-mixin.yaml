@@ -1,0 +1,78 @@
+# syntax=docker/sandbox-kit:3
+# Amp as a MIXIN: the same declarations as the standalone workload kit
+# (../amp), minus what only the kit that owns the environment can carry -- the
+# entrypoint (the base workload's launch command stays; run `amp` in the
+# shell), the context-file profile (filename is workload-only; this kit
+# contributes contentFile alone) and sbx@1 (a mixin's image config never
+# becomes the composed image's, so there is no identity for the host to honor).
+#
+# MIGRATION NOTE: this mixin is deliberately DECLARATION-ONLY -- there is no
+# amp-mixin.dockerfile, and SPEC-v3 §3.5 provides for exactly that. The v2 kit
+# installed Amp with a create-time hook rather than at image build, so there is
+# no build output for an overlay to carry: the lifecycle install hook below is
+# the whole of this kit's content, and it installs Amp onto whatever base it
+# lands on. Baking the install into a layer instead would be a redesign, and
+# doing both would install Amp twice.
+schemaVersion: "3"
+displayName: Amp (mixin)
+description: >-
+  The frontier coding agent as a mixin -- Amp's own installer, the Amp
+  credential, and its egress. Layer it onto a shell base and run `amp`.
+
+kind: mixin
+
+# Unversioned provide plus a version fallback: install.sh resolves whatever Amp
+# currently publishes, so there is no pin to reference.
+version: "1.0.0"
+
+provides: ["amp"]
+
+capabilities:
+  # The agent's own egress rides with the kit that ships the agent: the base
+  # grants nothing for services it does not carry. Both phases name both
+  # entries, because both phases reach them -- install.sh is served from
+  # ampcode.com and may redirect its payload to a sibling label, and at runtime
+  # ampcode.com is the credential's inject domain while the wildcard covers the
+  # agent's own API traffic.
+  - type: com.docker.sandbox/network-policy@1
+    config:
+      install:
+        allow:
+          - ampcode.com
+          - "*.ampcode.com"
+      runtime:
+        allow:
+          - ampcode.com
+          - "*.ampcode.com"
+
+  # Optional, matching the workload and v2: a sandbox with no Amp key bound
+  # still creates, and Amp's own sign-in can complete inside it. No
+  # proxyManaged, because v2 did not set it -- a sentinel in AMP_API_KEY on a
+  # host with nothing bound would read as a real token to in-container tooling.
+  - type: com.docker.sandbox/credential@1
+    optional: true
+    description: Amp API access
+    config:
+      service: amp
+      phase: runtime
+      apiKey:
+        name: AMP_API_KEY
+        inject:
+          - {domain: ampcode.com, header: Authorization, format: "Bearer %s"}
+
+  - type: com.docker.sandbox/lifecycle@1
+    config:
+      install:
+        # v2's setup.install, verbatim -- including `user: "1000"`. install.sh
+        # is a per-user installer with no --prefix, so it has to run as the
+        # user that will run the agent. It needs nothing beyond the platform
+        # baseline ($HOME to install into, $PATH to find curl).
+        - command: curl -fsSL https://ampcode.com/install.sh | bash
+          user: "1000"
+          description: Install Amp
+
+  # contentFile alone: `filename` is workload-only, the profile belonging to
+  # the kit that owns the environment.
+  - type: com.docker.sandbox/agent-context@1
+    config:
+      contentFile: ./amp-mixin-context.md

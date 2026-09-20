@@ -1,0 +1,259 @@
+# syntax=docker/sandbox-kit:3
+# Migration of this kit's v2 spec.yaml to the v3 kit descriptor grammar.
+# Every v2 stanza lands somewhere deliberate and the v2 reasoning travels with
+# it; the places where v3 changes the shape of a declaration — or cannot carry
+# one at all — are marked MIGRATION NOTE inline.
+#
+# The two stanzas that leave this file entirely are sandbox.image and
+# sandbox.entrypoint: a v3 workload's content *is* the image, so the v2
+# Dockerfile becomes the companion recipe (copilot.dockerfile, found by the
+# filename stem) and v2's entrypoint lands in the image config where OCI
+# already owns it.
+schemaVersion: "3"
+displayName: GitHub Copilot
+description: GitHub Copilot CLI, GitHub's agentic coding CLI.
+# The KIT's version, not Copilot's. It covers this descriptor, the network
+# policy and the hooks — the agent inside the image floats, so a newer
+# copilot-cli does not bump this and this does not track releases of
+# copilot-cli.
+#
+# MIGRATION NOTE: in v2 this was published as the vnd.docker.sandbox.kit.version
+# annotation. In v3 it is the version *fallback* for unversioned provides
+# (SPEC-v3 §4), which is what gives the bare `copilot` provide below a version
+# at publish time. `scripts/check-release-tag.sh` still reads it.
+version: "1.0.0"
+
+kind: workload
+
+# MIGRATION NOTE: v2 had no provides — identity was the kit's `name`, which a
+# v2 mixin matched with `requires: {agent: copilot}`. v3 has no implicit
+# identity, so a kit that wants to be requirable states so. Unversioned because
+# the vendor installer takes no version pin; the `version:` above is the
+# publish-time fallback.
+provides: ["copilot"]
+
+capabilities:
+  # This workload is an agent sandbox: the host launches the agent rather than
+  # running the image's entrypoint as PID 1, and honors the identity the image
+  # config declares instead of assuming one. Implicit in v2's `kind: sandbox`;
+  # stated explicitly in v3.
+  - type: com.docker.sandbox/sbx@1
+
+  # v2's permissions.network.allow, one flat list, becomes a phase-scoped
+  # policy. The whole list lands in `runtime` and there is no `install` phase:
+  # the one install hook is a mkdir/chown and the trusted-folders seed below
+  # writes a local file, neither of which opens a socket, and both startup
+  # hooks (apt refresh, MCP registration) run at boot, which is the runtime
+  # phase. An absent phase grants nothing, and the union across phases is
+  # exactly the v2 list.
+  - type: com.docker.sandbox/network-policy@1
+    config:
+      runtime:
+        allow:
+          # Every domain either credential injects into — required here too,
+          # not just in the credential entries: this repo's e2e runs every kit
+          # under `sbx policy init deny-all`, so a domain absent from this list
+          # is unreachable regardless of what the credential declares. v3
+          # validates the direction as well: an inject domain outside the
+          # matching phase's allow list is an error rather than dead config.
+          - api.business.githubcopilot.com # Copilot Business
+          - api.enterprise.githubcopilot.com # Copilot Enterprise
+          - api.github.com
+          - api.githubcopilot.com
+          - api.individual.githubcopilot.com # Copilot Pro and Pro+
+          - copilot.github.com
+          - github.com
+          # `apt-get update` (the startup hook below) refreshes metadata for
+          # every configured apt source and returns exit 100 if any one of them
+          # fails. The shell-docker base ships three sources, so all three must
+          # be reachable. Ubuntu serves amd64 from archive/security and arm64
+          # from ports.ubuntu.com, so all three Ubuntu hosts are listed to keep
+          # the kit working cross-arch.
+          #
+          # These sit in `runtime` rather than `install` because the hook that
+          # needs them is a startup hook, and startup hooks run at boot — in the
+          # runtime phase, after v3 closes the install grants.
+          - archive.ubuntu.com        # Ubuntu archive (amd64 main)
+          - security.ubuntu.com       # Ubuntu security updates (amd64)
+          - ports.ubuntu.com          # Ubuntu archive/security (arm64)
+          - download.docker.com       # Docker's apt repo, pre-added by shell-docker
+          #
+          # TODO(copilot-extraction): the domains above are the ones the
+          # credential block already declared; they have not been verified
+          # end-to-end under deny-all from this repo, and Copilot CLI may reach
+          # further hosts (telemetry, self-update, extension registry). Confirm
+          # or widen from a live run:
+          #
+          #   sbx run --kit ./copilot copilot   # then attempt a prompt
+          #   sbx policy log                    # lists every blocked host + reason
+
+  # MIGRATION NOTE on both credential entries: v2 credentials default to
+  # not-required and the v3 default inverts (an entry is required unless it
+  # opts out), so `optional: true` is what preserves v2's behavior. It is also
+  # correct on its own terms for these two — Copilot CLI runs unauthenticated
+  # and prompts, and the second entry exists precisely so a host that has only
+  # the broader github binding still composes.
+  - type: com.docker.sandbox/credential@1
+    optional: true
+    description: GitHub API access for git and gh
+    config:
+      service: github
+      phase: runtime
+      apiKey:
+        name: GH_TOKEN
+        inject:
+          - {domain: api.github.com, header: Authorization, format: "Bearer %s"}
+          - {domain: github.com, header: Authorization, format: "Bearer %s"}
+
+  - type: com.docker.sandbox/credential@1
+    optional: true
+    description: Copilot request access, separable from the broader github token
+    config:
+      # A second (service, phase) pair, which is how v3 spells v2's second
+      # credentials[] element: instance-shaped, deduplicated on (service,
+      # phase), so the two coexist.
+      service: copilot
+      phase: runtime
+      apiKey:
+        # Copilot CLI prioritizes COPILOT_GITHUB_TOKEN over GH_TOKEN/GITHUB_TOKEN,
+        # so this can hold a separate, fine-grained PAT (copilot request scope)
+        # without affecting the broader github secret used for gh/git access.
+        # https://docs.github.com/en/copilot/how-tos/set-up/install-copilot-cli
+        name: COPILOT_GITHUB_TOKEN
+        inject:
+          # https://github.blog/changelog/2026-02-13-network-configuration-changes-for-copilot-coding-agent/
+          - {domain: api.business.githubcopilot.com, header: Authorization, format: "Bearer %s"}     # Copilot Business
+          - {domain: api.enterprise.githubcopilot.com, header: Authorization, format: "Bearer %s"}   # Copilot Enterprise
+          - {domain: api.githubcopilot.com, header: Authorization, format: "Bearer %s"}
+          - {domain: api.individual.githubcopilot.com, header: Authorization, format: "Bearer %s"}   # Copilot Pro and Pro+
+          - {domain: copilot.github.com, header: Authorization, format: "Bearer %s"}
+
+  # v2's setup.install / setup.startup / setup.files, in the single lifecycle
+  # entry v3 collects them into.
+  - type: com.docker.sandbox/lifecycle@1
+    config:
+      install:
+        - command: mkdir -p /home/agent/.copilot && chown agent:agent /home/agent/.copilot
+          user: "0"
+          description: Ensure .copilot is owned by agent before bind mounts and the config seed run
+        # MIGRATION NOTE: this was a v2 `setup.files` entry whose content was
+        # the literal string '{"trusted_folders": ["${WORKDIR}"]}' — the v2 file
+        # writer substituted ${WORKDIR} at write time. A v3 file's content
+        # expands `${{ kit.args.* }}` and nothing else: it gets no runtime
+        # variable substitution, so the same entry would write the six
+        # characters ${WORK… into the config and Copilot would trust a folder
+        # named after the placeholder. The seed therefore becomes an install
+        # hook, which is the shape that can read the path from the environment
+        # (v2's WORKDIR is spelled WORKSPACE_DIR in v3 hooks, and a v3 hook sees
+        # only the platform baseline plus the names it declares).
+        #
+        # v2's `onlyIfMissing: true` carries over as the existence guard rather
+        # than as `files[].overwrite: false`, for the same reason — this is a
+        # hook now. `copilot` itself writes this file during a session, so
+        # leaving an existing one alone is the point.
+        #
+        # Runs after the mkdir above, and as the agent user, so the file is
+        # owned by the account copilot runs under.
+        - command: |
+            set -e
+            cfg=/home/agent/.copilot/config.json
+            if [ -e "$cfg" ]; then exit 0; fi
+            if [ -z "$WORKSPACE_DIR" ]; then
+              echo "WORKSPACE_DIR unset; skipping Copilot trusted-folder seed" >&2
+              exit 0
+            fi
+            esc=$(printf '%s' "$WORKSPACE_DIR" | sed 's/\\/\\\\/g; s/"/\\"/g')
+            printf '{"trusted_folders": ["%s"]}\n' "$esc" > "$cfg"
+          user: "agent"
+          env: [WORKSPACE_DIR]
+          description: Copilot config with trusted workspace folder
+      startup:
+        # MIGRATION NOTE: v2 backgrounded this by ending the shell command in
+        # `&`. v3 states it as `background: true`, so the engine detaches the
+        # hook rather than the shell forking out from under it.
+        - command: ["sh", "-c", "command -v apt-get > /dev/null 2>&1 && (apt-get update -qq -y > /dev/null 2>&1 || true)"]
+          user: "root"
+          background: true
+          description: Update apt package cache in background
+        # Gateway-first MCP registration. sandboxd injects MCP_GATEWAY_URL +
+        # MCP_SENTINEL_TOKEN_NAME into the container env when a gateway has been
+        # reserved. The sentinel name is not a credential — the proxy substitutes
+        # the real token at request time keyed by this name. No-op when MCP isn't
+        # enabled, which is what the guard is for.
+        #
+        # `copilot mcp add` writes into this same file and startup replays on
+        # every container start, so only the mcp-gateway entry may be written.
+        - command:
+            - sh
+            - -c
+            - |
+              set -e
+              [ -n "$MCP_GATEWAY_URL" ] || exit 0
+              cfg="$HOME/.copilot/mcp-config.json"
+              dir=$(dirname "$cfg")
+              mkdir -p "$dir"
+              gateway=$(cat <<EOF
+              {
+                "mcpServers": {
+                  "mcp-gateway": {
+                    "type": "http",
+                    "url": "$MCP_GATEWAY_URL",
+                    "headers": {
+                      "Authorization": "Bearer $MCP_SENTINEL_TOKEN_NAME"
+                    },
+                    "tools": ["*"]
+                  }
+                }
+              }
+              EOF
+              )
+              # Two overlapping starts would read-modify-write the same file.
+              exec 9>>"$dir/.mcp-config.lock"
+              flock 9
+              # mv would nest the config inside a directory here and still exit 0.
+              if [ -e "$cfg" ] && [ ! -f "$cfg" ]; then
+                echo "mcp-config.json is not a regular file; leaving the MCP gateway unregistered" >&2
+                exit 0
+              fi
+              if ! merged=$({ if [ -s "$cfg" ]; then cat "$cfg"; else echo '{}'; fi; printf '%s\n' "$gateway"; } | jq -s '
+                  if length != 2 or (.[0] | type) != "object" or ((.[0].mcpServers // {}) | type) != "object" then
+                    error("mcp-config.json must hold one JSON object whose mcpServers is an object")
+                  else
+                    .[0] + {mcpServers: ((.[0].mcpServers // {}) + .[1].mcpServers)}
+                  end'); then
+                echo "mcp-config.json is not readable as JSON; leaving the MCP gateway unregistered" >&2
+                exit 0
+              fi
+              # The temp name is unpredictable, so a stale or crashed leftover is never installed.
+              tmp=$(mktemp "$dir/mcp-config.json.XXXXXX")
+              trap 'rm -f "$tmp"' EXIT
+              printf '%s\n' "$merged" > "$tmp"
+              mv -f "$tmp" "$cfg"
+          user: "agent"
+          # $HOME is platform baseline; these two are not, and a hook that
+          # cannot see MCP_GATEWAY_URL takes its no-op branch on every boot.
+          env: [MCP_GATEWAY_URL, MCP_SENTINEL_TOKEN_NAME]
+          description: Register the sandbox MCP gateway in ~/.copilot/mcp-config.json
+
+  # No agent-sessions@1, deliberately. The capability states the argv a harness
+  # uses to drive the agent headlessly, and the only evidence this kit has of a
+  # working non-interactive invocation was its TCK's `promptArgs` — which it
+  # deliberately omitted: Copilot CLI likely has a way to answer a prompt
+  # non-interactively with a real GH_TOKEN, but the built-in agent's own e2e
+  # never exercised it (it runs an auth-free echo/true smoke check) and nothing
+  # has been verified from this repo, so there is no known-working recipe to
+  # carry over. Declaring a prompt verb here would be inventing flags rather
+  # than migrating them. Add it when someone verifies the invocation.
+
+  # No agent-skills@1 either: the v2 kit neither declared nor documented a
+  # skills directory for Copilot CLI, and a path invented here would ask the
+  # host to mount its shared store somewhere the agent may never read.
+
+  # MIGRATION NOTE: v2's agentInstructions declared `filename: AGENTS.md` and no
+  # `content`, so there is no body to stage and no <kit>-context.md file. The
+  # declaration still carries its whole v2 meaning: this workload owns the
+  # AGENTS.md profile, and the runtime seeds it with its own guidance plus the
+  # per-kit index any composed mixin contributes to.
+  - type: com.docker.sandbox/agent-context@1
+    config:
+      filename: AGENTS.md

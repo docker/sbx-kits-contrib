@@ -45,7 +45,7 @@ install` step fails silently — the install command still exits 0 in some
 failure modes, leaving no `t3` executable behind, and T3 Code reports nothing
 more specific than a connection timeout.
 
-### Why `t3` is installed at build time
+### Why `t3` is installed at kit-install time
 
 T3 Code's own remote bootstrap resolves `t3` by falling back to `npx
 --package t3@latest` when it isn't already on `PATH`. That works, but it
@@ -56,15 +56,15 @@ connecting is just SSH plus starting an already-installed binary.
 
 ### Why these domains
 
-`permissions.network.allow` is the kit's complete outbound contract — CI runs e2e under a `deny-all` policy.
+The kit's `network-policy@1` capability is its complete outbound contract — CI runs e2e under a `deny-all` policy. Every host it names sits in the **install** phase, which is open only while the kit's install hooks run and closed again before the agent starts. The kit declares no runtime egress at all, and that is the point: pre-installing `t3` is exactly what keeps the first T3 Code connection off the network.
 
-| Domain | Why |
-| --- | --- |
-| `registry.npmjs.org` | npm tarballs for `t3` and its dependencies, including `node-pty` (install time) |
-| `archive.ubuntu.com` | Ubuntu apt archive, amd64 |
-| `security.ubuntu.com` | Ubuntu security pocket, amd64 — refreshed by the same `apt-get update` |
-| `ports.ubuntu.com` | Ubuntu archive/security for arm64 (Apple Silicon sandboxes) |
-| `download.docker.com` | Docker's apt repo, pre-added by the `*-docker` templates — `apt-get update` refreshes every configured source and fails if any is blocked |
+| Domain | Phase | Why |
+| --- | --- | --- |
+| `registry.npmjs.org` | install | npm tarballs for `t3` and its dependencies, including `node-pty` |
+| `archive.ubuntu.com` | install | Ubuntu apt archive, amd64 |
+| `security.ubuntu.com` | install | Ubuntu security pocket, amd64 — refreshed by the same `apt-get update` |
+| `ports.ubuntu.com` | install | Ubuntu archive/security for arm64 (Apple Silicon sandboxes) |
+| `download.docker.com` | install | Docker's apt repo, pre-added by the `*-docker` templates — `apt-get update` refreshes every configured source and fails if any is blocked |
 
 ## Cleanup
 

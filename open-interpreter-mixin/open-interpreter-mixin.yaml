@@ -1,0 +1,137 @@
+# syntax=docker/sandbox-kit:3
+# Open Interpreter as a MIXIN: the same declarations as the standalone workload
+# kit (../open-interpreter), minus what only the kit that owns the environment
+# can carry -- the entrypoint (the base workload's launch command stays; run
+# `open-interpreter-start` from the shell), the context-file profile
+# (`filename` is workload-only, so this kit contributes `contentFile` alone)
+# and sbx@1 (a mixin's image config never becomes the composed image's).
+schemaVersion: "3"
+displayName: Open Interpreter (mixin)
+description: >-
+  Open Interpreter as a mixin -- the agent's own uv tool installation in an
+  overlay, with the proxy-managed Anthropic and OpenAI credentials, the
+  auth-resolution startup hook and the egress the agent needs to write and run
+  code. Layer it onto a shell base and run `interpreter`.
+sourceUrl: https://www.openinterpreter.com/
+
+kind: mixin
+
+args:
+  version:
+    default: "0.4.3"
+    pattern: '^[0-9]+\.[0-9]+\.[0-9]+$'
+    description: Open Interpreter release to install
+    buildArg: OPEN_INTERPRETER_VERSION
+
+provides: ["open-interpreter@${{ kit.args.version }}"]
+
+capabilities:
+  # The agent's own egress rides with the kit that ships the agent: the base
+  # grants nothing for services it does not carry. Runtime-only, like the
+  # workload: the install happens at build and this kit declares no install
+  # hooks. Entries are portless (the contrib house style) where v2 wrote
+  # `platform.claude.com:443`.
+  #
+  # The base's own apt mirrors are NOT listed here -- those stay with the base
+  # (the workload lists them because a workload owns its base image). What
+  # remains is what the agent reaches: the model APIs, and the package indexes
+  # the code it writes installs from.
+  - type: com.docker.sandbox/network-policy@1
+    config:
+      runtime:
+        allow:
+          # Every domain the two LLM credentials inject into; v3 validates that
+          # invariant at build time (SPEC-v3 §11).
+          - api.anthropic.com
+          # The anthropic credential's OAuth token endpoint, for the refresh
+          # the proxy performs once the access token expires.
+          - platform.claude.com
+          - api.openai.com
+          # OI's whole purpose is writing and running code on request, and that
+          # code can `pip install` or `npm install` anything it needs.
+          - pypi.org
+          - files.pythonhosted.org
+          - registry.npmjs.org
+          - '*.npmjs.org'
+
+  # Narrow inject domains: only the LLM API hosts that need auth injection.
+  # A wildcard here would TLS-intercept all traffic, including code that
+  # OI executes on your behalf, breaking arbitrary downloads.
+  - type: com.docker.sandbox/credential@1
+    # Optional, matching the workload: OI reports a provider as unconfigured
+    # rather than failing, so a required entry would fail create on a
+    # configuration that works.
+    optional: true
+    description: Anthropic API access (API key or claude.ai OAuth)
+    config:
+      service: anthropic
+      phase: runtime
+      apiKey:
+        name: ANTHROPIC_API_KEY
+        proxyManaged: true
+        inject:
+          - {domain: api.anthropic.com, header: x-api-key, format: '%s'}
+      # For a host whose stored anthropic credential is an OAuth login. Without
+      # this block such a host gets no usable credential at all: the apiKey
+      # sentinel reaches Anthropic unswapped and every model call 401s.
+      #
+      # LiteLLM never reads this file -- it takes the credential from
+      # ANTHROPIC_API_KEY -- so credentialFile serves two narrower purposes: it
+      # makes the OAuth path detectable from inside the sandbox
+      # (SBX_CRED_ANTHROPIC_MODE reports "none" even when this credential
+      # resolves), and it carries the sentinel the startup hook's script
+      # exports. The file holds sentinels, not real tokens.
+      oauth:
+        tokenEndpoint: {host: platform.claude.com, path: /v1/oauth/token}
+        resourceHosts:
+          - api.anthropic.com
+        sentinels:
+          accessToken: sk-ant-oat01-proxy-managed
+          refreshToken: sk-ant-ort01-proxy-managed
+        credentialFile:
+          path: ~/.claude/.credentials.json
+          structure:
+            claudeAiOauth:
+              accessToken: '{{.AccessToken}}'
+              refreshToken: '{{.RefreshToken}}'
+              expiresAt: '{{.ExpiresAt}}'
+              scopes: '{{.Scopes}}'
+
+  # NOTE (migration gap, carried forward from the v2 spec and still open): the
+  # original v1 spec also declared a file-based fallback source for this
+  # credential (~/.openai-api-key) alongside the env var. The host credential
+  # store is the sole source in v3 by design, so the fallback still has no way
+  # to be expressed.
+  - type: com.docker.sandbox/credential@1
+    optional: true
+    description: OpenAI API access
+    config:
+      service: openai
+      phase: runtime
+      apiKey:
+        name: OPENAI_API_KEY
+        proxyManaged: true
+        inject:
+          - {domain: api.openai.com, header: Authorization, format: Bearer %s}
+
+  - type: com.docker.sandbox/lifecycle@1
+    config:
+      startup:
+        # Runs on every container start, ahead of any attach: the credential
+        # state is wired at create time and a stop/start can follow a change of
+        # host credential, so the env file is recomputed rather than cached.
+        #
+        # Hook environments are deny-by-default in v3, so the two mode
+        # variables the script branches on are declared here. They are the
+        # whole of what it reads beyond the platform baseline: it defaults
+        # $HOME itself, and everything else it reads off the filesystem.
+        - command:
+            - sh
+            - /home/agent/.local/bin/open-interpreter-anthropic-auth.sh
+          user: "1000"
+          env: [SBX_CRED_ANTHROPIC_MODE, SBX_CRED_OPENAI_MODE]
+          description: Resolve whether Anthropic auth is an API key, an OAuth login, or absent, and record it for the shell
+
+  - type: com.docker.sandbox/agent-context@1
+    config:
+      contentFile: ./open-interpreter-mixin-context.md

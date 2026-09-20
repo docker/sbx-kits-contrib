@@ -42,10 +42,11 @@ pip index versions pyfiglet
 
 ## How the install works
 
-The kit installs Node.js, npm, Python pip, curl, and CA certificates from
-the base image's apt repositories. It then downloads Socket Firewall Free
-v1.10.0 from the upstream GitHub release, verifies the binary against a
-SHA256 captured in `spec.yaml`, and installs it as `/usr/local/bin/sfw`.
+A lifecycle install hook installs Node.js, npm, Python pip, curl, and CA
+certificates from the base image's apt repositories. A second hook downloads
+Socket Firewall Free v1.10.0 from the upstream GitHub release, verifies the
+binary against a SHA256 captured in `packages-through-sfw.yaml`, and installs
+it as `/usr/local/bin/sfw`.
 
 The initial install supports Linux `amd64` and `arm64`, which cover the
 normal Docker Desktop sandbox architectures.
@@ -85,11 +86,23 @@ package-manager command goes through `sfw`.
 
 ## Network policy
 
-The kit's network allowlist covers:
+The kit's `com.docker.sandbox/network-policy@1` capability is phase-scoped,
+and for this kit the split is the point rather than a formality. Everything
+the *installation* needs closes before the agent starts; what stays open is
+exactly the package-manager egress the kit exists to mediate.
+
+`install` covers:
 
 - GitHub release hosts for the pinned `sfw` binary download
-- Socket API hosts used by Socket Firewall Free
+- the apt sources `apt-get update` refreshes for the prerequisites — all
+  three Ubuntu hosts for cross-arch coverage, plus Docker's repo, which the
+  `shell-docker` base pre-adds
+
+`runtime` covers:
+
+- Socket API hosts used by Socket Firewall Free, consulted on every install
 - the public npm registry
 - PyPI package metadata and file hosts
 
-Add any extra package registries in a fork or with a per-sandbox policy rule.
+Add any extra package registries to `runtime` in a fork, or with a
+per-sandbox policy rule.

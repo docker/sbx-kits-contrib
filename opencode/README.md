@@ -1,14 +1,17 @@
 # opencode
 
-A standalone sandbox kit (`kind: sandbox`, `schemaVersion: "2"`) for
+A standalone workload kit (`kind: workload`, `schemaVersion: "3"`) for
 [OpenCode](https://opencode.ai), the open-source terminal coding agent. The kit
 runs `opencode` as the entrypoint and declares seven provider credentials that
 the sandbox proxy resolves per request.
 
 `opencode` was previously a built-in `sbx` agent, run as `sbx run opencode`.
-This kit replaces that, and is backed by a base image built from the
-[`Dockerfile`](./Dockerfile) in this directory rather than by the
-`docker/sandbox-templates` release train.
+This kit replaces that, and its content is built from
+[`opencode.dockerfile`](./opencode.dockerfile) in this directory rather than by
+the `docker/sandbox-templates` release train.
+
+A mixin variant lives in [`../opencode-mixin`](../opencode-mixin), for layering
+the same agent onto a shell base instead.
 
 > [!IMPORTANT]
 > **This kit does not load yet.** `sbx` refuses a kit whose name collides with
@@ -49,8 +52,8 @@ Or with a local clone of this repo:
 sbx run --kit ./opencode/ opencode
 ```
 
-The trailing `opencode` is required, not redundant: for `kind: sandbox` kits,
-`sbx` enforces that the agent name matches the kit's own `name`.
+The trailing `opencode` is required, not redundant: for workload kits, `sbx`
+enforces that the agent name matches the name the kit provides.
 
 ## Passing arguments
 
@@ -86,8 +89,9 @@ Three details behind that table:
   secrets under and the keys the proxy routes on, so renaming one here would
   silently detach it from the host binding rather than produce an error.
 - **Every declared service is routed.** Each one carries an `inject` list and
-  every host in it is in `permissions.network.allow`, so there is no service
-  whose sentinel is set but never substituted.
+  every host in it is in the network policy's runtime allow list, so there is
+  no service whose sentinel is set but never substituted. v3 validates that at
+  build time rather than leaving it to be discovered at run time.
 
 `google` uses `GOOGLE_GENERATIVE_AI_API_KEY` rather than the `GOOGLE_API_KEY`
 some other agents read, because that is the name OpenCode's Google provider
@@ -175,7 +179,8 @@ configuration you want to survive a restart belongs in a project-level
 
 ## Network policy
 
-`permissions.network.allow` lists every host a credential above injects into,
+The `network-policy@1` capability's runtime allow list names every host a
+credential above injects into,
 plus the OpenAI OAuth token endpoint and Codex backend host, plus the hosts
 OpenCode reaches on its own: `registry.npmjs.org` for language servers, plugins
 and provider SDK packages; `opencode.ai` and `*.opencode.ai` for the config
@@ -198,8 +203,8 @@ Two omissions are deliberate:
   language servers come from npm or GitHub releases, both allowed. The
   Terraform, Java and Kotlin servers instead download from HashiCorp's, the
   Eclipse Foundation's and JetBrains' own hosts, and those are left out rather
-  than widening every sandbox's egress for three languages. Add them to
-  `permissions.network.allow` if you need them, or set
+  than widening every sandbox's egress for three languages. Add them to the
+  runtime allow list if you need them, or set
   `OPENCODE_DISABLE_LSP_DOWNLOAD=1` to stop the attempt.
 
 > [!TIP]
@@ -210,47 +215,48 @@ Two omissions are deliberate:
 > $ sbx policy log
 > ```
 >
-> then add the reported hosts to `permissions.network.allow` in `spec.yaml`.
+> then add the reported hosts to the `network-policy@1` capability's
+> `runtime.allow` list in `opencode.yaml`.
 
 ## Agent instructions
 
-The kit declares `agentInstructions.filename: AGENTS.md`, which is the file
+The kit declares `agent-context@1` with `filename: AGENTS.md`, which is the file
 composed kit context is written into. OpenCode reads `AGENTS.md` from the
 project root every session, so context contributed by mixins composed onto this
 kit is picked up rather than written somewhere the agent never looks.
 
 ## Base image
 
-Unlike most kits here — which are `kind: mixin` and layer onto an existing
-`docker/sandbox-templates` image — a `kind: sandbox` kit *is* the whole
-environment, so it names the image the sandbox boots from. This kit builds and
-publishes its own, from the `Dockerfile` in this directory.
+Unlike a `kind: mixin` kit, which layers onto an existing
+`docker/sandbox-templates` image, a `kind: workload` kit's layers *are* the root
+filesystem — so this kit carries the whole environment, built from
+[`opencode.dockerfile`](./opencode.dockerfile) in this directory.
 
-The image is **`docker.io/sbx/opencode-image`**, built on
-`docker/sandbox-templates:shell-docker`, so it carries a Docker engine and
-requests Docker-in-Docker — matching the agent this kit replaces, which
-resolved to the Docker flavour of its template.
+It builds on `docker/sandbox-templates:shell-docker`, so it carries a Docker
+engine and requests Docker-in-Docker — matching the agent this kit replaces,
+which resolved to the Docker flavour of its template.
 
-The `-image` suffix distinguishes the base image from the kit itself: the kit
-is published as an OCI artifact at `docker.io/sbx/opencode-kit` (see
-[Usage](#usage) above). The name is derived from the kit directory and enforced
-repo-wide — see [PUBLISHING.md](../PUBLISHING.md#naming).
+There is no longer a separate `-image` artifact: in v3 a kit *is* an ordinary
+OCI image, so what v2 split into `docker.io/sbx/opencode-image` and
+`docker.io/sbx/opencode-kit` is one thing published once. The name is derived
+from the kit directory and enforced repo-wide — see
+[PUBLISHING.md](../PUBLISHING.md#naming).
 
-Why the image installs OpenCode from npm rather than from the standalone
+Why the recipe installs OpenCode from npm rather than from the standalone
 installer its README leads with is covered in
 [README.image.md](./README.image.md).
 
 ### Building and publishing
 
-How the image is named, tagged, verified and pushed is the same for every kit
-in this repo that builds its own image — see
+How the kit is named, tagged, verified and pushed is the same for every kit
+in this repo that builds its own content — see
 **[PUBLISHING.md](../PUBLISHING.md)** for the pipeline, the tagging scheme, the
 coordinates, and the Docker Hub OIDC setup.
 
 ### Building locally
 
 ```console
-docker build -t docker.io/sbx/opencode-image:latest opencode
+docker build -f opencode/opencode.dockerfile -t opencode-kit:latest opencode
 ```
 
 One build arg beyond `BASE_IMAGE`: `OPENCODE_VERSION` pins a published version,

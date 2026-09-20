@@ -1,0 +1,199 @@
+# syntax=docker/sandbox-kit:3
+# Migration of the v2 openclaw kit (openclaw/spec.yaml). Every v2 stanza lands
+# somewhere deliberate; the deltas are marked MIGRATION NOTE inline.
+#
+# MIGRATION NOTE: v2 pointed `sandbox.image` at a pre-baked
+# docker.io/sbx/openclaw-image:latest and shipped the recipe that built it. A
+# v3 workload's layers ARE the image, so that indirection collapses: the recipe
+# beside this file is the kit's content, found by the filename stem.
+schemaVersion: "3"
+displayName: OpenClaw
+description: >-
+  Personal AI assistant with multi-platform chat, skills, and gateway support.
+  Node, the pinned openclaw release and Chromium for the browser tool are all
+  baked into the kit's own content, so sandboxes start in seconds.
+sourceUrl: https://github.com/openclaw/openclaw
+
+kind: workload
+
+# The version is declared once: validated here, handed to the recipe as the
+# installer pin, expanded into the provide. v2 carried the same pin as a bare
+# Dockerfile ARG, where nothing validated it and nothing published it.
+# Upstream versioning is date-based and releases are ~daily, so the pin is
+# deliberate rather than floating.
+args:
+  version:
+    default: "2026.6.5"
+    pattern: '^[0-9]+\.[0-9]+\.[0-9]+$'
+    description: OpenClaw release to install
+    buildArg: OPENCLAW_VERSION
+
+provides: ["openclaw@${{ kit.args.version }}"]
+
+capabilities:
+  # This workload is an agent sandbox: the host launches the agent rather than
+  # running the image's entrypoint as PID 1, and honors the identity the image
+  # config declares instead of assuming one.
+  - type: com.docker.sandbox/sbx@1
+
+  # MIGRATION NOTE: v2's flat list is entirely runtime. The kit's install
+  # (Node, openclaw, Chromium) happens in the recipe at build time, and the one
+  # hook this kit declares is a *startup* hook -- which the guide places in the
+  # runtime phase, correctly: it boots the gateway, and the gateway is what
+  # performs model calls. An absent `install:` block grants nothing, which is
+  # right here, because nothing runs in the install phase at all.
+  #
+  # v2 wrote two entries as `host:443`; entries are portless here, the contrib
+  # house style. A portless pattern matches any port, so nothing v2 admitted is
+  # refused.
+  - type: com.docker.sandbox/network-policy@1
+    config:
+      runtime:
+        allow:
+          # Every domain the anthropic credential injects into -- required here
+          # too, not just below: this repo's e2e runs every kit under
+          # `sbx policy init deny-all`, so a domain absent from this list is
+          # unreachable regardless of what the credential block declares. v3
+          # additionally validates that invariant at build time (§11).
+          - api.anthropic.com
+          - claude.ai
+          - console.anthropic.com
+          # OpenRouter is a supported alternate model provider (`/model
+          # openrouter/...`). Confirmed necessary via a real e2e run under
+          # deny-all.
+          - openrouter.ai
+          # Docker Hub, so `docker pull` works inside the sandbox: the kit
+          # ships a Docker client and an empty image store. Manifests, token
+          # auth, and the blob CDN -- cloudfront, not cloudflare, which 403s on
+          # the blob fetch after the manifest succeeds. Taken from a real pull
+          # under deny-all.
+          - auth.docker.io
+          - production.cloudfront.docker.com
+          - registry-1.docker.io
+          # runtime plugin installs (/plugins install, externalized channels)
+          - registry.npmjs.org
+          - '*.npmjs.org'
+          - clawhub.ai
+          # Confirmed necessary via a real e2e run under deny-all.
+          - raw.githubusercontent.com
+          # chat platforms
+          - '*.telegram.org'
+          - '*.discord.com'
+          - gateway.discord.gg
+          - '*.whatsapp.com'
+          - '*.whatsapp.net'
+          - '*.slack.com'
+          # The oauth credential's token endpoint, for the refresh the proxy
+          # performs once the access token expires. Not observed under deny-all
+          # because the injected token was still valid for the whole run.
+          - platform.claude.com
+          # project domains (docs links, update notes)
+          - openclaw.ai
+          - docs.openclaw.ai
+
+  - type: com.docker.sandbox/port@1
+    config: {name: gateway, container: 18789}
+
+  - type: com.docker.sandbox/credential@1
+    # MIGRATION NOTE: `optional: true` preserves v2 behavior. v2 credentials
+    # default to not-required and the v3 default inverts; OpenClaw reports the
+    # provider as unconfigured rather than failing, and the gateway still comes
+    # up, so a required entry would fail create on a sandbox that works.
+    optional: true
+    description: Anthropic API access (API key or claude.ai OAuth)
+    config:
+      service: anthropic
+      phase: runtime
+      apiKey:
+        name: ANTHROPIC_API_KEY
+        proxyManaged: true
+        inject:
+          - {domain: api.anthropic.com, header: x-api-key, format: '%s'}
+          - {domain: claude.ai, header: x-api-key, format: '%s'}
+          - {domain: console.anthropic.com, header: x-api-key, format: '%s'}
+      # For a host whose stored anthropic credential is an OAuth login --
+      # signed in from a `claude` sandbox. Without this block such a host has
+      # no usable credential here at all: the apiKey sentinel reaches Anthropic
+      # unswapped and every model call is a 401. Declaring oauth lets the proxy
+      # authenticate egress with it.
+      #
+      # credentialFile is what makes the OAuth path detectable from inside the
+      # sandbox. SBX_CRED_ANTHROPIC_MODE reports "none" even when this
+      # credential resolves, so it cannot discriminate oauth from apikey; the
+      # materialized file can. openclaw-gateway-up.sh keys off the sentinel in
+      # it to decide whether to hand OpenClaw an OAuth token instead of an API
+      # key. OpenClaw does not read this file itself on this path.
+      oauth:
+        tokenEndpoint: {host: platform.claude.com, path: /v1/oauth/token}
+        # Where the bearer is actually used, so the proxy intercepts and swaps
+        # the access-token sentinel on inference calls, not just on refresh.
+        resourceHosts:
+          - api.anthropic.com
+        sentinels:
+          accessToken: sk-ant-oat01-proxy-managed
+          refreshToken: sk-ant-ort01-proxy-managed
+        credentialFile:
+          path: ~/.claude/.credentials.json
+          structure:
+            claudeAiOauth:
+              accessToken: "{{.AccessToken}}"
+              refreshToken: "{{.RefreshToken}}"
+              expiresAt: "{{.ExpiresAt}}"
+              scopes: "{{.Scopes}}"
+
+  - type: com.docker.sandbox/lifecycle@1
+    config:
+      startup:
+        # The entrypoint only runs on attach, so a created-but-never-attached
+        # sandbox had no gateway at all: the declared port 18789 answered
+        # nothing and `sbx exec <sandbox> -- openclaw ...` failed on a dead
+        # socket. Bring it up with the container instead. The script returns as
+        # soon as /readyz is green (~2s) and is a no-op when the gateway is
+        # already running, so the entrypoint still calls it after a stop/start.
+        #
+        # Invoked through `sh` rather than executed: the scripts under
+        # /home/agent land 0644 (the recipe copies the files/home/ tree without
+        # an exec bit), so a direct exec fails with EACCES, silently, and the
+        # gateway never starts.
+        #
+        # MIGRATION NOTE: hook environments are deny-by-default in v3, so every
+        # variable the script reads is declared. OPENCLAW_STATE_DIR is set by
+        # the recipe's ENV and would otherwise be invisible here -- the script
+        # falls back to the same literal, but relying on that would make the
+        # image's declaration and the hook's behavior disagree.
+        # OPENCLAW_GATEWAY_PORT is nothing in this kit sets; it is declared
+        # because the script honors it, so an operator overriding the port in
+        # the sandbox environment gets the gateway they asked for rather than
+        # one bound somewhere else. SBX_CRED_ANTHROPIC_MODE is the apikey/none
+        # discriminator. $HOME and $PATH are platform baseline.
+        - command:
+            - sh
+            - /home/agent/.local/bin/openclaw-gateway-up.sh
+          user: "1000"
+          env: [OPENCLAW_STATE_DIR, OPENCLAW_GATEWAY_PORT, SBX_CRED_ANTHROPIC_MODE]
+          description: Start the OpenClaw gateway so the published port and CLI work without attaching the TUI
+
+  # Recorded working non-interactive invocation, carried over from the v2 TCK
+  # harness (testdata/tck.yaml). `openclaw agent` requires an explicit target:
+  # without a selector it exits with "No target session selected" before
+  # contacting the agent at all, and `main` is the default agent id every fresh
+  # sandbox ships with (`openclaw agents list`).
+  - type: com.docker.sandbox/agent-sessions@1
+    description: Send one message to the default agent non-interactively
+    config:
+      prompt: ["agent", "--agent", "main", "--message", "{{.Prompt}}"]
+
+  # No agent-skills@1, deliberately. OpenClaw has a skills feature and this
+  # kit's description says so, but neither the v2 spec nor the README nor the
+  # shipped openclaw.json ever names the directory it reads them from -- and
+  # this capability is a path declaration. Inventing one would hand the host's
+  # shared skills store to a location nothing has confirmed the agent reads.
+  # Add the entry together with the path, not before it.
+
+  # MIGRATION NOTE: v2's agentInstructions declared a profile filename and no
+  # body, so there is nothing to stage and no `contentFile:` here -- the
+  # filename alone is the declaration, and it is what tells the host which
+  # profile file this agent reads.
+  - type: com.docker.sandbox/agent-context@1
+    config:
+      filename: AGENTS.md

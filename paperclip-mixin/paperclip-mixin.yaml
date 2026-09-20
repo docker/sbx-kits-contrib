@@ -1,0 +1,153 @@
+# syntax=docker/sandbox-kit:3
+# Paperclip as a MIXIN: the same declarations as the standalone workload kit
+# (../paperclip), minus what only the kit that owns the environment can carry
+# -- the entrypoint (the base workload's launch command stays; run `paperclip`
+# from the shell) and sbx@1 (a mixin's image config never becomes the composed
+# image's). The workload declared no agentInstructions
+# and no session verbs, so neither appears there; this kit does contribute a
+# `contentFile` body, because the mixin shape introduces facts the composed
+# agent has no other way to learn (see the note below).
+schemaVersion: "3"
+displayName: Paperclip (mixin)
+description: >-
+  Paperclip as a mixin — Node 22, the pinned paperclipai CLI and its built UI
+  in an overlay, with the Anthropic credential and the published web port.
+  Layer it onto a shell base and run `paperclip`.
+
+kind: mixin
+
+# WHAT THIS OVERLAY CANNOT CARRY, and why there is no `requires` for it:
+#
+#   * Claude Code. The workload's base is the claude-code template, which is
+#     how paperclip's `claude_local` adapter has a CLI to shell out to. The
+#     obvious statement would be `requires: ["claude"]` -- but the claude kit
+#     declares the same (service, phase) credential this kit does, and one
+#     credential has one owner, so requiring it would make the composition it
+#     names illegal. The dependency is real and is documented in the README
+#     and the context body instead: layer this onto a base that already
+#     carries Claude Code.
+#   * Distro PostgreSQL. The workload apt-installs it because paperclip's
+#     bundled embedded-postgres binaries cannot load on the sandbox's
+#     16KB-page arm64 kernel. apt packages are not copyable content -- an
+#     overlay can carry a binary tree but not the shared libraries it links
+#     against, nor the dpkg state -- and `deb/postgresql` is a name publishing
+#     derives from the base's own package database, which may record a
+#     versioned package instead, so requiring it would fail resolution on
+#     bases that do carry a working PostgreSQL. The start script's
+#     `ls -d /usr/lib/postgresql/*/bin` fails loudly under `set -e` when it is
+#     absent, which is the clearest signal available here.
+#
+# The standalone workload kit (../paperclip) is the self-contained
+# alternative for both.
+
+# Calendar versioning upstream (YYYY.MDD.P), pinned deliberately. Same pin as
+# the workload.
+args:
+  version:
+    default: "2026.609.0"
+    pattern: '^[0-9]{4}\.[0-9]+\.[0-9]+$'
+    description: paperclipai release to install
+    buildArg: PAPERCLIP_VERSION
+
+provides: ["paperclip@${{ kit.args.version }}"]
+
+capabilities:
+  # The app's own egress rides with the kit that ships the app: the base
+  # grants nothing for services it does not carry. Runtime-only, like the
+  # workload -- the npm install happens at build, and the one hook here is a
+  # startup hook, which runs in the runtime phase. Entries are portless (the
+  # contrib house style) where v2 wrote `host:443`.
+  - type: com.docker.sandbox/network-policy@1
+    config:
+      runtime:
+        allow:
+          # Every domain the anthropic credential injects into; v3 validates
+          # that invariant at build time (SPEC-v3 §11).
+          - api.anthropic.com
+          - claude.ai
+          - console.anthropic.com
+          # The anthropic credential's OAuth token endpoint, for the refresh
+          # the proxy performs once the access token expires.
+          - platform.claude.com
+          - registry.npmjs.org
+          - '*.npmjs.org'
+          - github.com
+          - raw.githubusercontent.com
+          - objects.githubusercontent.com
+          - paperclip.ing
+
+  # Optional, as in the workload: paperclip starts with no binding and the UI
+  # reports the provider as unconfigured, so a required entry would fail
+  # resolution on a host that never bound one.
+  - type: com.docker.sandbox/credential@1
+    optional: true
+    description: Anthropic API access (API key or claude.ai subscription login)
+    config:
+      service: anthropic
+      phase: runtime
+      apiKey:
+        name: ANTHROPIC_API_KEY
+        proxyManaged: true
+        inject:
+          - {domain: api.anthropic.com, header: x-api-key, format: "%s"}
+          - {domain: claude.ai, header: x-api-key, format: "%s"}
+          - {domain: console.anthropic.com, header: x-api-key, format: "%s"}
+      # For a host whose stored anthropic credential is an OAuth login --
+      # signed in from a `claude` sandbox rather than an API key. Without this
+      # block such a host gets no usable credential at all: the apiKey sentinel
+      # reaches Anthropic unswapped and every claude_local run 401s.
+      #
+      # credentialFile is Claude Code's own store, which is what the
+      # claude_local adapter's "subscription login" path reads, so nothing has
+      # to translate the credential -- only to drop the ANTHROPIC_API_KEY
+      # sentinel that would otherwise put the CLI in API-key mode, which
+      # paperclip-anthropic-auth.sh does.
+      #
+      # Composition note: this is the (anthropic, runtime) pair, and one
+      # credential has one owner. The base must carry the Claude Code CLI as
+      # image content without declaring this credential itself -- a workload
+      # built on the claude-code template. A base kit that declares the same
+      # pair (the claude workload, or claude-mixin) would be a second owner
+      # of it, which composition refuses.
+      oauth:
+        tokenEndpoint: {host: platform.claude.com, path: /v1/oauth/token}
+        resourceHosts: [api.anthropic.com]
+        sentinels:
+          accessToken: sk-ant-oat01-proxy-managed
+          refreshToken: sk-ant-ort01-proxy-managed
+        credentialFile:
+          path: ~/.claude/.credentials.json
+          structure:
+            claudeAiOauth:
+              accessToken: "{{.AccessToken}}"
+              refreshToken: "{{.RefreshToken}}"
+              expiresAt: "{{.ExpiresAt}}"
+              scopes: "{{.Scopes}}"
+
+  # The web UI and API share this port. Publish it with
+  # `sbx ports <sandbox> --publish 3100/tcp`.
+  - type: com.docker.sandbox/port@1
+    config: {name: web, container: 3100}
+
+  - type: com.docker.sandbox/lifecycle@1
+    config:
+      startup:
+        # Runs on every container start, ahead of any attach: the credential
+        # state is wired at create time and a stop/start can follow a change
+        # of host credential, so the env file is recomputed rather than cached.
+        #
+        # `env:` is what v3 adds: hook environments are deny-by-default.
+        # PAPERCLIP_HOME chooses where the auth env file is written -- and in
+        # the mixin shape it comes from the overlay's profile.d snippet rather
+        # than from an image ENV, which makes naming it here the only thing
+        # that keeps the hook and `paperclip-start` agreeing on the path.
+        # SBX_CRED_ANTHROPIC_MODE is what tells an API-key host from one with
+        # no credential at all. $HOME is the platform baseline.
+        - command: [sh, /home/agent/.local/bin/paperclip-anthropic-auth.sh]
+          user: "1000"
+          env: [PAPERCLIP_HOME, SBX_CRED_ANTHROPIC_MODE]
+          description: Resolve whether Anthropic auth is an API key, a subscription login, or absent, and record it for `paperclip` and `sbx exec` shells
+
+  - type: com.docker.sandbox/agent-context@1
+    config:
+      contentFile: ./paperclip-mixin-context.md

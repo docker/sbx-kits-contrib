@@ -1,0 +1,118 @@
+# syntax=docker/sandbox-kit:3
+# Aider as a MIXIN: the same declarations as the standalone workload kit
+# (../aider), minus what only the kit that owns the environment can carry --
+# the entrypoint (the base workload's launch command stays; run `aider` in the
+# shell) and sbx@1 (a mixin's image config never becomes the composed image's,
+# so there is no identity for the host to honor here).
+schemaVersion: "3"
+displayName: Aider (mixin)
+description: >-
+  AI pair programming in your terminal as a mixin -- the aider-chat install in
+  an overlay, with the Anthropic, Gemini and OpenAI proxy-managed credentials
+  and the default configuration file. Layer it onto a shell base and run
+  `aider`.
+
+kind: mixin
+
+# Same pin as the workload, for the same reason: aider-chat's PyPI cadence is
+# sparse and irregular, so bumping it is a deliberate, tested step rather than
+# something a nightly rebuild should do on its own.
+args:
+  version:
+    default: "0.86.2"
+    pattern: '^[0-9]+\.[0-9]+\.[0-9]+$'
+    description: aider-chat release to install
+    buildArg: AIDER_VERSION
+
+provides: ["aider@${{ kit.args.version }}"]
+
+capabilities:
+  # The agent's own egress rides with the kit that ships the agent: the base
+  # grants nothing for services it does not carry. Runtime only -- the install
+  # happens at image build (see aider-mixin.dockerfile), which no
+  # network-policy phase governs, and this kit declares no install hooks.
+  - type: com.docker.sandbox/network-policy@1
+    config:
+      runtime:
+        allow:
+          # Every domain the credentials below inject into. v3 validates that
+          # each inject domain appears in the matching phase's allow list.
+          - api.anthropic.com
+          - api.openai.com
+          - generativelanguage.googleapis.com
+          # raw.githubusercontent.com stays absent for the same reason as in
+          # the workload: the overlay sets both LITELLM_LOCAL_* switches, which
+          # removes LiteLLM's runtime config fetch rather than letting it fail
+          # soft against a blocked host.
+
+  # Aider uses LiteLLM under the hood, which checks the relevant env var is
+  # present *before* it will attempt a request -- with no placeholder set,
+  # LiteLLM raises its own "missing API key" error locally, before the proxy
+  # ever gets a chance to inject the real credential. proxyManaged: true is
+  # what makes the engine populate a placeholder value for each of these
+  # automatically; the actual secret comes from the service-keyed host store.
+  #
+  # Optional, matching the workload and v2: a sandbox with no provider key
+  # bound still creates, and the user binds whichever provider they use.
+  - type: com.docker.sandbox/credential@1
+    optional: true
+    description: Anthropic API access for Aider's Claude models
+    config:
+      service: anthropic
+      phase: runtime
+      apiKey:
+        name: ANTHROPIC_API_KEY
+        proxyManaged: true
+        inject:
+          - {domain: api.anthropic.com, header: x-api-key, format: "%s"}
+  - type: com.docker.sandbox/credential@1
+    optional: true
+    description: Google AI API access for Aider's Gemini models
+    config:
+      service: gemini
+      phase: runtime
+      apiKey:
+        name: GEMINI_API_KEY
+        proxyManaged: true
+        inject:
+          - {domain: generativelanguage.googleapis.com, header: x-goog-api-key, format: "%s"}
+  - type: com.docker.sandbox/credential@1
+    optional: true
+    description: OpenAI API access for Aider's GPT models
+    config:
+      service: openai
+      phase: runtime
+      apiKey:
+        name: OPENAI_API_KEY
+        proxyManaged: true
+        inject:
+          - {domain: api.openai.com, header: Authorization, format: "Bearer %s"}
+
+  # The same defaults v2 shipped as files/home/.aider.conf.yml, written at
+  # start the way that directory was. The AIDER_* variables the overlay exports
+  # through /etc/profile.d take precedence over this file, as in v2.
+  - type: com.docker.sandbox/lifecycle@1
+    config:
+      files:
+        - path: /home/agent/.aider.conf.yml
+          description: Default Aider configuration
+          content: |
+            # Default Aider configuration for Docker SBX.
+            # Environment variables (AIDER_*) from the kit spec take precedence over these.
+            # Edit this file inside the sandbox, or add your own .aider.conf.yml at the
+            # root of your project — Aider merges both, with the project one winning.
+
+            # Model alias — "sonnet" resolves to the latest Claude Sonnet.
+            # Other useful aliases: opus, haiku, gpt-4o, o3-mini, gemini/gemini-2.5-pro
+            model: sonnet
+
+            # Git behaviour
+            auto-commits: true
+            dirty-commits: true
+
+            # Analytics and update checks are disabled in sandbox environments.
+            analytics: false
+            check-update: false
+
+  # No agent-context@1: the v2 kit declared no agentInstructions at all, so
+  # there is no body for this mixin to contribute.

@@ -34,7 +34,17 @@ task --list
 
 This kit installs Task v3.50.0 from the upstream GitHub release and verifies
 the release tarball checksum before installing. To update Task, change
-`TASK_VERSION` and the per-architecture SHA256 values in `spec.yaml`.
+`TASK_VERSION` and the per-architecture SHA256 values in the install hook in
+`task.yaml`, and the version in that descriptor's `provides`.
 
 The initial install supports Linux `amd64` and `arm64`, which cover the normal
 Docker Desktop sandbox architectures.
+
+## Network policy
+
+The three GitHub hosts the kit allows (`github.com`,
+`objects.githubusercontent.com`, `release-assets.githubusercontent.com`) sit in
+the **install** phase only, which is open while the install hook downloads the
+release tarball and closed again before the agent starts. Running a `Taskfile.yml`
+needs no egress of its own, so the kit grants the agent none. A Taskfile with
+remote `includes:` would need those hosts added under `runtime` as well.

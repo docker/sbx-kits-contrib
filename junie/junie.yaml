@@ -1,0 +1,160 @@
+# syntax=docker/sandbox-kit:3
+# Migration of the v2 `junie` sandbox kit (spec.yaml, schemaVersion "2").
+# v2's sandbox.image and sandbox.entrypoint have no v3 fields — a workload's
+# content IS its image, and the image config owns launch config — so both
+# moved into junie.dockerfile. Every other v2 stanza lands in a capability
+# below; the deltas are marked MIGRATION NOTE inline.
+schemaVersion: "3"
+displayName: Junie
+description: The AI coding agent by JetBrains.
+
+kind: workload
+
+# MIGRATION NOTE: v2 declared no `version:`. One is added because v3 refuses a
+# published provide with no version at all (SPEC-v3 §9.2), and the install
+# genuinely floats — the recipe leaves JUNIE_VERSION unset so install.sh
+# always takes the current stable build, and the nightly rebuild keeps it
+# rolling. So there is no junie release this kit could honestly name in the
+# provide; this is the kit's own release number answering for the artifact.
+version: "1.0.0"
+
+provides: ["junie"]
+
+capabilities:
+  # This workload is an agent sandbox: the host launches the agent rather than
+  # running the image's entrypoint as PID 1, and honors the identity the image
+  # config declares instead of assuming one.
+  - type: com.docker.sandbox/sbx@1
+
+  # MIGRATION NOTE: v2's single flat allow list is phase-scoped in v3, and an
+  # absent phase grants nothing. Every host is `runtime` and there is no
+  # `install` phase: Junie is baked into the image at build time and this kit
+  # declares no lifecycle hooks at all, so nothing runs during install. The
+  # union of the two phases is v2's list, host for host.
+  - type: com.docker.sandbox/network-policy@1
+    config:
+      runtime:
+        allow:
+          # Junie is baked into the image (see junie.dockerfile) rather than
+          # installed at sandbox-create time, and the image also sets
+          # JUNIE_SKIP_UPDATE_CHECK=1, so the installed binary never checks
+          # for or stages a runtime update. That drops github.com,
+          # raw.githubusercontent.com, and release-assets.githubusercontent.com
+          # from this list entirely: all three were reachable only for the
+          # vendor installer's own version-resolution feed and the
+          # GitHub-hosted release zip it downloads, and neither is a
+          # credential inject domain.
+          # junie.jetbrains.com stays -- it doubles as the `junie`
+          # credential's inject domain below, so it is still needed at runtime
+          # independent of install.
+          - junie.jetbrains.com
+          - api.jetbrains.ai
+          - api.anthropic.com
+          - api.openai.com
+          - generativelanguage.googleapis.com
+          - api.x.ai
+          - openrouter.ai
+
+  # Every credential below is `optional: true`, faithfully: v2 credentials
+  # default to not-required and the v3 default inverts (an entry is required
+  # unless it opts out). Junie takes whichever model provider the host has
+  # bound, and none of the six is individually necessary, so making any of
+  # them required would refuse creates that v2 accepted.
+  - type: com.docker.sandbox/credential@1
+    optional: true
+    description: Anthropic API access
+    config:
+      service: anthropic
+      phase: runtime
+      apiKey:
+        name: ANTHROPIC_API_KEY
+        proxyManaged: true
+        inject:
+          - {domain: api.anthropic.com, header: x-api-key, format: "%s"}
+
+  # v1 also accepted GOOGLE_GENERATIVE_AI_API_KEY as a fallback host env var
+  # name for this credential (credentials.sources.google.env listed both).
+  # v2's apiKey.name is a single string with no alias list, and v3's is too,
+  # so only one host env var can be recognized here; GEMINI_API_KEY is
+  # Google's current canonical name for this key, so it's the one kept. A host
+  # with only GOOGLE_GENERATIVE_AI_API_KEY set will no longer be picked up.
+  - type: com.docker.sandbox/credential@1
+    optional: true
+    description: Google Gemini API access
+    config:
+      service: google
+      phase: runtime
+      apiKey:
+        name: GEMINI_API_KEY
+        proxyManaged: true
+        inject:
+          - {domain: generativelanguage.googleapis.com, header: x-goog-api-key, format: "%s"}
+
+  - type: com.docker.sandbox/credential@1
+    optional: true
+    description: JetBrains AI / Junie service access
+    config:
+      service: junie
+      phase: runtime
+      apiKey:
+        name: JUNIE_API_KEY
+        proxyManaged: true
+        inject:
+          - {domain: junie.jetbrains.com, header: Authorization, format: "Bearer %s"}
+
+  - type: com.docker.sandbox/credential@1
+    optional: true
+    description: OpenAI API access
+    config:
+      service: openai
+      phase: runtime
+      apiKey:
+        name: OPENAI_API_KEY
+        proxyManaged: true
+        inject:
+          - {domain: api.openai.com, header: Authorization, format: "Bearer %s"}
+
+  - type: com.docker.sandbox/credential@1
+    optional: true
+    description: OpenRouter API access
+    config:
+      service: openrouter
+      phase: runtime
+      apiKey:
+        name: OPENROUTER_API_KEY
+        proxyManaged: true
+        inject:
+          - {domain: openrouter.ai, header: Authorization, format: "Bearer %s"}
+
+  - type: com.docker.sandbox/credential@1
+    optional: true
+    description: xAI API access
+    config:
+      service: xai
+      phase: runtime
+      apiKey:
+        name: XAI_API_KEY
+        proxyManaged: true
+        inject:
+          - {domain: api.x.ai, header: Authorization, format: "Bearer %s"}
+
+  # The session control surface: how a harness drives junie without a human at
+  # the terminal. Argv tails append to the entrypoint the way user args do.
+  #
+  # MIGRATION NOTE: this is v2's `promptArgs: ["--task"]` from
+  # testdata/tck.yaml — a working non-interactive invocation the v2 TCK
+  # already exercised, which is the only evidence that licenses this
+  # capability. The other verbs (resume, continue, list) are omitted rather
+  # than guessed: an absent verb means "operation unsupported", which is the
+  # truthful answer here.
+  - type: com.docker.sandbox/agent-sessions@1
+    description: Drive junie tasks programmatically
+    config:
+      prompt: ["--task", "{{.Prompt}}"]
+
+  # MIGRATION NOTE: v2 declared `agentInstructions.filename: AGENTS.md` with
+  # no `content`, so there is no body to move into a junie-context.md and none
+  # is invented here.
+  - type: com.docker.sandbox/agent-context@1
+    config:
+      filename: AGENTS.md

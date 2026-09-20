@@ -1,15 +1,25 @@
 # amp
 
-A standalone agent kit (`kind: agent`) for the
+A standalone workload kit (`kind: workload`, `schemaVersion: "3"`) for the
 [Amp](https://ampcode.com/) coding agent. The kit installs Amp into the
-sandbox at creation time, wires its API auth through the sandbox proxy,
-and runs `amp --dangerously-allow-all` as the entrypoint when you
-attach.
+sandbox at creation time with a `lifecycle@1` install hook, wires its API auth
+through the sandbox proxy, and runs `amp --dangerously-allow-all` as the
+entrypoint when you attach.
+
+Its content ([amp.dockerfile](./amp.dockerfile)) is the thinnest a workload
+gets: the `docker/sandbox-templates:shell-docker` template as its base and the
+launch command in the image config, because everything else this kit does it
+does through declarations rather than layers.
+
+There is also an [`amp-mixin`](../amp-mixin) variant, for layering Amp onto a
+shell workload instead of running a sandbox of its own. It is
+declaration-only — with the install happening at create time there is no build
+output for an overlay to carry.
 
 It's also the worked example for
 [Build your own agent kit](https://docs.docker.com/ai/sandboxes/customize/build-an-agent/)
 in the Docker Sandboxes docs — see that page for the design rationale
-behind each section of the spec.
+behind each section of the descriptor.
 
 ## Prerequisites
 

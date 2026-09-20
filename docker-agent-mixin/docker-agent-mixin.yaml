@@ -1,0 +1,228 @@
+# syntax=docker/sandbox-kit:3
+# Docker Agent as a MIXIN: the same declarations as the standalone workload kit
+# (../docker-agent), minus what only the kit that owns the environment can
+# carry -- the entrypoint (the base workload's launch command stays; run
+# `docker-agent run --yolo` in the shell), the context-file profile (filename
+# is workload-only; this kit contributes contentFile alone), sbx@1 (a mixin's
+# image config never becomes the composed image's) and the base's own apt
+# mirrors and cache-refresh hook. v2's environment block rides the overlay as
+# /etc/profile.d.
+schemaVersion: "3"
+displayName: Docker Agent (mixin)
+description: >-
+  Docker Agent as a mixin -- the binary in an overlay at its self-updateable
+  /opt home, with eight optional proxy-managed provider credentials and the
+  egress they need. Layer it onto a shell base and run `docker-agent run`.
+sourceUrl: https://github.com/docker/docker-agent
+
+kind: mixin
+
+# The KIT's version, not Docker Agent's. The binary floats -- the build
+# resolves the newest release and the agent self-updates at runtime -- so the
+# provide stays unversioned even though the arg below can pin the build, and
+# this is the fallback publishing uses for it.
+version: "1.0.0"
+
+provides: ["docker-agent"]
+
+# The same documented pin as the workload, declared so it is reachable from a
+# kit install rather than only from a hand-run `docker build`. No pattern,
+# matching v2: the value is a git tag and the build validates it by failing to
+# download a nonexistent asset.
+args:
+  version:
+    default: ""
+    description: >-
+      docker-agent release tag to pin. Empty (the default) resolves the newest
+      release at build time.
+    buildArg: DOCKER_AGENT_VERSION
+
+capabilities:
+  # The agent's own egress rides with the kit that ships the agent: the base
+  # grants nothing for services it doesn't carry. Runtime only -- the binary is
+  # installed at image build (see docker-agent-mixin.dockerfile), and this kit
+  # declares no hooks at all.
+  #
+  # MIGRATION NOTE: v2's allow list also carried archive.ubuntu.com,
+  # security.ubuntu.com, ports.ubuntu.com and download.docker.com, for the apt
+  # cache-refresh hook. Both the hosts and the hook stay with the workload:
+  # they describe the base image's package sources, which an overlay does not
+  # own and cannot know.
+  #
+  # Entries are portless, this repo's house style: a portless pattern matches
+  # any port.
+  - type: com.docker.sandbox/network-policy@1
+    config:
+      runtime:
+        allow:
+          # Every domain a credential below injects into. v3 validates that
+          # each inject domain appears in the matching phase's allow list, and
+          # a domain absent from it is unreachable no matter what the
+          # credential declares. The services with no inject list contribute
+          # nothing here by construction -- see mistral, nebius and xai below.
+          - api.anthropic.com
+          - claude.ai
+          - console.anthropic.com
+          - api.business.githubcopilot.com
+          - api.enterprise.githubcopilot.com
+          - api.github.com
+          - api.githubcopilot.com
+          - api.individual.githubcopilot.com
+          - copilot.github.com
+          - github.com
+          - raw.githubusercontent.com
+          - aiplatform.googleapis.com
+          - generativelanguage.googleapis.com
+          - oauth2.googleapis.com
+          - vertexai.googleapis.com
+          - api.openai.com
+          - openrouter.ai
+          # Self-update is on (DOCKER_AGENT_AUTO_UPDATE, exported by the
+          # overlay's profile script), and it resolves a release through
+          # api.github.com and downloads the asset from github.com, which
+          # redirects to the release-asset host. That redirect target is not
+          # covered by either and has to be named.
+          - objects.githubusercontent.com
+          # The agent resolves model metadata (context windows, pricing) from
+          # the models.dev catalog. Unreachable, it silently falls back to a
+          # snapshot embedded at binary build time, so the limits go stale
+          # rather than error.
+          - models.dev
+
+  # Eight provider services, every one optional: the agent runs against a
+  # locally served model with nothing bound at all, so a required entry would
+  # take away a working configuration rather than protect one. Service names
+  # are the keys a host binds secrets under and the keys the proxy routes on --
+  # renaming one here silently detaches it from the binding.
+  - type: com.docker.sandbox/credential@1
+    optional: true
+    description: Anthropic API access
+    config:
+      service: anthropic
+      phase: runtime
+      apiKey:
+        name: ANTHROPIC_API_KEY
+        proxyManaged: true
+        inject:
+          - {domain: api.anthropic.com, header: x-api-key, format: "%s"}
+          - {domain: claude.ai, header: x-api-key, format: "%s"}
+          - {domain: console.anthropic.com, header: x-api-key, format: "%s"}
+  - type: com.docker.sandbox/credential@1
+    optional: true
+    description: GitHub and Copilot access
+    config:
+      service: github
+      phase: runtime
+      # Inject-only, v3's name for what v2 spelled `name: ""`: this credential
+      # is handled entirely proxy-side, and naming a variable (with
+      # proxyManaged) would put a sentinel into the environment that
+      # in-container tooling would read as a real token. No variable is created
+      # for it at all.
+      apiKey:
+        # The agent's GitHub-backed model provider calls the Copilot API with a
+        # Bearer sentinel, so every Copilot host must map to this service or
+        # the sentinel tunnels through unreplaced.
+        #
+        # The proxy applies ONE auth format per service, taken from the first
+        # inject entry, so this list must stay uniform. Bearer is the required
+        # choice -- the Copilot API rejects the "token" scheme, GitHub's REST
+        # API accepts both, and git over HTTPS on github.com is re-encoded to
+        # Basic by the proxy regardless of the format named here.
+        # https://github.blog/changelog/2026-02-13-network-configuration-changes-for-copilot-coding-agent/
+        inject:
+          - {domain: api.business.githubcopilot.com, header: Authorization, format: "Bearer %s"}    # Copilot Business
+          - {domain: api.enterprise.githubcopilot.com, header: Authorization, format: "Bearer %s"}  # Copilot Enterprise
+          - {domain: api.github.com, header: Authorization, format: "Bearer %s"}
+          - {domain: api.githubcopilot.com, header: Authorization, format: "Bearer %s"}
+          - {domain: api.individual.githubcopilot.com, header: Authorization, format: "Bearer %s"}  # Copilot Pro and Pro+
+          - {domain: copilot.github.com, header: Authorization, format: "Bearer %s"}
+          - {domain: github.com, header: Authorization, format: "Bearer %s"}
+          - {domain: raw.githubusercontent.com, header: Authorization, format: "Bearer %s"}
+  - type: com.docker.sandbox/credential@1
+    optional: true
+    description: Google AI API access
+    config:
+      service: google
+      phase: runtime
+      apiKey:
+        name: GOOGLE_API_KEY
+        proxyManaged: true
+        inject:
+          - {domain: aiplatform.googleapis.com, header: x-goog-api-key, format: "%s"}
+          - {domain: generativelanguage.googleapis.com, header: x-goog-api-key, format: "%s"}
+          - {domain: oauth2.googleapis.com, header: x-goog-api-key, format: "%s"}
+          - {domain: vertexai.googleapis.com, header: x-goog-api-key, format: "%s"}
+  - type: com.docker.sandbox/credential@1
+    optional: true
+    description: Mistral API access
+    config:
+      service: mistral
+      phase: runtime
+      apiKey:
+        name: MISTRAL_API_KEY
+        # No inject list, so the proxy routes nothing for this service: the
+        # sentinel this flag puts in MISTRAL_API_KEY is never substituted, and
+        # the service's API host is correspondingly absent from the allow list
+        # above. Kept declared so the service stays bindable on the host.
+        proxyManaged: true
+  - type: com.docker.sandbox/credential@1
+    optional: true
+    description: Nebius API access
+    config:
+      service: nebius
+      phase: runtime
+      apiKey:
+        name: NEBIUS_API_KEY
+        # Same shape as `mistral` above: declared, not routed.
+        proxyManaged: true
+  - type: com.docker.sandbox/credential@1
+    optional: true
+    description: OpenAI API access
+    config:
+      service: openai
+      phase: runtime
+      apiKey:
+        name: OPENAI_API_KEY
+        proxyManaged: true
+        inject:
+          - {domain: api.openai.com, header: Authorization, format: "Bearer %s"}
+  - type: com.docker.sandbox/credential@1
+    optional: true
+    description: OpenRouter API access
+    config:
+      service: openrouter
+      phase: runtime
+      apiKey:
+        name: OPENROUTER_API_KEY
+        proxyManaged: true
+        inject:
+          - {domain: openrouter.ai, header: Authorization, format: "Bearer %s"}
+  - type: com.docker.sandbox/credential@1
+    optional: true
+    description: xAI API access
+    config:
+      service: xai
+      phase: runtime
+      apiKey:
+        name: XAI_API_KEY
+        # Same shape as `mistral` above: declared, not routed.
+        proxyManaged: true
+
+  # MIGRATION NOTE: no lifecycle@1 at all. v2's two hooks both belong to the
+  # environment-owning kit here:
+  #
+  #   * The apt cache refresh describes the base image's package sources.
+  #   * The self-update relocation re-established the agent-owned /opt layout
+  #     when BASE_IMAGE had been re-pointed at an image with a root-owned
+  #     binary on PATH. This overlay *builds* that layout (see
+  #     docker-agent-mixin.dockerfile), and its layers land over whatever the
+  #     base had, so there is nothing left to re-establish at create.
+  #
+  # An entry holding no install, startup, files or interactive tail is invalid,
+  # so the correct migration is to declare nothing.
+
+  # contentFile alone: `filename` is workload-only, the profile belonging to
+  # the kit that owns the environment.
+  - type: com.docker.sandbox/agent-context@1
+    config:
+      contentFile: ./docker-agent-mixin-context.md

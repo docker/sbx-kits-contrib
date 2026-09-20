@@ -1,0 +1,154 @@
+# syntax=docker/sandbox-kit:3
+# Migration of the v2 `gstack` sandbox kit (spec.yaml, schemaVersion "2").
+# v2's sandbox.image, sandbox.entrypoint and environment.variables have no v3
+# fields — a workload's content IS its image, and the image config owns launch
+# and static env — so all three moved into gstack.dockerfile. Every other v2
+# stanza lands in a capability below; the deltas are marked MIGRATION NOTE.
+schemaVersion: "3"
+displayName: gstack (Claude Code + Garry's Stack)
+description: >-
+  Claude Code with the gstack skill pack pre-installed: opinionated slash
+  commands (/ship, /review, /qa, /browse, ...) plus a headless-Chromium browse
+  daemon. Uses a pre-baked image so sandboxes start in seconds.
+
+kind: workload
+
+# MIGRATION NOTE: v2 declared no `version:`, and the guide's default for that
+# case is "1.0.0" — but gstack's install does not float, so 1.0.0 would
+# publish `gstack@1.0.0`, a statement about a release number wearing the name
+# of the tool. This is upstream's own VERSION for the commit the `ref` arg
+# below defaults to, as recorded in the v2 Dockerfile.
+#
+# It is a fallback rather than the authority, and v3 cannot make it one: the
+# authority is a 40-char commit SHA (gstack publishes no release tags), and a
+# provide's version must be version-shaped — dotted numeric segments, per
+# SPEC-v3 §5.2 — so the SHA cannot be referenced into `provides` the way a
+# semver build arg would be. Overriding `ref` therefore leaves this stale;
+# move them together.
+version: "1.57.10.0"
+
+# The two pins the recipe already carried, declared so an installer can move
+# them and so the published descriptor records what was built.
+args:
+  ref:
+    # gstack has no release tags; pin a commit SHA.
+    default: "a5833c413f98b13f105beac96262e8098b628461"
+    pattern: '^[0-9a-f]{40}$'
+    description: gstack commit to check out and run ./setup from
+    buildArg: GSTACK_REF
+  bunVersion:
+    default: "1.3.10"
+    pattern: '^[0-9]+\.[0-9]+\.[0-9]+$'
+    description: Bun release the gstack binaries are built with
+    buildArg: BUN_VERSION
+
+# Unversioned, answered by the `version:` fallback above. `claude` is
+# deliberately NOT provided even though the base template carries it: this kit
+# never installs or pins it, and claiming the name would refuse composition
+# with the claude mixin on a fact this kit did not establish.
+provides: ["gstack"]
+
+capabilities:
+  # This workload is an agent sandbox: the host launches the agent rather than
+  # running the image's entrypoint as PID 1, and honors the identity the image
+  # config declares instead of assuming one.
+  - type: com.docker.sandbox/sbx@1
+
+  # MIGRATION NOTE: v2's single flat allow list is phase-scoped in v3, and an
+  # absent phase grants nothing. Every host is `runtime` and there is no
+  # `install` phase at all, because this kit declares no install hooks —
+  # everything it needs is baked into the image (gstack.dockerfile). The
+  # build-time hosts (registry.npmjs.org for Playwright, github.com for the
+  # checkout) stay in `runtime` rather than moving to `install`: image build
+  # is not the install phase, and dropping them would lose hosts the running
+  # agent genuinely uses — /gstack-upgrade reads the checkout's git remote,
+  # and the skills fetch from the others.
+  #
+  # MIGRATION NOTE: v2 wrote some entries with `:443` and some without.
+  # Normalized to the contrib house style of portless entries; port suffixes
+  # are ignored for allow-list membership anyway (network-policy@1, "Entry
+  # patterns"), so no host changes reachability by the rewrite.
+  - type: com.docker.sandbox/network-policy@1
+    config:
+      runtime:
+        allow:
+          # Every domain the anthropic credential injects into, plus the OAuth
+          # token endpoint -- required here too, not just below: this repo's
+          # e2e runs every kit under `sbx policy init deny-all`, so a domain
+          # absent from this list is unreachable regardless of what the
+          # credential block declares. v3 additionally validates the reverse
+          # direction, refusing an inject domain this list never admits.
+          # Matches the built-in claude kit's own allow list for the same
+          # reasons.
+          - api.anthropic.com
+          - claude.ai
+          - console.anthropic.com
+          - platform.claude.com
+          - downloads.claude.ai
+          - claude.com
+          - github.com
+          - raw.githubusercontent.com
+          - registry.npmjs.org
+          - '*.npmjs.org'
+          - huggingface.co
+          - '*.huggingface.co'
+
+  # optional, faithfully: v2 credentials default to not-required and the v3
+  # default inverts (an entry is required unless it opts out). Claude also
+  # runs without any binding at all — it falls back to /login — so required
+  # would warn spuriously on exactly the healthy OAuth setup, whose record is
+  # never a literal wire value.
+  - type: com.docker.sandbox/credential@1
+    optional: true
+    description: Anthropic API access (API key or claude.ai OAuth)
+    config:
+      service: anthropic
+      phase: runtime
+      apiKey:
+        name: ANTHROPIC_API_KEY
+        proxyManaged: true
+        inject:
+          - {domain: api.anthropic.com, header: x-api-key, format: "%s"}
+          - {domain: claude.ai, header: x-api-key, format: "%s"}
+          - {domain: console.anthropic.com, header: x-api-key, format: "%s"}
+      # v2 already wrote this declaratively rather than as a Go template, so
+      # `credentialFile.structure` carries over unchanged: expiresAt renders
+      # as a JSON number and scopes as a JSON array, and the structure is
+      # encoded after substitution, so the output is well-formed no matter
+      # what the values contain.
+      oauth:
+        tokenEndpoint: {host: platform.claude.com, path: /v1/oauth/token}
+        sentinels:
+          accessToken: sk-ant-oat01-proxy-managed
+          refreshToken: sk-ant-ort01-proxy-managed
+        credentialFile:
+          path: ~/.claude/.credentials.json
+          structure:
+            claudeAiOauth:
+              accessToken: "{{.AccessToken}}"
+              refreshToken: "{{.RefreshToken}}"
+              expiresAt: "{{.ExpiresAt}}"
+              scopes: "{{.Scopes}}"
+
+  # MIGRATION NOTE: no `agent-skills@1`, deliberately, even though this kit
+  # names a skills directory (~/.claude/skills) in three places. That
+  # capability hands the host a directory to MOUNT at the declared path, and
+  # here that path is not an empty mount point the way it is in the claude
+  # kit — it is image content. The gstack checkout lives at
+  # ~/.claude/skills/gstack and ./setup registers every slash command as a
+  # symlink under ~/.claude/skills/<name>/, so a store mounted there would
+  # shadow the entire skill pack this kit exists to deliver. v2 asked for no
+  # such grant; inventing one that breaks the kit is not a faithful
+  # migration. A future revision that moves the pack elsewhere could declare
+  # it honestly.
+
+  # MIGRATION NOTE: no `agent-sessions@1`. v2 shipped no testdata/tck.yaml, so
+  # no working non-interactive invocation was ever recorded for this kit, and
+  # the verbs are not guessed. (The base agent is Claude Code, whose own kit
+  # declares `-p`, but this kit's entrypoint is its own and was never tested
+  # that way.)
+
+  - type: com.docker.sandbox/agent-context@1
+    config:
+      filename: CLAUDE.md
+      contentFile: ./gstack-context.md

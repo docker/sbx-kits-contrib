@@ -1,0 +1,110 @@
+# syntax=docker/sandbox-kit:3
+schemaVersion: "3"
+displayName: Git SSH Commit Signing
+description: Configures git to sign commits using the SSH key forwarded from the host's SSH agent.
+
+kind: mixin
+
+# MIGRATION NOTE: no network-policy@1 entry, faithfully. The v2 kit
+# declared no `permissions.network` block and this kit reaches nothing:
+# the key is resolved from the forwarded SSH agent over a unix socket, and
+# the includeIf probe below builds a throwaway repo whose remote is never
+# contacted. An absent capability contributes nothing to the composition's
+# egress union, which is exactly what the v2 absence meant.
+
+capabilities:
+  - type: com.docker.sandbox/lifecycle@1
+    config:
+      install:
+        # No `env:` list: every variable this hook reads ($probe,
+        # $supported, and awk's $3) it sets itself, so v3's
+        # deny-by-default hook environment costs it nothing.
+        #
+        # MIGRATION NOTE: the body is carried over verbatim, including the
+        # comment explaining why gpg.ssh.defaultKeyCommand is invoked as
+        # `/bin/sh <path>` rather than as a bare path. That comment's
+        # premise no longer holds — a v2 layer could not carry a per-file
+        # executable bit, but the v3 companion overlay is an ordinary OCI
+        # layer and ships the script mode 0755 (see
+        # git-ssh-sign.dockerfile). The `/bin/sh` form is kept anyway: it
+        # works under both, and rewriting a working hook is not what this
+        # migration is for.
+        - command: |
+            set -e
+
+            # Signing *machinery* stays machine-wide: it is inert unless something
+            # asks for a signature, and keeping it here means `git commit -S` works
+            # in any repository in the sandbox.
+            git config --system gpg.format ssh
+            # The key command is invoked through /bin/sh rather than executed
+            # directly. Files shipped under a kit's files/home/ tree land mode
+            # 0644 when the kit is installed from its OCI artifact -- per-file
+            # executable bits are not representable in a v2 layer (spec/OCI-v2.md)
+            # -- and git execs this value itself, so a bare path would die with
+            # "cannot exec: Permission denied" before a single one of the script's
+            # own diagnostics could run.
+            git config --system gpg.ssh.defaultKeyCommand '/bin/sh /home/agent/.config/git/ssh-signing-key-command'
+            git config --system gpg.ssh.allowedSignersFile /home/agent/.config/git/allowed_signers
+
+            # user.signingKey MUST stay unset: git only runs
+            # gpg.ssh.defaultKeyCommand when it is empty. Setting it to any value
+            # (even a placeholder) disables dynamic key resolution entirely.
+            git config --system --unset-all user.signingKey || true
+
+            # Signing *policy* is scoped, not machine-wide. Setting
+            # commit.gpgSign=true in /etc/gitconfig makes every `git commit` in the
+            # sandbox depend on a live SSH agent — including throwaway repositories
+            # created by test suites that have nothing to do with the user's work.
+            # When the forwarded agent goes away, those all fail too.
+            mkdir -p /etc/git
+            cat > /etc/git/signing-enabled.inc <<'INC'
+            # Included by /etc/gitconfig for repositories with a remote.
+            # See the git-ssh-sign kit.
+            [commit]
+            	gpgSign = true
+            [tag]
+            	gpgSign = true
+            INC
+            chmod 0644 /etc/git/signing-enabled.inc
+
+            # Clear anything an older version of this kit left machine-wide, so a
+            # re-install converges rather than layering.
+            git config --system --unset-all commit.gpgSign || true
+            git config --system --unset-all tag.gpgSign || true
+            git config --system --unset-all 'includeIf.hasconfig:remote.*.url:**.path' || true
+
+            # `includeIf "hasconfig:remote.*.url:**"` needs git >= 2.36. Probe for
+            # it rather than parsing a version string: build a throwaway repo with
+            # a remote and see whether the include actually fires. Note that `**`
+            # is only a cross-slash wildcard when it is a whole path component --
+            # `git@github.com:**` does NOT match `git@github.com:org/repo.git`, so
+            # a bare `**` ("has any remote at all") is the pattern to use here.
+            probe=$(mktemp -d)
+            git init -q "$probe"
+            git -C "$probe" remote add origin https://example.invalid/probe.git
+            printf '[commit]\n\tgpgSign = true\n' > "$probe/inc"
+            printf '[includeIf "hasconfig:remote.*.url:**"]\n\tpath = %s/inc\n' "$probe" > "$probe/sys"
+            supported=$(GIT_CONFIG_SYSTEM="$probe/sys" GIT_CONFIG_GLOBAL=/dev/null \
+                git -C "$probe" config --get commit.gpgSign 2>/dev/null || true)
+            rm -rf "$probe"
+
+            if [ "$supported" = "true" ]; then
+                git config --system 'includeIf.hasconfig:remote.*.url:**.path' /etc/git/signing-enabled.inc
+            else
+                # Old git: an unrecognised includeIf keyword evaluates false, which
+                # would silently disable signing. Fail closed (sign everywhere)
+                # rather than fail open (sign nothing).
+                echo "[git-ssh-sign] git $(git --version | awk '{print $3}') lacks includeIf hasconfig; enabling signing machine-wide" >&2
+                git config --system commit.gpgSign true
+                git config --system tag.gpgSign true
+            fi
+
+            if [ "$(git config --system --get core.hooksPath || true)" = "/home/agent/.config/git/hooks" ]; then
+                git config --system --unset-all core.hooksPath
+            fi
+          user: "0"
+          description: Configure SSH commit signing, scoped to repositories with a remote
+
+  - type: com.docker.sandbox/agent-context@1
+    config:
+      contentFile: ./git-ssh-sign-context.md

@@ -4,7 +4,7 @@ A mixin kit that installs [GitGuardian](https://www.gitguardian.com/)'s [`ggshie
 
 `ggshield` inside the microVM only ever holds a placeholder value for `GITGUARDIAN_API_KEY`. When it calls the GitGuardian API, the sbx proxy rewrites the `Authorization: Token …` header with the real key (sourced from the host) on the wire, and denies any egress outside the kit's allowlist. The real key never enters the sandbox: not in the environment, shell history, or `ps` output.
 
-This kit is **Claude Code-specific**: ggshield's AI hook writes Claude Code's own hook file (`~/.claude/settings.json`), so the kit declares `requires: agent: claude` and the engine rejects composing it onto another agent. Codex, Copilot, and Cursor are served by separate sibling kits.
+This kit is **Claude Code-specific**: ggshield's AI hook writes Claude Code's own hook file (`~/.claude/settings.json`), so the kit declares `requires: ["claude"]` and the engine rejects composing it onto another agent. Codex, Copilot, and Cursor are served by separate sibling kits.
 
 ## Usage
 
@@ -31,11 +31,11 @@ sbx run --kit ./gitguardian/ claude
 
 The kit declares a `gitguardian` credential with one inject rule. Inside the container `GITGUARDIAN_API_KEY` is a sentinel (`proxy-managed`); on any request to `api.gitguardian.com` the proxy sets `Authorization: Token <your-real-key>`. The real key never reaches the sandbox filesystem or environment.
 
-`gitguardian` is a custom (non-registry) service, so sbx does not auto-export the key sentinel into the container; it only sets `SBX_CRED_GITGUARDIAN_MODE`. ggshield refuses to run when `GITGUARDIAN_API_KEY` is unset, so the kit materializes the placeholder itself via `environment.variables`.
+`gitguardian` is a custom (non-registry) service. Under the v2 grammar sbx did not auto-export the key sentinel into the container — it only set `SBX_CRED_GITGUARDIAN_MODE` — and since ggshield refuses to run when `GITGUARDIAN_API_KEY` is unset, the kit materialized the placeholder itself through an `environment.variables` entry. The v3 descriptor states it directly instead: `proxyManaged: true` on the credential's `apiKey` is what puts the sentinel in the container under that name. Credentials are phase-scoped in v3, and this one is `runtime`, so the install hook that registers the Claude Code AI hook defaults the variable itself rather than relying on the sentinel being present that early.
 
 ## What it installs
 
-1. **`ggshield`** from a pinned, digest-verified GitHub release (version and per-arch SHA256 pinned in `spec.yaml`, no `curl | sh`). To bump, change `GGSHIELD_VERSION` and both checksums.
+1. **`ggshield`** from a pinned, digest-verified GitHub release (version and per-arch SHA256 pinned in `gitguardian.yaml`, no `curl | sh`). To bump, change `GGSHIELD_VERSION` and both checksums.
 2. **The Claude Code AI hook**, via `ggshield machine setup --agent claude-code --no-git-hooks --no-honeytokens`, run as the agent user. This registers `PreToolUse` / `PostToolUse` / `UserPromptSubmit` handlers that run `ggshield secret scan ai-hook` inside the agent's own tool loop.
 
 A blocked action means a real secret was detected: remove and rotate it, don't retry or bypass. Manual scans remain available as an escape hatch:
@@ -47,11 +47,11 @@ ggshield secret scan repo .         # scan full git history + working tree
 
 ## Other agents
 
-ggshield's AI-hook support also covers Codex, Copilot, and Cursor, but each reads a different hook file, so automatic enforcement for those agents lives in separate kits (`gitguardian-codex`, `gitguardian-copilot`, `gitguardian-cursor`). Layering *this* kit onto a non-Claude agent is rejected at composition time by the `requires: agent: claude` affinity.
+ggshield's AI-hook support also covers Codex, Copilot, and Cursor, but each reads a different hook file, so automatic enforcement for those agents lives in separate kits (`gitguardian-codex`, `gitguardian-copilot`, `gitguardian-cursor`). Layering *this* kit onto a non-Claude agent is rejected at composition time by the kit's `requires: ["claude"]` entry.
 
 ## EU workspace / self-hosted instances
 
-The EU workspace and self-hosted GitGuardian instances use a different API host. Set `GITGUARDIAN_INSTANCE` for ggshield, and add that host to both `permissions.network.allow` and the credential's `inject` block in `spec.yaml`; the proxy only injects on, and only allows egress to, the hosts listed there.
+The EU workspace and self-hosted GitGuardian instances use a different API host. Set `GITGUARDIAN_INSTANCE` for ggshield, and in `gitguardian.yaml` add that host to both the network policy's `runtime.allow` list and the credential's `inject` block; the proxy only injects on, and only allows egress to, the hosts listed there. The two go together — an inject domain missing from the matching phase's allow list is a validation error, not a silent no-op.
 
 ## Cleanup
 

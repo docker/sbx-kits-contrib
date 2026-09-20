@@ -1,14 +1,17 @@
 # nanobot
 
-A standalone agent kit (`kind: agent`) for
+A standalone workload kit (`kind: workload`) for
 [nanobot](https://pypi.org/project/nanobot-ai/) — a lightweight
 personal AI assistant with multi-platform chat (Telegram, Discord,
-WhatsApp, Slack, Feishu) and multi-provider LLM support. The kit runs
-from a pre-baked image ([`Dockerfile`](./Dockerfile)) with nanobot
+WhatsApp, Slack, Feishu) and multi-provider LLM support. The kit's own
+content ([`nanobot.dockerfile`](./nanobot.dockerfile)) has nanobot
 already installed at the latest upstream PyPI release, ships a
 preconfigured `config.json` that points it at Anthropic via the
 sandbox proxy, and runs `nanobot agent` as the entrypoint when you
 attach.
+
+A mixin variant lives in [`../nanobot-mixin`](../nanobot-mixin), for layering
+the same agent onto a shell base instead.
 
 ## Usage
 
@@ -62,7 +65,7 @@ config picks up whatever value the runtime put in `ANTHROPIC_API_KEY`
 for this sandbox instead of pinning one sandbox's value into the kit.
 
 The kit declares the Anthropic auth wiring as a single
-`credentials[]` entry — `service: anthropic`, `apiKey.name:
+`com.docker.sandbox/credential@1` capability — `service: anthropic`, `apiKey.name:
 ANTHROPIC_API_KEY`, `apiKey.proxyManaged: true`, and an `inject` rule for
 `api.anthropic.com` — so the sandbox proxy substitutes the real Anthropic
 credential on outbound requests and the container only ever holds a
@@ -92,10 +95,10 @@ Do not authenticate from inside the sandbox: a credential written into
 is readable by the agent and by anything the agent runs. Keep credentials
 host-side.
 
-The kit's `allowedDomains` covers the Anthropic hosts the credential
-above injects into (`api.anthropic.com`, `claude.ai`,
+The kit's `network-policy@1` runtime allow list covers the Anthropic hosts
+the credential above injects into (`api.anthropic.com`, `claude.ai`,
 `console.anthropic.com`), PyPI (`pypi.org`, `files.pythonhosted.org` —
-not for the kit's own install, which is baked into the image, but for
+not for the kit's own install, which is baked into the kit's content, but for
 nanobot's built-in `cli_apps` tool, which pip-installs further
 packages at the agent's own request and is enabled by default), and
 the chat-platform hosts (Telegram, Discord, WhatsApp, Slack, Feishu)

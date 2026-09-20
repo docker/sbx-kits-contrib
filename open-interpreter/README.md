@@ -1,12 +1,15 @@
 # open-interpreter
 
-A sandbox kit (`kind: sandbox`) for [Open Interpreter](https://www.openinterpreter.com/) —
+A workload kit (`kind: workload`) for [Open Interpreter](https://www.openinterpreter.com/) —
 a natural language interface for your computer. Describe what you want in plain English;
 Open Interpreter writes and runs the code (Python, JS, Shell, and more) to complete it.
 
 Running OI inside a Docker Sandbox is a natural fit: the sandbox provides OS-level
 isolation so `auto_run` (code executes without confirmation prompts) is safe to enable
 by default.
+
+A mixin variant lives in [`../open-interpreter-mixin`](../open-interpreter-mixin),
+for layering the same agent onto a shell base instead.
 
 ## Prerequisites
 
@@ -20,13 +23,13 @@ To use Claude instead, no OpenAI credential needs to be bound — the kit switch
 the seeded profile to Claude for you when that's the only credential present.
 Either of these works:
 
-- An Anthropic API key, declared under `credentials[].apiKey`:
+- An Anthropic API key, declared under the `credential@1` capability's `apiKey`:
 
   ```console
   export ANTHROPIC_API_KEY=<your-anthropic-key>
   ```
 
-- A Claude subscription login, declared under `credentials[].oauth`: sign in
+- A Claude subscription login, declared under the same capability's `oauth`: sign in
   from a `claude` sandbox instead of exporting a key.
 
 The kit proxy-manages whichever credential is present on the host — the real
@@ -82,8 +85,8 @@ never touched by the kit's own resolver; see below.
 
 ## How auth works
 
-Both `api.openai.com` and `api.anthropic.com` are listed as `credentials[].apiKey.inject`
-domains. The proxy injects `Authorization: Bearer <key>` for OpenAI and `x-api-key: <key>`
+Both `api.openai.com` and `api.anthropic.com` are listed as `apiKey.inject`
+domains on their `credential@1` capabilities. The proxy injects `Authorization: Bearer <key>` for OpenAI and `x-api-key: <key>`
 for Anthropic on matching outbound requests. Keys never enter the sandbox VM.
 
 Credential injection is intentionally limited to the two LLM API hosts. A wildcard
@@ -103,10 +106,10 @@ header, anything else stays an API key.
 Unlike aider, this kit doesn't need to override open-interpreter's litellm
 pin: open-interpreter depends on `litellm<2.0.0,>=1.41.26` — a range, not an
 exact pin — so installing it resolves whatever is newest under that ceiling.
-The image's build proves this rather than assuming it: it calls
+The kit's build proves this rather than assuming it: it calls
 `optionally_handle_anthropic_oauth` directly against the litellm version the
 build actually resolved and asserts the OAuth header shape comes out right
-(see [Dockerfile](./Dockerfile)). That gate is what would catch a future
+(see [`open-interpreter.dockerfile`](./open-interpreter.dockerfile)). That gate is what would catch a future
 open-interpreter release narrowing its own ceiling back down to something
 broken.
 
@@ -160,8 +163,9 @@ host-side.
 
 ## Network policy and code execution
 
-OI executes arbitrary code, which can only reach domains in `permissions.network.allow`
-— not "any domain". The kit's allow list covers OI's own operational needs:
+OI executes arbitrary code, which can only reach domains in the `network-policy@1`
+capability's runtime allow list — not "any domain". That list covers OI's own
+operational needs:
 
 | Domain | Purpose |
 | --- | --- |
@@ -174,8 +178,9 @@ These are runtime needs of OI itself, not the kit's own toolchain: OI's whole
 purpose is writing and running code on request, so the code it runs can
 reach for a package manager same as a human would. That's different from
 `gcc`, `python3-dev`, and OI's own install, which the kit needed only to
-build the environment — those are now baked into the image (see
-[Dockerfile](./Dockerfile)) and don't appear in this list at all.
+build the environment — those are baked into the kit's content (see
+[`open-interpreter.dockerfile`](./open-interpreter.dockerfile)) and don't
+appear in this list at all.
 
 There is no `raw.githubusercontent.com` / `api.github.com` entry: nothing in
 open-interpreter 0.4.3's own source fetches from either at runtime (checked
@@ -190,14 +195,14 @@ mixin kit with the extra domains.
 
 `gcc`, `python3-dev` (a C compiler for building `psutil` from source),
 Open Interpreter itself, and its Python 3.12 runtime are all baked into the
-kit's image (see [Dockerfile](./Dockerfile)) rather than installed when a
-sandbox is created:
+kit's content (see [`open-interpreter.dockerfile`](./open-interpreter.dockerfile))
+rather than installed when a sandbox is created:
 
 | Component | How |
 | --- | --- |
 | `gcc` / `python3-dev` | `apt-get install` at image build time |
 | `open-interpreter` | `uv tool install --with "setuptools<81" --python 3.12 open-interpreter==<pin>` at image build time |
-| Default profile | Dropped via `files/` at `/home/agent/.config/open-interpreter/profiles/default.yaml` — kit content, not baked, so a fix reaches an existing sandbox on its next restart without an image rebuild |
+| Default profile | The `files/` tree, copied to `/home/agent/.config/open-interpreter/profiles/default.yaml` by the recipe. In v2 this was staged at create rather than baked; a v3 kit and its image are one artifact, so it now travels with the kit's layers |
 
 `uv --python 3.12` is used because the base image ships Python 3.13, and
 `open-interpreter`'s `numpy` dependency has no Python 3.13 wheel; `uv` fetches
@@ -205,10 +210,11 @@ a standalone Python 3.12 runtime automatically, at build time. `setuptools<81`
 keeps `pkg_resources` available, which `open-interpreter` still imports at
 startup.
 
-Sandbox creation only pulls the image — no install step, no wait, and no
-per-start upgrade. A fixed image means a fixed Open Interpreter version;
-bumping it means rebuilding the image (`OPEN_INTERPRETER_VERSION` in the
-Dockerfile).
+Sandbox creation only pulls the kit — no install step, no wait, and no
+per-start upgrade. A fixed kit means a fixed Open Interpreter version;
+bumping it means rebuilding the kit. The pin is the descriptor's
+`args.version`, which is validated against its pattern, published in
+`provides`, and handed to the recipe as `OPEN_INTERPRETER_VERSION`.
 
 ## Cleanup
 

@@ -33,7 +33,7 @@ agent@sandbox:~$ mise install      # installs the project's pinned versions
 ## How the install works
 
 The kit downloads a pinned mise release tarball from GitHub, verifies
-its SHA256 against a digest captured in `spec.yaml`, and extracts only
+its SHA256 against a digest captured in `mise.yaml`, and extracts only
 the `mise` binary into `/usr/local/bin/`. The version and per-arch
 digest are sourced from the release's `SHASUMS256.txt` and live in git
 — bumping mise is a one-line edit + a digest update.
@@ -45,9 +45,10 @@ lets reviewers see what changed when you bump the kit.
 
 ## Shell activation
 
-The install step appends a single line to the agent user's `~/.bashrc`:
+A lifecycle install hook appends two lines to the agent user's `~/.bashrc`:
 
 ```bash
+export MISE_TRUSTED_CONFIG_PATHS="/"
 eval "$(mise activate bash)"
 ```
 
@@ -70,25 +71,32 @@ you've already accepted that boundary by attaching the workspace, so
 the kit pre-trusts the whole filesystem to keep the agent
 non-interactive. If that's too coarse for your threat model, fork the
 kit and narrow `MISE_TRUSTED_CONFIG_PATHS` to the workspace mount
-point (typically the value of `${WORKDIR}`).
+point (typically the value of `${WORKSPACE_DIR}`).
 
 ## Network policy and runtime tool installs
 
-The kit ships with a baseline that covers the install step **and** the
-GitHub-hosted runtime path that mise's `ubi` backend uses for most
-tools:
+The kit's `com.docker.sandbox/network-policy@1` capability ships with a
+baseline that covers the install step **and** the GitHub-hosted runtime
+path that mise's `ubi` backend uses for most tools. The policy is
+phase-scoped: the runtime closes the `install` grants before the agent
+starts, so anything `mise install` needs in steady state has to be in
+`runtime` too.
 
 - `github.com` — release tag URL for both the kit's pinned mise
-  install and `mise install <github-hosted-tool>` at runtime
+  install and `mise install <github-hosted-tool>` at runtime. In both
+  phases
 - `api.github.com` — version resolution. mise hits this for any
   `<tool>@latest`, `<tool>@<major>`, etc., and even validates exact
   tags through it. Without this, github-hosted tool installs fail at
-  the resolve step with a 403 from the sandbox proxy
+  the resolve step with a 403 from the sandbox proxy. `runtime` only:
+  the kit's own install fetches a fixed release-download URL and never
+  touches the API
 - `objects.githubusercontent.com` — the actual 302 target for the
-  kit's own install download, confirmed by hand against a real request
+  kit's own install download, confirmed by hand against a real request.
+  In both phases
 - `release-assets.githubusercontent.com` — kept alongside it since a
   release asset's redirect target isn't guaranteed to be the same host
-  for every repo
+  for every repo. In both phases
 
 Note that wildcard subdomains (`*.github.com`) match subdomains only,
 not the apex — so listing the apex and the subdomains explicitly is
@@ -97,27 +105,30 @@ required, not redundant.
 `mise install <tool>` at runtime also hits per-language CDNs beyond
 GitHub for non-github-hosted tools, and these vary by what you ask
 for. The kit deliberately doesn't pre-allow all of them — each widens
-the trust footprint. Add what you need in a fork. A starter set
-covering the most common backends:
+the trust footprint. Add what you need in a fork, under the `runtime`
+phase since that is when `mise install` runs. A starter set covering the
+most common backends:
 
 ```yaml
-permissions:
-  network:
-    allow:
-      - github.com
-      - api.github.com
-      - objects.githubusercontent.com   # confirmed release-asset redirect target
-      - release-assets.githubusercontent.com
-      - codeload.github.com             # source tarballs (some asdf plugins)
-      - nodejs.org                      # node
-      - registry.npmjs.org              # npm-backed plugins
-      - dl.google.com                   # go (golang.org redirects here)
-      - go.dev
-      - www.python.org                  # python
-      - files.pythonhosted.org          # pip
-      - pypi.org
-      - static.crates.io                # rust
-      - crates.io
+capabilities:
+  - type: com.docker.sandbox/network-policy@1
+    config:
+      runtime:
+        allow:
+          - github.com
+          - api.github.com
+          - objects.githubusercontent.com   # confirmed release-asset redirect target
+          - release-assets.githubusercontent.com
+          - codeload.github.com             # source tarballs (some asdf plugins)
+          - nodejs.org                      # node
+          - registry.npmjs.org              # npm-backed plugins
+          - dl.google.com                   # go (golang.org redirects here)
+          - go.dev
+          - www.python.org                  # python
+          - files.pythonhosted.org          # pip
+          - pypi.org
+          - static.crates.io                # rust
+          - crates.io
 ```
 
 If `mise install` fails with a DNS / connection refused error, the

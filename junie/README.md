@@ -1,9 +1,15 @@
 # junie
 
-A standalone sandbox kit for [Junie](https://junie.jetbrains.com/), the AI coding agent by JetBrains. The
+A standalone workload kit (`kind: workload`, `schemaVersion: "3"`) for
+[Junie](https://junie.jetbrains.com/), the AI coding agent by JetBrains. The
 kit runs on a **pre-baked sandbox image** — Junie is installed from its stable channel at image-build time, not at
 sandbox creation, so a new sandbox starts in seconds instead of waiting on the vendor install script. The kit itself
 wires Junie's API auth through the sandbox proxy and runs `junie` as the entrypoint.
+
+The declarations live in [`junie.yaml`](./junie.yaml); the recipe beside it
+([`junie.dockerfile`](./junie.dockerfile)) is found by the filename-stem
+convention. To layer Junie onto a shell base you already have, use
+[`../junie-mixin`](../junie-mixin) instead.
 
 ## Prerequisites
 
@@ -53,14 +59,16 @@ itself still has to be pulled the first time, if it isn't cached locally.
 
 ## How auth works
 
-The kit's `credentials` list declares an `apiKey` entry per provider, for `junie.jetbrains.com`, `api.anthropic.com`,
+The kit declares one `credential@1` capability per provider, for `junie.jetbrains.com`, `api.anthropic.com`,
 `api.openai.com`, `generativelanguage.googleapis.com`, `api.x.ai`, and `openrouter.ai`. This tells the proxy to inject
 the correct authentication headers (e.g., `Authorization: Bearer %s`, `x-api-key: %s`, or `x-goog-api-key: %s`) on
 outbound requests.
 
-Each credential sets `apiKey.proxyManaged: true` to ensure it's handled securely by the proxy.
+Each credential sets `apiKey.proxyManaged: true` to ensure it's handled securely by the proxy, and each is
+`optional: true` — v3 entries are required unless they opt out, and none of the six is individually necessary, so
+requiring any of them would refuse creates that used to succeed.
 
-`permissions.network.allow` no longer lists `github.com`, `raw.githubusercontent.com`, or
+The `network-policy@1` capability's `runtime.allow` no longer lists `github.com`, `raw.githubusercontent.com`, or
 `release-assets.githubusercontent.com`: those were only ever needed for the vendor installer's own
 version-resolution feed and the release zip it downloads, both now resolved at image-build time (see
 [Base image](#base-image)), and the image also sets `JUNIE_SKIP_UPDATE_CHECK=1` so the installed binary never checks
@@ -90,10 +98,10 @@ host-side.
 
 ## Base image
 
-Unlike most kits here — which are `kind: mixin` or `kind: agent` and layer
-onto an existing `docker/sandbox-templates` image — a `kind: sandbox` kit *is*
-the whole environment, so it names the image the sandbox boots from. This kit
-builds and publishes its own, from the `Dockerfile` in this directory:
+Unlike a `kind: mixin` kit, which layers onto an existing image, a
+`kind: workload` kit's layers *are* the root filesystem — so its recipe names
+the image the sandbox boots from. This kit builds and publishes its own, from
+[`junie.dockerfile`](./junie.dockerfile) in this directory:
 
 ```
 docker.io/sbx/junie-image
@@ -121,16 +129,19 @@ kit-specific build script or workflow; CI builds and publishes this image the
 same way it does for `hermes-agent`/`pi`/`openclaw`/`kiro`/`copilot`.
 
 Junie's stable channel publishes a new build every few days, so this image
-rolls: the `Dockerfile`'s `ADD` against upstream's own version-resolution feed
-forces a fresh install whenever the channel moves, and the pipeline's nightly
-scheduled rebuild picks one up within a day either way. There is no supported
-way to pin a specific build in this image — `install.sh`'s `JUNIE_VERSION`
-override exists, but is not exposed as a build arg here (see the Dockerfile).
+rolls: `junie.dockerfile`'s `ADD` against upstream's own version-resolution
+feed forces a fresh install whenever the channel moves, and the pipeline's
+nightly scheduled rebuild picks one up within a day either way. There is no
+supported way to pin a specific build in this image — `install.sh`'s
+`JUNIE_VERSION` override exists, but is not exposed as a kit arg here. The
+descriptor's `version:` is therefore the kit's own release number, standing in
+as the fallback for the unversioned `provides: ["junie"]`, not a claim about
+which Junie build is inside.
 
 ### Building locally
 
 ```console
-docker build -t docker.io/sbx/junie-image:latest junie
+docker build -f junie/junie.dockerfile -t docker.io/sbx/junie-image:latest junie
 ./scripts/test-kit.sh junie
 ```
 

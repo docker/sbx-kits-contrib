@@ -1,0 +1,252 @@
+# syntax=docker/sandbox-kit:3
+# The Codex CLI as a MIXIN: the same declarations as the codex workload kit
+# beside it — the OpenAI credential, the egress, the config/auth seeds and the
+# MCP registration — minus what only the kit that owns the environment can
+# carry:
+#
+#   - no sbx@1: the host launches the *base workload's* agent, and this kit's
+#     image config never becomes the composed image's.
+#   - no ENTRYPOINT: the base workload's launch command stays as it is. The
+#     user runs `codex` from the shell.
+#   - no agent-context filename: the AGENTS.md profile belongs to the workload
+#     that owns the environment, so this kit contributes a body and nothing
+#     else.
+#   - no apt-cache-refresh startup hook and no apt mirrors in the policy: which
+#     package manager the base ships and which mirrors it points at are the
+#     base's business, and a mixin that refreshed them would be granting egress
+#     for a base it has never seen.
+#
+# v2's environment.variables has no v3 field on a mixin — v3 carries no static
+# env grammar, the image config owns runtime env, and a mixin's config does not
+# merge into the composed image. The three exports ride the overlay as
+# /etc/profile.d/codex-env.sh instead, sourced by the base's login shell.
+schemaVersion: "3"
+displayName: Codex (mixin)
+description: >-
+  OpenAI's Codex CLI as a mixin — the CLI in an overlay, with the OpenAI
+  credential (API key or ChatGPT OAuth), scoped egress, and the config and
+  auth seeds the agent needs. Layer it onto a shell base and run `codex`.
+# The KIT's version, not Codex's, and the publish-time fallback for the
+# unversioned provide below. Tracks the codex kit it is derived from.
+version: "1.0.0"
+
+kind: mixin
+
+# Same name the codex workload provides, so a composition using this mixin
+# satisfies `requires: ["codex"]` from codex-acp and codex-app-server exactly
+# as the workload does. Unversioned for the same reason: the vendor installer
+# takes no version pin, so the installed CLI floats.
+#
+# The two kits are alternatives, never composed together: one name has one
+# owner (SPEC-v3 §5.3), so resolution refuses codex + codex-mixin.
+provides: ["codex"]
+
+capabilities:
+  # The agent's own egress rides with the kit that ships the agent: the base
+  # grants nothing for services it does not carry. Same list as the workload's
+  # minus the four apt/Docker mirror hosts, which the workload declares because
+  # it owns its base image and refreshes that base's package cache.
+  - type: com.docker.sandbox/network-policy@1
+    config:
+      # Nothing here is reached while install hooks run — the install hook
+      # below only writes config files — so the whole list is runtime, and the
+      # absent install phase grants nothing.
+      runtime:
+        # Portless, matching the house style: a port qualifier would pin a
+        # scheme the kit does not own.
+        allow:
+          # Every domain the credential injects into or authenticates against.
+          - api.openai.com
+          - openai.com
+          # The OAuth token endpoint.
+          - auth.openai.com
+          # Where the OAuth access token is spent in oauth mode — the model
+          # provider the install hook configures, and the credential's
+          # resourceHosts.
+          - chatgpt.com
+          # Hit during a session for attachments and uploads.
+          - files.openai.com
+          # ChatGPT-backed content and auth hosts Codex reaches at runtime.
+          # Wildcarded deliberately: OpenAI shards both of these across
+          # subdomains rather than a fixed, enumerable set.
+          - '*.chatgpt.com'
+          - '*.oaiusercontent.com'
+          # `codex plugin add` pulls from a marketplace snapshot.
+          - registry.npmjs.org
+          # `codex update` re-runs the standalone installer: it curls
+          # chatgpt.com for the script and the script fetches the release
+          # package from here.
+          - releases.openai.com
+          # Codex's native binary checks GitHub releases for updates and pulls
+          # skills and plugins from repository archives.
+          - api.github.com
+          - github.com
+          - codeload.github.com
+
+  - type: com.docker.sandbox/credential@1
+    # v2 credentials default to not-required and the v3 default inverts, so
+    # this preserves the behavior: Codex runs with nothing bound (it prompts
+    # for login), and an OAuth record is never a literal value.
+    optional: true
+    description: OpenAI API access (API key or ChatGPT OAuth)
+    config:
+      service: openai
+      phase: runtime
+      apiKey:
+        name: OPENAI_API_KEY
+        # Deliberately NOT `proxyManaged: true`, matching the workload: Codex
+        # does not read this variable for model calls on the paths these kits
+        # configure — the install hook writes the literal `proxy-managed`
+        # sentinel into ~/.codex/auth.json and the proxy swaps it on the
+        # domains below — and a sentinel in both places is unverified against
+        # Codex's own key-discovery order.
+        inject:
+          - {domain: api.openai.com, header: Authorization, format: "Bearer %s"}
+          # TODO(codex-extraction): the apex serves OpenAI's website, not the
+          # API, and while this entry stands any process in the sandbox that
+          # fetches openai.com gets the user's real key attached. Carried over
+          # unchanged rather than narrowed unilaterally — see the codex kit.
+          - {domain: openai.com, header: Authorization, format: "Bearer %s"}
+      # MIGRATION NOTE: v2's `oauth.skipIfEnv: [OPENAI_API_KEY]` is dropped —
+      # v3 has no such field, and the mode decision belongs to the host's
+      # binding, surfaced to the install hook as SBX_CRED_OPENAI_MODE.
+      oauth:
+        tokenEndpoint: {host: auth.openai.com, path: /oauth/token}
+        # In oauth mode the install hook points Codex at a ChatGPT-backed model
+        # provider, so the sentinel bearer travels on inference calls to
+        # chatgpt.com — not only on the token exchange.
+        resourceHosts:
+          - chatgpt.com
+        sentinels:
+          accessToken: oai-oat01-proxy-managed
+          refreshToken: oai-ort01-proxy-managed
+
+  - type: com.docker.sandbox/lifecycle@1
+    config:
+      install:
+        # Seed ~/.codex/config.toml + ~/.codex/auth.json, branching on the auth
+        # mode the engine surfaces as SBX_CRED_OPENAI_MODE:
+        #
+        #   oauth  -> forced API-key login AND the ChatGPT-backed
+        #             model_provider block; auth.json holds the proxy-managed
+        #             placeholder.
+        #   apikey -> forced API-key login, no provider block; auth.json holds
+        #             the proxy-managed placeholder.
+        #   none   -> neither; auth.json REMOVED, so Codex prompts for login on
+        #             first use. A stale placeholder would 401 verbatim.
+        #
+        # Rewritten unconditionally on every (re)create so a mode change is
+        # picked up; a pure function of the mode, so idempotent. The MCP block
+        # is NOT written here — the startup append below is its single writer.
+        #
+        # Heredoc bodies sit at the outer indentation on purpose, including
+        # inside the case arms: an unquoted terminator has to start at column 0.
+        - command: |
+            set -e
+            # ~/.codex is CODEX_HOME; ~/.agents is where Codex looks for the
+            # cross-agent skills tree (~/.agents/skills). Both are created up
+            # front so nothing later has to create them as root.
+            mkdir -p /home/agent/.codex /home/agent/.agents
+            MODE="${SBX_CRED_OPENAI_MODE:-none}"
+            cat > /home/agent/.codex/config.toml << 'EOF'
+            # Codex configuration for a Docker sandbox.
+            # The container is the sandbox, so Codex's own approval gate and
+            # filesystem sandbox are turned off: there is nobody to answer a
+            # prompt, and the isolation is already provided from the outside.
+
+            approval_policy = "never"
+            sandbox_mode = "danger-full-access"
+            mcp_oauth_credentials_store = "file"
+            EOF
+            # In a managed mode the placeholder in auth.json is the whole auth
+            # story, so a remote client must not be able to replace it with a
+            # sandbox-local ChatGPT login. `none` mode deliberately permits that
+            # login — it is the only way to authenticate at all there.
+            case "$MODE" in
+              oauth|apikey)
+                cat >> /home/agent/.codex/config.toml << 'EOF'
+            forced_login_method = "api"
+            EOF
+                ;;
+            esac
+            if [ "$MODE" = oauth ]; then
+              cat >> /home/agent/.codex/config.toml << 'EOF'
+
+            model_provider = "sandboxd"
+
+            [model_providers.sandboxd]
+            name = "Sandbox Proxy"
+            base_url = "https://chatgpt.com/backend-api/codex"
+            experimental_bearer_token = "oai-oat01-proxy-managed"
+            requires_openai_auth = false
+            EOF
+            fi
+            case "$MODE" in
+              oauth|apikey)
+                cat > /home/agent/.codex/auth.json << 'EOF'
+            {
+              "OPENAI_API_KEY": "proxy-managed"
+            }
+            EOF
+                ;;
+              *)
+                rm -f /home/agent/.codex/auth.json
+                ;;
+            esac
+          user: "agent"
+          # Deny-by-default hook environment: without this, every create would
+          # silently take the `none` branch.
+          env: [SBX_CRED_OPENAI_MODE]
+          description: Seed Codex config/auth from SBX_CRED_OPENAI_MODE
+      startup:
+        # Gateway-first MCP registration, as in the codex kit. config.toml is
+        # shared territory (the install seed above and Codex itself both write
+        # it), so append rather than overwrite; the grep guard makes re-running
+        # on every boot a no-op.
+        #
+        # The header table is `http_headers`, NOT `headers`: Codex ignores
+        # unknown keys without complaint, so a `headers` table registers a
+        # gateway that looks healthy in `codex mcp get` and sends no
+        # Authorization at all.
+        - command:
+            - sh
+            - -c
+            - |
+              set -e
+              [ -n "$MCP_GATEWAY_URL" ] || exit 0
+              mkdir -p "$HOME/.codex"
+              cfg="$HOME/.codex/config.toml"
+              touch "$cfg"
+              grep -q "^\[mcp_servers.mcp-gateway\]" "$cfg" && exit 0
+              cat >> "$cfg" <<EOF
+
+              [mcp_servers.mcp-gateway]
+              type = "http"
+              url = "$MCP_GATEWAY_URL"
+              [mcp_servers.mcp-gateway.http_headers]
+              Authorization = "Bearer $MCP_SENTINEL_TOKEN_NAME"
+              EOF
+          user: "agent"
+          env: [MCP_GATEWAY_URL, MCP_SENTINEL_TOKEN_NAME]
+          description: Register the sandbox MCP gateway in ~/.codex/config.toml
+
+  # Where Codex reads the cross-agent skills tree, so the host's shared store
+  # reaches it in the mixin shape too. The install hook above creates ~/.agents
+  # for exactly this.
+  - type: com.docker.sandbox/agent-skills@1
+    optional: true
+    config:
+      path: /home/agent/.agents/skills
+
+  # contentFile alone: `filename` is workload-only, and the profile belongs to
+  # whichever workload this mixin lands on.
+  #
+  # MIGRATION NOTE: the v2 codex kit declared a profile name and no body, so
+  # unlike the workload — which carries the name across and nothing else — this
+  # kit needs a body of its own. What it says is specific to the mixin shape
+  # (there is no Codex entrypoint here; the user invokes `codex` from the
+  # base's shell), which is exactly the thing the v2 kit had no reason to
+  # write down.
+  - type: com.docker.sandbox/agent-context@1
+    config:
+      contentFile: ./codex-mixin-context.md

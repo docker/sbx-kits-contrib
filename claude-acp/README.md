@@ -60,5 +60,5 @@ JSON-RPC on stdin/stdout.
 
 ## References
 
-- [Kit spec](spec.yaml)
+- [Kit descriptor](claude-acp.yaml)
 - [Credential bindings](../skills/kit-author/topics/bindings.md)

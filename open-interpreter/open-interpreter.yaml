@@ -1,0 +1,184 @@
+# syntax=docker/sandbox-kit:3
+# Migration of the v2 open-interpreter kit (open-interpreter/spec.yaml). Every
+# v2 stanza lands somewhere deliberate; the deltas are marked MIGRATION NOTE.
+#
+# MIGRATION NOTE: v2 pointed `sandbox.image` at a pre-baked
+# docker.io/sbx/open-interpreter-image:latest and shipped the recipe that built
+# it. A v3 workload's layers ARE the image, so that indirection collapses: the
+# recipe beside this file is the kit's content, found by the filename stem.
+schemaVersion: "3"
+displayName: Open Interpreter
+description: >-
+  Natural language interface for your sandbox. Describe what you need; Open
+  Interpreter writes and runs the code (Python, JS, Shell, and more) to
+  complete the task.
+sourceUrl: https://www.openinterpreter.com/
+
+kind: workload
+
+# The version is declared once: validated here, handed to the recipe as the
+# installer pin, expanded into the provide. v2 carried the same pin as a bare
+# Dockerfile ARG, where nothing validated it and nothing published it.
+args:
+  version:
+    default: "0.4.3"
+    pattern: '^[0-9]+\.[0-9]+\.[0-9]+$'
+    description: Open Interpreter release to install
+    buildArg: OPEN_INTERPRETER_VERSION
+
+provides: ["open-interpreter@${{ kit.args.version }}"]
+
+capabilities:
+  # This workload is an agent sandbox: the host launches the agent rather than
+  # running the image's entrypoint as PID 1, and honors the identity the image
+  # config declares instead of assuming one.
+  - type: com.docker.sandbox/sbx@1
+
+  # MIGRATION NOTE: v2's flat list is entirely runtime here, and that is the
+  # whole point of this kit's design rather than an accident of the split. The
+  # kit's own install-time fetches (a C compiler for psutil, uv's Python 3.12
+  # standalone download, PyPI resolution) were deliberately moved into the
+  # image build precisely so they would not have to sit in a list the running
+  # agent can reach -- see open-interpreter.dockerfile. What remains is what
+  # the *agent* uses while running, so it belongs to the runtime phase, and
+  # this kit declares no install hooks for an install phase to serve.
+  #
+  # v2 wrote one entry as `platform.claude.com:443`; entries are portless here,
+  # the contrib house style. A portless pattern matches any port, so nothing
+  # v2 admitted is refused.
+  - type: com.docker.sandbox/network-policy@1
+    config:
+      runtime:
+        allow:
+          # Every domain the two LLM credentials inject into -- required here
+          # too, not just below: this repo's e2e runs every kit under
+          # `sbx policy init deny-all`, so a domain absent from this list is
+          # unreachable regardless of what the credential block declares. v3
+          # additionally validates that invariant at build time (§11).
+          - api.anthropic.com
+          # The anthropic credential's OAuth token endpoint, for the refresh
+          # the proxy performs once the access token expires.
+          - platform.claude.com
+          - api.openai.com
+          # PyPI, npm, and apt are runtime needs, not install-time ones: OI's
+          # whole purpose is writing and running code on request, and that
+          # code can `pip install`, `npm install`, or `apt-get install`
+          # anything it needs. Unlike the kit's own toolchain (baked into the
+          # image, see the recipe), these stay because the *agent*, not the
+          # kit, uses them while running.
+          - pypi.org
+          - files.pythonhosted.org
+          - registry.npmjs.org
+          - '*.npmjs.org'
+          # download.docker.com is pre-added to sources.list.d by this base
+          # image even without the `-docker` variant (confirmed by pulling
+          # docker/sandbox-templates:shell and inspecting it directly) --
+          # `apt-get update` fails on the first source that doesn't resolve,
+          # even if the package OI's code wants comes from elsewhere. Ubuntu
+          # hosts amd64 packages on archive/security and arm64 packages on
+          # ports.ubuntu.com.
+          - deb.debian.org
+          - archive.ubuntu.com
+          - security.ubuntu.com
+          - ports.ubuntu.com
+          - download.docker.com
+
+  # Narrow inject domains: only the LLM API hosts that need auth injection.
+  # A wildcard here would TLS-intercept all traffic, including code that
+  # OI executes on your behalf, breaking arbitrary downloads.
+  - type: com.docker.sandbox/credential@1
+    # MIGRATION NOTE: `optional: true` preserves v2 behavior. v2 credentials
+    # default to not-required and the v3 default inverts, so an entry that does
+    # not opt out would fail create on a host holding neither provider -- which
+    # this kit tolerates today (OI reports the provider unconfigured).
+    optional: true
+    description: Anthropic API access (API key or claude.ai OAuth)
+    config:
+      service: anthropic
+      phase: runtime
+      apiKey:
+        name: ANTHROPIC_API_KEY
+        proxyManaged: true
+        inject:
+          - {domain: api.anthropic.com, header: x-api-key, format: '%s'}
+      # For a host whose stored anthropic credential is an OAuth login --
+      # signed in from a `claude` sandbox rather than an API key. Without this
+      # block such a host gets no usable credential at all: the apiKey sentinel
+      # reaches Anthropic unswapped and every model call 401s.
+      #
+      # LiteLLM never reads this file -- it takes the credential from
+      # ANTHROPIC_API_KEY -- so credentialFile serves two narrower purposes: it
+      # is what makes the OAuth path detectable from inside the sandbox
+      # (SBX_CRED_ANTHROPIC_MODE reports "none" even when this credential
+      # resolves, so it cannot discriminate oauth from apikey), and it carries
+      # the sentinel open-interpreter-anthropic-auth.sh exports. The file holds
+      # sentinels, not real tokens.
+      oauth:
+        tokenEndpoint: {host: platform.claude.com, path: /v1/oauth/token}
+        resourceHosts:
+          - api.anthropic.com
+        sentinels:
+          accessToken: sk-ant-oat01-proxy-managed
+          refreshToken: sk-ant-ort01-proxy-managed
+        credentialFile:
+          path: ~/.claude/.credentials.json
+          structure:
+            claudeAiOauth:
+              accessToken: '{{.AccessToken}}'
+              refreshToken: '{{.RefreshToken}}'
+              expiresAt: '{{.ExpiresAt}}'
+              scopes: '{{.Scopes}}'
+
+  # NOTE (migration gap, carried forward from the v2 spec and still open): the
+  # original v1 spec also declared a file-based fallback source for this
+  # credential (credentials.sources.openai.file: {path: ~/.openai-api-key})
+  # alongside the env var. Neither v2's `apiKey` nor v3's credential@1 has a
+  # file-source equivalent -- the host credential store is the sole source in
+  # v3 by design (see the credential@1 page) -- so the fallback still has no
+  # way to be expressed. A host relying on it gets no injected credential.
+  - type: com.docker.sandbox/credential@1
+    optional: true
+    description: OpenAI API access
+    config:
+      service: openai
+      phase: runtime
+      apiKey:
+        name: OPENAI_API_KEY
+        proxyManaged: true
+        inject:
+          - {domain: api.openai.com, header: Authorization, format: Bearer %s}
+
+  - type: com.docker.sandbox/lifecycle@1
+    config:
+      startup:
+        # Runs on every container start, ahead of any attach: the credential
+        # state is wired at create time and a stop/start can follow a change of
+        # host credential, so the env file is recomputed rather than cached.
+        #
+        # MIGRATION NOTE: hook environments are deny-by-default in v3, so the
+        # two mode variables the script branches on are declared here. They are
+        # the whole of what it reads beyond the platform baseline: it defaults
+        # $HOME itself, and everything else it needs it reads off the
+        # filesystem (the materialized credential file, the profile).
+        - command:
+            - sh
+            - /home/agent/.local/bin/open-interpreter-anthropic-auth.sh
+          user: "1000"
+          env: [SBX_CRED_ANTHROPIC_MODE, SBX_CRED_OPENAI_MODE]
+          description: Resolve whether Anthropic auth is an API key, an OAuth login, or absent, and record it for the entrypoint and `sbx exec` shells
+
+  # MIGRATION NOTE: the body moved verbatim into the staged file, with one
+  # edit. v2's text said the working directory is `${WORKDIR}` and relied on
+  # the engine substituting it; v3 stages a context body as written and
+  # substitutes nothing into it, so an unresolved `${WORKDIR}` would reach the
+  # agent literally. The line now describes the workspace instead of naming a
+  # variable. (`WORKDIR` is spelled `WORKSPACE_DIR` in v3 where a hook needs
+  # it; no hook here does.)
+  - type: com.docker.sandbox/agent-context@1
+    config:
+      filename: AGENTS.md
+      contentFile: ./open-interpreter-context.md
+
+  # No agent-sessions@1: this kit's v2 TCK data recorded no `promptArgs`, so
+  # there is no working non-interactive invocation to declare and none is
+  # invented here.

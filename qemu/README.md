@@ -78,18 +78,18 @@ Note that `tonistiigi/binfmt --install` exits 0 even when it fails to register a
 
 ### Why these domains
 
-`permissions.network.allow` is the kit's complete outbound contract — CI runs e2e under a `deny-all` policy.
+The kit's `network-policy@1` capability is its complete outbound contract — CI runs e2e under a `deny-all` policy. The lists are phase-scoped, and a phase that doesn't name a host cannot reach it. This kit splits cleanly along its two hooks: apt is the install hook's business, and Docker Hub is the startup hook's — a startup hook runs at boot, which is the runtime phase, so the install phase is already closed by then.
 
-| Domain | Why |
-| --- | --- |
-| `registry-1.docker.io` | Docker Hub registry — serves the `tonistiigi/binfmt` manifest |
-| `auth.docker.io` | Docker Hub token endpoint for the pull |
-| `production.cloudflare.docker.com` | Docker Hub layer-blob CDN |
-| `index.docker.io` | Legacy Docker Hub index some client flows still touch |
-| `archive.ubuntu.com` | Ubuntu apt archive, amd64 — `apt-get install mount` |
-| `security.ubuntu.com` | Ubuntu security pocket, amd64 — refreshed by the same `apt-get update` |
-| `ports.ubuntu.com` | Ubuntu archive/security for arm64 (Apple Silicon sandboxes) |
-| `download.docker.com` | Docker's apt repo, pre-added by the `*-docker` templates — `apt-get update` refreshes every configured source and fails if any is blocked |
+| Domain | Phase | Why |
+| --- | --- | --- |
+| `registry-1.docker.io` | runtime | Docker Hub registry — serves the `tonistiigi/binfmt` manifest |
+| `auth.docker.io` | runtime | Docker Hub token endpoint for the pull |
+| `production.cloudflare.docker.com` | runtime | Docker Hub layer-blob CDN |
+| `index.docker.io` | runtime | Legacy Docker Hub index some client flows still touch |
+| `archive.ubuntu.com` | install | Ubuntu apt archive, amd64 — `apt-get install mount` |
+| `security.ubuntu.com` | install | Ubuntu security pocket, amd64 — refreshed by the same `apt-get update` |
+| `ports.ubuntu.com` | install | Ubuntu archive/security for arm64 (Apple Silicon sandboxes) |
+| `download.docker.com` | install | Docker's apt repo, pre-added by the `*-docker` templates — `apt-get update` refreshes every configured source and fails if any is blocked |
 
 ## Cleanup
 

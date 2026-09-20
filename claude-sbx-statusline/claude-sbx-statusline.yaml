@@ -1,0 +1,50 @@
+# syntax=docker/sandbox-kit:3
+# Migration of this kit's v2 spec.yaml. Deltas are marked MIGRATION NOTE inline.
+schemaVersion: "3"
+kind: mixin
+displayName: Claude Code Status Line
+description: Adds a two-line Docker Sandboxes status line to Claude Code (host, cwd, git branch, model, context %, memory, load, cost). Ships ~/.claude/statusline.sh and sets the statusLine key in ~/.claude/settings.json, merging so every other setting is preserved (an existing statusLine is intentionally replaced, since installing this status line is the point of the kit).
+
+# MIGRATION NOTE: v2's `requires: {agent: claude}`, same name so it keeps
+# resolving against either shape of the claude kit. Everything this kit writes
+# lands in ~/.claude/settings.json, which only Claude Code reads; on any other
+# base agent the kit is silently inert.
+requires: ["claude"]
+
+# MIGRATION NOTE: no network-policy entry at all. v2 declared no
+# `permissions.network`, and in v3 an absent phase grants nothing — which is the
+# correct statement here: the status line reads the local system and the session
+# JSON on stdin, and opens no socket.
+
+capabilities:
+  - type: com.docker.sandbox/lifecycle@1
+    config:
+      install:
+        - command: |
+            set -e
+            mkdir -p /home/agent/.claude
+            f=/home/agent/.claude/settings.json
+            [ -f "$f" ] || echo '{}' > "$f"
+            # Set only the statusLine key (any existing one is replaced by design);
+            # the jq merge leaves all other settings untouched. Temp file lives in the
+            # same dir as $f so the mv below is an atomic rename, not a cross-fs copy.
+            tmp=$(mktemp -p /home/agent/.claude)
+            jq '.statusLine = {type: "command", command: "~/.claude/statusline.sh"}' "$f" > "$tmp"
+            mv "$tmp" "$f"
+            # Shipped files arrive 0644; unexecutable, it renders nothing and no error.
+            chmod +x /home/agent/.claude/statusline.sh
+            # Enumerated, not recursive: ~/.claude holds runtime-managed content
+            # this kit doesn't own, so `chown -R` on the parent would take
+            # ownership of paths outside the kit's control.
+            chown agent:agent /home/agent/.claude "$f" /home/agent/.claude/statusline.sh
+          user: "0"
+          # No `env:`. The hook reads no variable beyond the platform baseline
+          # (PATH and HOME), which is what a v3 hook gets without declaring
+          # anything — `$f` and `$tmp` are its own locals.
+          description: Set the statusLine key in ~/.claude/settings.json to ~/.claude/statusline.sh (jq merge, so all other keys are preserved; any existing statusLine is replaced by design) and make the script executable
+
+  # `filename:` is workload-only — it names the profile, which belongs to the
+  # claude kit this one composes onto. A mixin contributes a body.
+  - type: com.docker.sandbox/agent-context@1
+    config:
+      contentFile: ./claude-sbx-statusline-context.md

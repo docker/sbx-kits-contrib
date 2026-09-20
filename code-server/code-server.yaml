@@ -1,0 +1,125 @@
+# syntax=docker/sandbox-kit:3
+schemaVersion: "3"
+displayName: code-server (web VS Code) with Claude Code
+description: Runs code-server on port 8080, opened on the sandbox workspace, with the Claude Code VS Code extension preinstalled. Pair with the built-in claude agent so the extension inherits the sandbox's Anthropic credentials.
+
+kind: mixin
+
+# Layered onto the claude base agent (the bundled VS Code extension is Claude
+# Code). Declares base-agent affinity instead of extends: as a mixin it already
+# runs in the base agent's container and inherits its credentials at compose time.
+#
+# MIGRATION NOTE: v2's `requires: {agent: claude}` becomes a plain capability
+# name. v3 has no "agent" slot — a requirement is a name the resolved set must
+# provide, and the claude workload provides `claude`, so the constraint resolves
+# exactly as it did.
+requires: ["claude"]
+
+# The upstream install script always takes the latest release, so the provide
+# floats and `version:` is the fallback a resolver reads for it.
+provides: ["code-server"]
+version: "1.0.0"
+
+capabilities:
+  # MIGRATION NOTE: v2's `ports[]` entry, one capability per port. `protocol:`
+  # is spelled `transport:` in v3; `name` and `container` are unchanged. The
+  # host side is still the runtime's to allocate — a kit cannot pin it — which
+  # is why the README tells you to look the published port up.
+  - type: com.docker.sandbox/port@1
+    config:
+      name: code-server
+      container: 8080
+      transport: tcp
+
+  - type: com.docker.sandbox/network-policy@1
+    config:
+      # MIGRATION NOTE: v2's single flat list is split by phase. Everything in
+      # it is reached by an install hook, and all of it was consequently
+      # reachable from the running editor too. Only the extension marketplace
+      # is named in both phases: installing further extensions from the
+      # code-server UI is ordinary use of this kit. The rest — the install
+      # script's own hosts and GitHub's release-resolution and asset hosts —
+      # is install-only, so that download surface closes before the agent
+      # starts. The union of the two phases is the v2 list.
+      install:
+        allow:
+          # `https://code-server.dev/install.sh` is a Cloudflare 302 redirect to
+          # `https://raw.githubusercontent.com/cdr/code-server/main/install.sh` —
+          # the install hook's `curl -fsSL https://code-server.dev/install.sh`
+          # transparently follows the redirect, so the kit needs both hosts
+          # allowed for the install script to even download.
+          - code-server.dev
+          - raw.githubusercontent.com
+          - github.com
+          # The code-server install.sh resolves the latest release via a
+          # `github.com/.../releases/latest` redirect, then follows the
+          # `github.com` release URL to the asset host. GitHub recently
+          # rotated asset downloads from `objects.githubusercontent.com` to
+          # `release-assets.githubusercontent.com`; both must be allowed.
+          - api.github.com
+          - objects.githubusercontent.com
+          - release-assets.githubusercontent.com
+          # Where `--install-extension anthropic.claude-code` resolves the
+          # extension, and the CDN it serves the .vsix from.
+          - open-vsx.org
+          - openvsx.eclipsecontent.org
+      runtime:
+        allow:
+          # The marketplace stays open in steady state: a user browsing the
+          # Extensions view and installing something is the point of a web IDE,
+          # and v2's flat list permitted it.
+          - open-vsx.org
+          - openvsx.eclipsecontent.org
+
+  - type: com.docker.sandbox/lifecycle@1
+    config:
+      install:
+        - command: curl -fsSL https://code-server.dev/install.sh | sh
+          description: Install code-server via the upstream install script
+
+        - command: code-server --install-extension anthropic.claude-code
+          user: "1000"
+          description: Pre-install the Claude Code extension from open-vsx so you have a native chat panel that talks to the claude agent's credentials
+
+        # MIGRATION NOTE: this was a v2 `setup.files` entry whose content
+        # interpolated the runtime `${WORKDIR}`. A v3 `files[].content` expands
+        # `${{ kit.args.* }}` and nothing else, so that reference would have
+        # reached the script as literal text and code-server would have opened a
+        # folder named `${WORKDIR}`. The file therefore becomes this install
+        # hook, which declares `env: [WORKSPACE_DIR]` — v3's spelling of v2's
+        # WORKDIR — and bakes the resolved path in, which is precisely what the
+        # v2 entry's description claimed it did. Two consequences, both benign:
+        # the hook runs once at create rather than on every start, which is the
+        # same file either way because a sandbox's workspace is fixed at create;
+        # and the path is single-quoted into the script, so a workspace path
+        # containing a space, a quote or a `$` survives verbatim instead of
+        # being re-split when the wrapper runs. v2's content carried no shebang
+        # and worked only through the calling shell's ENOEXEC fallback, so one
+        # is written here.
+        #
+        # Runs as the agent user, matching the v2 `files:` entry — lifecycle
+        # files belong to the agent, and writing into its own home needs no
+        # root and no chown.
+        - command: |
+            set -eu
+            ws="${WORKSPACE_DIR:-/}"
+            esc=$(printf '%s' "$ws" | sed "s/'/'\\\\''/g")
+            mkdir -p /home/agent/.local/bin
+            printf '%s\n' '#!/bin/sh' \
+              "exec code-server --bind-addr 0.0.0.0:8080 --auth none '$esc'" \
+              > /home/agent/.local/bin/start-code-server.sh
+            chmod 0755 /home/agent/.local/bin/start-code-server.sh
+          user: "1000"
+          env: [WORKSPACE_DIR]
+          description: Startup wrapper with the workspace path baked in at sandbox create
+      startup:
+        # MIGRATION NOTE: v2 backgrounded this itself with `nohup … &` inside
+        # `sh -c`; v3 declares `background: true` and the engine detaches, so
+        # the shell trick goes. The log redirect stays — the README points at
+        # /tmp/code-server.log when the page does not load. Re-running on a
+        # later boot is safe: the wrapper execs a fresh code-server, and a
+        # previous one died with its container.
+        - command: [sh, -c, "exec /home/agent/.local/bin/start-code-server.sh > /tmp/code-server.log 2>&1"]
+          user: "1000"
+          background: true
+          description: Start code-server in the background, opened on the primary workspace

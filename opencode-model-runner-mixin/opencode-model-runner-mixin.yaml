@@ -1,0 +1,87 @@
+# syntax=docker/sandbox-kit:3
+# OpenCode-on-Docker-Model-Runner as a MIXIN: the same declarations as the
+# standalone workload kit (../opencode-model-runner), minus what only the kit
+# that owns the environment can carry -- the entrypoint (the base workload's
+# launch command stays; run `opencode` in the shell), the context-file profile
+# (`filename` is workload-only, so this kit contributes `contentFile` alone),
+# agent-sessions (the verbs drive the workload's entrypoint, which here is the
+# base's shell) and sbx@1 (a mixin's image config never becomes the composed
+# image's).
+#
+# This overlay ships its own OpenCode, extracted from the same template the
+# workload runs, so it is not meant to be layered onto the ../opencode kit --
+# that composition would put two OpenCode installations in one sandbox, one of
+# them shadowed. Layer it onto a shell base.
+schemaVersion: "3"
+displayName: OpenCode (Docker Model Runner) (mixin)
+description: >-
+  OpenCode wired to a local Docker Model Runner as a mixin -- the agent in an
+  overlay with the provider config that points it at the host's
+  OpenAI-compatible endpoint and discovers every pulled model. Layer it onto a
+  shell base and run `opencode`.
+sourceUrl: https://docs.docker.com/ai/model-runner/
+
+kind: mixin
+
+version: "1.0.0"
+provides: ["opencode-model-runner"]
+
+capabilities:
+  # The agent's own egress rides with the kit that ships the agent: the base
+  # grants nothing for services it does not carry. Runtime-only -- the plugin
+  # install happens when OpenCode starts, and this kit declares no install
+  # hooks.
+  - type: com.docker.sandbox/network-policy@1
+    config:
+      runtime:
+        allow:
+          # The provider baseURL every model request hits.
+          #
+          # This one entry deliberately keeps its port, against the contrib
+          # house style of portless entries: the host here is the user's own
+          # machine through the sandbox's gateway alias, and the port is the
+          # only thing that narrows the grant to Model Runner rather than to
+          # everything else listening on that machine.
+          - host.docker.internal:12434
+          # OpenCode installs the opencode-models-discovery plugin from npm at
+          # startup; packument and tarball both come from this host.
+          - registry.npmjs.org
+
+  - type: com.docker.sandbox/lifecycle@1
+    config:
+      files:
+        # v2's `setup.files` entry, unchanged. v2 declared no `onlyIfMissing`,
+        # so `overwrite` keeps its v3 default of true and the config is
+        # rewritten on every start. The `$schema` key is written literally:
+        # file content expands `${{ kit.args.* }}` only, and this kit declares
+        # no args.
+        - path: /home/agent/.config/opencode/opencode.json
+          content: |
+            {
+              "$schema": "https://opencode.ai/config.json",
+              "plugin": [
+                ["opencode-models-discovery", {
+                  "smartModelName": false
+                }]
+              ],
+              "provider": {
+                "dmr": {
+                  "npm": "@ai-sdk/openai-compatible",
+                  "name": "Docker Model Runner",
+                  "options": {
+                    "baseURL": "http://host.docker.internal:12434/v1",
+                    "modelsDiscovery": {
+                      "enabled": true
+                    }
+                  }
+                }
+              }
+            }
+          mode: "0644"
+          description: Configure OpenCode to use the local Docker Model Runner
+
+  # No credential@1 entries: every model request goes to a local endpoint that
+  # takes no credential.
+  - type: com.docker.sandbox/agent-context@1
+    config:
+      contentFile: ./opencode-model-runner-mixin-context.md

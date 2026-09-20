@@ -1,0 +1,105 @@
+# syntax=docker/sandbox-kit:3
+# Mistral Vibe as a MIXIN: the same declarations as the standalone workload
+# kit (../vibe), minus what only the kit that owns the environment can carry
+# -- the entrypoint (the base workload's launch command stays; run
+# `vibe-start` from the shell), the context-file profile (`filename` is
+# workload-only, so this kit contributes `contentFile` alone), agent-sessions
+# (the verbs append to the workload's launch argv, which here is the base's
+# shell) and sbx@1 (a mixin's image config never becomes the composed
+# image's).
+schemaVersion: "3"
+displayName: Mistral Vibe (mixin)
+description: >-
+  Mistral AI's open source coding agent as a mixin — the `uv`-installed CLI
+  and its managed interpreter in an overlay, with the Mistral API key
+  injected by the sandbox proxy and the ~/.vibe state volume. Layer it onto
+  a shell base and run `vibe-start`.
+licenses: [Apache-2.0]
+
+kind: mixin
+
+# The install floats, as in the workload: the recipe installs from a `latest`
+# channel, so the provide carries no version of its own and the v2 `version:`
+# answers for it.
+version: "0.1.0"
+provides: ["vibe"]
+
+# The agent profile Vibe starts with, carried over from the workload
+# unchanged -- including the create-phase `env:` placement, which matters
+# more here. The workload's ENTRYPOINT reads VIBE_AGENT; a mixin sets no
+# entrypoint, so the overlay ships `vibe-start`, a launcher carrying exactly
+# the flags v2's sandbox.entrypoint carried, and that reads the same variable.
+args:
+  agent:
+    default: "auto-approve"
+    description: >-
+      Vibe agent to start: a builtin (ask, plan, accept-edits, auto-approve) or
+      a custom agent declared in ~/.vibe/agents/NAME.toml.
+    pattern: '^[A-Za-z0-9_-]+$'
+    env: VIBE_AGENT
+
+capabilities:
+  # The agent's own egress rides with the kit that ships the agent: the base
+  # grants nothing for services it does not carry. Runtime-only, like the
+  # workload -- Vibe is installed at build, and the one hook here is a
+  # startup hook, which runs in the runtime phase.
+  #
+  # Entries are portless (the contrib house style); v2 wrote every one of
+  # them as `host:443`, and port suffixes are ignored for allow-list
+  # membership, so the grant is unchanged.
+  - type: com.docker.sandbox/network-policy@1
+    config:
+      runtime:
+        allow:
+          # Inference API (DEFAULT_MISTRAL_SERVER_URL).
+          - api.mistral.ai
+          # Vibe's own base URL (DEFAULT_VIBE_BASE_URL), which is also where
+          # the organization's admin-managed configuration is read at startup.
+          - chat.mistral.ai
+          # Console: the /whoami account and plan lookup, and the browser-auth
+          # base URL.
+          - console.mistral.ai
+          # Feature-flag / experiments service. Only reached when telemetry is
+          # enabled, which this kit disables in the recipe.
+          - experiments.mistral.services
+
+  # Optional, as in the workload: Vibe starts and prompts for a key when
+  # nothing is bound, so a required entry would fail resolution on a host
+  # that never bound one.
+  - type: com.docker.sandbox/credential@1
+    optional: true
+    description: Mistral API key (https://console.mistral.ai/api-keys)
+    config:
+      service: mistral
+      phase: runtime
+      apiKey:
+        name: MISTRAL_API_KEY
+        # The container only ever sees a sentinel; the proxy substitutes the
+        # real key on the hosts listed below, and nowhere else.
+        proxyManaged: true
+        inject:
+          - {domain: api.mistral.ai, header: Authorization, format: "Bearer %s"}
+          # The two other hosts Vibe calls with the same key.
+          - {domain: chat.mistral.ai, header: Authorization, format: "Bearer %s"}
+          - {domain: console.mistral.ai, header: Authorization, format: "Bearer %s"}
+
+  # Keeps config.toml, sessions, logs, custom agents and .env across
+  # re-creations of a sandbox with the same name.
+  - type: com.docker.sandbox/volume@1
+    description: Vibe state — config, sessions, logs, custom agents
+    config: {path: /home/agent/.vibe, size: 1g}
+
+  - type: com.docker.sandbox/lifecycle@1
+    config:
+      startup:
+        # ~/.vibe is a block volume (above). It is mounted root-owned, so it
+        # has to be handed back to the agent user on every start, before Vibe
+        # writes to it. Idempotent, as every startup command must be. The
+        # command reads no environment variables, so it declares no `env:`.
+        - command: [sh, -c, "mkdir -p /home/agent/.vibe && chown agent:agent /home/agent/.vibe"]
+          user: "0"
+          description: Hand ~/.vibe (persistent volume) back to the agent user
+
+  - type: com.docker.sandbox/agent-context@1
+    config:
+      contentFile: ./vibe-mixin-context.md

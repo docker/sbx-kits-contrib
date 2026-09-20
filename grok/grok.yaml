@@ -1,0 +1,131 @@
+# syntax=docker/sandbox-kit:3
+# Migration of the v2 `grok` sandbox kit (spec.yaml, schemaVersion "2").
+# v2 shipped no Dockerfile — it pointed sandbox.image straight at a published
+# template and installed the agent from a setup hook. A v3 workload's layers
+# ARE its root filesystem, so grok.dockerfile now states that image as its
+# `FROM` and carries v2's sandbox.entrypoint; the install stays where v2 put
+# it, in the lifecycle hook below.
+schemaVersion: "3"
+displayName: Grok Build
+description: xAI's terminal-based coding agent, powered by Grok models.
+
+kind: workload
+
+# MIGRATION NOTE: v2 declared no `version:`. One is added because v3 refuses a
+# published provide with no version at all (SPEC-v3 §9.2) and the install
+# below floats — `https://x.ai/cli/install.sh` takes no pin, so there is no
+# grok release this kit could honestly name in the provide. This is the kit's
+# own release number answering for the artifact.
+version: "1.0.0"
+
+provides: ["grok"]
+
+capabilities:
+  # This workload is an agent sandbox: the host launches the agent rather than
+  # running the image's entrypoint as PID 1, and honors the identity the image
+  # config declares instead of assuming one.
+  - type: com.docker.sandbox/sbx@1
+
+  # MIGRATION NOTE: v2's single flat allow list is phase-scoped in v3, and an
+  # absent phase grants nothing. This kit is the one in the group with a real
+  # split to make, because it is the one that still installs its agent at
+  # sandbox-create time rather than at image-build time:
+  #
+  #   x.ai      → install only. It is the installer host and the binary
+  #               download (BASE_URL_PRIMARY in x.ai/cli/install.sh), reached
+  #               by the setup hook below and by nothing afterwards: the
+  #               entrypoint passes --no-auto-update, so the CLI never fetches
+  #               from it in steady state. Install-phase grants are closed
+  #               before the agent starts, which is exactly the right lifetime
+  #               for a download host.
+  #   the rest  → runtime. Login, inference and settings, reached by the agent
+  #               in steady state and by nothing during install.
+  #
+  # The union of the two phases is v2's list, host for host.
+  #
+  # MIGRATION NOTE: v2 wrote every entry with an explicit `:443`. Dropped for
+  # the contrib house style of portless entries — port suffixes are ignored
+  # for allow-list membership anyway (network-policy@1, "Entry patterns"), so
+  # no host changes reachability by the rewrite.
+  - type: com.docker.sandbox/network-policy@1
+    config:
+      install:
+        # Installer + binary download. The script falls back to
+        # storage.googleapis.com if x.ai is unreachable; that fallback is
+        # intentionally not allowed here, so the primary path is the only one
+        # that works under deny-all.
+        allow: [x.ai]
+      runtime:
+        allow:
+          # The xAI chat-completions API. Declaring it in the credential's
+          # apiKey.inject (below) wires header injection but does NOT
+          # implicitly allow the domain through the network policy — it still
+          # needs an explicit entry here, confirmed against a real deny-all
+          # sandbox (403 Forbidden without this line). v3 additionally
+          # validates the reverse direction, refusing an inject domain that
+          # this list never admits.
+          - api.x.ai
+          # Grok login discovers its OAuth configuration from auth.x.ai, then
+          # uses the Grok chat proxy for authenticated inference and settings.
+          - auth.x.ai
+          - cli-chat-proxy.grok.com
+
+  # optional, faithfully: v2 credentials default to not-required and the v3
+  # default inverts (an entry is required unless it opts out). v2 set no
+  # `required:` here, so stating it preserves the observable behavior — a
+  # sandbox with no xAI key bound still creates, and grok reports the missing
+  # key itself.
+  - type: com.docker.sandbox/credential@1
+    optional: true
+    description: xAI API access for Grok
+    config:
+      service: xai
+      phase: runtime
+      # No proxyManaged, faithfully: v2 did not set it here. That flag plants
+      # the env var as an in-container sentinel whether or not a host
+      # credential is bound; without it, XAI_API_KEY is present only when the
+      # host really bound one.
+      apiKey:
+        name: XAI_API_KEY
+        inject:
+          - {domain: api.x.ai, header: Authorization, format: "Bearer %s"}
+
+  - type: com.docker.sandbox/lifecycle@1
+    config:
+      install:
+        # The installer only symlinks `grok` onto an existing, writable PATH
+        # directory (~/.local/bin or /usr/local/bin); it does not create
+        # either. ~/.local/bin is on PATH already (shell-docker template), but
+        # the base image never creates it, so on a fresh container the
+        # installer would silently fall through to rewriting .bashrc/.zshrc
+        # instead — which a non-interactive kit entrypoint never sources.
+        # Pre-creating the directory here makes the installer's own
+        # PATH-symlink step succeed.
+        #
+        # $HOME needs no `env:` entry: it is part of the platform baseline
+        # every hook sees (lifecycle@1, "hook-env-restricted"). Nothing else
+        # in this hook body reads a variable.
+        - command: |
+            set -e
+            mkdir -p "$HOME/.local/bin"
+            curl -fsSL https://x.ai/cli/install.sh | bash
+          user: "1000"
+          description: Install Grok Build (grok)
+
+  # The session control surface: how a harness drives grok without a human at
+  # the terminal. Argv tails append to the entrypoint the way user args do.
+  #
+  # MIGRATION NOTE: this is v2's `promptArgs: ["-p"]` from testdata/tck.yaml —
+  # a working non-interactive invocation the v2 TCK already exercised, which
+  # is the only evidence that licenses this capability. The other verbs
+  # (resume, continue, list) are omitted rather than guessed: an absent verb
+  # means "operation unsupported", which is the truthful answer here.
+  - type: com.docker.sandbox/agent-sessions@1
+    description: Drive grok prompts programmatically
+    config:
+      prompt: ["-p", "{{.Prompt}}"]
+
+  - type: com.docker.sandbox/agent-context@1
+    config:
+      filename: AGENTS.md
+      contentFile: ./grok-context.md

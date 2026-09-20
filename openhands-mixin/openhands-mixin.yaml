@@ -1,0 +1,156 @@
+# syntax=docker/sandbox-kit:3
+# OpenHands as a MIXIN: the same declarations as the standalone workload kit
+# (../openhands), minus what only the kit that owns the environment can carry
+# -- the entrypoint (the base workload's launch command stays; run
+# `openhands-start` from the shell), the context-file profile (`filename` is
+# workload-only, so this kit contributes `contentFile` alone) and sbx@1 (a
+# mixin's image config never becomes the composed image's). agent-sessions was
+# never declared for this kit either way -- no tck.yaml recorded a
+# non-interactive invocation.
+schemaVersion: "3"
+displayName: OpenHands (mixin)
+description: >-
+  OpenHands as a mixin — the `uv`-installed CLI and its managed CPython in an
+  overlay, with the Anthropic, Google and OpenAI credentials and the hook that
+  resolves which Anthropic auth the host actually holds. Layer it onto a shell
+  base and run `openhands`.
+
+kind: mixin
+
+# The install floats, as in the workload: the recipe resolves whatever
+# `openhands` is newest on PyPI, so the provide carries no version of its own
+# and `version:` answers for it.
+version: "1.0.0"
+provides: ["openhands"]
+
+capabilities:
+  # The agent's own egress rides with the kit that ships the agent: the base
+  # grants nothing for services it does not carry. Runtime-only, like the
+  # workload -- the install happens at build, and the one hook here is a
+  # startup hook, which runs in the runtime phase. Entries are portless (the
+  # contrib house style) where v2 wrote `host:443`.
+  - type: com.docker.sandbox/network-policy@1
+    config:
+      runtime:
+        allow:
+          # Every domain the credentials below inject into; v3 validates that
+          # invariant at build time (SPEC-v3 §11).
+          - api.anthropic.com
+          # The anthropic credential's OAuth token endpoint, for the refresh
+          # the proxy performs once the access token expires.
+          - platform.claude.com
+          - api.openai.com
+          - generativelanguage.googleapis.com
+          - github.com
+          - api.github.com
+          - raw.githubusercontent.com
+          # The CLI's splash screen calls this on every interactive launch
+          # (openhands_cli/version_check.py: a GET to pypi.org/pypi/openhands/json
+          # with a 2s timeout, swallowed on failure) to show an "update
+          # available" notice. It never downloads a package here -- that only
+          # happens at build -- so files.pythonhosted.org is not listed, but
+          # this metadata host is.
+          - pypi.org
+          # OpenHands' `openhands mcp add <name> --transport stdio npx -- ...`
+          # launches MCP servers via `npx`, a genuine runtime feature of the
+          # shipped CLI. The overlay does not carry npx: this grant is only
+          # useful on a base that has Node, which is the base's business.
+          - registry.npmjs.org
+          - api.tavily.com
+
+  # litellm (which OpenHands uses under the hood) checks these env vars are
+  # present *before* it ever makes a request -- if the var is unset it raises
+  # its own "Missing API Key" error locally, and the proxy never gets a chance
+  # to inject the real credential. proxyManaged: true is what makes the engine
+  # populate a placeholder value for each of these automatically.
+  #
+  # All three are optional, as in the workload: OpenHands starts with no
+  # binding at all and reports "no credential configured".
+  - type: com.docker.sandbox/credential@1
+    optional: true
+    description: Anthropic API access (API key or claude.ai OAuth)
+    config:
+      service: anthropic
+      phase: runtime
+      apiKey:
+        name: ANTHROPIC_API_KEY
+        proxyManaged: true
+        inject:
+          - {domain: api.anthropic.com, header: x-api-key, format: "%s"}
+      # For a host whose stored anthropic credential is an OAuth login --
+      # signed in from a `claude` sandbox rather than an API key. Without this
+      # block such a host gets no usable credential at all: the apiKey sentinel
+      # reaches Anthropic unswapped and every model call 401s.
+      #
+      # openhands never reads this file directly, nor ANTHROPIC_API_KEY: its
+      # LLM config lives in ~/.openhands/agent_settings.json, populated from
+      # LLM_API_KEY/LLM_MODEL when openhands-anthropic-auth.sh resolves a
+      # credential. So credentialFile serves two narrower purposes here: it is
+      # what makes the OAuth path detectable from inside the sandbox
+      # (SBX_CRED_ANTHROPIC_MODE reports "none" even when this credential
+      # resolves, so it cannot discriminate oauth from apikey), and it carries
+      # the sentinel openhands-anthropic-auth.sh exports.
+      oauth:
+        tokenEndpoint: {host: platform.claude.com, path: /v1/oauth/token}
+        resourceHosts: [api.anthropic.com]
+        sentinels:
+          accessToken: sk-ant-oat01-proxy-managed
+          refreshToken: sk-ant-ort01-proxy-managed
+        credentialFile:
+          path: ~/.claude/.credentials.json
+          structure:
+            claudeAiOauth:
+              accessToken: "{{.AccessToken}}"
+              refreshToken: "{{.RefreshToken}}"
+              expiresAt: "{{.ExpiresAt}}"
+              scopes: "{{.Scopes}}"
+
+  # google (not gemini) is the canonical service name for this provider
+  # across the repo -- matches crush/junie's credentials[].service, so a
+  # binding set for one kit is reused by another.
+  - type: com.docker.sandbox/credential@1
+    optional: true
+    description: Google Gemini API access
+    config:
+      service: google
+      phase: runtime
+      apiKey:
+        name: GEMINI_API_KEY
+        proxyManaged: true
+        inject:
+          - {domain: generativelanguage.googleapis.com, header: x-goog-api-key, format: "%s"}
+
+  - type: com.docker.sandbox/credential@1
+    optional: true
+    description: OpenAI API access
+    config:
+      service: openai
+      phase: runtime
+      apiKey:
+        name: OPENAI_API_KEY
+        proxyManaged: true
+        inject:
+          - {domain: api.openai.com, header: Authorization, format: "Bearer %s"}
+
+  - type: com.docker.sandbox/lifecycle@1
+    config:
+      startup:
+        # Runs on every container start, ahead of any attach: the credential
+        # state is wired at create time and a stop/start can follow a change
+        # of host credential, so the env file is recomputed rather than cached.
+        # The script also appends a source line to ~/.profile, which is how a
+        # login shell in this mixin shape picks the resolved values up.
+        #
+        # `env:` is what v3 adds: hook environments are deny-by-default, and
+        # this script branches on SBX_CRED_ANTHROPIC_MODE to tell an API-key
+        # host from one with no credential. Unlisted, the variable would read
+        # as unset and every host would land in the no-credential branch.
+        # $HOME is the platform baseline.
+        - command: [sh, /home/agent/.local/bin/openhands-anthropic-auth.sh]
+          user: "1000"
+          env: [SBX_CRED_ANTHROPIC_MODE]
+          description: Resolve whether Anthropic auth is an API key, an OAuth login, or absent, and record it for `openhands-start` and `sbx exec` shells
+
+  - type: com.docker.sandbox/agent-context@1
+    config:
+      contentFile: ./openhands-mixin-context.md

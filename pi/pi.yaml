@@ -1,0 +1,137 @@
+# syntax=docker/sandbox-kit:3
+# Migration of the v2 `pi` sandbox kit. v2 pointed `sandbox.image` at
+# docker.io/sbx/pi-image:latest, a pre-baked image built from the Dockerfile
+# in this directory; a v3 workload's layers *are* the root filesystem, so the
+# two collapse into one recipe (pi.dockerfile) and v2's sandbox.entrypoint
+# moves into the image config. Deltas are marked MIGRATION NOTE inline.
+schemaVersion: "3"
+displayName: Pi
+description: Minimal terminal coding agent with extensible tools, skills, and TUI
+sourceUrl: https://www.npmjs.com/package/@earendil-works/pi-coding-agent
+
+kind: workload
+
+# The install floats: PI_VERSION defaults to the `latest` dist-tag and the
+# nightly rebuild is the update mechanism, so there is no pin for a provide
+# to quote. The provide is unversioned and `version:` below answers for it;
+# v2 declared no version, hence 1.0.0.
+version: "1.0.0"
+provides: ["pi"]
+
+capabilities:
+  # v2 `kind: sandbox`: the host launches the agent rather than running the
+  # image's entrypoint as PID 1, and honors the identity the image config
+  # declares.
+  - type: com.docker.sandbox/sbx@1
+
+  # MIGRATION NOTE: v2's single flat allow list is entirely runtime here.
+  # The kit does declare an install hook, but it writes ~/.npmrc and reaches
+  # nothing, so the install phase stays absent — and an absent phase grants
+  # nothing, which is exactly right: none of these hosts should be reachable
+  # while a hook runs. v2's `platform.claude.com:443` is carried portless for
+  # the contrib house style; port suffixes are ignored for allow-list
+  # membership, so the grant is unchanged.
+  - type: com.docker.sandbox/network-policy@1
+    config:
+      runtime:
+        allow:
+          # A credential's inject domains are not allowed implicitly, and e2e
+          # runs every kit under deny-all -- see README, "How auth works".
+          - api.anthropic.com
+          # pi's runtime package installs (extensions, skills, prompt
+          # templates, themes) and the packages named in settings, fetched
+          # on startup.
+          - registry.npmjs.org
+          # The oauth block's token-refresh endpoint.
+          - platform.claude.com
+
+  # MIGRATION NOTE: `optional: true` preserves v2 behavior. v2 credentials
+  # default to not-required and v3's default inverts; pi runs unauthenticated
+  # (it prompts for a key), so a required entry would fail resolution on a
+  # host that never bound one.
+  - type: com.docker.sandbox/credential@1
+    optional: true
+    description: Anthropic API access (API key or claude.ai OAuth)
+    config:
+      service: anthropic
+      phase: runtime
+      apiKey:
+        name: ANTHROPIC_API_KEY
+        proxyManaged: true
+        # pi only sends x-api-key to api.anthropic.com; no other host needs
+        # the key, so no other host gets it.
+        inject:
+          - {domain: api.anthropic.com, header: x-api-key, format: "%s"}
+      # For a host whose stored anthropic credential is an OAuth login --
+      # signed in from a `claude` sandbox. Without this block such a host has
+      # no usable credential here: the apiKey sentinel reaches Anthropic
+      # unswapped and every model call is a 401. An API key still wins when
+      # the host has one.
+      oauth:
+        tokenEndpoint: {host: platform.claude.com, path: /v1/oauth/token}
+        # Where the bearer is used, so the access-token sentinel is swapped on
+        # inference calls and not only on refresh. pi sends a value containing
+        # `sk-ant-oat` as `Authorization: Bearer`, so the sentinel below is
+        # what selects that format -- see README, "How auth works".
+        resourceHosts: [api.anthropic.com]
+        sentinels:
+          accessToken: sk-ant-oat01-proxy-managed
+          refreshToken: sk-ant-ort01-proxy-managed
+        credentialFile:
+          # pi's native auth store, which pi prefers over the environment, so
+          # nothing in the kit has to translate it.
+          path: ~/.pi/agent/auth.json
+          structure:
+            anthropic:
+              type: oauth
+              access: "{{.AccessToken}}"
+              refresh: "{{.RefreshToken}}"
+              # A standalone {{.ExpiresAt}} materializes as a JSON number --
+              # the type pi's store wants.
+              expires: "{{.ExpiresAt}}"
+
+  - type: com.docker.sandbox/lifecycle@1
+    config:
+      install:
+        # Config only -- pi itself is baked into the image, so nothing is
+        # installed here, and this hook needs no network grant. It is
+        # idempotent, so re-running it on recreate is fine.
+        #
+        # Guarded on HTTP_PROXY being non-empty: npm rejects an empty value
+        # for a url-typed config key, so an unset or empty variable would fail
+        # the step and take sandbox creation down with it -- a proxy-less
+        # runtime is something every sibling kit tolerates, and this one
+        # should too. HTTPS_PROXY is preferred for https-proxy when the
+        # runtime provides a dedicated one, with HTTP_PROXY as the fallback.
+        # Both keys go in a single `npm config set` so sandbox creation pays
+        # for one Node startup rather than two.
+        #
+        # MIGRATION NOTE: `env:` is new and load-bearing. v3 hook environments
+        # are deny-by-default, so both proxy variables the command reads have
+        # to be named or the guard would always see an empty HTTP_PROXY and
+        # the hook would silently become a no-op on every proxied runtime.
+        - command: 'if [ -n "${HTTP_PROXY:-}" ]; then npm config set proxy="$HTTP_PROXY" https-proxy="${HTTPS_PROXY:-$HTTP_PROXY}"; fi'
+          user: "1000"
+          env: [HTTP_PROXY, HTTPS_PROXY]
+          description: Point npm at the sandbox proxy in ~/.npmrc so pi's runtime npm use (`pi install npm:...`, `pi update`, startup package fetches) works in exec contexts that do not inherit the proxy environment variables
+
+  # From the kit's testdata/tck.yaml, which recorded `promptArgs: ["-p"]` --
+  # a working non-interactive invocation. The tail appends to the launch argv
+  # (`pi`), so the effective command is `pi -p <prompt>`. Only the verb v2
+  # actually exercised is stated: resume/continue/list are not invented.
+  - type: com.docker.sandbox/agent-sessions@1
+    description: Drive pi non-interactively
+    config:
+      prompt: ["-p", "{{.Prompt}}"]
+
+  # v2's agentInstructions declared a filename and no body, so this entry
+  # carries the profile name alone and there is no pi-context.md to
+  # reference.
+  - type: com.docker.sandbox/agent-context@1
+    config:
+      filename: AGENTS.md
+
+# MIGRATION NOTE: no agent-skills@1. pi's "skills" are npm packages it
+# installs at runtime (`pi install npm:@scope/pkg`), not a directory a host
+# skills store could be mounted at -- neither spec.yaml nor the README names
+# such a path, and inventing one would declare a mount the agent never reads.

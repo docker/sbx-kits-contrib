@@ -1,0 +1,291 @@
+# syntax=docker/sandbox-kit:3
+# The Claude Code agent as a MIXIN: the same declarations as the `claude`
+# workload kit beside it, minus what only the kit that owns the environment can
+# carry —
+#
+#   * no ENTRYPOINT. The base workload's launch command stays; the user runs
+#     `claude` from the shell. That is also why there is no `interactive` tail
+#     and no agent-sessions@1: both describe a launch argv this kit does not own.
+#   * no sbx@1. A mixin's image config does not become the composed image's, so
+#     the identity and shells that type is a claim about are the base's.
+#   * no agent-context filename. `CLAUDE.md` names the profile, which belongs to
+#     the workload; this kit contributes a body to it.
+#
+# Everything else — the credential, the egress, the session-state volumes, the
+# lifecycle hooks — is identical to the workload's, because it is the agent that
+# needs them and the agent is what this kit ships.
+schemaVersion: "3"
+kind: mixin
+displayName: Claude Code (mixin)
+description: >-
+  Anthropic's Claude Code as a mixin — the native install in an overlay, with
+  the `anthropic` credential (API key or Claude subscription) resolved by the
+  sandbox proxy, the session-state volumes, and the hooks the agent needs.
+  Layer it onto a shell base and run `claude`.
+
+# The KIT's version, not Claude Code's — see the workload's descriptor. It is
+# also the fallback version for the unversioned `provides` below.
+version: "1.0.0"
+
+# Same arg as the workload, handed to the same installer as its one positional
+# target: `stable`, `latest`, an exact version, or empty for the installer's own
+# default.
+args:
+  version:
+    default: ""
+    pattern: '^$|^stable$|^latest$|^[0-9]+\.[0-9]+\.[0-9]+$'
+    description: Claude Code release to install (empty, `stable`, `latest`, or an exact version)
+    buildArg: CLAUDE_CODE_VERSION
+
+# The same name the workload provides, which is what keeps every
+# `requires: ["claude"]` mixin in this family resolvable in either shape. Only
+# one of the two may be composed at a time — a composition carrying both would
+# have two providers of one name, which resolution refuses, and rightly: the
+# workload already carries the agent this kit installs.
+provides: ["claude"]
+
+capabilities:
+  # The agent's own egress rides with the kit that ships the agent: a shell base
+  # grants nothing for services it does not carry. Phase split as in the
+  # workload — everything is runtime, and no install block is declared, because
+  # none of the install hooks below opens a socket.
+  #
+  # The apt hosts are the exception worth reading twice: they are here because
+  # the background `apt-get update` startup hook refreshes metadata for every
+  # configured source and fails wholesale on any one of them. A base with
+  # different apt sources needs its own entries; these are the three Ubuntu
+  # hosts (amd64 from archive/security, arm64 from ports) and Docker's repo that
+  # this family's shell-docker base ships.
+  #
+  # Portless throughout, this repo's house style: a portless pattern matches any
+  # port, which is what the apt hosts need — pinning them to :80 breaks the
+  # moment a mirror answers over https.
+  - type: com.docker.sandbox/network-policy@1
+    config:
+      runtime:
+        allow:
+          # Every domain the credential below injects into.
+          - api.anthropic.com
+          - console.anthropic.com
+          - claude.ai
+          - mcp-proxy.anthropic.com
+          # The OAuth token endpoint the subscription path refreshes against.
+          - platform.claude.com
+          # Release bucket for the native installer, needed at run time too:
+          # `claude update` and `claude install` re-run the same download.
+          - downloads.claude.ai
+          # Claude Code's own web properties — the sign-in pages `/login` hands
+          # off to, and the docs the CLI links to.
+          - claude.com
+          - code.claude.com
+          # /remote-control and /teleport relay: the agent keeps a WebSocket
+          # open here so claude.ai and the mobile app can drive this session.
+          - bridge.claudeusercontent.com
+          # The apt sources the background `apt-get update` refreshes.
+          - archive.ubuntu.com        # Ubuntu archive (amd64 main)
+          - security.ubuntu.com       # Ubuntu security updates (amd64)
+          - ports.ubuntu.com          # Ubuntu archive/security (arm64)
+          - download.docker.com       # Docker's apt repo, pre-added by shell-docker
+          #
+          # Deliberately absent: telemetry and error-reporting hosts (the
+          # overlay turns both off at the source), and registry.npmjs.org plus
+          # the GitHub hosts (Claude Code reaches those only for things the user
+          # starts, and allowing them by default would widen every sandbox's
+          # egress for a path most sessions never take).
+
+  # One service covering both ways of authenticating — a console API key and a
+  # Claude subscription are the same `anthropic` service as far as the host
+  # binding and the proxy are concerned. `optional: true` preserves v2's
+  # not-required default: an unbound sandbox is an ordinary starting point,
+  # because Claude Code's own `/login` works from inside it.
+  - type: com.docker.sandbox/credential@1
+    optional: true
+    description: Anthropic API access (console API key or Claude subscription)
+    config:
+      service: anthropic
+      phase: runtime
+      apiKey:
+        # Deliberately NOT `proxyManaged: true`, and this is the single most
+        # load-bearing omission in the file. Claude Code resolves auth in a
+        # fixed order where an ANTHROPIC_API_KEY in the environment outranks the
+        # OAuth credentials file below, so a sentinel parked in that variable
+        # would shadow a bound subscription on every sandbox. The sentinel
+        # Claude Code is meant to send arrives by a different route:
+        # `apiKeyHelper` in ~/.claude/settings.json, seeded by the install hook.
+        name: ANTHROPIC_API_KEY
+        inject:
+          - {domain: api.anthropic.com, header: x-api-key, format: "%s"}
+          - {domain: console.anthropic.com, header: x-api-key, format: "%s"}
+          - {domain: claude.ai, header: x-api-key, format: "%s"}
+          - {domain: mcp-proxy.anthropic.com, header: x-api-key, format: "%s"}
+      # For a host whose stored anthropic credential is a Claude subscription.
+      # Entirely declarative: nothing in the container implements any of it, and
+      # the container never holds a usable token — it holds the two sentinels,
+      # and the proxy swaps them per request and re-masks refresh responses with
+      # the same values.
+      oauth:
+        tokenEndpoint: {host: platform.claude.com, path: /v1/oauth/token}
+        sentinels:
+          accessToken: sk-ant-oat01-proxy-managed
+          refreshToken: sk-ant-ort01-proxy-managed
+        # The declarative counterpart of v2's Go template — see the workload's
+        # descriptor for why the conversion is now lossless: `{{.PrimaryApiKey}}`
+        # omits its own key when no key is captured, which is what the
+        # template's `{{if .PrimaryApiKey}}` guard did.
+        credentialFile:
+          path: ~/.claude/.credentials.json
+          structure:
+            claudeAiOauth:
+              accessToken: "{{.AccessToken}}"
+              refreshToken: "{{.RefreshToken}}"
+              expiresAt: "{{.ExpiresAt}}"
+              scopes: "{{.Scopes}}"
+            primaryApiKey: "{{.PrimaryApiKey}}"
+
+  # Session state persists across container recreation; subdirectories rather
+  # than all of ~/.claude/, so kit-managed files (settings.json,
+  # .credentials.json) keep coming from the overlay and the hooks on every
+  # create. Every volume sets a size: an unsized block volume inherits a 50 GiB
+  # default whose ext4 inode tables cost ~800 MiB of host space while empty, and
+  # 512m is the floor below which mke2fs switches to its "small" profile and
+  # spends as much on inode tables anyway.
+  - type: com.docker.sandbox/volume@1
+    description: Conversation transcripts; grows without bound, so it gets the headroom
+    config: {path: /home/agent/.claude/projects, size: 2g}
+  - type: com.docker.sandbox/volume@1
+    description: Per-session state JSON; load-bearing for `claude -c`
+    config: {path: /home/agent/.claude/sessions, size: 512m}
+  - type: com.docker.sandbox/volume@1
+    description: TodoWrite state
+    config: {path: /home/agent/.claude/todos, size: 512m}
+  - type: com.docker.sandbox/volume@1
+    description: Bash state across sessions — one snapshot per shell session
+    config: {path: /home/agent/.claude/shell-snapshots, size: 512m}
+  - type: com.docker.sandbox/volume@1
+    description: Local feature-flag cache; the telemetry switch suppresses event reporting, not these gate lookups
+    config: {path: /home/agent/.claude/statsig, size: 512m}
+
+  - type: com.docker.sandbox/lifecycle@1
+    config:
+      install:
+        # ~/.claude.json carries the bypass/onboarding/trust flags and is
+        # credential-independent. A command rather than a `files:` entry because
+        # the content is conditional — the `projects` map gains a second entry
+        # only when WORKSPACE_DIR is not "/", and the path has to be
+        # JSON-escaped — and because a `files:` entry can only create-or-skip,
+        # which against an existing file would leave the flags unset and Claude
+        # Code prompting "Is this a project you trust?" instead of rendering its
+        # TUI. Writing as root + chown always overwrites whatever is there,
+        # whoever owns it — which for a mixin also covers a base image that
+        # ships its own ~/.claude.json. Content is deterministic for a given
+        # WORKSPACE_DIR, so the rewrite is idempotent.
+        - command: |
+            set -e
+            ws="${WORKSPACE_DIR:-/}"
+            esc=$(printf '%s' "$ws" | sed 's/\\/\\\\/g; s/"/\\"/g; s/\t/\\t/g; s/\r/\\r/g')
+            projects="\"/\": { \"hasTrustDialogAccepted\": true }"
+            [ "$ws" = "/" ] || projects="$projects, \"$esc\": { \"hasTrustDialogAccepted\": true }"
+            printf '%s\n' "{
+              \"bypassPermissionsModeAccepted\": true,
+              \"hasCompletedOnboarding\": true,
+              \"projects\": { $projects }
+            }" > /home/agent/.claude.json
+            chown agent:agent /home/agent/.claude.json
+          user: "0"
+          env: [WORKSPACE_DIR]
+          description: Seed Claude bypass/trust flags (root; overwrites any base-shipped file)
+
+        # Seed ~/.claude/settings.json, branching on the auth mode surfaced via
+        # SBX_CRED_ANTHROPIC_MODE. apiKeyHelper="echo proxy-managed" is included
+        # only when a credential resolved (mode != none); without it Claude Code
+        # prompts for /login. Rewritten unconditionally on every (re)create so a
+        # mode change is picked up, and deterministic from the mode, so
+        # idempotent. defaultMode must sit under "permissions": Claude Code
+        # reads only permissions.defaultMode and silently ignores the key
+        # elsewhere.
+        - command: |
+            set -e
+            mkdir -p /home/agent/.claude
+            HELPER=''
+            if [ "${SBX_CRED_ANTHROPIC_MODE:-none}" != none ]; then
+              HELPER='  "apiKeyHelper": "echo proxy-managed",
+            '
+            fi
+            printf '%s' "{
+              \"themeId\": 1,
+              \"alwaysThinkingEnabled\": true,
+            ${HELPER}  \"permissions\": { \"defaultMode\": \"bypassPermissions\" },
+              \"bypassPermissionsModeAccepted\": true,
+              \"skipDangerousModePermissionPrompt\": true
+            }
+            " > /home/agent/.claude/settings.json
+          user: agent
+          env: [SBX_CRED_ANTHROPIC_MODE]
+          description: Seed Claude settings.json from SBX_CRED_ANTHROPIC_MODE
+
+        # Gateway-first MCP registration at install time so it is race-free:
+        # install hooks complete during create, before the session reads its
+        # config. A startup-only registration could land after that read,
+        # leaving the agent with no gateway. `claude mcp add` is not an
+        # idempotent rewrite — re-adding exits 1 — so `|| true` keeps a
+        # carried-forward entry from failing the create. The sentinel name is
+        # not a credential; the proxy substitutes the real token at request
+        # time, keyed by this name. PATH is exported explicitly rather than
+        # trusted: ~/.local/bin is where this kit's overlay lands claude, and
+        # ~/.claude/local is the older layout some bases still use.
+        - command: |
+            set -e
+            [ -n "$MCP_GATEWAY_URL" ] || exit 0
+            export PATH="$HOME/.local/bin:$HOME/.claude/local:$PATH"
+            claude mcp add mcp-gateway "$MCP_GATEWAY_URL" \
+              --transport http \
+              --scope user \
+              --header "Authorization: Bearer $MCP_SENTINEL_TOKEN_NAME" || true
+          user: agent
+          env: [MCP_GATEWAY_URL, MCP_SENTINEL_TOKEN_NAME]
+          description: Register the sandbox MCP gateway with claude (install-time, race-free)
+      startup:
+        # Block volumes are formatted as ext4 and their root directory comes out
+        # root-owned whatever the image had there, and the composed entrypoint
+        # runs as the agent user, so its own chown would be a no-op. Running as
+        # root here — after mount, before agent activity — is what makes
+        # ~/.claude writable. Enumerated, not recursive over ~/.claude: the
+        # parent holds runtime-managed content this kit does not own, and these
+        # five paths are exactly the ones it declares as volumes.
+        - command: ["sh", "-c", "chown -R agent:agent /home/agent/.claude/projects /home/agent/.claude/sessions /home/agent/.claude/todos /home/agent/.claude/shell-snapshots /home/agent/.claude/statsig 2>/dev/null || true"]
+          user: "0"
+          description: Re-own claude session-state volume mount roots to agent (block-volume mkfs trap)
+
+        # v2 backgrounded this with a trailing `&`; v3 has `background: true`, so
+        # detaching is the runtime's job. The redirects stay because they still
+        # discard the output, and `</dev/null` so the command cannot block on
+        # stdin whichever way the runtime detaches it.
+        - command: ["sh", "-c", "{ command -v apt-get && apt-get update -qq -y || true; } >/dev/null 2>&1 </dev/null"]
+          user: "root"
+          background: true
+          description: Update apt package cache in background
+
+        # MCP registration fallback for the rare create where the install-time
+        # seed could not run. Must not remove-then-add: startup hooks run from a
+        # detached dispatcher concurrently with the live session, and a remove
+        # would briefly delete the entry out from under it. `add || true` is
+        # non-destructive — the common already-registered case exits 1 and is
+        # left alone.
+        - command:
+            - sh
+            - -c
+            - |
+              set -e
+              [ -n "$MCP_GATEWAY_URL" ] || exit 0
+              export PATH="$HOME/.local/bin:$HOME/.claude/local:$PATH"
+              claude mcp add mcp-gateway "$MCP_GATEWAY_URL" \
+                --transport http \
+                --scope user \
+                --header "Authorization: Bearer $MCP_SENTINEL_TOKEN_NAME" || true
+          user: agent
+          env: [MCP_GATEWAY_URL, MCP_SENTINEL_TOKEN_NAME]
+          description: Register the sandbox MCP gateway with claude (startup fallback)
+
+  - type: com.docker.sandbox/agent-context@1
+    config:
+      contentFile: ./claude-mixin-context.md

@@ -7,7 +7,8 @@ captured into SQLite+FTS5 under `~/.claude-mem/`, compressed via the
 Agent SDK, and relevant memory is injected at session start. Installs
 `claude-mem@latest` (unpinned — see [Design notes](#design-notes) for
 why). The content is Claude-Code-specific, so the kit declares
-`requires.agent: claude`.
+`requires: ["claude"]`, which either the [`claude`](../claude) workload or
+[`claude-mixin`](../claude-mixin) satisfies.
 
 ## Usage
 

@@ -28,10 +28,10 @@ Unlike Aider, this image installs open-interpreter's own dependency range
 for litellm (`>=1.41.26,<2.0.0`) unmodified — a fresh install already
 resolves a version with working Anthropic OAuth support, proven at build
 time (see the
-[Dockerfile](https://github.com/docker/sbx-kits-contrib/blob/main/open-interpreter/Dockerfile)).
+[recipe](https://github.com/docker/sbx-kits-contrib/blob/main/open-interpreter/open-interpreter.dockerfile)).
 
 Runs as the non-root `agent` user, with
-`CMD ["/usr/local/bin/open-interpreter-start"]`.
+`ENTRYPOINT ["sh", "/home/agent/.local/bin/open-interpreter-start.sh"]`.
 
 ## Kit
 

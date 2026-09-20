@@ -60,9 +60,9 @@ sbx_codex() {
     sbx exec -u 0 "$name" -- sh -c \
         'pgrep -x sshd >/dev/null || { mkdir -p /var/run/sshd && /usr/sbin/sshd > /tmp/sshd.log 2>&1; }' || true
 
-    # The kit declares port 22 in `publishedPorts`, so the runtime publishes
-    # it on sandbox start. Fallback-publish here for sandboxes created
-    # before the kit grew that declaration.
+    # The kit requests port 22 through its `port@1` capability, so the
+    # runtime publishes it on sandbox start. Fallback-publish here for
+    # sandboxes created before the kit grew that declaration.
     sbx ports "$name" --json | jq -e '.[]|select(.sandbox_port==22 and .host_ip=="127.0.0.1")' >/dev/null \
         || sbx ports "$name" --publish 22/tcp >/dev/null
 
@@ -163,7 +163,7 @@ line to `~/.ssh/config` automatically.
 `sbx-codex-attach <name>`:
 - Adds `Include ~/.sbx/ssh/codex/*.conf` to `~/.ssh/config` on first run.
 - Confirms sandbox port 22 is published to an ephemeral host port (the
-  kit declares it in `publishedPorts`, so the runtime publishes it on
+  kit requests it through its `port@1` capability, so the runtime publishes it on
   every sandbox start; the helper re-publishes only as a fallback for
   sandboxes created before that declaration landed).
 - Writes `~/.sbx/ssh/codex/<name>.conf` pointing at a shared
@@ -201,15 +201,33 @@ Two layers, both transparent:
   `~/.ssh/config`, so the same agent (1Password, ssh-agent, …)
   handles GUI connections too.
 
-- **codex → OpenAI / ChatGPT.** The built-in codex agent already wires
-  up the sbx proxy with `proxy-managed` credential sentinels in
-  `~/.codex/config.toml`. The kit shadows `/usr/local/bin/codex` with
+- **codex → OpenAI / ChatGPT.** Whichever kit provides `codex` in the
+  composition — [`codex`](../codex/) or [`codex-mixin`](../codex-mixin/)
+  — already wires up the sbx proxy with `proxy-managed` credential
+  sentinels in `~/.codex/config.toml`; this kit declares no credential
+  of its own. The kit shadows `/usr/local/bin/codex` with
   a bash bridge that re-exports `HTTPS_PROXY`, `PROXY_CA_CERT_B64`,
   `SSH_AUTH_SOCK`, etc. from PID 1's environment before exec'ing the
   real binary. This is necessary because sshd spawns processes with a
   clean env, so codex invoked over SSH would otherwise bypass the
   proxy (and break sibling kits like git-ssh-sign that need the agent
   socket at runtime).
+
+## Network policy
+
+This kit's egress is declared in the **install** phase only, and the
+runtime phase is absent — which grants nothing there. The four hosts it
+allows (the three Ubuntu mirrors and `download.docker.com`) exist for
+the `apt-get update && apt-get install openssh-server` that runs as the
+first install hook, and nothing this kit does afterwards dials out:
+sshd listens rather than connects, and both startup hooks are local.
+
+v3 closes install-phase egress before the workload's entrypoint starts,
+so composing this kit no longer leaves a standing runtime grant to the
+apt mirrors on its account. Under the v2 grammar there was one flat list
+and no way to say otherwise. If a composition needs those mirrors at
+runtime, the kit that owns the base image declares them for its own
+boot-time apt refresh — [`codex`](../codex/) does.
 
 ## Troubleshooting
 
@@ -230,3 +248,10 @@ If `sbx-codex-attach` complains about a missing tool, install it
 For other issues, the app-server's own log lives at
 `/home/agent/.codex/app-server-control/app-server.log` and sshd logs
 to `/tmp/sshd.log` and `/tmp/sshd-init.log`.
+
+## References
+
+- [Kit descriptor](codex-app-server.yaml)
+- [Agent context](codex-app-server-context.md)
+- [The kits that provide `codex`](../codex/): [`codex`](../codex/),
+  [`codex-mixin`](../codex-mixin/)

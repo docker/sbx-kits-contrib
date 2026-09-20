@@ -1,0 +1,187 @@
+# syntax=docker/sandbox-kit:3
+# Hermes Agent as a MIXIN: the same declarations as the standalone workload
+# kit (../hermes-agent), minus what only the kit that owns the environment can
+# carry — the entrypoint (the base workload's launch command stays; you run
+# `hermes` from the shell), the context-file profile (`filename` is
+# workload-only, so this kit contributes `contentFile` alone), and `sbx@1`.
+schemaVersion: "3"
+displayName: Hermes Agent (mixin)
+description: >-
+  Nous Research's self-improving agent as a mixin — the Hermes install in an
+  overlay, with the Anthropic, OpenAI and OpenRouter credentials, the egress
+  policy its provider resolution needs, and the startup hook that works out
+  which of the three is genuinely bound. Layer it onto a shell base and run
+  `hermes`.
+
+kind: mixin
+
+# The fallback version for the unversioned provide below: the install floats
+# (the recipe's HERMES_VERSION defaults to empty, resolving upstream's newest
+# stable), so there is no hermes release this kit could honestly name.
+# Tracks ../hermes-agent.
+version: "1.0.0"
+
+args:
+  version:
+    default: ""
+    description: hermes-agent release tag to install; empty resolves upstream's newest stable
+    buildArg: HERMES_VERSION
+
+# Same name the workload provides, so composing this mixin with
+# ../hermes-agent is refused rather than installing the agent twice
+# (SPEC-v3 §5.3).
+provides: ["hermes-agent"]
+
+capabilities:
+  # The agent's own egress rides with the kit that ships the agent: the base
+  # grants nothing for services it doesn't carry. Every host is `runtime`;
+  # there is no install phase, because the overlay is built at image-build
+  # time and the one startup hook runs at boot, inside the runtime phase.
+  #
+  # MIGRATION NOTE: v2 wrote platform.claude.com with an explicit `:443` and
+  # the rest without. Normalized to the contrib house style of portless
+  # entries; port suffixes are ignored for allow-list membership anyway.
+  - type: com.docker.sandbox/network-policy@1
+    config:
+      runtime:
+        allow:
+          # A credential's inject domains are not allowed implicitly, and e2e
+          # runs every kit under deny-all. v3 additionally validates the
+          # reverse direction, refusing an inject domain this list never
+          # admits.
+          #
+          # No pypi.org/files.pythonhosted.org: the overlay carries
+          # HERMES_DISABLE_LAZY_INSTALLS=1 in its profile.d export, so Hermes
+          # refuses every runtime pip install rather than reaching PyPI for a
+          # provider, search backend, or skill dependency outside what is
+          # baked in. That switch only closes pip installs -- the plain HTTP
+          # fetches below are a separate, genuine runtime surface and stay
+          # allowed on their own merits.
+          - openrouter.ai
+          - '*.openrouter.ai'
+          - api.openai.com
+          - api.anthropic.com
+          # The anthropic credential's OAuth token endpoint, for the refresh
+          # the proxy performs once the access token expires.
+          - platform.claude.com
+          # model.provider: "auto" makes hermes_cli/auth.py's
+          # resolve_provider() run on every launch; these feed that
+          # resolution and the startup banner's update/model checks,
+          # confirmed against a real sandbox run under deny-all.
+          # models.dev: agent/models_dev.py's provider/model catalogue,
+          # disk-cached but refetched whenever the 4h TTL has lapsed.
+          - models.dev
+          # opencode.ai: hermes_cli/doctor_connectivity.py's
+          # provider-availability probe.
+          - opencode.ai
+          # github.com / api.github.com: hermes_cli/banner.py's
+          # prefetch_update_check(), which every launch kicks off in the
+          # background against the upstream checkout.
+          - github.com
+          - api.github.com
+          # raw.githubusercontent.com: observed contacted on the same real
+          # run, consistent with the same update/skills-metadata machinery.
+          - raw.githubusercontent.com
+          # api.githubcopilot.com: hypothesis, stated as such -- the base
+          # template exports GH_TOKEN and hermes_cli/auth.py lists it as a
+          # Copilot credential candidate, which would explain a discovery
+          # probe. Flagged rather than asserted; see ../hermes-agent.
+          - api.githubcopilot.com
+          # The project's own front door, confirmed contacted on a real run.
+          - hermes-agent.nousresearch.com
+
+  # All three are `optional: true`, faithfully: v2 credentials default to
+  # not-required and the v3 default inverts. Hermes runs with any one of the
+  # three, or with none, so making any required would refuse creates v2
+  # accepted.
+  - type: com.docker.sandbox/credential@1
+    optional: true
+    description: Anthropic API access (API key or claude.ai OAuth)
+    config:
+      service: anthropic
+      phase: runtime
+      apiKey:
+        name: ANTHROPIC_API_KEY
+        proxyManaged: true
+        inject:
+          - {domain: api.anthropic.com, header: x-api-key, format: "%s"}
+      # For a host whose stored anthropic credential is an OAuth login.
+      # credentialFile points at Claude Code's own store because Hermes reads
+      # it natively and refreshes it in place; the startup hook below drops
+      # the ANTHROPIC_API_KEY sentinel that would otherwise shadow it. The
+      # file holds sentinels, not real tokens.
+      oauth:
+        tokenEndpoint: {host: platform.claude.com, path: /v1/oauth/token}
+        resourceHosts: [api.anthropic.com]
+        sentinels:
+          accessToken: sk-ant-oat01-proxy-managed
+          refreshToken: sk-ant-ort01-proxy-managed
+        credentialFile:
+          path: ~/.claude/.credentials.json
+          structure:
+            claudeAiOauth:
+              accessToken: "{{.AccessToken}}"
+              refreshToken: "{{.RefreshToken}}"
+              expiresAt: "{{.ExpiresAt}}"
+              scopes: "{{.Scopes}}"
+
+  - type: com.docker.sandbox/credential@1
+    optional: true
+    description: OpenAI API access
+    config:
+      service: openai
+      phase: runtime
+      apiKey:
+        name: OPENAI_API_KEY
+        proxyManaged: true
+        inject:
+          - {domain: api.openai.com, header: Authorization, format: "Bearer %s"}
+
+  - type: com.docker.sandbox/credential@1
+    optional: true
+    description: OpenRouter API access (200+ models)
+    config:
+      service: openrouter
+      phase: runtime
+      apiKey:
+        name: OPENROUTER_API_KEY
+        proxyManaged: true
+        inject:
+          - {domain: openrouter.ai, header: Authorization, format: "Bearer %s"}
+
+  - type: com.docker.sandbox/lifecycle@1
+    config:
+      startup:
+        # Runs on every container start, ahead of any attach: the credential
+        # state is wired at create time and a stop/start can follow a change
+        # of host credential, so the env file is recomputed rather than
+        # cached. The script appends a source line to ~/.profile, which is
+        # what carries the resolved state into a login shell — the mixin's
+        # only launch path, since there is no entrypoint here to source it.
+        #
+        # Hook environments are deny-by-default in v3, so every variable the
+        # script reads is enumerated. HERMES_HOME is listed for parity with
+        # the workload even though a mixin cannot set image ENV: the script
+        # reads it as `${HERMES_HOME:-$HOME/.hermes}` and the fallback is the
+        # same path the overlay installs to, so an unset value resolves
+        # identically. $HOME is the platform baseline and needs no entry.
+        - command:
+            - sh
+            - /home/agent/.local/bin/hermes-anthropic-auth.sh
+          user: "1000"
+          env:
+            - HERMES_HOME
+            - SBX_CRED_ANTHROPIC_MODE
+            - SBX_CRED_OPENAI_MODE
+            - SBX_CRED_OPENROUTER_MODE
+          description: Resolve which of the anthropic/openai/openrouter credentials are genuinely bound, record the result for `sbx exec` login shells, and pin the active provider in config.yaml when only an Anthropic OAuth login is bound
+
+  # MIGRATION NOTE: no `agent-skills@1` — neither the v2 spec nor the recipe
+  # nor the README ever names the directory Hermes reads skills from, and the
+  # capability's own rule is not to invent one. See ../hermes-agent.
+
+  # No `filename:` — the profile belongs to the workload that owns the
+  # environment, and declaring it on a mixin is a validation error.
+  - type: com.docker.sandbox/agent-context@1
+    config:
+      contentFile: ./hermes-agent-mixin-context.md

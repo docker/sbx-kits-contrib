@@ -108,9 +108,12 @@ The install command pins:
 - `TRIVY_VERSION=0.70.0` (published 2026-04-17, post-TeamPCP)
 - SHA256 per-arch: `Linux-64bit` and `Linux-ARM64`
 
-To bump: edit `spec.yaml`, update both the version string and the
-SHA256s sourced from the release's `checksums.txt`. Sigstore signature
-verification is a worthwhile follow-up but out of scope for v1.
+To bump: edit `trivy.yaml` in three places together — the install hook's
+`TRIVY_VERSION`, the two SHA256s sourced from the release's `checksums.txt`,
+and the `provides: ["trivy@…"]` entry that states what the kit installs. The
+mixin variant carries the same pin in `../trivy-mixin/trivy-mixin.dockerfile`,
+where the download runs at build instead. Sigstore signature verification is a
+worthwhile follow-up but out of scope for v1.
 
 ## Cleanup
 

@@ -1,9 +1,13 @@
 # aider
 
-A standalone sandbox kit (`kind: sandbox`) for [Aider](https://aider.chat/), an
-AI pair programming tool. The kit boots from a pre-built image with Aider
-already installed, wires LLM API auth through the sandbox proxy, and runs
-`aider` as the entrypoint when you attach.
+A standalone workload kit (`kind: workload`, `schemaVersion: "3"`) for
+[Aider](https://aider.chat/), an AI pair programming tool. The kit's own
+content is the image — Aider comes already installed — and it wires LLM API
+auth through the sandbox proxy and runs `aider` as the entrypoint when you
+attach.
+
+There is also an [`aider-mixin`](../aider-mixin) variant of the same kit, for
+layering Aider onto a shell workload instead of running a sandbox of its own.
 
 Aider defaults to Claude Sonnet (`AIDER_MODEL=sonnet`) with auto-commits enabled.
 It works with any [LiteLLM-compatible model](https://aider.chat/docs/llms.html).
@@ -26,9 +30,8 @@ sbx secret set anthropic   # or: openai, gemini
 ```
 
 To use OpenAI or Gemini instead of the default (Anthropic), pass Aider's own
-`--model` flag after `--` (there's no supported way to override a kit's
-`environment.variables` at run time, so this goes through Aider's native CLI
-flag instead):
+`--model` flag after `--` (there's no supported way to override the image's
+`ENV` at run time, so this goes through Aider's native CLI flag instead):
 
 ```console
 sbx run --kit "docker.io/sbx/aider-kit:latest" aider -- --model gpt-4o
@@ -115,8 +118,8 @@ host-side.
 ## Switching the default model
 
 `AIDER_MODEL` sets the kit's default (`sonnet`), but there's no supported way
-to override a kit's `environment.variables` at run time. Use Aider's own
-`--model` flag instead, passed after `--`:
+to override the image's `ENV` at run time. Use Aider's own `--model` flag
+instead, passed after `--`:
 
 ```console
 sbx run aider -- --model opus
@@ -130,11 +133,16 @@ the sandbox or see the [Aider LLM docs](https://aider.chat/docs/llms.html).
 ## Configuration
 
 A pre-seeded `~/.aider.conf.yml` sets sensible defaults (model alias, auto-commits,
-analytics off). To customise:
+analytics off). The kit writes it from the `lifecycle@1` `files` entry in
+[aider.yaml](./aider.yaml) at every start, so it is the kit's file rather than
+yours. To customise:
 
-- **Inside the sandbox**: edit `~/.aider.conf.yml` directly — changes persist across
-  restarts.
 - **Per-project**: add an `.aider.conf.yml` at the root of your workspace.
+  Aider merges both and the project one wins, which makes this the durable
+  place to put an override.
+- **Inside the sandbox**: editing `~/.aider.conf.yml` directly works for the
+  session, but the kit rewrites it on the next start. Change the `files` entry
+  in the descriptor if you want a different default permanently.
 - **Coding conventions**: add a `CONVENTIONS.md` or pass `--read <file>` at launch.
 
 ## Why Python 3.12
@@ -148,21 +156,25 @@ when the image is built, not on every sandbox creation.
 
 ## What's in the image
 
-Aider and its Python 3.12 runtime are baked into the kit's image (see
-[Dockerfile](./Dockerfile)) rather than installed when a sandbox is
-created. That means:
+Aider and its Python 3.12 runtime are baked into the kit's content (see
+[aider.dockerfile](./aider.dockerfile)) rather than installed when a sandbox
+is created. That means:
 
 - Sandbox creation only pulls the image — no install step, no wait.
-- The runtime network allowlist only needs what Aider actually calls while
-  running: the three LLM API hosts. PyPI and the Python 3.12 download are
-  gone from `permissions.network.allow` because they're build-time-only now;
-  `raw.githubusercontent.com` is gone because the image sets
-  `LITELLM_LOCAL_MODEL_COST_MAP` / `LITELLM_LOCAL_ANTHROPIC_BETA_HEADERS`,
-  which stop LiteLLM fetching its model-cost map and beta-header config from
-  GitHub at runtime (see [Dockerfile](./Dockerfile)).
-- There is no per-start upgrade. A fixed image means a fixed Aider version;
-  bumping it means rebuilding the image (`AIDER_VERSION` in the Dockerfile),
-  not something that happens silently in the background on every boot.
+- The network policy needs no `install` phase at all, and its `runtime` allow
+  list only needs what Aider actually calls while running: the three LLM API
+  hosts. PyPI and the Python 3.12 download never appear, because a build runs
+  before any phase the policy scopes; `raw.githubusercontent.com` is absent
+  because the image sets `LITELLM_LOCAL_MODEL_COST_MAP` /
+  `LITELLM_LOCAL_ANTHROPIC_BETA_HEADERS`, which stop LiteLLM fetching its
+  model-cost map and beta-header config from GitHub at runtime (see
+  [aider.dockerfile](./aider.dockerfile)).
+- There is no per-start upgrade. A fixed build means a fixed Aider version;
+  bumping it means changing the descriptor's `version` arg (which the recipe
+  consumes as `AIDER_VERSION`) and rebuilding, not something that happens
+  silently in the background on every boot. That arg is also what the kit's
+  `provides: ["aider@…"]` is expanded from, so the kit cannot claim a release
+  it does not ship.
 
 ## Coding conventions
 

@@ -1,6 +1,0 @@
-mcp:
-  configPath: $HOME/.gemini/config/mcp_config.json
-  transportKey: serverUrl
-  forbiddenKeys:
-    - url
-    - httpUrl

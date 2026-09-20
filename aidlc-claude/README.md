@@ -6,7 +6,13 @@ it installs a pinned [Bun](https://bun.sh) version, clones the latest
 existing project already pinned), and copies that repo's Claude harness into the
 workspace.
 
-Pairs with the built-in `claude-bedrock` agent — the kit declares `requires.agent: claude-bedrock`.
+Pairs with the built-in `claude-bedrock` agent — the kit declares
+`requires: ["claude-bedrock"]`. Unlike the rest of the claude family in this
+repo, that provider is not a kit here: `claude-bedrock` is a built-in sbx agent.
+v3 resolution is a closed-set check, so the requirement is satisfied only by a
+composition that actually carries a `claude-bedrock` provider. It is stated
+rather than softened to `claude` because the harness targets AWS Bedrock and pins
+Bedrock model ids, so the plain `claude` kit is not a substitute.
 
 ## Usage
 
@@ -64,7 +70,7 @@ profile configured there, store that profile for the agent with
 ## How the Bun install works
 
 Upstream's one-liner is `curl -fsSL https://bun.sh/install | bash`, which does
-not work unmodified in a kit. `setup.install` entries run as uid 0 and Bun's
+not work unmodified in a kit. Lifecycle install hooks run as uid 0 and Bun's
 installer targets `${BUN_INSTALL:-$HOME/.bun}`, so the binary lands in
 `/root/.bun/bin` where the agent user cannot reach it. Its only `PATH` wiring is
 an `export` appended to `~/.bashrc`, which non-interactive shells never source —
@@ -81,8 +87,9 @@ upstream ships on the day it's created.
 
 ## How the harness copy works
 
-`setup.startup` copies `dist/claude/.claude/` and `dist/claude/aidlc/` into
-`$WORKSPACE_DIR` on every container start. Three details are deliberate:
+The lifecycle startup hook copies `dist/claude/.claude/` and
+`dist/claude/aidlc/` into `$WORKSPACE_DIR` on every container start. Three
+details are deliberate:
 
 - **`$WORKSPACE_DIR`, not a literal path.** The templates set
   `WORKDIR /home/agent/workspace`, but the runtime overrides it wherever the
@@ -227,10 +234,11 @@ unrelated files to the repo you are actually editing, and leaves the other
 `dist/<harness>/` trees available if you want to install a different harness by
 hand.
 
-The network-heavy clone runs in `setup.install`, which completes synchronously
-before Claude launches. It cannot select the project pin there because the
-workspace is not guaranteed ready yet. Instead, `setup.startup` reads the pin
-from the ready workspace, performs the fast checkout, and copies the harness.
+The network-heavy clone runs in a lifecycle install hook, which completes
+synchronously before Claude launches. It cannot select the project pin there
+because the workspace is not guaranteed ready yet. Instead, the startup hook
+reads the pin from the ready workspace, performs the fast checkout, and copies
+the harness.
 This split keeps a fresh clone from racing Claude's initial scan of project
 slash commands.
 

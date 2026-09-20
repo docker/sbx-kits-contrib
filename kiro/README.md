@@ -1,14 +1,18 @@
 # kiro
 
-A standalone sandbox kit (`kind: sandbox`, `schemaVersion: "2"`) for
+A standalone workload kit (`kind: workload`, `schemaVersion: "3"`) for
 [Kiro CLI](https://kiro.dev/docs/cli/), AWS's agentic coding CLI. The kit runs
 `kiro chat --trust-all-tools` as the entrypoint, registers the sandbox MCP
 gateway, and authenticates through Kiro's interactive device flow.
 
 Kiro was previously a built-in `sbx` agent, run as `sbx run kiro`. This kit
 replaces that, and is backed by a base image built from the
-[`Dockerfile`](./Dockerfile) in this directory rather than by the
+[`kiro.dockerfile`](./kiro.dockerfile) in this directory rather than by the
 `docker/sandbox-templates` release train.
+
+The declarations live in [`kiro.yaml`](./kiro.yaml); the recipe beside it is
+found by the filename-stem convention. To layer Kiro onto a shell base you
+already have, use [`../kiro-mixin`](../kiro-mixin) instead.
 
 ## Prerequisites
 
@@ -33,8 +37,8 @@ Or with a local clone of this repo:
 sbx run --kit ./kiro/ kiro
 ```
 
-The trailing `kiro` is required, not redundant: for `kind: sandbox` kits, `sbx`
-enforces that the agent name matches the kit's own `name`.
+The trailing `kiro` is required, not redundant: for workload kits, `sbx`
+enforces that the agent name matches the name the kit `provides`.
 
 ## Authentication
 
@@ -64,9 +68,9 @@ bare word instead *replaces* the defaults, which is why
 
 ## Network policy
 
-`permissions.network.allow` covers Kiro's own hosts and the apt sources the base
-image ships with (needed because the startup hook runs `apt-get update`, which
-fails wholesale if any configured source is unreachable).
+The `network-policy@1` capability covers Kiro's own hosts and the apt sources
+the base image ships with (needed because the startup hook runs `apt-get
+update`, which fails wholesale if any configured source is unreachable).
 
 Kiro needs **two** hosts, not one: `cli.kiro.dev` serves the install/update
 script, which then fetches the versioned binary from
@@ -74,13 +78,24 @@ script, which then fetches the versioned binary from
 image build time, but `kiro-cli` reaches them again for version checks and
 self-update.
 
+v3 policy is phase-scoped: `install` is open only while lifecycle install
+hooks run and is closed before the agent starts, and `runtime` is the agent's
+steady state. Kiro's three own hosts appear in **both**, because the install
+hook runs `kiro-cli setup --no-confirm` at create and it has not been
+confirmed from a live run whether that command touches the network — while the
+runtime need is established. Listing them twice reproduces the old flat list's
+reachability in each phase rather than guessing which one to starve. The apt
+hosts are `runtime` only (startup hooks run at boot, inside the runtime
+phase), as are the AWS endpoints (the device flow happens when the launcher
+runs).
+
 > [!IMPORTANT]
 > Kiro's chat and device-flow auth also reach AWS-backed hosts that are not
 > documented upstream. The ones reported so far
 > ([#185](https://github.com/docker/sbx-kits-contrib/issues/185)), plus two
 > more surfaced by a live deny-all run (`q.us-east-1.amazonaws.com`, Kiro's
 > Amazon Q chat backend, and `view.awsapps.com`, the AWS access portal used
-> by device-flow auth), are listed in `permissions.network.allow`. Other
+> by device-flow auth), are listed under `runtime.allow`. Other
 > kiro-cli features may still reach further hosts. If something fails under
 > deny-all, inspect what was blocked and widen the list:
 >
@@ -88,7 +103,7 @@ self-update.
 > $ sbx policy log
 > ```
 >
-> then add the reported hosts to `permissions.network.allow` in `spec.yaml`.
+> then add the reported hosts under `runtime.allow` in `kiro.yaml`.
 
 ## MCP
 
@@ -98,12 +113,18 @@ When a gateway is reserved, sandboxd injects `MCP_GATEWAY_URL` and
 credential — the proxy substitutes the real token per request, keyed by name.
 The hook is a no-op when MCP is not enabled.
 
+Both variables are listed in the hook's `env:`, because v3 hook environments
+are deny-by-default: a hook sees only the names it declares, plus the platform
+baseline (`PATH`, `HOME`, and the handful a shell introduces itself). Without
+that list the hook would see neither variable, take its no-op branch on every
+boot, and silently never register the gateway.
+
 ## Base image
 
-Unlike most kits here — which are `kind: mixin` or `kind: agent` and layer onto
-an existing `docker/sandbox-templates` image — a `kind: sandbox` kit *is* the
-whole environment, so it names the image the sandbox boots from. This kit builds
-and publishes its own, from the `Dockerfile` and `start.sh` in this directory.
+Unlike a `kind: mixin` kit, which layers onto an existing image, a
+`kind: workload` kit's layers *are* the root filesystem — so its recipe names
+the image the sandbox boots from. This kit builds and publishes its own, from
+[`kiro.dockerfile`](./kiro.dockerfile) and `start.sh` in this directory.
 
 The image is **`docker.io/sbx/kiro-image`**, built on
 `docker/sandbox-templates:shell-docker`, so it carries a Docker engine and
@@ -118,7 +139,7 @@ There is no flavour suffix and no dockerless variant. The sandbox templates
 distinguish `kiro` from `kiro-docker` because a user picks a template directly,
 but a kit picks its own image — so the Docker-in-Docker detail never reaches the
 user, just as `sbx run kiro` already resolves to the Docker flavour today. And a
-`kind: sandbox` kit names exactly one `sandbox.image`, so a second image would be
+workload kit's layers are the one root filesystem, so a second image would be
 unreachable without a second kit to consume it.
 
 ### Building and publishing
@@ -136,12 +157,15 @@ sample. It also catches drift in the floating base image.
 ### Building locally
 
 ```console
-docker build -t docker.io/sbx/kiro-image:latest kiro
+docker build -f kiro/kiro.dockerfile -t docker.io/sbx/kiro-image:latest kiro
 ```
+
+`-f` is needed now that the recipe is named for its descriptor's stem rather
+than `Dockerfile`; the kit frontend finds it by that convention without one.
 
 The build needs egress to `cli.kiro.dev` (install script) **and**
 `prod.download.cli.kiro.dev` (the versioned binary it fetches).
 
 `BASE_IMAGE` is a build arg, so the base can be re-pointed or digest-pinned
-without editing the `Dockerfile`: `--build-arg BASE_IMAGE=…` accepts a tag or a
-digest.
+without editing `kiro.dockerfile`: `--build-arg BASE_IMAGE=…` accepts a tag or
+a digest.

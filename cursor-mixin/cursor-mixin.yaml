@@ -1,0 +1,184 @@
+# syntax=docker/sandbox-kit:3
+# The Cursor agent CLI as a MIXIN: the same declarations as the cursor workload
+# kit beside it — the Cursor credential, the egress, the workspace pre-trust and
+# the cli-config seed — minus what only the kit that owns the environment can
+# carry:
+#
+#   - no sbx@1: the host launches the *base workload's* agent, and this kit's
+#     image config never becomes the composed image's.
+#   - no ENTRYPOINT: the base workload's launch command stays as it is. The
+#     user runs `cursor-agent` from the shell.
+#   - no agent-context filename: the AGENTS.md profile belongs to the workload
+#     that owns the environment, so this kit contributes a body and nothing
+#     else.
+#   - no apt-cache-refresh startup hook and no apt mirrors in the policy: which
+#     package manager the base ships and which mirrors it points at are the
+#     base's business, and a mixin that refreshed them would be granting egress
+#     for a base it has never seen.
+#
+# v2's environment.variables has no v3 field on a mixin — v3 carries no static
+# env grammar, the image config owns runtime env, and a mixin's config does not
+# merge into the composed image. IS_SANDBOX and AGENT_CLI_CREDENTIAL_STORE ride
+# the overlay as /etc/profile.d/cursor-env.sh instead, sourced by the base's
+# login shell.
+schemaVersion: "3"
+displayName: Cursor (mixin)
+description: >-
+  Cursor's agent CLI as a mixin — the agent in an overlay, with the Cursor
+  credential (API key or OAuth), scoped egress, and the workspace pre-trust and
+  config seeds the agent needs. Layer it onto a shell base and run
+  `cursor-agent`.
+# The KIT's version, not Cursor's, and the publish-time fallback for the
+# unversioned provide below. Tracks the cursor kit it is derived from.
+version: "1.0.0"
+
+kind: mixin
+
+# Same name the cursor workload provides. Unversioned for the same reason: the
+# vendor installer takes no version pin and cursor-agent self-updates.
+#
+# The two kits are alternatives, never composed together: one name has one
+# owner (SPEC-v3 §5.3), so resolution refuses cursor + cursor-mixin.
+provides: ["cursor"]
+
+capabilities:
+  # The agent's own egress rides with the kit that ships the agent: the base
+  # grants nothing for services it does not carry. Same list as the workload's
+  # minus the four apt/Docker mirror hosts, which the workload declares because
+  # it owns its base image and refreshes that base's package cache.
+  - type: com.docker.sandbox/network-policy@1
+    config:
+      # Nothing here is reached while install hooks run — one hook is a
+      # mkdir/chown and the other writes a trust file — so the whole list is
+      # runtime, and the absent install phase grants nothing.
+      runtime:
+        # Portless, matching the house style: a port qualifier would pin a
+        # scheme the kit does not own.
+        allow:
+          # Every host the credential below injects into or routes to. v3
+          # validates the direction: an inject domain outside the matching
+          # phase's allow list is an error, and the check matches exactly
+          # rather than expanding the wildcard below.
+          - api2.cursor.sh
+          - api3.cursor.sh
+          - repo42.cursor.sh
+          - cursor.com
+          # Cursor shards its API across numbered *.cursor.sh hosts. `*` never
+          # crosses a dot, so this covers one more single-label sibling
+          # (api4.cursor.sh, repo43.cursor.sh) and nothing else — not a deeper
+          # name, and not the apex cursor.sh.
+          - "*.cursor.sh"
+          # cursor-agent's package host: cursor.com/install redirects the
+          # tarball fetch here, and the agent's self-update uses the same host.
+          # Not covered by cursor.com.
+          - downloads.cursor.com
+          # cursor-agent's update check and npm-backed features reach the npm
+          # registry at runtime.
+          - registry.npmjs.org
+
+  - type: com.docker.sandbox/credential@1
+    # v2 credentials default to not-required and the v3 default inverts, so this
+    # preserves the behavior: Cursor is usable with nothing bound — it starts
+    # its own in-agent sign-in — and failing resolution would take that path
+    # away.
+    optional: true
+    description: Cursor API access (API key or Cursor OAuth)
+    config:
+      # The service name is load-bearing beyond this file: the sandbox proxy's
+      # Cursor session bootstrap keys on it.
+      service: cursor
+      phase: runtime
+      apiKey:
+        name: CURSOR_API_KEY
+        # Deliberately NOT `proxyManaged: true`, matching the workload: that
+        # flag would set CURSOR_API_KEY to the sentinel unconditionally, and
+        # cursor-agent treats an unbacked CURSOR_API_KEY as a real (invalid)
+        # key rather than falling back to sign-in.
+        inject:
+          - {domain: api2.cursor.sh, header: Authorization, format: "Bearer %s"}
+          - {domain: api3.cursor.sh, header: Authorization, format: "Bearer %s"}
+          - {domain: repo42.cursor.sh, header: Authorization, format: "Bearer %s"}
+          - {domain: cursor.com, header: Authorization, format: "Bearer %s"}
+      oauth:
+        # Cursor's device-style sign-in polls here for the issued token.
+        tokenEndpoint: {host: api2.cursor.sh, path: /auth/poll}
+        # Where the bearer is actually used. api2.cursor.sh is omitted because
+        # the token endpoint host is already routed.
+        resourceHosts:
+          - api3.cursor.sh
+          - repo42.cursor.sh
+          - cursor.com
+        sentinels:
+          accessToken: cursor-oat-proxy-managed
+          # Never rendered inside the container — this kit declares no
+          # credentialFile — but still required: it is what lets the proxy mask
+          # the real refresh token in token responses and recognise a
+          # sentinel-bearing refresh request.
+          refreshToken: cursor-ort-proxy-managed
+        # Cursor's token response is camelCase, not the OAuth-standard
+        # snake_case, so the field names have to be spelled out.
+        responseFields:
+          accessToken: accessToken
+          refreshToken: refreshToken
+        # No `credentialFile` on purpose: Cursor's file-backed store
+        # JWT-validates whatever it finds, so a materialised sentinel is worse
+        # than no file at all. The overlay's AGENT_CLI_CREDENTIAL_STORE=memory
+        # export switches the store to memory instead.
+        #
+        # MIGRATION NOTE: v2's `oauth.skipIfEnv: [CURSOR_API_KEY]` is dropped —
+        # v3 has no such field, and mode resolution is binding-driven by
+        # construction.
+
+  - type: com.docker.sandbox/lifecycle@1
+    config:
+      install:
+        - command: mkdir -p /home/agent/.cursor && chown agent:agent /home/agent/.cursor
+          user: "0"
+          description: Ensure .cursor is owned by agent before the file seed and bind mounts run
+        # Pre-trust the workspace so the interactive TUI skips its "Workspace
+        # Trust Required" prompt on every run. cursor-agent records trust in
+        # ~/.cursor/projects/<slug>/.workspace-trusted, where <slug> is the
+        # workspace path with the leading slash dropped and the remaining "/"
+        # turned into "-" — per-workspace, so this cannot be a static file.
+        #
+        # The mixin needs this at least as much as the workload does: there is
+        # no --yolo entrypoint here, and cursor-agent's --trust flag only
+        # applies to headless (-p) mode, not the interactive TUI.
+        #
+        # MIGRATION NOTE: v2 spelled the workspace path $WORKDIR; v3 hooks spell
+        # it WORKSPACE_DIR, and a v3 hook sees only the platform baseline plus
+        # the names it declares.
+        - command: |
+            [ -n "$WORKSPACE_DIR" ] || { echo "WORKSPACE_DIR unset; skipping Cursor workspace pre-trust" >&2; exit 0; }
+            ws="$WORKSPACE_DIR"
+            slug=$(printf '%s' "$ws" | sed 's#^/##; s#/#-#g')
+            dir="/home/agent/.cursor/projects/$slug"
+            mkdir -p "$dir"
+            esc=$(printf '%s' "$ws" | sed 's/\\/\\\\/g; s/"/\\"/g')
+            [ -f "$dir/.workspace-trusted" ] || printf '{"trustedAt":"%s","workspacePath":"%s"}\n' "$(date -u +%Y-%m-%dT%H:%M:%S.000Z)" "$esc" > "$dir/.workspace-trusted"
+          user: "agent"
+          env: [WORKSPACE_DIR]
+          description: Pre-trust the workspace so cursor-agent skips the interactive Workspace Trust prompt
+      files:
+        # Cursor's agent connection defaults to HTTP/2, which the forward proxy
+        # does not terminate — the stream never establishes and the agent hangs
+        # instead of failing. Pinning HTTP/1.1 + SSE routes it through the
+        # proxy, which is also what makes credential injection possible at all.
+        #
+        # MIGRATION NOTE: v2's `onlyIfMissing: true` is v3's `overwrite: false`.
+        - path: /home/agent/.cursor/cli-config.json
+          content: '{"network": {"useHttp1ForAgent": true}}'
+          overwrite: false
+          description: Seed HTTP/1.1+SSE for agent connections so traffic goes through the forward proxy
+
+  # contentFile alone: `filename` is workload-only, and the profile belongs to
+  # whichever workload this mixin lands on.
+  #
+  # MIGRATION NOTE: the v2 cursor kit declared a profile name and no body, so
+  # unlike the workload — which carries the name across and nothing else — this
+  # kit needs a body of its own. What it says is specific to the mixin shape
+  # (there is no cursor-agent entrypoint here, so --yolo is not applied for
+  # you), which is exactly the thing the v2 kit had no reason to write down.
+  - type: com.docker.sandbox/agent-context@1
+    config:
+      contentFile: ./cursor-mixin-context.md

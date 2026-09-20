@@ -1,0 +1,336 @@
+# syntax=docker/sandbox-kit:3
+# OpenCode as a MIXIN: the same declarations as the standalone workload kit
+# (../opencode), minus what only the kit that owns the environment can carry --
+# the entrypoint (the base workload's launch command stays; run `opencode` in
+# the shell), the context-file profile (`filename` is workload-only, so this
+# kit contributes `contentFile` alone), sbx@1 (a mixin's image config never
+# becomes the composed image's), and the base's apt mirrors (a workload owns
+# its base image; here that base is whatever you compose onto).
+schemaVersion: "3"
+displayName: OpenCode (mixin)
+description: >-
+  OpenCode as a mixin -- node and the CLI in an overlay, with seven optional
+  proxy-managed provider credentials, the MCP registration and the Copilot
+  seed. Layer it onto a shell base and run `opencode`.
+sourceUrl: https://github.com/sst/opencode
+
+kind: mixin
+
+# The KIT's version, not OpenCode's, and the fallback the unversioned provide
+# below publishes under (SPEC-v3 §9.2). The binary floats: the recipe installs
+# `opencode-ai@latest` unless a build passes OPENCODE_VERSION, so no version
+# the descriptor could state would be true of every build.
+version: "1.0.0"
+provides: ["opencode"]
+
+capabilities:
+  # The agent's own egress rides with the kit that ships the agent: the base
+  # grants nothing for services it does not carry. Runtime-only, like the
+  # workload -- the install happens at build, and the hooks below are startup
+  # hooks, which run at boot in the runtime phase.
+  #
+  # Entries are portless: a portless pattern matches any port. The workload's
+  # apt hosts are deliberately absent -- those belong to whatever base this
+  # composes onto, and so does the `apt-get update` hook that needs them.
+  - type: com.docker.sandbox/network-policy@1
+    config:
+      runtime:
+        allow:
+          # Every domain a credential below injects into; v3 validates that
+          # invariant at build time (SPEC-v3 §11).
+          - api.anthropic.com
+          - claude.ai
+          - console.anthropic.com
+          - api.business.githubcopilot.com
+          - api.enterprise.githubcopilot.com
+          - api.github.com
+          - api.githubcopilot.com
+          - api.individual.githubcopilot.com
+          - copilot.github.com
+          - github.com
+          - raw.githubusercontent.com
+          - aiplatform.googleapis.com
+          - generativelanguage.googleapis.com
+          - oauth2.googleapis.com
+          - vertexai.googleapis.com
+          - api.groq.com
+          - api.openai.com
+          - openai.com
+          - openrouter.ai
+          - api.x.ai
+          # The OpenAI OAuth token endpoint and the Codex backend host the
+          # subscription bearer is accepted at. Neither is an apiKey inject
+          # domain, so neither is covered by the block above.
+          - auth.openai.com
+          - chatgpt.com
+          # OpenCode's language servers are downloaded on demand: GitHub
+          # release assets 302 to a release-asset host under
+          # githubusercontent.com, and gist content comes from
+          # gist.githubusercontent.com -- the exact raw. entry above covers
+          # neither. Repository archives and gist tarballs come from
+          # codeload.github.com, outside that zone again. (v2 wrote `**.`;
+          # the single-label `*.` form is the documented portable core and
+          # every host named here is exactly one label deep.)
+          - "*.githubusercontent.com"
+          - codeload.github.com
+          # Language servers, plugins and provider SDK packages, resolved from
+          # npm on demand.
+          - registry.npmjs.org
+          # OpenCode's own domains: the sign-in and account-console endpoints
+          # `/login` hands off to, the JSON schema its config points at, and
+          # the hourly model catalog at models.opencode.ai. models.dev is
+          # deliberately absent -- the CLI names it in help text and errors but
+          # never requests it, and an unreachable catalog falls back to the
+          # snapshot embedded in the binary.
+          - opencode.ai
+          - "*.opencode.ai"
+
+  # Seven provider services, every one of them optional: OpenCode is usable
+  # with a locally served model and nothing bound at all, so failing create on
+  # a missing credential would take away a working configuration rather than
+  # protect one. Service names are the keys a host binds secrets under and the
+  # keys the proxy routes on -- renaming one detaches it from the binding.
+  - type: com.docker.sandbox/credential@1
+    optional: true
+    description: Anthropic API access
+    config:
+      service: anthropic
+      phase: runtime
+      apiKey:
+        name: ANTHROPIC_API_KEY
+        proxyManaged: true
+        inject:
+          - {domain: api.anthropic.com, header: x-api-key, format: "%s"}
+          - {domain: claude.ai, header: x-api-key, format: "%s"}
+          - {domain: console.anthropic.com, header: x-api-key, format: "%s"}
+
+  - type: com.docker.sandbox/credential@1
+    optional: true
+    description: GitHub and Copilot access
+    config:
+      service: github
+      phase: runtime
+      apiKey:
+        # Empty on purpose, as in the workload: this credential is handled
+        # entirely proxy-side, and v3 gives an inject-only credential no
+        # environment presence at all (credential@1). A named sentinel would
+        # collide with the ambient GH_TOKEN the Copilot seed hook below reads.
+        name: ""
+        # The proxy applies ONE auth format per service, taken from the first
+        # inject entry, so this list stays uniform. Bearer is the required
+        # choice -- the Copilot API rejects the "token" scheme, GitHub's REST
+        # API accepts both, and git over HTTPS on github.com is re-encoded to
+        # Basic by the proxy regardless of the format named here.
+        inject:
+          - {domain: api.business.githubcopilot.com, header: Authorization, format: Bearer %s}
+          - {domain: api.enterprise.githubcopilot.com, header: Authorization, format: Bearer %s}
+          - {domain: api.github.com, header: Authorization, format: Bearer %s}
+          - {domain: api.githubcopilot.com, header: Authorization, format: Bearer %s}
+          - {domain: api.individual.githubcopilot.com, header: Authorization, format: Bearer %s}
+          - {domain: copilot.github.com, header: Authorization, format: Bearer %s}
+          - {domain: github.com, header: Authorization, format: Bearer %s}
+          - {domain: raw.githubusercontent.com, header: Authorization, format: Bearer %s}
+
+  - type: com.docker.sandbox/credential@1
+    optional: true
+    description: Google AI API access
+    config:
+      service: google
+      phase: runtime
+      apiKey:
+        # OpenCode's Google provider reads this name, not GOOGLE_API_KEY.
+        name: GOOGLE_GENERATIVE_AI_API_KEY
+        proxyManaged: true
+        inject:
+          - {domain: aiplatform.googleapis.com, header: x-goog-api-key, format: "%s"}
+          - {domain: generativelanguage.googleapis.com, header: x-goog-api-key, format: "%s"}
+          - {domain: oauth2.googleapis.com, header: x-goog-api-key, format: "%s"}
+          - {domain: vertexai.googleapis.com, header: x-goog-api-key, format: "%s"}
+
+  - type: com.docker.sandbox/credential@1
+    optional: true
+    description: Groq API access
+    config:
+      service: groq
+      phase: runtime
+      apiKey:
+        name: GROQ_API_KEY
+        proxyManaged: true
+        inject:
+          - {domain: api.groq.com, header: Authorization, format: Bearer %s}
+
+  - type: com.docker.sandbox/credential@1
+    optional: true
+    description: OpenAI API access (API key or ChatGPT OAuth)
+    config:
+      service: openai
+      phase: runtime
+      apiKey:
+        name: OPENAI_API_KEY
+        proxyManaged: true
+        inject:
+          - {domain: api.openai.com, header: Authorization, format: Bearer %s}
+          - {domain: openai.com, header: Authorization, format: Bearer %s}
+      # A ChatGPT-subscription token is only accepted at the Codex backend
+      # host. OpenCode's codex auth plugin keys off an "openai" oauth entry in
+      # auth.json, rewrites /v1/responses to chatgpt.com/backend-api/codex, and
+      # sends the entry's access value as the bearer -- the sentinel below is
+      # what reaches the proxy for substitution. `expires` carries the host
+      # token's real expiry so OpenCode refreshes through the intercepted token
+      # endpoint instead of pinning a token it cannot renew.
+      #
+      # MIGRATION NOTE: v2's `oauth.skipIfEnv: [OPENAI_API_KEY]` is dropped.
+      # Mode resolution is binding-driven in v3, so declaring both `apiKey` and
+      # `oauth` means "whichever the host has bound" and the descriptor no
+      # longer probes its own container's environment to decide.
+      oauth:
+        tokenEndpoint: {host: auth.openai.com, path: /oauth/token}
+        resourceHosts:
+          - chatgpt.com
+        sentinels:
+          accessToken: oai-oat01-proxy-managed
+          refreshToken: oai-ort01-proxy-managed
+        credentialFile:
+          path: "~/.local/share/opencode/auth.json"
+          # A structure rather than a raw template, so the rendered file is
+          # JSON by construction: a placeholder carrying a quote or a newline
+          # cannot break the document.
+          structure:
+            openai:
+              type: oauth
+              access: "{{.AccessToken}}"
+              refresh: "{{.RefreshToken}}"
+              expires: "{{.ExpiresAt}}"
+
+  - type: com.docker.sandbox/credential@1
+    optional: true
+    description: OpenRouter API access
+    config:
+      service: openrouter
+      phase: runtime
+      apiKey:
+        name: OPENROUTER_API_KEY
+        proxyManaged: true
+        inject:
+          - {domain: openrouter.ai, header: Authorization, format: Bearer %s}
+
+  - type: com.docker.sandbox/credential@1
+    optional: true
+    description: xAI API access
+    config:
+      service: xai
+      phase: runtime
+      apiKey:
+        name: XAI_API_KEY
+        proxyManaged: true
+        inject:
+          - {domain: api.x.ai, header: Authorization, format: Bearer %s}
+
+  - type: com.docker.sandbox/lifecycle@1
+    config:
+      startup:
+        # The workload's `apt-get update` hook is deliberately absent: it
+        # refreshes the base image's own package sources, which belong to the
+        # base workload, and this kit does not declare that base's apt hosts.
+        #
+        # sandboxd injects MCP_GATEWAY_URL + MCP_SENTINEL_TOKEN_NAME into the
+        # container env when a gateway has been reserved. The sentinel name is
+        # not a credential -- the proxy substitutes the real token at request
+        # time keyed by this name. No-op when MCP isn't enabled.
+        #
+        # OpenCode owns ~/.config/opencode/opencode.json outright (there are no
+        # baseline keys to preserve), so the file is written fresh rather than
+        # merged, as in the workload. The heredoc is unquoted so the two
+        # environment variables expand, which is why `$schema` is
+        # backslash-escaped: unescaped it would expand to the empty string and
+        # the config would lose its schema reference.
+        #
+        # Hook environments are deny-by-default in v3, so the two MCP variables
+        # are declared. $HOME is platform baseline.
+        - command:
+            - sh
+            - -c
+            - |
+              set -e
+              [ -n "$MCP_GATEWAY_URL" ] || exit 0
+              mkdir -p "$HOME/.config/opencode"
+              cat > "$HOME/.config/opencode/opencode.json" <<EOF
+              {
+                "\$schema": "https://opencode.ai/config.json",
+                "mcp": {
+                  "mcp-gateway": {
+                    "type": "remote",
+                    "url": "$MCP_GATEWAY_URL",
+                    "enabled": true,
+                    "headers": {
+                      "Authorization": "Bearer $MCP_SENTINEL_TOKEN_NAME"
+                    }
+                  }
+                }
+              }
+              EOF
+          user: "agent"
+          env: [MCP_GATEWAY_URL, MCP_SENTINEL_TOKEN_NAME]
+          description: Register the sandbox MCP gateway in ~/.config/opencode/opencode.json
+
+        # OpenCode's github-copilot plugin sends auth.json's `refresh` value as
+        # the Copilot Bearer, so the GH_TOKEN sentinel rides the github inject
+        # rules declared above rather than a second credential entry. GH_TOKEN
+        # is ambient -- the host supplies it -- and is deliberately NOT the
+        # github credential's `apiKey.name`, which stays empty above.
+        #
+        # This hook needs `jq` and `flock`, which it expects from the base
+        # workload rather than from this overlay; every sandbox-templates base
+        # ships both. It exits without seeding rather than failing if the seed
+        # cannot be built.
+        - command:
+            - sh
+            - -c
+            - |
+              set -e
+              umask 077
+              # Local sandboxes always carry GH_TOKEN and say via the mode var whether a
+              # credential backs it; cloud sets GH_TOKEN only when one does and no mode var.
+              [ -n "${GH_TOKEN:-}" ] || exit 0
+              [ "${SBX_CRED_GITHUB_MODE:-}" != none ] || exit 0
+              auth="$HOME/.local/share/opencode/auth.json"
+              mkdir -p "$(dirname "$auth")"
+              # A canceled start can leave its seed running; retries must recheck auth.json after it finishes.
+              exec 9>>"$(dirname "$auth")/.copilot-seed.lock"
+              flock 9
+              # mv would nest the seed inside a directory here and still exit 0.
+              if [ -e "$auth" ] && [ ! -f "$auth" ]; then
+                echo "auth.json is not a regular file; leaving the GitHub Copilot provider unseeded" >&2
+                exit 0
+              fi
+              # Every start re-fires this seed. One pass keeps an entry that fits OpenCode's Oauth schema and still
+              # carries the token as refresh (so an exchanged access survives), leaves a malformed file alone, and re-seeds the rest.
+              if ! merged=$({ if [ -s "$auth" ]; then cat "$auth"; else echo '{}'; fi; } | jq -s --arg token "$GH_TOKEN" '
+                  if length != 1 or (.[0] | type) != "object" then error("auth.json must hold exactly one JSON object")
+                  elif (.[0]."github-copilot" | type == "object" and .type == "oauth" and .refresh == $token
+                        and (.access | type) == "string" and (.expires | type == "number" and . >= 0 and . == floor)
+                        and ((has("accountId") | not) or (.accountId | type) == "string")
+                        and ((has("enterpriseUrl") | not) or (.enterpriseUrl | type) == "string")) then empty
+                  else .[0] | ."github-copilot" = {type: "oauth", refresh: $token, access: $token, expires: 0} end'); then
+                echo "auth.json is not a single JSON object; leaving the GitHub Copilot provider unseeded" >&2
+                exit 0
+              fi
+              [ -n "$merged" ] || exit 0
+              # The temp name is unpredictable, so a stale or crashed leftover is never installed. The
+              # same uid owns this directory, so no write pattern here is a boundary against a co-resident process.
+              tmp=$(mktemp "$(dirname "$auth")/auth.json.XXXXXX")
+              trap 'rm -f "$tmp"' EXIT
+              printf '%s\n' "$merged" > "$tmp"
+              mv -f "$tmp" "$auth"
+          user: "agent"
+          env: [GH_TOKEN, SBX_CRED_GITHUB_MODE]
+          description: Seed OpenCode's GitHub Copilot provider from the GH_TOKEN sentinel
+
+  # No agent-sessions@1 and no agent-skills@1, the same calls the workload
+  # makes: the v2 TCK data omitted `promptArgs` because no provider credential
+  # exists on the runner to answer a prompt, and nothing in this kit ever named
+  # a skills directory for opencode.
+
+  - type: com.docker.sandbox/agent-context@1
+    config:
+      contentFile: ./opencode-mixin-context.md

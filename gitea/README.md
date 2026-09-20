@@ -49,7 +49,7 @@ The stored token is the same sentinel that lives in `GITEA_TOKEN`, so `tea` send
 
 The login is written directly rather than through `tea login add`, because `tea login add` calls the instance to validate the token and would fail sandbox creation whenever no credential is bound.
 
-To bump the pinned version, change `TEA_VERSION` and both per-arch checksums in `spec.yaml`, sourced from `https://dl.gitea.com/tea/<version>/tea-<version>-linux-<arch>.sha256`.
+To bump the pinned version, change `TEA_VERSION` and both per-arch checksums in `gitea.yaml`, sourced from `https://dl.gitea.com/tea/<version>/tea-<version>-linux-<arch>.sha256`.
 
 ### Why git over HTTPS works here, but not in the `gitlab` kit
 

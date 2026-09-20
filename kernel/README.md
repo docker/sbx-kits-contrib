@@ -44,8 +44,8 @@ The kit works with any agent that ships npm. It installs the `kernel` CLI
 globally so the agent can run `kernel browsers create`, `kernel browsers list`,
 and so on directly from the terminal.
 
-A quick-reference guide is dropped at `/home/agent/.kernel/quickstart.md`
-on every sandbox start.
+A quick-reference guide rides the kit's overlay layer, so it is already at
+`/home/agent/.kernel/quickstart.md` when the agent starts.
 
 ## Adding the SDK to your project
 
@@ -71,12 +71,15 @@ PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 pip install kernel playwright
 
 The kit declares two things:
 
-- `credentials[].apiKey.inject` maps `api.onkernel.com` to the `kernel`
-  credential, telling the proxy to inject `Authorization: Bearer <key>` on
-  outbound requests to that host.
-- `permissions.network.allow` uses `*.onkernel.com` to also permit CDP
-  WebSocket proxy URLs (`wss://proxy.<region>.onkernel.com:8443/...`),
-  which don't get auth injection.
+- A `com.docker.sandbox/credential@1` capability whose `apiKey.inject` maps
+  `api.onkernel.com` to the `kernel` credential, telling the proxy to inject
+  `Authorization: Bearer <key>` on outbound requests to that host.
+- A `com.docker.sandbox/network-policy@1` capability whose `runtime.allow`
+  uses `*.onkernel.com` to also permit CDP WebSocket proxy URLs
+  (`wss://proxy.<region>.onkernel.com:8443/...`), which don't get auth
+  injection. `api.onkernel.com` is listed literally beside the wildcard as
+  well: an inject domain has to appear in the same phase's allow list by
+  exact host, which keeps the injection rule auditable against the list.
 
 The inject domain is intentionally narrow (just the REST API host). A wildcard
 there would put the proxy into TLS-intercept mode for all `*.onkernel.com`
@@ -92,8 +95,8 @@ request time. The real key comes from the host secret stored under the
 
 | Component | Location | How |
 | --- | --- | --- |
-| `kernel` CLI | `/usr/local/bin/kernel` (global) | `npm install -g @onkernel/cli` at creation time |
-| Quick-reference guide | `/home/agent/.kernel/quickstart.md` | Static file from `files/` |
+| `kernel` CLI | `/usr/local/bin/kernel` (global) | `npm install -g @onkernel/cli`, a lifecycle install hook at creation time |
+| Quick-reference guide | `/home/agent/.kernel/quickstart.md` | Static file from `files/`, carried in the kit's overlay layer by `kernel.dockerfile` |
 
 ## Cleanup
 

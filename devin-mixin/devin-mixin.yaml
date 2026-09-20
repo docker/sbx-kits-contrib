@@ -1,0 +1,216 @@
+# syntax=docker/sandbox-kit:3
+# Devin as a MIXIN: the same declarations as the standalone workload kit
+# (../devin), minus what only the kit that owns the environment can carry --
+# the entrypoint (the base workload's launch command stays; run `devin` in the
+# shell), the context-file profile (filename is workload-only; this kit
+# contributes contentFile alone), sbx@1 (a mixin's image config never becomes
+# the composed image's) and the base's own apt mirrors and cache-refresh hook.
+schemaVersion: "3"
+displayName: Devin (mixin)
+description: >-
+  Devin CLI by Cognition as a mixin -- the CLI and its auth wrapper in an
+  overlay, with the passthrough Devin credential, its rendered
+  credentials.toml, and the config and MCP seeds. Layer it onto a shell base
+  and run `devin`.
+sourceUrl: https://devin.ai
+
+kind: mixin
+
+# The KIT's version, not Devin CLI's. The binary inside the overlay floats --
+# Cognition's install.sh takes its target from a manifest it fetches itself and
+# exposes no version variable a caller can set -- so there is no pin to declare
+# and this is the fallback publishing uses for the unversioned provide.
+version: "1.0.0"
+
+provides: ["devin"]
+
+capabilities:
+  # The agent's own egress rides with the kit that ships the agent: the base
+  # grants nothing for services it doesn't carry. Runtime only -- the CLI is
+  # installed at image build (see devin-mixin.dockerfile), and the MCP hook
+  # below is a startup hook, which runs at boot in the runtime phase and
+  # reaches nothing off-box anyway.
+  #
+  # MIGRATION NOTE: v2's allow list also carried archive.ubuntu.com,
+  # security.ubuntu.com, ports.ubuntu.com and download.docker.com, for the apt
+  # cache-refresh hook. Both the hosts and the hook stay with the workload:
+  # they describe the base image's package sources, which an overlay does not
+  # own and cannot know. A base that refreshes its own apt cache declares them.
+  #
+  # Entries are portless, this repo's house style: a portless pattern matches
+  # any port.
+  - type: com.docker.sandbox/network-policy@1
+    config:
+      runtime:
+        allow:
+          # Devin's own hosts, collapsed to the vendor's wildcard rather than
+          # enumerated. api.devin.ai is the API the CLI talks to and the OAuth
+          # token endpoint below; app.devin.ai serves the sign-in page the auth
+          # wrapper hands the user off to; cli.devin.ai serves install.sh and
+          # static.devin.ai serves the manifest and versioned bundle it reads
+          # (background self-update is off, see the config seed below). Scope
+          # stays the vendor's domain -- a new devin.ai subdomain doesn't
+          # strand the kit under deny-all the way an enumerated list would. The
+          # bare apex is deliberately not listed: nothing here requests it, and
+          # the wildcard matches one label, never zero.
+          - "*.devin.ai"
+          # MIGRATION NOTE: api.devin.ai is now ALSO listed literally. v2's
+          # coverage check was wildcard-aware, so the entry above satisfied it
+          # for the inject domain; v3 checks inject-within-allow by exact host
+          # match and deliberately does not expand narrower globs, so a
+          # published inject domain stays auditable against the list. The
+          # literal grants nothing the wildcard did not already cover.
+          - api.devin.ai
+          # Alternate sign-in host. Which of app.devin.ai and windsurf.com an
+          # account is sent to is decided server-side, so both are allowed
+          # rather than betting on one and leaving half of all accounts unable
+          # to log in.
+          - windsurf.com
+          # Devin CLI is built on the Windsurf/Codeium codebase, and the model
+          # and seat backends still live on the Codeium host -- without this
+          # the CLI authenticates and then cannot answer a prompt.
+          # unleash.codeium.com is its feature-flag service, and it is not
+          # inert: with that host blocked the CLI was observed handing out the
+          # windsurf.com sign-in URL instead of the app.devin.ai one.
+          - server.codeium.com
+          - unleash.codeium.com
+          #
+          # Deliberately absent, as in the workload: the Sentry crash-reporting
+          # ingest host, server-beta.codeium.com, and registry.npmjs.org and
+          # the GitHub hosts (Devin reaches those only for things the user
+          # starts, and a kit that allowed them by default would widen every
+          # sandbox's egress for a path most sessions never take).
+
+  # One service, two halves of one contract. Devin's sign-in is a browser PKCE
+  # flow, but the credential the CLI actually authenticates with afterwards is
+  # not what that exchange returns -- the exchange yields a short-lived
+  # intermediate that the CLI immediately spends to mint the account's durable
+  # key. So `oauth` describes the sign-in, `apiKey` describes what the proxy
+  # injects on every request after it, and both belong to the one `devin`
+  # service the host binds under.
+  #
+  # Optional, matching the workload and v2: an unbound sandbox is the normal
+  # starting point for this agent -- the auth wrapper runs Devin's own login
+  # flow -- so a required entry would take away the working configuration
+  # rather than protect one.
+  - type: com.docker.sandbox/credential@1
+    optional: true
+    description: Devin account credential captured during in-sandbox login
+    config:
+      service: devin
+      phase: runtime
+      # Inject-only, v3's name for what v2 spelled `name: ""`: Devin CLI does
+      # not read its credential from an environment variable at all, it reads
+      # credentials.toml, which the oauth block below renders. No variable is
+      # created for it, not even a sentinel.
+      apiKey:
+        inject:
+          # Both hosts carry the durable key as a bearer. server.codeium.com is
+          # the model/seat backend; api.devin.ai is Devin's own API.
+          - {domain: server.codeium.com, header: Authorization, format: "Bearer %s"}
+          - {domain: api.devin.ai, header: Authorization, format: "Bearer %s"}
+      oauth:
+        # PKCE code exchange. app.devin.ai serves the sign-in page;
+        # api.devin.ai takes the exchange, which is why the token endpoint
+        # names the latter.
+        tokenEndpoint: {host: api.devin.ai, path: /auth/cli/token}
+        # Where the captured bearer is used, as distinct from where it is
+        # refreshed -- a separate declaration from the inject list above and
+        # the allow list, none of which implies the others.
+        resourceHosts:
+          - server.codeium.com
+          - api.devin.ai
+        # The exchange returns exactly one field, `token`. Both response fields
+        # name it deliberately: the engine reads an access AND a refresh token
+        # and forwards the response unpersisted if either is empty -- a guard
+        # against storing half a credential -- so pointing both at the one
+        # field is what makes a single-token provider capturable at all.
+        responseFields:
+          accessToken: token
+          refreshToken: token
+        # No `sentinels:`, which is legal only because passthrough is set, and
+        # the two go together for one reason: the container must receive the
+        # REAL intermediate token. The CLI immediately embeds it in a protobuf
+        # request that mints the durable key, and header-level sentinel
+        # substitution cannot reach inside a protobuf body -- so a masked token
+        # would fail sign-in outright rather than degrade. The intermediate is
+        # spent within seconds, and the durable key that follows it never
+        # reaches the container in usable form: the file below is rendered with
+        # the proxy's placeholder, and the auth wrapper rewrites any local copy
+        # back to that placeholder before the agent starts.
+        passthrough: true
+        credentialFile:
+          path: "~/.local/share/devin/credentials.toml"
+          # v2 wrote this as a Go template because `structure:` encoded JSON
+          # and this file is TOML. `format: toml` lifts exactly that
+          # limitation, so the same declarative map produces the same file. The
+          # three URL lines are the CLI's own defaults, restated because the
+          # file is written whole rather than merged.
+          format: toml
+          structure:
+            api_server_url: "https://server.codeium.com"
+            devin_webapp_host: "app.devin.ai"
+            devin_api_url: "https://api.devin.ai"
+            windsurf_api_key: "{{.PrimaryApiKey}}"
+
+  - type: com.docker.sandbox/lifecycle@1
+    config:
+      files:
+        # Devin CLI updates itself in the background by default, which inside a
+        # sandbox means an unannounced binary swap under a running session and
+        # egress to cli.devin.ai/static.devin.ai that nobody asked for. Turning
+        # it off leaves `devin update` available for a user who wants it.
+        #
+        # v2's `onlyIfMissing: true` is spelled `overwrite: false` in v3: a
+        # user who edits this file -- Devin's general settings file, not a
+        # kit-owned one -- keeps their edit across restarts.
+        - path: /home/agent/.config/devin/config.json
+          content: '{"auto_update": false}'
+          overwrite: false
+          description: Disable Devin background updates
+      startup:
+        # Gateway-first MCP registration; the hook no-ops when no gateway has
+        # been reserved for the sandbox. The sentinel is a NAME, not a
+        # credential -- the proxy substitutes the real token per request, keyed
+        # by it. Hook environments are deny-by-default in v3, so the two
+        # variables this reads are declared; $HOME is platform baseline.
+        #
+        # The config is written directly rather than by shelling out to
+        # `devin mcp add`: it puts the exact key names in the descriptor,
+        # instead of behind a CLI whose output shape nothing here asserts. The
+        # file is written whole rather than merged because Devin keeps MCP
+        # servers in mcp_config.json alone -- its other settings live in the
+        # sibling config.json, which the file entry above writes separately.
+        #
+        # Note `transport`, not `type` (Codex's and opencode's spelling), not
+        # `httpUrl` (Gemini's), and not `http_headers` (Codex's spelling of
+        # `headers`).
+        #
+        # Startup rather than install, and safe there: a whole-file rewrite
+        # with deterministic content converges rather than accumulating.
+        - command: |
+            set -e
+            [ -n "$MCP_GATEWAY_URL" ] || exit 0
+            mkdir -p "$HOME/.config/devin"
+            cat > "$HOME/.config/devin/mcp_config.json" <<EOF
+            {
+              "mcpServers": {
+                "mcp-gateway": {
+                  "url": "$MCP_GATEWAY_URL",
+                  "transport": "http",
+                  "headers": {
+                    "Authorization": "Bearer $MCP_SENTINEL_TOKEN_NAME"
+                  }
+                }
+              }
+            }
+            EOF
+          user: "agent"
+          env: [MCP_GATEWAY_URL, MCP_SENTINEL_TOKEN_NAME]
+          description: Register the sandbox MCP gateway
+
+  # contentFile alone: `filename` is workload-only, the profile belonging to
+  # the kit that owns the environment.
+  - type: com.docker.sandbox/agent-context@1
+    config:
+      contentFile: ./devin-mixin-context.md

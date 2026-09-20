@@ -1,0 +1,254 @@
+# syntax=docker/sandbox-kit:3
+# Crush as a MIXIN: the same declarations as the standalone workload kit
+# (../crush), minus what only the kit that owns the environment can carry --
+# the entrypoint (the base workload's launch command stays; run `crush --yolo`
+# in the shell), the context-file profile (filename is workload-only; this kit
+# contributes contentFile alone), agent-sessions (the verbs drive the
+# workload's entrypoint, which is the base's shell) and sbx@1 (a mixin's image
+# config never becomes the composed image's).
+schemaVersion: "3"
+displayName: Crush (mixin)
+description: >-
+  Charm's multi-provider AI coding agent as a mixin -- the Crush binary in an
+  overlay, with proxy-mediated auth for 15 model providers and the egress they
+  need. Layer it onto a shell base and run `crush`.
+
+kind: mixin
+
+# The install floats by design -- `apt-get install crush` resolves whatever
+# Charm's apt repo currently serves, and the nightly rebuild keeps it current
+# -- so there is no pin to declare and `version:` is the fallback publishing
+# uses for the unversioned provide.
+version: "1.0.0"
+
+provides: ["crush"]
+
+capabilities:
+  # The agent's own egress rides with the kit that ships the agent: the base
+  # grants nothing for services it does not carry. Runtime only -- the apt
+  # install happens at image build (see crush-mixin.dockerfile), which no
+  # network-policy phase governs, and this kit declares no hooks.
+  #
+  # What is listed is exactly the provider hosts the credentials inject into:
+  # inject domains are not allowed implicitly, and v3 validates that each one
+  # appears in the matching phase's allow list.
+  - type: com.docker.sandbox/network-policy@1
+    config:
+      runtime:
+        allow:
+          - api.anthropic.com
+          - api.openai.com
+          - '*.openai.azure.com'
+          - generativelanguage.googleapis.com
+          - api.mistral.ai
+          - api.groq.com
+          - groq.com
+          - api.cerebras.ai
+          - openrouter.ai
+          - api-inference.huggingface.co
+          - api.io.net
+          - api.minimax.chat
+          - api.synthetic.com
+          - api.zai.com
+          - v0.dev
+          # Middle-position wildcards (bedrock.*.amazonaws.com) are not part of
+          # the allow-entry grammar, so Bedrock regions are listed explicitly.
+          # Using another region? Extend both this list and the aws inject list.
+          - bedrock-runtime.us-east-1.amazonaws.com
+          - bedrock.us-east-1.amazonaws.com
+          - bedrock-runtime.us-east-2.amazonaws.com
+          - bedrock.us-east-2.amazonaws.com
+          - bedrock-runtime.us-west-2.amazonaws.com
+          - bedrock.us-west-2.amazonaws.com
+          - bedrock-runtime.eu-central-1.amazonaws.com
+          - bedrock.eu-central-1.amazonaws.com
+
+  # Fifteen provider services, every one optional: the user binds whichever
+  # providers they actually use, and the other fourteen do not fail create.
+  # Service names are the keys a host binds a secret under and the keys the
+  # proxy routes on -- renaming one here silently detaches it from the binding.
+  - type: com.docker.sandbox/credential@1
+    optional: true
+    description: Anthropic API access
+    config:
+      service: anthropic
+      phase: runtime
+      apiKey:
+        name: ANTHROPIC_API_KEY
+        proxyManaged: true
+        inject:
+          - {domain: api.anthropic.com, header: x-api-key, format: "%s"}
+  - type: com.docker.sandbox/credential@1
+    optional: true
+    description: AWS Bedrock access
+    config:
+      service: aws
+      phase: runtime
+      apiKey:
+        name: AWS_ACCESS_KEY_ID
+        proxyManaged: true
+        # Same explicit regions as the allow list above: an inject domain is
+        # matched against the request host, so a middle wildcard never fires.
+        inject:
+          - {domain: bedrock-runtime.us-east-1.amazonaws.com, header: Authorization, format: "AWS4-HMAC-SHA256 Credential=%s/"}
+          - {domain: bedrock.us-east-1.amazonaws.com, header: Authorization, format: "AWS4-HMAC-SHA256 Credential=%s/"}
+          - {domain: bedrock-runtime.us-east-2.amazonaws.com, header: Authorization, format: "AWS4-HMAC-SHA256 Credential=%s/"}
+          - {domain: bedrock.us-east-2.amazonaws.com, header: Authorization, format: "AWS4-HMAC-SHA256 Credential=%s/"}
+          - {domain: bedrock-runtime.us-west-2.amazonaws.com, header: Authorization, format: "AWS4-HMAC-SHA256 Credential=%s/"}
+          - {domain: bedrock.us-west-2.amazonaws.com, header: Authorization, format: "AWS4-HMAC-SHA256 Credential=%s/"}
+          - {domain: bedrock-runtime.eu-central-1.amazonaws.com, header: Authorization, format: "AWS4-HMAC-SHA256 Credential=%s/"}
+          - {domain: bedrock.eu-central-1.amazonaws.com, header: Authorization, format: "AWS4-HMAC-SHA256 Credential=%s/"}
+  - type: com.docker.sandbox/credential@1
+    optional: true
+    description: Azure OpenAI access
+    config:
+      service: azure-openai
+      phase: runtime
+      apiKey:
+        name: AZURE_OPENAI_API_KEY
+        proxyManaged: true
+        inject:
+          - {domain: '*.openai.azure.com', header: api-key, format: "%s"}
+  - type: com.docker.sandbox/credential@1
+    optional: true
+    description: Cerebras API access
+    config:
+      service: cerebras
+      phase: runtime
+      apiKey:
+        name: CEREBRAS_API_KEY
+        proxyManaged: true
+        inject:
+          - {domain: api.cerebras.ai, header: Authorization, format: "Bearer %s"}
+  # v1 also accepted GOOGLE_GENERATIVE_AI_API_KEY as a fallback host env var
+  # name for this credential. apiKey.name is a single string with no alias list
+  # in v2 or v3, so only one host env var can be recognized here; GEMINI_API_KEY
+  # is Google's current canonical name for this key, so it's the one kept.
+  - type: com.docker.sandbox/credential@1
+    optional: true
+    description: Google AI API access
+    config:
+      service: google
+      phase: runtime
+      apiKey:
+        name: GEMINI_API_KEY
+        proxyManaged: true
+        inject:
+          - {domain: generativelanguage.googleapis.com, header: x-goog-api-key, format: "%s"}
+  - type: com.docker.sandbox/credential@1
+    optional: true
+    description: Groq API access
+    config:
+      service: groq
+      phase: runtime
+      apiKey:
+        name: GROQ_API_KEY
+        proxyManaged: true
+        inject:
+          - {domain: api.groq.com, header: Authorization, format: "Bearer %s"}
+          - {domain: groq.com, header: Authorization, format: "Bearer %s"}
+  - type: com.docker.sandbox/credential@1
+    optional: true
+    description: Hugging Face inference access
+    config:
+      service: huggingface
+      phase: runtime
+      apiKey:
+        name: HF_TOKEN
+        proxyManaged: true
+        inject:
+          - {domain: api-inference.huggingface.co, header: Authorization, format: "Bearer %s"}
+  - type: com.docker.sandbox/credential@1
+    optional: true
+    description: io.net API access
+    config:
+      service: ionet
+      phase: runtime
+      apiKey:
+        name: IONET_API_KEY
+        proxyManaged: true
+        inject:
+          - {domain: api.io.net, header: Authorization, format: "Bearer %s"}
+  - type: com.docker.sandbox/credential@1
+    optional: true
+    description: MiniMax API access
+    config:
+      service: minimax
+      phase: runtime
+      apiKey:
+        name: MINIMAX_API_KEY
+        proxyManaged: true
+        inject:
+          - {domain: api.minimax.chat, header: Authorization, format: "Bearer %s"}
+  - type: com.docker.sandbox/credential@1
+    optional: true
+    description: Mistral API access
+    config:
+      service: mistral
+      phase: runtime
+      apiKey:
+        name: MISTRAL_API_KEY
+        proxyManaged: true
+        inject:
+          - {domain: api.mistral.ai, header: Authorization, format: "Bearer %s"}
+  - type: com.docker.sandbox/credential@1
+    optional: true
+    description: OpenAI API access
+    config:
+      service: openai
+      phase: runtime
+      apiKey:
+        name: OPENAI_API_KEY
+        proxyManaged: true
+        inject:
+          - {domain: api.openai.com, header: Authorization, format: "Bearer %s"}
+  - type: com.docker.sandbox/credential@1
+    optional: true
+    description: OpenRouter API access
+    config:
+      service: openrouter
+      phase: runtime
+      apiKey:
+        name: OPENROUTER_API_KEY
+        proxyManaged: true
+        inject:
+          - {domain: openrouter.ai, header: Authorization, format: "Bearer %s"}
+  - type: com.docker.sandbox/credential@1
+    optional: true
+    description: Synthetic API access
+    config:
+      service: synthetic
+      phase: runtime
+      apiKey:
+        name: SYNTHETIC_API_KEY
+        proxyManaged: true
+        inject:
+          - {domain: api.synthetic.com, header: Authorization, format: "Bearer %s"}
+  - type: com.docker.sandbox/credential@1
+    optional: true
+    description: Vercel v0 API access
+    config:
+      service: vercel
+      phase: runtime
+      apiKey:
+        name: VERCEL_API_KEY
+        proxyManaged: true
+        inject:
+          - {domain: v0.dev, header: Authorization, format: "Bearer %s"}
+  - type: com.docker.sandbox/credential@1
+    optional: true
+    description: Z.ai API access
+    config:
+      service: zai
+      phase: runtime
+      apiKey:
+        name: ZAI_API_KEY
+        proxyManaged: true
+        inject:
+          - {domain: api.zai.com, header: Authorization, format: "Bearer %s"}
+
+  # contentFile alone: `filename` is workload-only, the profile belonging to
+  # the kit that owns the environment.
+  - type: com.docker.sandbox/agent-context@1
+    config:
+      contentFile: ./crush-mixin-context.md

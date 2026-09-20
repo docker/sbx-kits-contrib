@@ -1,0 +1,131 @@
+# syntax=docker/sandbox-kit:3
+# Migration of the v2 `vibe` sandbox kit (Mistral Vibe). v2 pointed
+# `sandbox.image` at docker.io/sbx/vibe-image:latest, a pre-baked image built
+# from the Dockerfile in this directory; a v3 workload's layers *are* the root
+# filesystem, so the two collapse into one recipe (vibe.dockerfile) and v2's
+# environment.variables and sandbox.entrypoint move into the image config.
+# Usage, prerequisites and design notes: see README.md in this directory.
+# Deltas are marked MIGRATION NOTE inline.
+schemaVersion: "3"
+displayName: Mistral Vibe
+description: Mistral AI's open source coding agent, with its API key injected by the sandbox proxy
+licenses: [Apache-2.0]
+
+kind: workload
+
+# The install floats: VIBE_VERSION defaults to `latest` and the nightly
+# rebuild is the update mechanism, so there is no pin for a provide to quote.
+# The provide is unversioned and the v2 `version:` below answers for it.
+version: "0.1.0"
+provides: ["vibe"]
+
+# The agent profile Vibe starts with. Overridable at install time:
+#   sbx run --kit docker.io/sbx/vibe-kit:latest --kit-arg agent=plan vibe
+#
+# MIGRATION NOTE: this is the one arg in this group whose phase had to be
+# chosen rather than carried. v2 substituted it straight into
+# `sandbox.entrypoint`, which the descriptor owned; in v3 the launch command
+# lives in the image config, which is baked at build. A `buildArg:` would
+# therefore freeze the profile at publish and silently drop the `--kit-arg
+# agent=plan` override the v2 kit documents, so the arg resolves at *create*
+# instead: `env:` exports the validated value into the container as
+# VIBE_AGENT, and the recipe's ENTRYPOINT reads it. The `pattern` still
+# bounds what an installer can materialize, exactly as in v2.
+args:
+  agent:
+    default: "auto-approve"
+    description: >-
+      Vibe agent to start: a builtin (ask, plan, accept-edits, auto-approve) or
+      a custom agent declared in ~/.vibe/agents/NAME.toml.
+    pattern: '^[A-Za-z0-9_-]+$'
+    env: VIBE_AGENT
+
+capabilities:
+  # v2 `kind: sandbox`: the host launches the agent rather than running the
+  # image's entrypoint as PID 1, and honors the identity the image config
+  # declares.
+  - type: com.docker.sandbox/sbx@1
+
+  # Every destination the kit needs, all of it reached by the running agent.
+  # The kit declares no install hooks, and Vibe is installed at build, so the
+  # install phase stays absent — and an absent phase grants nothing, which is
+  # the correct statement here. e2e runs under deny-all, so a host that is
+  # not listed is blocked -- see README, "Network".
+  #
+  # MIGRATION NOTE: v2 wrote every entry as `host:443`; they are carried
+  # portless for the contrib house style. Port suffixes are ignored for
+  # allow-list membership, so the grant is unchanged.
+  - type: com.docker.sandbox/network-policy@1
+    config:
+      runtime:
+        allow:
+          # Inference API (DEFAULT_MISTRAL_SERVER_URL).
+          - api.mistral.ai
+          # Vibe's own base URL (DEFAULT_VIBE_BASE_URL), which is also where
+          # the organization's admin-managed configuration is read at startup.
+          - chat.mistral.ai
+          # Console: the /whoami account and plan lookup, and the browser-auth
+          # base URL.
+          - console.mistral.ai
+          # Feature-flag / experiments service. Only reached when telemetry is
+          # enabled, which this kit disables in the recipe.
+          - experiments.mistral.services
+
+  # MIGRATION NOTE: `optional: true` preserves v2 behavior. v2 credentials
+  # default to not-required and v3's default inverts; Vibe starts and prompts
+  # for a key when nothing is bound, so a required entry would fail
+  # resolution on a host that never bound one.
+  - type: com.docker.sandbox/credential@1
+    optional: true
+    description: Mistral API key (https://console.mistral.ai/api-keys)
+    config:
+      service: mistral
+      phase: runtime
+      apiKey:
+        name: MISTRAL_API_KEY
+        # The container only ever sees a sentinel; the proxy substitutes the
+        # real key on the hosts listed below, and nowhere else.
+        proxyManaged: true
+        inject:
+          - {domain: api.mistral.ai, header: Authorization, format: "Bearer %s"}
+          # The two other hosts Vibe calls with the same key.
+          - {domain: chat.mistral.ai, header: Authorization, format: "Bearer %s"}
+          - {domain: console.mistral.ai, header: Authorization, format: "Bearer %s"}
+
+  # Keeps config.toml, sessions, logs, custom agents and .env across
+  # re-creations of a sandbox with the same name.
+  - type: com.docker.sandbox/volume@1
+    description: Vibe state — config, sessions, logs, custom agents
+    config: {path: /home/agent/.vibe, size: 1g}
+
+  - type: com.docker.sandbox/lifecycle@1
+    config:
+      startup:
+        # ~/.vibe is a block volume (above). It is mounted root-owned, so it
+        # has to be handed back to the agent user on every start, before Vibe
+        # writes to it. Idempotent, as every startup command must be. The
+        # command reads no environment variables, so it declares no `env:`.
+        - command: [sh, -c, "mkdir -p /home/agent/.vibe && chown agent:agent /home/agent/.vibe"]
+          user: "0"
+          description: Hand ~/.vibe (persistent volume) back to the agent user
+
+  # From the kit's testdata/tck.yaml, which recorded
+  # `promptArgs: ["--trust", "-p"]` -- Vibe's programmatic mode.
+  #
+  # MIGRATION NOTE: `--trust` is dropped from the tail. It was recorded there
+  # because the v2 e2e prompt subtest ran the binary through `sbx exec`, which
+  # bypassed `sandbox.entrypoint` and so had to re-supply the flag. A v3
+  # session verb is an argv *tail* appended to the workload's launch command,
+  # which already carries `--trust`, so repeating it here would restate a flag
+  # that is always present -- the dead half of the v2 recording.
+  - type: com.docker.sandbox/agent-sessions@1
+    description: Drive vibe non-interactively
+    config:
+      prompt: ["-p", "{{.Prompt}}"]
+
+  # Vibe loads ~/.vibe/AGENTS.md and every AGENTS.md from the project root up
+  # through the trust chain.
+  - type: com.docker.sandbox/agent-context@1
+    config:
+      filename: AGENTS.md
+      contentFile: ./vibe-context.md

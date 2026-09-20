@@ -1,0 +1,120 @@
+# syntax=docker/sandbox-kit:3
+# ZeroClaw as a MIXIN: the same declarations as the standalone workload kit
+# (../zeroclaw), minus what only the kit that owns the environment can carry --
+# the entrypoint (the base workload's launch command stays; run
+# `zeroclaw-start` or `zeroclaw daemon` from the shell), the context-file
+# profile (`filename` is workload-only, so this kit contributes `contentFile`
+# alone) and sbx@1 (a mixin's image config never becomes the composed image's).
+# agent-sessions was never declared for this kit either way -- no tck.yaml
+# recorded a non-interactive invocation.
+schemaVersion: "3"
+displayName: ZeroClaw (mixin)
+description: >-
+  ZeroClaw as a mixin — the pinned, digest-verified static binary in an
+  overlay, with the Anthropic credential (API key or claude.ai OAuth), the
+  published gateway port and the hook that resolves the credential into
+  config.toml. Layer it onto a shell base and run `zeroclaw`.
+sourceUrl: https://github.com/zeroclaw-labs/zeroclaw
+
+kind: mixin
+
+# Same pin as the workload. The version holds `0.8.0`: a v3 version carries no
+# `v` prefix, so the recipe spells the upstream tag `v${ZEROCLAW_VERSION}`.
+args:
+  version:
+    default: "0.8.0"
+    pattern: '^[0-9]+\.[0-9]+\.[0-9]+$'
+    description: ZeroClaw release to install
+    buildArg: ZEROCLAW_VERSION
+
+provides: ["zeroclaw@${{ kit.args.version }}"]
+
+capabilities:
+  # The agent's own egress rides with the kit that ships the agent: the base
+  # grants nothing for services it does not carry. Runtime-only, like the
+  # workload -- the release download happens at build, and the one hook here
+  # is a startup hook, which runs in the runtime phase. Entries are portless
+  # (the contrib house style) where v2 wrote `host:443`.
+  - type: com.docker.sandbox/network-policy@1
+    config:
+      runtime:
+        allow:
+          # Every domain the anthropic credential injects into; v3 validates
+          # that invariant at build time (SPEC-v3 §11).
+          - api.anthropic.com
+          - claude.ai
+          - console.anthropic.com
+          # The anthropic credential's OAuth token endpoint, for the refresh
+          # the proxy performs once the access token expires.
+          - platform.claude.com
+          - '*.telegram.org'
+          - '*.discord.com'
+          - gateway.discord.gg
+          - '*.matrix.org'
+          - '*.slack.com'
+
+  - type: com.docker.sandbox/port@1
+    config: {name: gateway, container: 42617}
+
+  # Optional, as in the workload: zeroclaw starts with the
+  # `__ANTHROPIC_API_KEY__` placeholder still in config.toml when nothing is
+  # bound, so a required entry would fail resolution on a host that never
+  # bound one.
+  - type: com.docker.sandbox/credential@1
+    optional: true
+    description: Anthropic API access (API key or claude.ai OAuth)
+    config:
+      service: anthropic
+      phase: runtime
+      apiKey:
+        name: ANTHROPIC_API_KEY
+        proxyManaged: true
+        inject:
+          - {domain: api.anthropic.com, header: x-api-key, format: "%s"}
+          - {domain: claude.ai, header: x-api-key, format: "%s"}
+          - {domain: console.anthropic.com, header: x-api-key, format: "%s"}
+      # For a host whose stored anthropic credential is an OAuth login --
+      # signed in from a `claude` sandbox rather than an API key. Without this
+      # block such a host gets no usable credential at all: the apiKey sentinel
+      # reaches Anthropic unswapped and every model call 401s.
+      #
+      # ZeroClaw reads its credential from config.toml, not from this file, so
+      # credentialFile serves two narrower purposes: it is what makes the OAuth
+      # path detectable from inside the sandbox (SBX_CRED_ANTHROPIC_MODE
+      # reports "none" even when this credential resolves, so it cannot
+      # discriminate oauth from apikey), and it carries the sentinel that
+      # zeroclaw-anthropic-key.sh templates into config.toml.
+      oauth:
+        tokenEndpoint: {host: platform.claude.com, path: /v1/oauth/token}
+        resourceHosts: [api.anthropic.com]
+        sentinels:
+          accessToken: sk-ant-oat01-proxy-managed
+          refreshToken: sk-ant-ort01-proxy-managed
+        credentialFile:
+          path: ~/.claude/.credentials.json
+          structure:
+            claudeAiOauth:
+              accessToken: "{{.AccessToken}}"
+              refreshToken: "{{.RefreshToken}}"
+              expiresAt: "{{.ExpiresAt}}"
+              scopes: "{{.Scopes}}"
+
+  - type: com.docker.sandbox/lifecycle@1
+    config:
+      startup:
+        # Runs on every container start, ahead of any attach. Idempotent --
+        # the placeholder it matches is gone after the first substitution.
+        #
+        # `env:` is what v3 adds: hook environments are deny-by-default, so
+        # ANTHROPIC_API_KEY (the API-key branch) is named here. In the mixin
+        # shape this matters more than in the workload: there is no entrypoint
+        # to re-run the script with a fuller environment, so this hook is the
+        # only pass.
+        - command: [sh, /home/agent/.local/bin/zeroclaw-anthropic-key.sh]
+          user: "1000"
+          env: [ANTHROPIC_API_KEY]
+          description: Resolve the host's Anthropic credential into config.toml at sandbox start
+
+  - type: com.docker.sandbox/agent-context@1
+    config:
+      contentFile: ./zeroclaw-mixin-context.md

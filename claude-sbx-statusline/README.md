@@ -48,10 +48,15 @@ sbx run claude --kit ./claude-sbx-statusline .
 
 ## How it works
 
-- **`files/home/.claude/statusline.sh`** is copied to `~/.claude/statusline.sh` at sandbox
-  start. The copy's mode is not guaranteed to keep the executable bit, so the install hook
-  below `chmod +x`es it — without that, Claude Code silently renders no status line. The
-  script receives the session JSON on stdin and prints the two lines.
+- **`files/home/.claude/statusline.sh`** is baked into the kit's overlay at
+  `/home/agent/.claude/statusline.sh`, so it arrives with the image rather than
+  being written per sandbox. (Under v2 it was packed from the `files/home/` tree
+  and copied in at create time; v3 has no `files/` convention — a mixin's layers
+  *are* its content — so [the recipe](./claude-sbx-statusline.dockerfile) COPYs
+  it. The source stays in place so the mapping is still legible.) The install hook
+  below still `chmod +x`es it, which is belt-and-braces now that `COPY` carries
+  the mode — without the executable bit Claude Code silently renders no status
+  line. The script receives the session JSON on stdin and prints the two lines.
 - **The `install` hook** (run as root) merges the `statusLine` block into
   `~/.claude/settings.json` with `jq`:
 

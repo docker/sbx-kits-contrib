@@ -1,0 +1,49 @@
+# syntax=docker/sandbox-kit:3
+# Migration of this kit's v2 spec.yaml. Deltas are marked MIGRATION NOTE inline.
+schemaVersion: "3"
+kind: mixin
+displayName: Claude Code (Docker Model Runner)
+description: Route Claude Code's Anthropic API calls to a local Docker Model Runner endpoint at host.docker.internal:12434.
+
+# MIGRATION NOTE: v2's `requires: {agent: claude}`, same name so it keeps
+# resolving against either shape of the claude kit. This kit reroutes Claude
+# Code's Anthropic API and is only meaningful on that base — as a mixin it just
+# overlays environment variables onto the base agent at compose time.
+requires: ["claude"]
+
+# MIGRATION NOTE: v2 pinned the model with a YAML anchor (`&model "gpt-oss"`,
+# referenced four times) so one edit switched every alias, and its README told
+# users to download spec.yaml and edit that anchor to change models. v3 has a
+# first-class way to say the same thing: the anchor becomes an arg the recipe
+# consumes, so the "edit one place" property survives AND an installer can set it
+# without forking the kit.
+args:
+  model:
+    default: "gpt-oss"
+    pattern: '^[A-Za-z0-9._/:-]+$'
+    description: Docker Model Runner model to pin every Claude Code alias to
+    buildArg: MODEL
+
+capabilities:
+  # MIGRATION NOTE: phase-scoped now. `runtime` only, and no `install` block: the
+  # kit downloads nothing at create, it just points a steady-state agent at a
+  # different endpoint.
+  - type: com.docker.sandbox/network-policy@1
+    config:
+      runtime:
+        allow:
+          # Every request this mixin reroutes goes here; without the entry the
+          # kit only works when some other kit happens to allow the host.
+          #
+          # MIGRATION NOTE: the port stays, against this repo's otherwise
+          # portless house style. That style is about public hosts where `:443`
+          # versus `:80` is noise; here the port is the point of the entry.
+          # `host.docker.internal` is the host itself, so dropping the suffix
+          # would widen the grant from one local model endpoint to every port the
+          # host has open.
+          - host.docker.internal:12434
+
+  # MIGRATION NOTE: no agent-context entry — v2 declared no `agentInstructions`,
+  # and the whole kit is transparent to the agent: it changes which endpoint
+  # answers, not how the agent is used. Nothing to tell it that it would not
+  # discover by working.

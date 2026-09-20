@@ -1,15 +1,19 @@
 # claude
 
-A standalone sandbox kit (`kind: sandbox`, `schemaVersion: "2"`) for
+A standalone workload kit (`kind: workload`, `schemaVersion: "3"`) for
 [Claude Code](https://code.claude.com), Anthropic's terminal coding agent. The
 kit runs `claude --dangerously-skip-permissions` as the entrypoint and declares
 one credential — `anthropic` — that the sandbox proxy resolves either as a
 console API key or as a Claude subscription, per request.
 
 `claude` was previously a built-in `sbx` agent, run as `sbx run claude`. This
-kit replaces that, and is backed by a base image built from the
-[`Dockerfile`](./Dockerfile) in this directory rather than by the
-`docker/sandbox-templates` release train.
+kit replaces that. Its content is built from the
+[`claude.dockerfile`](./claude.dockerfile) beside the descriptor rather than
+coming from the `docker/sandbox-templates` release train.
+
+Want Claude Code *added to* a sandbox rather than being the whole sandbox? Use
+[`claude-mixin`](../claude-mixin), which carries the same declarations as an
+overlay.
 
 > [!IMPORTANT]
 > **This kit does not load yet.** `sbx` refuses a kit whose name collides with
@@ -55,8 +59,9 @@ Or with a local clone of this repo:
 sbx run --kit ./claude/ claude
 ```
 
-The trailing `claude` is required, not redundant: for `kind: sandbox` kits,
-`sbx` enforces that the agent name matches the kit's own `name`.
+The trailing `claude` names the agent to run. A v3 descriptor carries no `name:`
+field — identity is the reference the kit is consumed by, and the matchable name
+is what [`provides`](./claude.yaml) states, which for this kit is `claude`.
 
 ## Passing arguments
 
@@ -96,7 +101,7 @@ every sandbox, and the session would try to authenticate as a console API key
 that may not exist.
 
 Without it, the variable is simply not populated, and the sentinel Claude Code
-is meant to send arrives by a different route: a `setup.install` hook writes
+is meant to send arrives by a different route: a lifecycle install hook writes
 `"apiKeyHelper": "echo proxy-managed"` into `~/.claude/settings.json` whenever a
 credential resolved, and the `inject` rules above swap the real value in at
 request time. The container never holds a usable key either way.
@@ -114,9 +119,10 @@ With a **Claude subscription** bound instead, the engine renders
 expiry, so Claude Code refreshes through the intercepted token endpoint at
 `platform.claude.com` and gets a response re-masked with the same sentinels.
 The file also carries `primaryApiKey` when the host holds a key minted from the
-subscription, and only then — which is why that file is declared as a template
-rather than the `structure:` map the spec prefers: a declarative map cannot
-express a conditional key.
+subscription, and only then. Under v2 that conditional key was why the file had
+to be declared as a Go template rather than a declarative map; v3's
+`credentialFile.structure` expresses it directly — `{{.PrimaryApiKey}}` omits its
+own key when no key is captured — so the kit now declares the map.
 
 ## Telemetry
 
@@ -135,7 +141,7 @@ Two broader switches exist and are deliberately **not** set:
 - `DO_NOT_TRACK` is the cross-tool convention, so it would silence every other
   tool in the sandbox too. That is not this kit's call to make on your behalf.
 
-`permissions.network.allow` correspondingly lists no telemetry or
+The kit's network policy correspondingly lists no telemetry or
 error-reporting host, which is the durable half of this: it holds even if the
 variable names change.
 
@@ -166,7 +172,7 @@ Subdirectories rather than all of `~/.claude/`, so kit-managed files —
 engine's OAuth hook on every create rather than being pinned by a stale volume.
 
 A block volume is formatted as ext4 at create time and its root directory comes
-out owned by root whatever the image had there, so a `setup.startup` hook
+out owned by root whatever the image had there, so a lifecycle startup hook
 re-owns exactly those five paths to `agent` on every container start. It is
 enumerated rather than recursive on purpose: `~/.claude/` also holds
 runtime-managed content this kit does not own.
@@ -195,11 +201,23 @@ every workspace regardless of the session's cwd.
 
 ## Network policy
 
-`permissions.network.allow` lists every host the credential injects into, the
-OAuth token endpoint, the release bucket `claude update` pulls from, Claude
+The `network-policy@1` capability lists every host the credential injects into,
+the OAuth token endpoint, the release bucket `claude update` pulls from, Claude
 Code's own web properties, the remote-control relay that lets claude.ai and the
 mobile app drive a session, and the apt sources the base image ships with —
 which the startup `apt-get update` fails wholesale without.
+
+A v3 policy is phase-scoped, and an absent phase grants nothing. Every entry
+here sits under `runtime`, and there is no `install` block at all: none of the
+kit's install hooks opens a socket — they write `~/.claude.json` and
+`~/.claude/settings.json` locally, and `claude mcp add` only edits the user
+config. The one host-reaching hook is the background `apt-get update`, which
+runs at boot and therefore in the runtime phase, so the apt sources belong there
+too.
+
+v3 also validates the pairing the v2 spec had to assert by hand: every
+credential inject domain must appear in the matching phase's allow list, or the
+build fails. All four of this kit's inject domains do.
 
 Entries carry no port. A portless pattern matches any port, and pinning the apt
 hosts to `:80` breaks as soon as a mirror answers over HTTPS, with that same
@@ -224,20 +242,35 @@ Two omissions are deliberate:
 > $ sbx policy log
 > ```
 >
-> then add the reported hosts to `permissions.network.allow` in `spec.yaml`.
+> then add the reported hosts to the `network-policy@1` capability's
+> `runtime.allow` list in [`claude.yaml`](./claude.yaml).
 
 ## Agent instructions
 
-The kit declares `agentInstructions.filename: CLAUDE.md`, which is the file
+The kit declares `agent-context@1` with `filename: CLAUDE.md`, which is the file
 composed kit context is written into, and Claude Code reads it from the project
-root every session. The kit also contributes content of its own to that file:
-the `CLAUDE_ENV_FILE` note, which explains that
-`/etc/sandbox-persistent.sh` is sourced before every Bash tool call and why
-shell-completion scripts must never be appended to it.
+root every session. `filename` is workload-only — the profile belongs to the kit
+that owns the environment — so the mixins that compose onto this one contribute
+bodies rather than naming a second profile.
+
+The kit also contributes content of its own to that file, from
+[`claude-context.md`](./claude-context.md): the `CLAUDE_ENV_FILE` note, which
+explains that `/etc/sandbox-persistent.sh` is sourced before every Bash tool call
+and why shell-completion scripts must never be appended to it.
+
+## Driving it headlessly
+
+The kit declares no `agent-sessions@1` capability, so a harness has no
+kit-declared verbs for prompt/resume/continue. That is deliberate rather than an
+omission: the invocation is not in doubt (`claude -p "<prompt>"` is the
+documented non-interactive form, and it works when you pass it yourself through
+`sbx run claude -- -p "…"`), but this repo has never had an `anthropic`
+credential on a CI runner to exercise it end to end. The capability should land
+together with that credential, not before it.
 
 ## Mixins that compose onto this kit
 
-Six kits in this repository declare `requires.agent: claude` and layer onto
+Six kits in this repository declare `requires: ["claude"]` and layer onto
 this one:
 
 | Kit | What it adds |
@@ -251,47 +284,56 @@ this one:
 
 They reach `claude` through `PATH`, read and write `~/.claude/` and
 `~/.claude.json`, and run as the `agent` user (uid 1000) — all of which this
-kit's image preserves from the template the built-in used.
+kit's image preserves from the template the built-in used. Because they require
+the *name* rather than this kit, they compose equally onto
+[`claude-mixin`](../claude-mixin), which provides the same `claude`.
 
 ## Base image
 
-Unlike most kits here — which are `kind: mixin` and layer onto an existing
-`docker/sandbox-templates` image — a `kind: sandbox` kit *is* the whole
-environment, so it names the image the sandbox boots from. This kit builds and
-publishes its own, from the `Dockerfile` in this directory.
+A `kind: workload` kit's layers **are** the sandbox's root filesystem, so this
+kit has content of its own rather than naming an image to boot from. That
+content is built from [`claude.dockerfile`](./claude.dockerfile), which the
+frontend finds by the filename stem beside the descriptor.
 
-The image is **`docker.io/sbx/claude-image`**, built on
-`docker/sandbox-templates:shell-docker`, so it carries a Docker engine and
-requests Docker-in-Docker — matching the agent this kit replaces, which
-resolved to the Docker flavour of its template.
+It builds on `docker/sandbox-templates:shell-docker`, so it carries a Docker
+engine and sets `com.docker.sandboxes.start-docker` — matching the agent this kit
+replaces, which resolved to the Docker flavour of its template. That label stays
+a label: v3 has no capability for it, and `privileged@1` is a far broader ask
+than this kit has ever made.
 
-The `-image` suffix distinguishes the base image from the kit itself: the kit
-is published as an OCI artifact at `docker.io/sbx/claude-kit` (see
-[Usage](#usage) above). The name is derived from the kit directory and enforced
-repo-wide — see [PUBLISHING.md](../PUBLISHING.md#naming).
+Under v2 the recipe produced a separate base image, `docker.io/sbx/claude-image`,
+that `spec.yaml` then named in `sandbox.image`. The two artifacts collapse into
+one under v3 — the published kit carries both the declarations and the filesystem
+— so there is no `-image` coordinate to keep in sync any more.
 
-Why the image installs Claude Code from Anthropic's installer rather than from
+Why the recipe installs Claude Code from Anthropic's installer rather than from
 npm is covered in [README.image.md](./README.image.md).
 
 ### Building and publishing
 
-How the image is named, tagged, verified and pushed is the same for every kit
-in this repo that builds its own image — see
-**[PUBLISHING.md](../PUBLISHING.md)** for the pipeline, the tagging scheme, the
-coordinates, and the Docker Hub OIDC setup.
+How a kit is named, tagged, verified and pushed is the same for every kit in this
+repo — see **[PUBLISHING.md](../PUBLISHING.md)** for the pipeline, the tagging
+scheme, the coordinates, and the Docker Hub OIDC setup.
 
-### Building locally
+### Pinning a release
 
-```console
-docker build -t docker.io/sbx/claude-image:latest claude
-```
+The descriptor declares one arg, `version`, wired to the recipe's
+`CLAUDE_CODE_VERSION` build arg. It is passed to Anthropic's installer as its one
+positional target, so `stable`, `latest`, or an exact version such as `2.1.267`
+all work. Left at its default — the empty string — no target is passed and the
+installer picks its own, which is what the agent this kit replaces installed.
 
-One build arg beyond `BASE_IMAGE`: `CLAUDE_CODE_VERSION` pins a release,
-`--build-arg CLAUDE_CODE_VERSION=stable`. It is passed through as the
-installer's positional target, so `latest` or a specific version such as
-`2.1.267` work there too. Left empty, the installer picks its own default.
+That floating default is also why `provides` is the unversioned `claude` with a
+`version: "1.0.0"` fallback rather than `claude@<version>`: the kit version covers
+this descriptor and its hooks, not the binary.
+
+The recipe keeps its `BASE_IMAGE` build arg for local experiments, but it is not
+surfaced as a kit arg — v2 did not expose it through `spec.yaml` either, and
+re-pointing the base is a fork-shaped change rather than an install-time one.
 
 ## Related
 
+- [`claude-mixin`](../claude-mixin) — the same agent as an overlay, for layering
+  onto a base you want to keep.
 - [`claude-ollama`](../claude-ollama) — the same agent wired to a local
   [Ollama](https://ollama.com) instance instead of a hosted provider.

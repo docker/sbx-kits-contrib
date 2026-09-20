@@ -1,10 +1,15 @@
 # gstack
 
-A standalone sandbox kit (`kind: sandbox`, the v2 spec naming) for
+A standalone workload kit (`kind: workload`, `schemaVersion: "3"`) for
 [gstack](https://github.com/garrytan/gstack) — Garry Tan's Claude Code
 skill pack: opinionated slash commands (`/ship`, `/review`, `/qa`,
 `/browse`, `/office-hours`, …) plus compiled Bun binaries including a
 headless-Chromium browse daemon.
+
+The declarations live in [`gstack.yaml`](./gstack.yaml); the recipe beside it
+([`gstack.dockerfile`](./gstack.dockerfile)) is found by the filename-stem
+convention. To layer the pack onto a base that already carries Claude Code,
+use [`../gstack-mixin`](../gstack-mixin) instead.
 
 The kit uses a **pre-baked sandbox image** on the `claude-code` template:
 Bun, the gstack checkout at a pinned commit with `./setup` already run
@@ -33,6 +38,15 @@ per-project state in `<workspace>/.gstack/`).
 None published — the browse and design daemons bind loopback on random
 ports and are only used in-sandbox.
 
+## Shared agent skills
+
+This kit declares **no** `agent-skills@1` capability, deliberately. That
+capability asks the host to *mount* its shared skills store at the declared
+path, and here `~/.claude/skills` is not an empty mount point — it is image
+content. The gstack checkout lives at `~/.claude/skills/gstack` and `./setup`
+registers every slash command as a symlink beside it, so a store mounted there
+would shadow the entire pack this kit exists to deliver.
+
 ## How auth works
 
 Standard Anthropic wiring for Claude Code: both `apiKey` and `oauth` are
@@ -47,11 +61,10 @@ allow-listed; its sync exits silently when unreachable.
 
 ## Base image
 
-Unlike most kits here — which are `kind: mixin` or `kind: agent` and layer
-onto an existing `docker/sandbox-templates` image — a `kind: sandbox` kit
-*is* the whole environment, so it names the image the sandbox boots from.
-This kit builds and publishes its own, from the `Dockerfile` in this
-directory:
+Unlike a `kind: mixin` kit, which layers onto an existing image, a
+`kind: workload` kit's layers *are* the root filesystem — so its recipe names
+the image the sandbox boots from. This kit builds and publishes its own, from
+[`gstack.dockerfile`](./gstack.dockerfile) in this directory:
 
 ```
 docker.io/sbx/gstack-image
@@ -68,9 +81,15 @@ The `-image` suffix distinguishes the base image from the kit itself: the
 kit is published separately as an OCI artifact at `docker.io/sbx/gstack-kit`
 (see [Usage](#usage) above).
 
-gstack publishes no release tags — the image pins a commit SHA
-(`GSTACK_REF` in the `Dockerfile`). The checkout keeps `.git` so
+gstack publishes no release tags — the image pins a commit SHA, declared as
+the kit's `ref` arg (`buildArg: GSTACK_REF`) so an installer can move it and
+the published descriptor records what was built. The checkout keeps `.git` so
 `/gstack-upgrade` and version checks work from inside the sandbox.
+
+The descriptor's `version:` is upstream's own VERSION for that commit, and it
+is a fallback rather than the authority: a v3 `provides` version must be
+dotted-numeric, so a 40-character SHA cannot be referenced into it the way a
+semver build arg would be. Override `ref` and `version:` together.
 
 ### Building and publishing
 
@@ -80,15 +99,20 @@ kit in this repo that builds its own image — see
 kit-specific build script or workflow; CI builds and publishes this image
 the same way it does for `kiro`/`copilot`.
 
-To bump gstack: set `GSTACK_REF` to a new upstream commit SHA in the
-`Dockerfile` and rebuild.
+To bump gstack: set the `ref` arg's default to a new upstream commit SHA in
+[`gstack.yaml`](./gstack.yaml) (and the matching `GSTACK_REF` default in the
+recipe, which is what a plain `docker build` reads), update `version:`, and
+rebuild.
 
 ### Building locally
 
 ```console
-$ docker build -t docker.io/sbx/gstack-image:latest gstack
+$ docker build -f gstack/gstack.dockerfile -t docker.io/sbx/gstack-image:latest gstack
 $ ./scripts/test-kit.sh gstack
 ```
+
+`-f` is needed now that the recipe is named for its descriptor's stem rather
+than `Dockerfile`; the kit frontend finds it by that convention without one.
 
 `scripts/test-kit.sh` builds the kit's own image before running the suite
 (`SBX_KIT_SKIP_IMAGE_BUILD=1` to skip and reuse what's already built).

@@ -1,6 +1,8 @@
 # Google Antigravity
 
-A standalone Docker Sandboxes kit for [Google Antigravity](https://antigravity.google/). It runs the `agy` terminal coding agent with sandbox-local permissions pre-approved and supports either Antigravity's Google OAuth login or a Gemini API key.
+A standalone Docker Sandboxes workload kit (`kind: workload`, `schemaVersion: "3"`) for [Google Antigravity](https://antigravity.google/). It runs the `agy` terminal coding agent with sandbox-local permissions pre-approved and supports either Antigravity's Google OAuth login or a Gemini API key.
+
+There is also an [`antigravity-mixin`](../antigravity-mixin) variant of the same kit, for layering `agy` onto a shell workload instead of running a sandbox of its own.
 
 ## Usage
 
@@ -39,6 +41,8 @@ The kit exposes `GEMINI_API_KEY` as a proxy sentinel and injects the real key on
 
 When Docker Sandboxes provides an MCP gateway, the kit registers it in Antigravity's user-level MCP configuration with the proxy-managed bearer sentinel. Existing MCP servers in that file are preserved.
 
-## Image
+## Content
 
-The companion image is built from `docker/sandbox-templates:shell-docker` and installs `agy` with Google's official installation script. The installer resolves the current release and verifies its published checksum.
+A `kind: workload` kit's layers *are* the sandbox's root filesystem, so the kit has content rather than a reference to an image built elsewhere. That content is built from [`antigravity.dockerfile`](./antigravity.dockerfile), the companion recipe the descriptor finds by filename stem: `docker/sandbox-templates:shell-docker` as the base, with `agy` installed by Google's official installation script. The installer resolves the current release and verifies its published checksum — which is also why the descriptor declares no version arg and publishes an unversioned `provides: ["antigravity"]` under its `version:` fallback: there is no pin for one to reference.
+
+Because the install happens at build time, the kit's network policy declares no `install` phase — a build runs before any phase the policy scopes, and the kit's two lifecycle hooks are `startup` hooks that reach nothing off-box.

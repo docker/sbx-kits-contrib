@@ -1,0 +1,94 @@
+# syntax=docker/sandbox-kit:3
+# NanoClaw as a MIXIN: the same declarations as the standalone workload kit
+# (../nanoclaw), minus what only the kit that owns the environment can carry --
+# the entrypoint (the base workload's launch command stays; run
+# `nanoclaw-start` from the shell), the context-file profile (`filename` is
+# workload-only, so this kit contributes `contentFile` alone) and sbx@1 (a
+# mixin's image config never becomes the composed image's).
+#
+# MIGRATION NOTE -- read before composing. The v2 kit's content is a published
+# third-party image, not a recipe this repo controls, and an overlay is a
+# delta rather than a root filesystem. The recipe beside this file therefore
+# carries the two paths the kit's own declarations name -- the entrypoint
+# script and the NanoClaw checkout -- and cannot carry whatever else that
+# image installs into its rootfs (its Node runtime, the OneCLI and Postgres
+# clients, the system packages NanoClaw's setup expects). What v3 cannot
+# express here is that dependency: `requires:` names kit capabilities, and no
+# base workload provides an entry for "the runtime NanoClaw's image happened
+# to ship". The workload kit is the supported way to run this agent; this
+# mixin is for a base that already carries an equivalent runtime.
+schemaVersion: "3"
+displayName: NanoClaw (mixin)
+description: >-
+  NanoClaw as a mixin -- the host process and its checkout in an overlay, with
+  the Docker Hub, OneCLI, Claude and chat-channel egress and the published
+  webhook and OneCLI ports. Layer it onto a base that already carries a Node
+  runtime and run `nanoclaw-start`.
+sourceUrl: https://github.com/nanocoai/nanoclaw
+
+kind: mixin
+version: "1.0.0"
+provides: ["nanoclaw"]
+
+capabilities:
+  # The agent's own egress rides with the kit that ships the agent: the base
+  # grants nothing for services it does not carry. Runtime-only, and written
+  # portless (the contrib house style) where v2 wrote `host:443` -- a portless
+  # pattern matches any port, so no host v2 admitted is refused here.
+  - type: com.docker.sandbox/network-policy@1
+    config:
+      runtime:
+        allow:
+          # Docker Hub: the nested per-session agent containers are pulled by
+          # the sandbox's own daemon.
+          - auth.docker.io
+          - index.docker.io
+          - production.cloudflare.docker.com
+          - registry-1.docker.io
+          # OneCLI, which holds the credentials NanoClaw authenticates with.
+          - api.onecli.sh
+          - onecli.sh
+          - www.onecli.sh
+          # Claude, the default agent provider.
+          - api.anthropic.com
+          - claude.ai
+          - claude.com
+          - console.anthropic.com
+          - downloads.claude.ai
+          - platform.claude.com
+          # Source and release fetches for the nested agents' setup.
+          - api.github.com
+          - codeload.github.com
+          - ghcr.io
+          - github.com
+          - objects.githubusercontent.com
+          - raw.githubusercontent.com
+          - release-assets.githubusercontent.com
+          # Package and toolchain downloads inside the nested containers.
+          - bun.sh
+          - checkpoint.prisma.io
+          - deb.debian.org
+          - registry.npmjs.org
+          - security.debian.org
+          # Chat channels NanoClaw connects to.
+          - api.slack.com
+          - api.telegram.org
+          - discord.com
+          - gateway.discord.gg
+          - slack.com
+          - t.me
+          - web.whatsapp.com
+
+  - type: com.docker.sandbox/port@1
+    config: {name: webhook, container: 3000}
+  - type: com.docker.sandbox/port@1
+    config: {name: onecli-dashboard, container: 10254}
+  - type: com.docker.sandbox/port@1
+    config: {name: onecli-gateway, container: 10255}
+
+  # No credential@1 entries, faithfully: NanoClaw authenticates through OneCLI
+  # inside the sandbox, so there is no host-bound secret for the proxy to
+  # present.
+  - type: com.docker.sandbox/agent-context@1
+    config:
+      contentFile: ./nanoclaw-mixin-context.md

@@ -1,0 +1,136 @@
+# syntax=docker/sandbox-kit:3
+# Migration of the v2 `paperclip` sandbox kit. v2 pointed `sandbox.image` at
+# docker.io/sbx/paperclip-image:latest, a pre-baked image built from the
+# Dockerfile in this directory; a v3 workload's layers *are* the root
+# filesystem, so the two collapse into one recipe (paperclip.dockerfile) and
+# v2's environment.variables and sandbox.entrypoint move into the image
+# config. Deltas are marked MIGRATION NOTE inline.
+schemaVersion: "3"
+displayName: Paperclip
+description: >-
+  Open-source app for managing AI agents at work — Node.js server + React UI
+  orchestrating a team of agents.
+
+kind: workload
+
+# Calendar versioning upstream (YYYY.MDD.P), pinned deliberately. Declared
+# once: validated here, handed to the recipe as the npm pin, expanded into
+# the provide, so the provide cannot claim a release the image does not ship.
+args:
+  version:
+    default: "2026.609.0"
+    pattern: '^[0-9]{4}\.[0-9]+\.[0-9]+$'
+    description: paperclipai release to install
+    buildArg: PAPERCLIP_VERSION
+
+provides: ["paperclip@${{ kit.args.version }}"]
+
+capabilities:
+  # v2 `kind: sandbox`: the host launches the agent rather than running the
+  # image's entrypoint as PID 1, and honors the identity the image config
+  # declares.
+  - type: com.docker.sandbox/sbx@1
+
+  # v2's permissions.network.allow, entirely in the runtime phase. Nothing
+  # here is reached by an install hook -- the kit's one hook resolves a
+  # credential from local state, and the npm/apt installs happen at build,
+  # where this policy does not apply. An absent install phase grants nothing,
+  # which is the correct statement.
+  #
+  # MIGRATION NOTE: the `:443` suffixes v2 carried on five of these entries
+  # are dropped for the contrib house style of portless entries. Port
+  # suffixes are ignored for allow-list membership, so the grant is unchanged.
+  - type: com.docker.sandbox/network-policy@1
+    config:
+      runtime:
+        allow:
+          # Every domain the anthropic credential injects into -- required
+          # here too, not just there: this repo's e2e runs every kit under
+          # `sbx policy init deny-all`, so a domain absent from this list is
+          # unreachable regardless of what the credential declares. v3 makes
+          # that structural: inject domains are validated against this list.
+          - api.anthropic.com
+          - claude.ai
+          - console.anthropic.com
+          # The anthropic credential's OAuth token endpoint, for the refresh
+          # the proxy performs once the access token expires.
+          - platform.claude.com
+          - registry.npmjs.org
+          - '*.npmjs.org'
+          - github.com
+          - raw.githubusercontent.com
+          - objects.githubusercontent.com
+          - paperclip.ing
+
+  # MIGRATION NOTE: `optional: true` preserves v2 behavior. v2 credentials
+  # default to not-required and v3's default inverts; paperclip starts with
+  # no binding (the UI reports the provider as unconfigured), so a required
+  # entry would fail resolution on a host that never bound one.
+  - type: com.docker.sandbox/credential@1
+    optional: true
+    description: Anthropic API access (API key or claude.ai subscription login)
+    config:
+      service: anthropic
+      phase: runtime
+      apiKey:
+        name: ANTHROPIC_API_KEY
+        proxyManaged: true
+        inject:
+          - {domain: api.anthropic.com, header: x-api-key, format: "%s"}
+          - {domain: claude.ai, header: x-api-key, format: "%s"}
+          - {domain: console.anthropic.com, header: x-api-key, format: "%s"}
+      # For a host whose stored anthropic credential is an OAuth login --
+      # signed in from a `claude` sandbox rather than an API key. Without this
+      # block such a host gets no usable credential at all: the apiKey sentinel
+      # reaches Anthropic unswapped and every claude_local run 401s.
+      #
+      # credentialFile is Claude Code's own store, which is what the
+      # claude_local adapter's "subscription login" path reads
+      # (docs/adapters/claude-local.md), so nothing has to translate the
+      # credential -- only to drop the ANTHROPIC_API_KEY sentinel that would
+      # otherwise put the CLI in API-key mode, which
+      # paperclip-anthropic-auth.sh does. The file holds sentinels, not real
+      # tokens.
+      oauth:
+        tokenEndpoint: {host: platform.claude.com, path: /v1/oauth/token}
+        resourceHosts: [api.anthropic.com]
+        sentinels:
+          accessToken: sk-ant-oat01-proxy-managed
+          refreshToken: sk-ant-ort01-proxy-managed
+        credentialFile:
+          path: ~/.claude/.credentials.json
+          structure:
+            claudeAiOauth:
+              accessToken: "{{.AccessToken}}"
+              refreshToken: "{{.RefreshToken}}"
+              expiresAt: "{{.ExpiresAt}}"
+              scopes: "{{.Scopes}}"
+
+  # The web UI and API share this port. Publish it with
+  # `sbx ports <sandbox> --publish 3100/tcp`.
+  - type: com.docker.sandbox/port@1
+    config: {name: web, container: 3100}
+
+  - type: com.docker.sandbox/lifecycle@1
+    config:
+      startup:
+        # Runs on every container start, ahead of any attach: the credential
+        # state is wired at create time and a stop/start can follow a change
+        # of host credential, so the env file is recomputed rather than cached.
+        #
+        # MIGRATION NOTE: `env:` is new and load-bearing. v3 hook environments
+        # are deny-by-default. PAPERCLIP_HOME chooses where the auth env file
+        # is written -- unlisted, the script would fall back to
+        # $HOME/.paperclip and the entrypoint (which reads the same variable
+        # from the image config, where it *is* set) would look somewhere else.
+        # SBX_CRED_ANTHROPIC_MODE is what tells an API-key host from one with
+        # no credential at all. $HOME is the platform baseline.
+        - command: [sh, /home/agent/.local/bin/paperclip-anthropic-auth.sh]
+          user: "1000"
+          env: [PAPERCLIP_HOME, SBX_CRED_ANTHROPIC_MODE]
+          description: Resolve whether Anthropic auth is an API key, a subscription login, or absent, and record it for the entrypoint and `sbx exec` shells
+
+# MIGRATION NOTE: no agent-context@1 and no agent-sessions@1. v2 declared no
+# agentInstructions, and no testdata/tck.yaml recorded a non-interactive
+# invocation -- paperclip is driven through its web UI, not an argv tail, so
+# there are no session verbs to state and none are invented here.

@@ -1,15 +1,18 @@
 # openclaw
 
-A standalone sandbox kit (`kind: sandbox`, the v2 spec naming) for
+A standalone workload kit (`kind: workload`) for
 [openclaw](https://github.com/openclaw/openclaw) — a personal AI
 assistant with multi-platform chat, skills, and a gateway service.
 
 Unlike the previous version of this kit (which npm-installed Node 22 and
-openclaw at sandbox creation, ~3 minutes on first boot), this kit uses a
-**pre-baked sandbox image**: Node 22, the pinned `openclaw` package, and
+openclaw at sandbox creation, ~3 minutes on first boot), this kit's content
+is **pre-baked**: Node 22, the pinned `openclaw` package, and
 Chromium for the browser tool (saves the 60-90s playwright download on
-first browser use) all ship inside the image. The kit itself only
+first browser use) all ship inside it. The descriptor itself only
 applies policy, so a new sandbox is chatting in seconds.
+
+A mixin variant lives in [`../openclaw-mixin`](../openclaw-mixin), for
+layering the same agent onto a shell base instead.
 
 ## Usage
 
@@ -23,10 +26,11 @@ Or from a git URL targeting this repo:
 sbx run --kit "git+https://github.com/docker/sbx-kits-contrib.git#dir=openclaw" openclaw
 ```
 
-The gateway comes up with the container, not on attach: `setup.startup`
-runs `openclaw-gateway-up.sh`, which returns once `/readyz` is green. So the
-published port answers and `sbx exec <sandbox> -- openclaw ...` works on a
-sandbox nobody has attached to. Startup commands re-run on
+The gateway comes up with the container, not on attach: the kit's
+`lifecycle@1` startup hook runs `openclaw-gateway-up.sh`, which returns once
+`/readyz` is green. So the published port answers and
+`sbx exec <sandbox> -- openclaw ...` works on a
+sandbox nobody has attached to. Startup hooks re-run on
 every container start, so a stop/start is covered too. On attach, the
 entrypoint waits for the readiness sentinel rather than bootstrapping in
 parallel — two concurrent bootstraps would each mint a different gateway
@@ -35,10 +39,10 @@ gateway token is generated on first boot and stored in
 `~/.openclaw/openclaw.json`, so every later `openclaw` call inside the
 sandbox authenticates itself with no token handoff on your side.
 
-Startup commands do not block `sbx exec`, so a script that runs `openclaw`
+Startup hooks do not block `sbx exec`, so a script that runs `openclaw`
 immediately after the sandbox starts can beat the gateway to it. Wait for
 `~/.openclaw/gateway-ready`, the sentinel the script writes once `/readyz`
-is green (this is what `testdata/tck.yaml` polls as its `readyFile`).
+is green.
 
 ## Step by step
 
@@ -134,11 +138,11 @@ Recreating discards everything living inside the sandbox — the gateway token
 minted on first boot, and any channel tokens configured from within the
 session, which have to be set up again.
 
-This kit never updates openclaw in place. A fresh sandbox boots whatever
-`docker.io/sbx/openclaw-image:latest` holds at create time, and the openclaw
-version in it is bumped deliberately in this kit's `Dockerfile` — see
-[Base image](#base-image). Openclaw's own `openclaw update` does work in there,
-but it leaves the sandbox diverged from the image it booted from.
+This kit never updates openclaw in place. A fresh sandbox boots the openclaw
+release this kit's content was built with, bumped deliberately through the
+descriptor's `args.version` — see [Base image](#base-image). Openclaw's own
+`openclaw update` does work in there, but it leaves the sandbox diverged from
+the kit it booted from.
 
 ### Pinning a kit revision
 
@@ -150,11 +154,12 @@ sandbox on a known revision of this kit:
 sbx run --kit "docker.io/sbx/openclaw-kit:20260828-4da0c58e0844b8358e0353c020bf7a438e01f8ca" openclaw
 ```
 
-That pins **kit content**: the spec, the egress policy, the startup scripts. It
-does not pin the environment they run in. `sandbox.image` is
-`docker.io/sbx/openclaw-image:latest`, a rolling tag, so a new sandbox boots
-whatever that image holds at create time — the `OPENCLAW_VERSION` pinned in the
-`Dockerfile` as of its last rebuild, on a base template that floats by design.
+In v3 that pins **everything**: the descriptor, the egress policy, the startup
+scripts *and* the filesystem they run in. A v3 kit is one image — there is no
+separate `sandbox.image` left to float out from under a pinned kit, which was
+the caveat this section used to carry. What floated is now resolved at build
+time: the base template the recipe was built on, and the `openclaw` release its
+`args.version` named.
 
 [PUBLISHING.md](../PUBLISHING.md#tags) has the scheme, and why there is no bare
 `<sha>` tag.
@@ -201,12 +206,11 @@ via the `~/.profile` hook, so scripted calls that dispatch in-process need
 case is detected from the materialized credential file instead.
 
 **Only one binding at a time.** A service secret makes the proxy *set*
-`x-api-key` on `api.anthropic.com` ([SPEC-v2 §5.4.1][spec-cred]). Combined with
+`x-api-key` on `api.anthropic.com` — that is what the `credential@1`
+capability's `apiKey.inject` rule asks for. Combined with
 a bearer request that is two auth headers, and Anthropic rejects it outright —
 so `API key is invalid` on the custom-secret path means a stale service secret
 is still bound.
-
-[spec-cred]: ../spec/SPEC-v2.md#54-credentials
 
 ### Barebones sandbox: no credential yet
 
@@ -245,8 +249,8 @@ wired at create time, so a running sandbox never picks up a newly bound secret.
 Do not authenticate from inside the sandbox. OpenClaw's own auth commands will
 accept a real credential and write it to the agent's auth store in the
 container, which defeats `proxyManaged: true`: from there it is readable by the
-agent and by anything the agent runs, and this kit's `allowedDomains` includes
-hosts it could be sent to.
+agent and by anything the agent runs, and this kit's network-policy allow list
+includes hosts it could be sent to.
 
 Other providers and channel tokens (Telegram, Discord, Slack, WhatsApp) are
 configured from inside the session via `openclaw onboard` /
@@ -266,30 +270,28 @@ token resolves.
 
 ## Base image
 
-Unlike most kits here — which are `kind: mixin` or `kind: agent` and layer
-onto an existing `docker/sandbox-templates` image — a `kind: sandbox` kit
-*is* the whole environment, so it names the image the sandbox boots from.
-This kit builds and publishes its own, from the `Dockerfile` in this
-directory:
+Unlike a `kind: mixin` kit, which layers onto an existing
+`docker/sandbox-templates` image, a `kind: workload` kit's layers *are* the
+root filesystem — so this kit carries the whole environment. It builds from
+[`openclaw.dockerfile`](./openclaw.dockerfile) in this directory:
 
 ```
-docker.io/sbx/openclaw-image
+the openclaw kit's content
 └── FROM ${BASE_IMAGE}  (defaults to docker/sandbox-templates:shell-docker)
     ├── Node 22 (openclaw requires >= 22.19)
-    ├── openclaw @ pinned version   npm global install (+ /usr/local/bin symlink)
-    └── /opt/ms-playwright          Chromium + xvfb for the browser tool
+    ├── openclaw @ args.version     npm global install (+ /usr/local/bin symlink)
+    ├── /opt/ms-playwright          Chromium + xvfb for the browser tool
+    └── files/home/                 the startup scripts and gateway config
 ```
 
-The `-image` suffix distinguishes the base image from the kit itself: the
-kit is published separately as an OCI artifact at `docker.io/sbx/openclaw-kit`
-(see [Usage](#usage) above).
+There is no longer a separate `-image` artifact: in v3 a kit *is* an ordinary
+OCI image, so what v2 split into `docker.io/sbx/openclaw-image` and
+`docker.io/sbx/openclaw-kit` is one thing published once.
 
 One runtime quirk: the sandbox runtime seeds its own
 `~/.openclaw/openclaw.json` at create time, which lacks `gateway.mode`
 and `gateway.bind` — `openclaw-gateway-up.sh` idempotently restores both
-before starting the gateway. It ships under `files/home/` rather than in the
-image, so a change to the startup path reaches an existing sandbox on its
-next create without republishing the image. `bind` must be `lan` (0.0.0.0) rather than the
+before starting the gateway. `bind` must be `lan` (0.0.0.0) rather than the
 `loopback` default, because the port-forwarder targets the container's
 external interface like any other Docker port mapping; that in turn is
 what makes the gateway token mandatory (see
@@ -303,17 +305,22 @@ kit in this repo that builds its own image — see
 kit-specific build script or workflow; CI builds and publishes this image
 the same way it does for `kiro`/`copilot`.
 
-Upstream versions are date-based and release ~daily; bump
-`OPENCLAW_VERSION` deliberately in the `Dockerfile`.
+Upstream versions are date-based and release ~daily; bump the descriptor's
+`args.version` deliberately. It is validated against its pattern, published in
+`provides`, and handed to the recipe as `OPENCLAW_VERSION`.
 
 ### Building locally
 
 ```console
-docker build -t docker.io/sbx/openclaw-image:latest openclaw
+docker build -f openclaw/openclaw.dockerfile \
+  --build-arg OPENCLAW_VERSION=2026.6.5 -t openclaw-kit:latest openclaw
 ./scripts/test-kit.sh openclaw
 ```
 
-`scripts/test-kit.sh` builds the kit's own image before running the suite
+`OPENCLAW_VERSION` has no default in the recipe — the descriptor's
+`args.version` supplies it — so a plain `docker build` needs it passed.
+
+`scripts/test-kit.sh` builds the kit's own content before running the suite
 (`SBX_KIT_SKIP_IMAGE_BUILD=1` to skip and reuse what's already built).
 
 ## Troubleshooting

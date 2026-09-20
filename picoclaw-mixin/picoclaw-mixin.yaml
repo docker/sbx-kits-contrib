@@ -1,0 +1,146 @@
+# syntax=docker/sandbox-kit:3
+# PicoClaw as a MIXIN: the same declarations as the standalone workload kit
+# (../picoclaw), minus what only the kit that owns the environment can carry --
+# the entrypoint (the base workload's launch command stays; run
+# `picoclaw-start` or `picoclaw agent` from the shell), the context-file
+# profile (`filename` is workload-only, so this kit contributes `contentFile`
+# alone) and sbx@1 (a mixin's image config never becomes the composed image's).
+# agent-sessions was never declared for this kit either way -- no tck.yaml
+# recorded a non-interactive invocation.
+schemaVersion: "3"
+displayName: PicoClaw (mixin)
+description: >-
+  PicoClaw as a mixin — the pinned, SHA256-verified static binary in an
+  overlay, with the Anthropic credential (API key or claude.ai OAuth), the
+  published gateway and webhook ports, and the hooks that resolve the
+  credential and bring the gateway up. Layer it onto a shell base and run
+  `picoclaw`.
+sourceUrl: https://github.com/sipeed/picoclaw
+
+kind: mixin
+
+# Same pin as the workload. The version holds `0.2.9`: a v3 version carries no
+# `v` prefix, so the recipe spells the upstream tag `v${PICOCLAW_VERSION}`.
+args:
+  version:
+    default: "0.2.9"
+    pattern: '^[0-9]+\.[0-9]+\.[0-9]+$'
+    description: PicoClaw release to install
+    buildArg: PICOCLAW_VERSION
+
+provides: ["picoclaw@${{ kit.args.version }}"]
+
+capabilities:
+  # The agent's own egress rides with the kit that ships the agent: the base
+  # grants nothing for services it does not carry. Runtime-only, like the
+  # workload -- the release download happens at build, and both hooks here are
+  # startup hooks, which run in the runtime phase. Entries are portless (the
+  # contrib house style) where v2 wrote `host:443`.
+  - type: com.docker.sandbox/network-policy@1
+    config:
+      runtime:
+        allow:
+          # Every domain the anthropic credential injects into; v3 validates
+          # that invariant at build time (SPEC-v3 §11).
+          - api.anthropic.com
+          - claude.ai
+          - console.anthropic.com
+          # The anthropic credential's OAuth token endpoint, for the refresh
+          # the proxy performs once the access token expires.
+          - platform.claude.com
+          # chat platforms (enabled via config; tokens supplied by the user)
+          - '*.telegram.org'
+          - '*.discord.com'
+          - gateway.discord.gg
+          - '*.whatsapp.com'
+          - '*.whatsapp.net'
+          - '*.slack.com'
+
+  - type: com.docker.sandbox/port@1
+    config: {name: gateway, container: 18790}
+  - type: com.docker.sandbox/port@1
+    config: {name: webhook, container: 18791}
+
+  # Optional, as in the workload: picoclaw starts with the
+  # `__ANTHROPIC_API_KEY__` placeholder still in its config when nothing is
+  # bound, so a required entry would fail resolution on a host that never
+  # bound one.
+  - type: com.docker.sandbox/credential@1
+    optional: true
+    description: Anthropic API access (API key or claude.ai OAuth)
+    config:
+      service: anthropic
+      phase: runtime
+      apiKey:
+        name: ANTHROPIC_API_KEY
+        proxyManaged: true
+        inject:
+          - {domain: api.anthropic.com, header: x-api-key, format: "%s"}
+          - {domain: claude.ai, header: x-api-key, format: "%s"}
+          - {domain: console.anthropic.com, header: x-api-key, format: "%s"}
+      # For a host whose stored anthropic credential is an OAuth login --
+      # signed in from a `claude` sandbox rather than an API key. Without this
+      # block such a host gets no usable credential at all: the apiKey sentinel
+      # reaches Anthropic unswapped and every model call 401s.
+      #
+      # credentialFile *is* PicoClaw's own auth store, the same file
+      # `picoclaw auth login --provider anthropic` writes, so the `anthropic`
+      # protocol's OAuth path reads it with no translation -- what
+      # picoclaw-anthropic-auth.sh still has to do is switch the model entry to
+      # that protocol, since the seeded default is anthropic-messages (API key
+      # only). expires_at is deliberately absent: the field is an RFC3339
+      # string upstream and {{.ExpiresAt}} renders Unix ms, and leaving it
+      # unset also stops PicoClaw attempting a refresh the proxy already owns.
+      oauth:
+        tokenEndpoint: {host: platform.claude.com, path: /v1/oauth/token}
+        resourceHosts: [api.anthropic.com]
+        sentinels:
+          accessToken: sk-ant-oat01-proxy-managed
+          refreshToken: sk-ant-ort01-proxy-managed
+        credentialFile:
+          path: ~/.picoclaw/auth.json
+          structure:
+            credentials:
+              anthropic:
+                access_token: "{{.AccessToken}}"
+                refresh_token: "{{.RefreshToken}}"
+                provider: anthropic
+                auth_method: oauth
+
+  - type: com.docker.sandbox/lifecycle@1
+    config:
+      startup:
+        # Runs before the gateway hook below, which reads the same config.
+        # Idempotent -- the placeholder it matches is gone once the credential
+        # is resolved.
+        #
+        # `env:` is what v3 adds: hook environments are deny-by-default, so
+        # PICOCLAW_HOME (which locates the config the script edits) and
+        # ANTHROPIC_API_KEY (the API-key branch) are named here. In the mixin
+        # shape this matters more than in the workload: there is no entrypoint
+        # to re-run the script with a fuller environment, so this hook is the
+        # only pass.
+        - command: [sh, /home/agent/.local/bin/picoclaw-anthropic-auth.sh]
+          user: "1000"
+          env: [PICOCLAW_HOME, ANTHROPIC_API_KEY]
+          description: Resolve the host's Anthropic credential into config.json at sandbox start
+
+        # Health-endpoint guard rather than `pgrep -f`, which would match its
+        # own shell's command line and never start the gateway. `background:
+        # true` is v3's spelling of the v2 command's `setsid … &`.
+        #
+        # Load-bearing in the mixin shape: the base's entrypoint is a shell
+        # and will never start the gateway, so this hook is what makes the
+        # published ports answer.
+        - command: |
+            curl -fsS -m 2 http://127.0.0.1:18790/health >/dev/null 2>&1 && exit 0
+            mkdir -p /home/agent/.picoclaw
+            export HOME=/home/agent
+            exec /usr/local/bin/picoclaw gateway > /home/agent/.picoclaw/gateway.log 2>&1
+          user: "1000"
+          background: true
+          description: Start the picoclaw gateway in the background (health at :18790/health)
+
+  - type: com.docker.sandbox/agent-context@1
+    config:
+      contentFile: ./picoclaw-mixin-context.md

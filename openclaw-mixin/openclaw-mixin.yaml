@@ -1,0 +1,150 @@
+# syntax=docker/sandbox-kit:3
+# OpenClaw as a MIXIN: the same declarations as the standalone workload kit
+# (../openclaw), minus what only the kit that owns the environment can carry --
+# the entrypoint (the base workload's launch command stays; run
+# `openclaw-start` or `openclaw chat` from the shell), the context-file profile
+# (`filename` is workload-only, so this kit contributes `contentFile` alone),
+# agent-sessions (the verbs drive the workload's entrypoint, which here is the
+# base's shell) and sbx@1 (a mixin's image config never becomes the composed
+# image's).
+schemaVersion: "3"
+displayName: OpenClaw (mixin)
+description: >-
+  OpenClaw as a mixin -- Node, the pinned openclaw release and the Chromium
+  the browser tool uses, in an overlay, with the Anthropic credential (API key
+  or claude.ai OAuth), the published gateway port and the gateway bootstrap
+  hook. Layer it onto a shell base and run `openclaw`.
+sourceUrl: https://github.com/openclaw/openclaw
+
+kind: mixin
+
+args:
+  version:
+    default: "2026.6.5"
+    pattern: '^[0-9]+\.[0-9]+\.[0-9]+$'
+    description: OpenClaw release to install
+    buildArg: OPENCLAW_VERSION
+
+provides: ["openclaw@${{ kit.args.version }}"]
+
+capabilities:
+  # The agent's own egress rides with the kit that ships the agent: the base
+  # grants nothing for services it does not carry. Runtime-only, like the
+  # workload -- the install happens at build, and the one hook here is a
+  # startup hook, which runs in the runtime phase. Entries are portless (the
+  # contrib house style) where v2 wrote `host:443`.
+  - type: com.docker.sandbox/network-policy@1
+    config:
+      runtime:
+        allow:
+          # Every domain the anthropic credential injects into; v3 validates
+          # that invariant at build time (SPEC-v3 §11).
+          - api.anthropic.com
+          - claude.ai
+          - console.anthropic.com
+          # OpenRouter is a supported alternate model provider (`/model
+          # openrouter/...`). Confirmed necessary via a real e2e run under
+          # deny-all.
+          - openrouter.ai
+          # Docker Hub, so `docker pull` works inside the sandbox: OpenClaw
+          # runs tool calls in a nested container and inspects (never pulls)
+          # the image itself, so the bootstrap hook pulls it.
+          - auth.docker.io
+          - production.cloudfront.docker.com
+          - registry-1.docker.io
+          # runtime plugin installs (/plugins install, externalized channels)
+          - registry.npmjs.org
+          - '*.npmjs.org'
+          - clawhub.ai
+          # Confirmed necessary via a real e2e run under deny-all.
+          - raw.githubusercontent.com
+          # chat platforms
+          - '*.telegram.org'
+          - '*.discord.com'
+          - gateway.discord.gg
+          - '*.whatsapp.com'
+          - '*.whatsapp.net'
+          - '*.slack.com'
+          # The oauth credential's token endpoint, for the refresh the proxy
+          # performs once the access token expires.
+          - platform.claude.com
+          # project domains (docs links, update notes)
+          - openclaw.ai
+          - docs.openclaw.ai
+
+  - type: com.docker.sandbox/port@1
+    config: {name: gateway, container: 18789}
+
+  - type: com.docker.sandbox/credential@1
+    # Optional, matching the workload: OpenClaw reports the provider as
+    # unconfigured rather than failing, and the gateway still comes up.
+    optional: true
+    description: Anthropic API access (API key or claude.ai OAuth)
+    config:
+      service: anthropic
+      phase: runtime
+      apiKey:
+        name: ANTHROPIC_API_KEY
+        proxyManaged: true
+        inject:
+          - {domain: api.anthropic.com, header: x-api-key, format: '%s'}
+          - {domain: claude.ai, header: x-api-key, format: '%s'}
+          - {domain: console.anthropic.com, header: x-api-key, format: '%s'}
+      # For a host whose stored anthropic credential is an OAuth login.
+      # credentialFile is what makes that path detectable from inside the
+      # sandbox: SBX_CRED_ANTHROPIC_MODE reports "none" even when this
+      # credential resolves, so it cannot discriminate oauth from apikey, and
+      # openclaw-gateway-up.sh keys off the sentinel in the materialized file
+      # to decide whether to hand OpenClaw an OAuth token instead of an API
+      # key. OpenClaw does not read this file itself on this path.
+      oauth:
+        tokenEndpoint: {host: platform.claude.com, path: /v1/oauth/token}
+        # Where the bearer is actually used, so the proxy swaps the
+        # access-token sentinel on inference calls, not just on refresh.
+        resourceHosts:
+          - api.anthropic.com
+        sentinels:
+          accessToken: sk-ant-oat01-proxy-managed
+          refreshToken: sk-ant-ort01-proxy-managed
+        credentialFile:
+          path: ~/.claude/.credentials.json
+          structure:
+            claudeAiOauth:
+              accessToken: "{{.AccessToken}}"
+              refreshToken: "{{.RefreshToken}}"
+              expiresAt: "{{.ExpiresAt}}"
+              scopes: "{{.Scopes}}"
+
+  - type: com.docker.sandbox/lifecycle@1
+    config:
+      startup:
+        # Brings the gateway up with the container rather than on attach, so
+        # the published port answers and `sbx exec <sandbox> -- openclaw ...`
+        # works without anyone attaching a TUI. The script returns as soon as
+        # /readyz is green (~2s) and is a no-op when the gateway is already
+        # running. Invoked through `sh` because the scripts under /home/agent
+        # land 0644.
+        #
+        # Hook environments are deny-by-default in v3, so every variable the
+        # script reads is declared. Note that on a mixin these two OPENCLAW_*
+        # names resolve only if the operator set them: the overlay exports them
+        # from profile.d, which a login shell sources but a hook does not. The
+        # script's own fallbacks are the same values the profile.d snippet
+        # exports, so the declaration exists to honor an override rather than
+        # to supply the default.
+        - command:
+            - sh
+            - /home/agent/.local/bin/openclaw-gateway-up.sh
+          user: "1000"
+          env: [OPENCLAW_STATE_DIR, OPENCLAW_GATEWAY_PORT, SBX_CRED_ANTHROPIC_MODE]
+          description: Start the OpenClaw gateway so the published port and CLI work without attaching the TUI
+
+  # No agent-skills@1, deliberately -- the same call as the workload. OpenClaw
+  # has a skills feature, but nothing in the v2 kit, its README or its shipped
+  # openclaw.json names the directory it reads them from, and this capability
+  # is a path declaration. Inventing one would hand the host's shared skills
+  # store to a location nothing has confirmed the agent reads.
+
+  - type: com.docker.sandbox/agent-context@1
+    config:
+      contentFile: ./openclaw-mixin-context.md

@@ -1,0 +1,165 @@
+# syntax=docker/sandbox-kit:3
+# Docker Sandboxes kit for GitGuardian ggshield secret scanning.
+# Usage, prerequisites and design notes: see README.md in this directory.
+schemaVersion: "3"
+version: "0.1.0"
+displayName: GitGuardian (ggshield)
+description: Installs the GitGuardian CLI (ggshield) with proxy-injected API-key auth for api.gitguardian.com and wires it as a Claude Code AI hook, so the agent's actions are scanned for hardcoded secrets automatically - the real key never enters the sandbox.
+
+kind: mixin
+
+# ggshield's AI hook is agent-specific: it writes Claude Code's own hook file
+# (~/.claude/settings.json) and the agent instructions describe Claude Code, so
+# layering this onto a codex or copilot sandbox would produce a
+# valid-but-nonsensical result. Affinity turns that into a composition error
+# instead. Codex/Copilot/Cursor variants are separate kits.
+#
+# MIGRATION NOTE: v2's `requires: {agent: claude}` becomes a plain
+# capability name. v3 has no agent-shaped affinity field — `requires` is
+# one flat list of names the resolved set must provide, and the claude kit
+# provides `claude`. Unversioned on purpose: an unversioned require is
+# satisfied by any version of the provide (SPEC-v3 §5.2), which is what the
+# v2 affinity meant.
+requires: ["claude"]
+
+capabilities:
+  # Every destination the kit needs. MIGRATION NOTE: v2 declared one flat
+  # allow list and the comments already said which entry served which
+  # purpose, so the phases fall straight out of them. The three GitHub
+  # hosts are the pinned release download and nothing else — they close
+  # before the agent starts. api.gitguardian.com is the runtime scan and
+  # verify traffic. The union of the two phases is the v2 list.
+  - type: com.docker.sandbox/network-policy@1
+    config:
+      install:
+        allow:
+          # Install-time: pinned release tarball download. github.com 302-redirects
+          # to the githubusercontent object stores for release binaries; both are
+          # listed since the redirect target isn't guaranteed to be the same host.
+          - github.com
+          - objects.githubusercontent.com
+          - release-assets.githubusercontent.com
+      runtime:
+        allow:
+          # Runtime: ggshield's scan/verify calls hit the GitGuardian public API.
+          # EU workspace / self-hosted instances use a different host - add your
+          # GITGUARDIAN_INSTANCE domain here and to the credential inject block.
+          - api.gitguardian.com
+
+  # Not `optional:`. v2 credentials defaulted to not-required and this one
+  # said `required: true`; v3 inverts the default, so required is spelled
+  # by saying nothing.
+  - type: com.docker.sandbox/credential@1
+    description: GitGuardian API key (from a Personal or Service Account, "scan" scope). Stored on the host; the sandbox only sees a placeholder and the proxy injects the real value on requests to api.gitguardian.com.
+    config:
+      service: gitguardian
+      phase: runtime
+      apiKey:
+        # ggshield reads GITGUARDIAN_API_KEY. On the wire, the proxy rewrites the
+        # Authorization header with the real key on outbound api.gitguardian.com
+        # calls. GitGuardian's API auth scheme is "Authorization: Token <key>",
+        # not Bearer.
+        name: GITGUARDIAN_API_KEY
+        # MIGRATION NOTE: this flag is where v2's
+        # `environment.variables.GITGUARDIAN_API_KEY: "proxy-managed"` went,
+        # and it is a declaration rather than a workaround. The v2 comment
+        # explained itself: gitguardian is a custom (non-registry) service,
+        # so sbx did NOT auto-export the apiKey sentinel and the kit had to
+        # materialize one by hand. `proxyManaged: true` is v3's name for
+        # exactly that — the named variable carries a sentinel in the
+        # container while the real key stays on the host — so the static
+        # env var is dropped in favor of the field that means it, rather
+        # than re-created in an /etc/profile.d overlay that would then
+        # fight the sentinel for the same variable.
+        proxyManaged: true
+        inject:
+          - domain: api.gitguardian.com
+            header: Authorization
+            format: "Token %s"
+
+  - type: com.docker.sandbox/lifecycle@1
+    config:
+      install:
+        # Install ggshield from a pinned, digest-verified GitHub release (same
+        # pattern as the trivy/gitea kits: no curl|sh, version AND SHA256 pinned in
+        # git). The release ships a self-contained PyInstaller bundle (a binary
+        # plus an _internal/ dir), so we extract the whole tree to /opt and symlink
+        # the launcher onto PATH. To bump: change GGSHIELD_VERSION plus the per-arch
+        # SHA256 below (sha256sum of each release tarball).
+        #
+        # No `env:` list: every variable is set by the hook itself, and the
+        # closing `ggshield --version` reads no configuration.
+        - command: |
+            set -euo pipefail
+            GGSHIELD_VERSION=1.53.0
+            ARCH=$(dpkg --print-architecture)
+            case "$ARCH" in
+              amd64)
+                SLUG="x86_64-unknown-linux-gnu"
+                SHA256="234d1a62ea7b769695c7e5aee8f29e9d0069cd09b4e5b67493d3b529abb44e4a"
+                ;;
+              arm64)
+                SLUG="aarch64-unknown-linux-gnu"
+                SHA256="097616513fe7a4f25831a464b8968b124af32d274e2ce006e388800605696b20"
+                ;;
+              *)
+                echo "unsupported sandbox arch: $ARCH (expected amd64 or arm64)" >&2
+                exit 1
+                ;;
+            esac
+            DIRNAME="ggshield-${GGSHIELD_VERSION}-${SLUG}"
+            TARBALL="${DIRNAME}.tar.gz"
+            URL="https://github.com/GitGuardian/ggshield/releases/download/v${GGSHIELD_VERSION}/${TARBALL}"
+            curl --proto '=https' --tlsv1.2 -fsSL -o /tmp/ggshield.tgz "$URL"
+            echo "${SHA256}  /tmp/ggshield.tgz" | sha256sum -c -
+            rm -rf /opt/ggshield
+            tar -C /opt -xzf /tmp/ggshield.tgz
+            mv "/opt/${DIRNAME}" /opt/ggshield
+            ln -sf /opt/ggshield/ggshield /usr/local/bin/ggshield
+            rm -f /tmp/ggshield.tgz
+            ggshield --version
+          user: "0"
+          description: "Install ggshield v1.53.0, version+digest pinned"
+
+        # Install ggshield as the Claude Code AI hook. Unlike a git pre-commit hook,
+        # this fires inside the agent's own tool loop and scans the content the
+        # agent produces - putting the secret scan directly on the agent's
+        # authorized output path, which is exactly the surface this sandbox exists
+        # to protect.
+        #
+        # `machine setup` is the current, non-deprecated entrypoint (`ggshield
+        # install -t <agent>` still works but prints a deprecation warning). We
+        # scope it to the AI hook only: --no-git-hooks (the kit deliberately does
+        # not gate git) and --no-honeytokens (the scan-scoped token can't plant one,
+        # and a honeytoken isn't this kit's job). It is idempotent - re-runs add
+        # only what's missing. (ggshield's own agent id for Claude Code is
+        # `claude-code`; the kit's agent affinity above is `claude`.)
+        #
+        # MUST run as the agent user (uid 1000), NOT root: setup.install defaults to
+        # user "0", which would write the hook under root's HOME (/root/...) where
+        # the agent (HOME=/home/agent) never reads it. Verified in-sandbox with
+        # `ggshield machine doctor`.
+        #
+        # MIGRATION NOTE: the one added line. ggshield refuses to run when
+        # GITGUARDIAN_API_KEY is unset, and in v2 the static
+        # `environment.variables` entry guaranteed it was set everywhere,
+        # install hooks included. Its v3 replacement — the credential's
+        # proxyManaged sentinel — is phase-scoped to `runtime`, so it is
+        # not guaranteed here. The default restores precisely the v2
+        # guarantee (the literal `proxy-managed`, which is what v2 set) and
+        # defers to the real sentinel wherever the runtime does surface it.
+        # `env:` declares the name because v3 hook environments are
+        # deny-by-default: without it the variable could not arrive even
+        # when the runtime offers it.
+        - command: |
+            set -euo pipefail
+            export GITGUARDIAN_API_KEY="${GITGUARDIAN_API_KEY:-proxy-managed}"
+            ggshield machine setup --agent claude-code --no-git-hooks --no-honeytokens
+            echo "ggshield AI hook installed (~/.claude/settings.json)"
+          user: "1000"
+          env: [GITGUARDIAN_API_KEY]
+          description: "Install ggshield as a Claude Code AI hook (agent user)"
+
+  - type: com.docker.sandbox/agent-context@1
+    config:
+      contentFile: ./gitguardian-context.md

@@ -1,0 +1,146 @@
+# syntax=docker/sandbox-kit:3
+# Migration of the v2 `aider` sandbox kit. v2's sandbox.image named the
+# pre-baked docker.io/sbx/aider-image:latest, which the Dockerfile beside the
+# spec built -- in v3 a workload's content *is* its image, so that recipe
+# becomes this kit's companion (aider.dockerfile) and the published-image
+# indirection disappears with it. Deltas are marked MIGRATION NOTE inline.
+schemaVersion: "3"
+displayName: Aider
+description: >-
+  AI pair programming in your terminal. Edits code, runs tests, and commits
+  changes using Claude, GPT, Gemini, or any LiteLLM-compatible model.
+
+kind: workload
+
+# The version the v2 Dockerfile carried as a bare `ARG AIDER_VERSION=0.86.2`,
+# now declared once: validated here, handed to the recipe as the installer
+# pin, and expanded into the provide, so the kit cannot claim a release it
+# does not ship.
+#
+# Pinned rather than floating: aider-chat's own release cadence is sparse and
+# irregular on PyPI (six months elapsed between 0.86.1 and 0.86.2, after a
+# tighter run of releases before that), unlike the weekly-or-better cadence
+# that justifies a rolling `latest` elsewhere in this repo (crush, junie).
+# Bumping it is a deliberate, tested step.
+args:
+  version:
+    default: "0.86.2"
+    pattern: '^[0-9]+\.[0-9]+\.[0-9]+$'
+    description: aider-chat release to install
+    buildArg: AIDER_VERSION
+
+provides: ["aider@${{ kit.args.version }}"]
+
+capabilities:
+  # This workload is an agent sandbox: the host launches the agent rather than
+  # running the image's entrypoint as PID 1, and honors the identity the image
+  # config declares instead of assuming one.
+  - type: com.docker.sandbox/sbx@1
+
+  # MIGRATION NOTE: v2's one flat allow list becomes phase-scoped, and every
+  # entry lands in `runtime`. There is no `install` phase here, and its absence
+  # is the accurate statement rather than an omission: aider is pre-baked (see
+  # aider.dockerfile), so its install-time fetches -- uv's Python 3.12
+  # standalone download and PyPI resolution for aider-chat -- happen at image
+  # build, which no network-policy phase governs. This kit declares no
+  # lifecycle install hooks, so nothing runs in the install phase at all.
+  - type: com.docker.sandbox/network-policy@1
+    config:
+      runtime:
+        allow:
+          # Every domain the credentials below inject into -- required here
+          # too, not just there: v3 validates that each inject domain appears
+          # in the matching phase's allow list, and a domain absent from the
+          # list is unreachable regardless of what the credential declares.
+          - api.anthropic.com
+          - api.openai.com
+          - generativelanguage.googleapis.com
+          # raw.githubusercontent.com is deliberately absent. Aider's LiteLLM
+          # would otherwise fetch its model cost map and Anthropic beta-header
+          # mapping from there; the recipe sets both LITELLM_LOCAL_* switches,
+          # which removes the fetch attempt itself rather than leaving it to
+          # fail soft against a blocked host.
+
+  # Aider uses LiteLLM under the hood, which checks the relevant env var is
+  # present *before* it will attempt a request -- with no placeholder set,
+  # LiteLLM raises its own "missing API key" error locally, before the proxy
+  # ever gets a chance to inject the real credential. proxyManaged: true is
+  # what makes the engine populate a placeholder value for each of these
+  # automatically; the actual secret comes from the service-keyed host store.
+  #
+  # MIGRATION NOTE (all three): v2 credentials default to not-required and v3
+  # inverts that default, so each entry carries `optional: true` to preserve
+  # the v2 behavior -- a sandbox with no provider key bound still creates, and
+  # the user binds whichever provider they actually use.
+  - type: com.docker.sandbox/credential@1
+    optional: true
+    description: Anthropic API access for Aider's Claude models
+    config:
+      service: anthropic
+      phase: runtime
+      apiKey:
+        name: ANTHROPIC_API_KEY
+        proxyManaged: true
+        inject:
+          - {domain: api.anthropic.com, header: x-api-key, format: "%s"}
+  - type: com.docker.sandbox/credential@1
+    optional: true
+    description: Google AI API access for Aider's Gemini models
+    config:
+      service: gemini
+      phase: runtime
+      apiKey:
+        name: GEMINI_API_KEY
+        proxyManaged: true
+        inject:
+          - {domain: generativelanguage.googleapis.com, header: x-goog-api-key, format: "%s"}
+  - type: com.docker.sandbox/credential@1
+    optional: true
+    description: OpenAI API access for Aider's GPT models
+    config:
+      service: openai
+      phase: runtime
+      apiKey:
+        name: OPENAI_API_KEY
+        proxyManaged: true
+        inject:
+          - {domain: api.openai.com, header: Authorization, format: "Bearer %s"}
+
+  # MIGRATION NOTE: v2 shipped these defaults as `files/home/.aider.conf.yml`,
+  # the SPEC-v2 §5.8 files directory, which the engine wrote to
+  # /home/agent/<relative-path> at every start. v3 has no per-file staging
+  # directory; the equivalent -- written at start, owned by the agent, rewritten
+  # every start -- is a lifecycle file entry, so the body moves inline here and
+  # the files/ tree goes away rather than becoming a second source of truth.
+  # The AIDER_* variables the recipe sets as image ENV still take precedence
+  # over this file, exactly as they did in v2.
+  - type: com.docker.sandbox/lifecycle@1
+    config:
+      files:
+        - path: /home/agent/.aider.conf.yml
+          description: Default Aider configuration
+          content: |
+            # Default Aider configuration for Docker SBX.
+            # Environment variables (AIDER_*) from the kit spec take precedence over these.
+            # Edit this file inside the sandbox, or add your own .aider.conf.yml at the
+            # root of your project — Aider merges both, with the project one winning.
+
+            # Model alias — "sonnet" resolves to the latest Claude Sonnet.
+            # Other useful aliases: opus, haiku, gpt-4o, o3-mini, gemini/gemini-2.5-pro
+            model: sonnet
+
+            # Git behaviour
+            auto-commits: true
+            dirty-commits: true
+
+            # Analytics and update checks are disabled in sandbox environments.
+            analytics: false
+            check-update: false
+
+  # MIGRATION NOTE: no agent-context@1. The v2 kit declared no
+  # agentInstructions at all -- neither a filename nor a body -- so there is
+  # nothing to carry, and inventing a profile would be a redesign.
+  #
+  # MIGRATION NOTE: no agent-sessions@1 either. The verbs are declarable only
+  # where a working non-interactive invocation was already recorded, and this
+  # kit shipped no testdata/tck.yaml and so no promptArgs.

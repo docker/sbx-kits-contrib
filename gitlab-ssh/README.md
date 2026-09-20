@@ -130,8 +130,8 @@ At install time, the kit appends the target instance's SSH host keys to
 `/home/agent/.ssh/known_hosts`. For gitlab.com these are GitLab's published
 keys (ED25519, RSA, ECDSA — from
 [GitLab's SSH host keys fingerprints doc](https://docs.gitlab.com/user/gitlab_com/#ssh-host-keys)),
-pinned directly in `spec.yaml` because GitLab, unlike GitHub, publishes no
+pinned directly in `gitlab-ssh.yaml` because GitLab, unlike GitHub, publishes no
 HTTPS metadata endpoint for them. GitLab.com's host keys are long-lived; if
-GitLab ever rotates them, bump the `known_hosts` block in `spec.yaml` from
+GitLab ever rotates them, bump the `known_hosts` block in `gitlab-ssh.yaml` from
 the doc above. For any other host, the single key passed as `hostKey` is
 written instead.

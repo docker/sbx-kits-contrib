@@ -1,6 +1,6 @@
 # paperclip
 
-A standalone sandbox kit (`kind: sandbox`, the v2 spec naming) for
+A standalone workload kit (`kind: workload`, `schemaVersion: "3"`) for
 [Paperclip](https://github.com/paperclipai/paperclip) — the open-source
 app for managing AI agents at work: a Node.js server + React UI that
 orchestrates a team of agents ("if OpenClaw is an employee, Paperclip is
@@ -56,7 +56,7 @@ the declared ephemeral binding.
 ## How auth works
 
 Agent adapters spawn provider CLIs in-container; the Anthropic wiring
-(`credentials[].apiKey`, with `proxyManaged: true`) lets the sandbox proxy
+(a `com.docker.sandbox/credential@1` `apiKey`, with `proxyManaged: true`) lets the sandbox proxy
 inject the real key on egress for the `claude_local` adapter, so the
 container only ever holds a sentinel. Other provider keys (OpenAI,
 Gemini, …) can be added as sandbox secrets or configured in the UI.
@@ -111,18 +111,18 @@ this kit's allowlist includes hosts it could be sent to. Keep credentials
 host-side.
 
 Telemetry is opted out at the source (`PAPERCLIP_TELEMETRY_DISABLED=1`);
-`telemetry.paperclip.ing` is deliberately not in `permissions.network.allow`.
+`telemetry.paperclip.ing` is deliberately not in the kit's
+`com.docker.sandbox/network-policy@1` allow list.
 
-## Base image
+## Content
 
-Unlike most kits here — which are `kind: mixin` or `kind: agent` and layer
-onto an existing `docker/sandbox-templates` image — a `kind: sandbox` kit
-*is* the whole environment, so it names the image the sandbox boots from.
-This kit builds and publishes its own, from the `Dockerfile` in this
-directory:
+Unlike a `kind: mixin` kit, which is an overlay that lands on someone else's
+root filesystem, a `kind: workload` kit's layers *are* the root filesystem —
+so this kit carries the whole environment, built from
+[`paperclip.dockerfile`](./paperclip.dockerfile) in this directory:
 
 ```
-docker.io/sbx/paperclip-image
+paperclip (the kit's own layers)
 └── FROM docker/sandbox-templates:claude-code
     ├── Node 22 (paperclip requires >= 20)
     └── paperclipai @ pinned version   npm global install:
@@ -133,9 +133,12 @@ docker.io/sbx/paperclip-image
         └── /usr/local/bin/paperclipai symlink
 ```
 
-The `-image` suffix distinguishes the base image from the kit itself: the
-kit is published separately as an OCI artifact at `docker.io/sbx/paperclip-kit`
-(see [Usage](#usage) above).
+There is no longer a separately published `docker.io/sbx/paperclip-image` for
+a `sandbox.image:` field to point at: a v3 Kit is one OCI image carrying both
+the declarations and the content, published at `docker.io/sbx/paperclip-kit`
+(see [Usage](#usage) above). [`../paperclip-mixin`](../paperclip-mixin) is the
+same app as an overlay you layer onto a shell base instead — read its README
+first, because an overlay cannot carry PostgreSQL or the Claude Code CLI.
 
 ### Building and publishing
 
@@ -148,15 +151,19 @@ the same way it does for `kiro`/`copilot`.
 ### Building locally
 
 ```console
-docker build -t docker.io/sbx/paperclip-image:latest paperclip
+docker build -f paperclip/paperclip.dockerfile -t paperclip:local paperclip
 ./scripts/test-kit.sh paperclip
 ```
 
 `scripts/test-kit.sh` builds the kit's own image before running the suite
 (`SBX_KIT_SKIP_IMAGE_BUILD=1` to skip and reuse what's already built).
 
-`PAPERCLIP_VERSION` is a build arg, so a different (calendar-versioned)
-`paperclipai` release can be baked without editing the `Dockerfile`:
+The `paperclipai` release is the kit's `version` arg, declared in
+`paperclip.yaml` and handed to the recipe as the `PAPERCLIP_VERSION` build
+arg — so it is validated against the calendar-version pattern, baked into the
+image, and expanded into `provides: ["paperclip@…"]`, which is what stops the
+provide claiming a release the image does not ship. Override it at install
+time with `--kit-arg version=2026.MDD.P`, or for a local build with
 `--build-arg PAPERCLIP_VERSION=2026.MDD.P`.
 
 ## Debugging

@@ -1,0 +1,22 @@
+{
+  "version": 3,
+  "agents": {
+    "defaults": {
+      "workspace": "~/.picoclaw/workspace",
+      "restrict_to_workspace": true,
+      "model_name": "claude-opus-4-6",
+      "max_tokens": 8192,
+      "context_window": 131072,
+      "max_tool_iterations": 20
+    }
+  },
+  "model_list": [
+    {
+      "model_name": "claude-opus-4-6",
+      "model": "anthropic-messages/claude-opus-4-6",
+      "api_keys": ["__ANTHROPIC_API_KEY__"],
+      "api_base": "https://api.anthropic.com"
+    }
+  ],
+  "channel_list": {}
+}

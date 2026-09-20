@@ -1,16 +1,18 @@
 # zeroclaw
 
-A standalone sandbox kit (`kind: sandbox`, the v2 spec naming) for
+A standalone workload kit (`kind: workload`, `schemaVersion: "3"`) for
 [ZeroClaw](https://github.com/zeroclaw-labs/zeroclaw) — fast, small,
 fully autonomous AI assistant infrastructure in Rust: a single binary
 running a gateway with 30+ channels and ~20 providers.
 
-ZeroClaw ships pinned per-arch release binaries, so this kit runs from a
-pre-baked image ([`Dockerfile`](./Dockerfile)): the pinned upstream release
-is downloaded, SHA256-verified and pinned as `docker.io/sbx/zeroclaw-image`
-at build time, so sandbox creation only pulls the image rather than fetching
-the binary itself, and the release download never has to sit in this kit's
-runtime network allowlist.
+ZeroClaw ships pinned per-arch release binaries, and the kit's content *is*
+the image it runs: [`zeroclaw.dockerfile`](./zeroclaw.dockerfile) downloads
+and SHA256-verifies the pinned upstream release at build time, so sandbox
+creation only pulls layers rather than fetching the binary itself, and the
+release download never has to sit in this kit's runtime network allowlist.
+
+[`../zeroclaw-mixin`](../zeroclaw-mixin) is the same agent as an overlay you
+layer onto a shell base instead.
 
 ## Usage
 

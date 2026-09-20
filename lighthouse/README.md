@@ -72,20 +72,32 @@ always passes `--no-enable-error-reporting` so a failed run does not try
 to reach Sentry (not on the allowlist). Headless is Lighthouse's own
 default; the sandbox has no display server.
 
+The wrapper also defaults `CHROME_PATH`, `PLAYWRIGHT_BROWSERS_PATH`, and
+`NODE_PATH` when they are unset. The kit exports all three from
+`/etc/profile.d/lighthouse-env.sh`, which a login shell sources — a mixin
+cannot set container environment variables, since its image config is not
+the composed image's. Defaulting them in the wrapper too is what keeps
+`lighthouse` working when it is invoked from something that never sourced a
+profile. A value already in the environment (the `playwright` kit's, when
+both kits are composed) wins over the default.
+
 ### Why Lighthouse 12.6.1, not 13.x
 
 Lighthouse 13.x requires Node ≥ 22.19. Standard agent templates only
 guarantee Node ≥ 18. 12.6.1 is the last 12.x release and accepts Node ≥
 18.20. npm verifies tarballs against the registry `sha512` integrity
 values, so pinning the version pins the content. To bump: change
-`LIGHTHOUSE_VERSION` in `spec.yaml` and the version references in
-`agentInstructions` and this README. Do not jump to 13.x until the
-templates ship Node 22.19.
+`LIGHTHOUSE_VERSION` and the `provides` entry in `lighthouse.yaml`, and
+the version references in `lighthouse-context.md` and this README. Do not
+jump to 13.x until the templates ship Node 22.19.
 
 ### Why these domains
 
-`permissions.network.allow` is the kit's complete outbound contract — CI
-runs e2e under a `deny-all` policy.
+The `com.docker.sandbox/network-policy@1` capability is the kit's complete
+outbound contract — CI runs e2e under a `deny-all` policy. Every host sits
+in the policy's `install` phase, which the runtime closes before the agent
+starts; the kit declares no `runtime` phase, and an absent phase grants
+nothing.
 
 | Domain | Why |
 | --- | --- |
@@ -99,9 +111,11 @@ runs e2e under a `deny-all` policy.
 | `download.docker.com` | Docker's apt repo, pre-added by the `*-docker` templates — `apt-get update` refreshes every configured source and fails if any is blocked |
 
 **Runtime reminder:** the allowlist covers installing Lighthouse and
-Chromium, not the sites an audit visits. Servers on `localhost` inside the
-sandbox always work; navigating to external sites fails with a proxy error
-unless the user's sandbox policy allows those domains.
+Chromium, not the sites an audit visits — and since those grants belong to
+the `install` phase, they are gone by the time an audit runs. Servers on
+`localhost` inside the sandbox always work; navigating to external sites
+fails with a proxy error unless the user's sandbox policy allows those
+domains.
 
 ## Cleanup
 

@@ -31,21 +31,19 @@ sbx run --kit "git+https://github.com/docker/sbx-kits-contrib.git#dir=claude-mod
 sbx run --kit ./claude-model-runner/ claude ~/my-project
 ```
 
-The agent name passed to `sbx run` (`claude`) is the base agent the mixin
-extends.
+The agent name passed to `sbx run` (`claude`) is the base agent the mixin layers
+onto — the name it declares in `requires: ["claude"]`, which either the
+[`claude`](../claude) workload or [`claude-mixin`](../claude-mixin) provides.
 
 The default model is `gpt-oss`; Claude Code boots into it without any
-`--model` argument. To switch models, save `spec.yaml` to a local
-directory, change the anchored value at `&model "gpt-oss"`, and pass
-`--kit` at that path:
+`--model` argument.
 
-```console
-mkdir claude-model-runner
-curl -o claude-model-runner/spec.yaml \
-    https://raw.githubusercontent.com/docker/sbx-kits-contrib/main/claude-model-runner/spec.yaml
-# edit `&model "gpt-oss"` in claude-model-runner/spec.yaml
-sbx run --kit ./claude-model-runner claude ~/my-project
-```
+To switch models, set the kit's `model` arg. Under v2 the value was a YAML anchor
+(`&model "gpt-oss"`, referenced four times) and switching it meant downloading
+`spec.yaml`, editing the anchor and pointing `--kit` at your copy. v3 declares it
+as an arg wired to the recipe's `MODEL` build arg, so the "edit one place"
+property is kept and no fork is needed — one value still fans out across all four
+Claude Code aliases (Opus, Sonnet, Haiku, and the sub-agent picker).
 
 For a larger context window than the default, package a variant first:
 
@@ -53,7 +51,7 @@ For a larger context window than the default, package a variant first:
 docker model package --from gpt-oss --context-size 32000 gpt-oss:32k
 ```
 
-then point the anchored value at `gpt-oss:32k`.
+then set the kit's `model` arg to `gpt-oss:32k`.
 
 ## How it works
 

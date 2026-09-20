@@ -54,6 +54,8 @@ sbx run --kit "docker.io/sbx/vibe-kit:latest" --kit-arg agent=plan vibe
 
 The value is any builtin (`ask`, `plan`, `accept-edits`, `auto-approve`) or a custom agent declared in `~/.vibe/agents/NAME.toml`.
 
+It resolves at sandbox create, not at build: the kit's `agent` arg is declared with `env: VIBE_AGENT`, so the validated value is exported into the container and the image's `ENTRYPOINT` reads it. That is what keeps `--kit-arg` working — a build-phase arg would have frozen the profile into the published image instead.
+
 ## Persistence
 
 `~/.vibe` is a 1 GB volume, so `config.toml`, sessions, logs, custom agents and `.env` survive recreating a sandbox of the same name. `.env` is Vibe's own key store; the environment takes precedence over it, so the proxy-managed `MISTRAL_API_KEY` is what Vibe uses regardless of what lands there. The volume is mounted root-owned, which is why a startup command hands it back to the `agent` user before Vibe writes to it.
@@ -69,10 +71,20 @@ The allow list is the four hosts Vibe reaches for, and nothing else:
 | `console.mistral.ai` | The `/whoami` account and plan lookup, and the browser-auth base URL. |
 | `experiments.mistral.services` | Feature-flag / experiments service. Only reached when telemetry is enabled, which this kit disables. |
 
-Anything else your work needs — a package registry, a git host — has to be added to `permissions.network.allow` or allowed on the host with `sbx policy allow network`.
+Anything else your work needs — a package registry, a git host — has to be added to the kit's `com.docker.sandbox/network-policy@1` runtime allow list or allowed on the host with `sbx policy allow network`.
 
 Telemetry and Vibe's self-update are both switched off through `VIBE_ENABLE_TELEMETRY` / `VIBE_ENABLE_AUTO_UPDATE`, so a run is reproducible and needs no egress to PyPI: the version is whatever the image ships.
 
-## Image
+## Content
 
-The companion image, `docker.io/sbx/vibe-image`, is built from `docker/sandbox-templates:shell-docker` and installs `mistral-vibe` from PyPI with `uv tool install`. Pin a release at build time with `--build-arg VIBE_VERSION=2.25.0`; the default, `latest`, is what CI's nightly rebuild tracks.
+The kit's content is its own image: [`vibe.dockerfile`](./vibe.dockerfile)
+builds from `docker/sandbox-templates:shell-docker` and installs
+`mistral-vibe` from PyPI with `uv tool install`. Pin a release at build time
+with `--build-arg VIBE_VERSION=2.25.0`; the default, `latest`, is what CI's
+nightly rebuild tracks.
+
+A v3 workload's layers *are* the root filesystem, so there is no longer a
+separately published companion image for the descriptor to point at — the
+recipe that used to build `docker.io/sbx/vibe-image` is the kit's recipe now.
+[`../vibe-mixin`](../vibe-mixin) is the same agent as an overlay you layer
+onto a shell base.

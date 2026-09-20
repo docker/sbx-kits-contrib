@@ -1,6 +1,6 @@
 # pi
 
-A standalone sandbox kit (`kind: sandbox`, the v2 spec naming) for the
+A standalone workload kit (`kind: workload`, `schemaVersion: "3"`) for the
 [`@earendil-works/pi-coding-agent`](https://www.npmjs.com/package/@earendil-works/pi-coding-agent)
 CLI — a minimal terminal coding agent with extensible tools, skills, and
 TUI.
@@ -100,12 +100,12 @@ sbx rm -f <sandbox-name>
 sbx run --kit "docker.io/sbx/pi-kit:latest" pi
 ```
 
-Recreating also picks up a newer pi, with no action from anyone: this image
+Recreating also picks up a newer pi, with no action from anyone: this kit
 rolls. It tracks npm's `latest` dist-tag and is rebuilt nightly (see
 [Building and publishing](#building-and-publishing)), so a fresh sandbox boots
-whatever pi release `docker.io/sbx/pi-image:latest` holds that day. Nothing in
+whatever pi release `docker.io/sbx/pi-kit:latest` holds that day. Nothing in
 the kit is bumped deliberately to make that happen. pi's own `pi update --self`
-works inside a running sandbox, but it leaves it diverged from the image it
+works inside a running sandbox, but it leaves it diverged from the kit it
 booted from.
 
 ### Pinning a kit revision
@@ -118,14 +118,16 @@ sandbox on a known revision of this kit:
 sbx run --kit "docker.io/sbx/pi-kit:20260828-2121f50cbf929602a6f0305feed51acb3f872980" pi
 ```
 
-That pins **kit content**: the spec, the egress policy, the npm proxy config
-step. It does not pin pi. `sandbox.image` in a pinned revision's spec is still
-`docker.io/sbx/pi-image:latest`, and that image rolls, so a sandbox created from
-a pinned kit tag boots whatever pi release was current the day it was created —
-pinning the kit does not pin the pi version. There is no deliberately bumped
-version in the `Dockerfile` to pin to instead: `ARG PI_VERSION=latest` *is* the
-rolling default, and `--build-arg PI_VERSION=<version>` pins it only for a local
-build ([Building locally](#building-locally)); `sbx run` exposes no equivalent.
+That now pins **pi as well as the kit**, which it did not under v2. A v3
+workload's layers *are* the root filesystem, so the pi binary ships inside the
+kit rather than in a separately rolling `sandbox.image` the descriptor pointed
+at — an immutable kit tag resolves to one digest, and that digest holds one pi
+release forever. What still rolls is the `latest` tag: each nightly rebuild
+resolves `ARG PI_VERSION=latest` afresh and publishes a new digest. The kit's
+`provides` is therefore unversioned (`pi`, with the descriptor's `version:` as
+the fallback), because a floating install has no pin for a provide to quote.
+`--build-arg PI_VERSION=<version>` reproduces a specific release locally
+([Building locally](#building-locally)); `sbx run` exposes no equivalent.
 
 [PUBLISHING.md](../PUBLISHING.md#tags) has the scheme, and why there is no bare
 `<sha>` tag.
@@ -169,7 +171,8 @@ start, so entries you add *inside* the sandbox for other providers do not
 survive a restart, and `SBX_CRED_ANTHROPIC_MODE` reports `none` for an OAuth
 login just as it does for no credential at all — don't key anything off it.
 
-Every domain the kit needs is declared in `permissions.network.allow`:
+Every domain the kit needs is declared in the runtime phase of its
+`com.docker.sandbox/network-policy@1` allow list:
 
 - `api.anthropic.com` — a credential's inject domains are **not** allowed
   implicitly, so the domain has to be listed here as well as in the
@@ -228,15 +231,15 @@ container, which defeats `proxyManaged: true` — from there it is readable by
 the agent and by anything the agent runs, and the kit's allowlist includes
 hosts it could be sent to. Keep credentials host-side.
 
-## Base image
+## Content
 
-Unlike most kits here — which are `kind: mixin` and layer onto an existing
-`docker/sandbox-templates` image — a `kind: sandbox` kit *is* the whole
-environment, so it names the image the sandbox boots from. This kit builds
-and publishes its own, from the `Dockerfile` in this directory:
+Unlike a `kind: mixin` kit, which is an overlay that lands on someone else's
+root filesystem, a `kind: workload` kit's layers *are* the root filesystem —
+so this kit carries the whole environment, built from
+[`pi.dockerfile`](./pi.dockerfile) in this directory:
 
 ```
-docker.io/sbx/pi-image
+pi (the kit's own layers)
 └── FROM docker/sandbox-templates:shell-docker
     ├── fd-find (apt, + /usr/local/bin/fd symlink)
     └── @earendil-works/pi-coding-agent @ latest
@@ -253,9 +256,11 @@ No Node layer: the template already ships Node 22.22.1 and pi requires
 `>= 22.19.0`. The npm install runs as `agent` — the template's global prefix is
 agent-owned — so `pi install` and `pi update --self` work inside the sandbox.
 
-The `-image` suffix distinguishes the base image from the kit itself: the kit
-is published separately as an OCI artifact at `docker.io/sbx/pi-kit` (see
-[Usage](#usage) above).
+There is no longer a separately published `docker.io/sbx/pi-image` for a
+`sandbox.image:` field to point at: a v3 Kit is one OCI image carrying both
+the declarations and the content, published at `docker.io/sbx/pi-kit` (see
+[Usage](#usage) above). [`../pi-mixin`](../pi-mixin) is the same agent as an
+overlay you layer onto a shell base instead.
 
 ### Building and publishing
 
@@ -265,23 +270,21 @@ in this repo that builds its own image — see
 kit-specific build script or workflow; CI builds and publishes this image the
 same way it does for `openclaw`/`kiro`/`copilot`.
 
-Coding agents move fast, so this image rolls: it tracks the npm `latest`
+Coding agents move fast, so this kit rolls: it tracks the npm `latest`
 dist-tag, and the pipeline's nightly scheduled rebuild picks up new releases
 within a day of publish. On days with no release the install layer is a cache
-hit (the Dockerfile comment explains the mechanics). To reproduce a specific
+hit (the recipe's comments explain the mechanics). To reproduce a specific
 version, build with `--build-arg PI_VERSION=<version>`.
 
 ### Building locally
 
 ```console
-docker build -t docker.io/sbx/pi-image:latest pi
+docker build -f pi/pi.dockerfile -t pi:local pi
 ./scripts/test-kit.sh pi
 ```
 
-`scripts/test-kit.sh` builds the kit's own image before running the suite
-(`SBX_KIT_SKIP_IMAGE_BUILD=1` to skip and reuse what's already built). Until
-the image is first published — pull requests build it but never push it — the
-TCK's `container` subtest can only pull it locally, so build before you test.
+`scripts/test-kit.sh` builds the kit's own content before running the suite
+(`SBX_KIT_SKIP_IMAGE_BUILD=1` to skip and reuse what's already built).
 
 ## Troubleshooting
 

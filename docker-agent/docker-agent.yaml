@@ -1,0 +1,311 @@
+# syntax=docker/sandbox-kit:3
+# Migration of the v2 `docker-agent` sandbox kit. v2's sandbox.image named the
+# pre-baked docker.io/sbx/docker-agent-image:latest, which the Dockerfile
+# beside the spec built -- in v3 a workload's content *is* its image, so that
+# recipe becomes this kit's companion (docker-agent.dockerfile) and the
+# published-image indirection disappears with it. Deltas are marked MIGRATION
+# NOTE inline.
+schemaVersion: "3"
+displayName: Docker Agent
+description: Docker Agent, Docker's multi-provider agentic coding CLI.
+sourceUrl: https://github.com/docker/docker-agent
+
+kind: workload
+
+# The KIT's version, not Docker Agent's. It covers this descriptor, the network
+# policy and the lifecycle hooks -- the binary inside the image floats (the
+# build resolves the newest release, and the agent self-updates at runtime), so
+# a newer docker-agent does not bump this and this does not track its releases.
+#
+# In v3 it is also the fallback the unversioned provide below publishes under.
+# The provide stays unversioned deliberately even though the arg below can pin
+# the build: DOCKER_AGENT_AUTO_UPDATE is on, so the agent replaces its own
+# binary at runtime and any version baked at build time stops being true the
+# first time it updates. A versioned provide would be a claim the sandbox
+# actively works to falsify.
+version: "1.0.0"
+
+provides: ["docker-agent"]
+
+# MIGRATION NOTE: v2 carried this as a bare `ARG DOCKER_AGENT_VERSION=""` in
+# the Dockerfile, documented in the README as the way to pin a release. v3's
+# args are how an installer supplies build inputs, so declaring it is what
+# keeps that documented pin reachable from a kit install rather than only from
+# a hand-run `docker build`. No pattern, matching v2: the value is a git tag
+# and the build validates it by failing to download a nonexistent asset.
+args:
+  version:
+    default: ""
+    description: >-
+      docker-agent release tag to pin. Empty (the default) resolves the newest
+      release at build time.
+    buildArg: DOCKER_AGENT_VERSION
+
+capabilities:
+  # This workload is an agent sandbox: the host launches the agent rather than
+  # running the image's entrypoint as PID 1, and honors the identity the image
+  # config declares instead of assuming one.
+  - type: com.docker.sandbox/sbx@1
+
+  # MIGRATION NOTE: v2's one flat allow list becomes phase-scoped, and every
+  # entry lands in `runtime`. There is no `install` phase: the binary is
+  # installed at image build (see docker-agent.dockerfile), which no
+  # network-policy phase governs; the one install hook below relocates a file
+  # already in the image and reaches nothing off-box; and the apt hook is a
+  # `startup` hook, which runs at boot -- the runtime phase -- so its hosts
+  # belong here rather than in an install list that would be closed by then.
+  #
+  # The agent this kit replaces shipped no egress policy of its own: it
+  # inherited the host policy, which defaults to permissive. A community kit
+  # cannot rely on that -- this repo's e2e runs every kit under
+  # `sbx policy init deny-all`, so the kit gets exactly the reachability it
+  # declares here and nothing more.
+  #
+  # Entries are written without a port: a portless pattern matches any port,
+  # which is what the apt hosts below need -- pinning them to :80 breaks the
+  # moment a mirror answers over https, and `apt-get update` then fails
+  # wholesale rather than skipping one source.
+  - type: com.docker.sandbox/network-policy@1
+    config:
+      runtime:
+        allow:
+          # Every domain a credential below injects into. Required here as well,
+          # not just in the credential block: v3 validates that each inject
+          # domain appears in the matching phase's allow list, and a domain
+          # absent from it is unreachable no matter what the credential
+          # declares. The services with no inject list contribute nothing here
+          # by construction -- see mistral, nebius and xai below.
+          - api.anthropic.com
+          - claude.ai
+          - console.anthropic.com
+          - api.business.githubcopilot.com
+          - api.enterprise.githubcopilot.com
+          - api.github.com
+          - api.githubcopilot.com
+          - api.individual.githubcopilot.com
+          - copilot.github.com
+          - github.com
+          - raw.githubusercontent.com
+          - aiplatform.googleapis.com
+          - generativelanguage.googleapis.com
+          - oauth2.googleapis.com
+          - vertexai.googleapis.com
+          - api.openai.com
+          - openrouter.ai
+          # Self-update is on (DOCKER_AGENT_AUTO_UPDATE, set in the image), and
+          # it resolves a release through api.github.com and downloads the
+          # asset from github.com, which redirects to the release-asset host.
+          # github.com and api.github.com are already listed above as
+          # credential domains; the redirect target is not covered by either
+          # and has to be named.
+          - objects.githubusercontent.com
+          # The agent resolves model metadata (context windows, pricing) from
+          # the models.dev catalog. Unreachable, it silently falls back to a
+          # snapshot embedded at binary build time, so the limits go stale
+          # rather than error.
+          - models.dev
+          # `apt-get update` (the startup hook below) refreshes metadata for
+          # every configured apt source and returns exit 100 if any one of them
+          # fails. The shell-docker base ships three sources, so all three must
+          # be reachable. Ubuntu serves amd64 from archive/security and arm64
+          # from ports.ubuntu.com, so all three Ubuntu hosts are listed to keep
+          # the kit working cross-arch.
+          - archive.ubuntu.com        # Ubuntu archive (amd64 main)
+          - security.ubuntu.com       # Ubuntu security updates (amd64)
+          - ports.ubuntu.com          # Ubuntu archive/security (arm64)
+          - download.docker.com       # Docker's apt repo, pre-added by shell-docker
+
+  # Eight provider services. MIGRATION NOTE (all of them): v2 marked none of
+  # them `required: true`, deliberately and uniformly -- the agent runs against
+  # a locally served model with nothing bound at all, so failing create on a
+  # missing credential would take away a working configuration rather than
+  # protect one. v3 inverts the default, so every entry now says
+  # `optional: true` to keep that behavior.
+  #
+  # Service names are load-bearing beyond this file -- they are the keys a host
+  # binds secrets under (`sbx secret set <service> …`) and the keys the proxy
+  # routes on. Renaming one here silently detaches it from the host binding.
+  - type: com.docker.sandbox/credential@1
+    optional: true
+    description: Anthropic API access
+    config:
+      service: anthropic
+      phase: runtime
+      apiKey:
+        name: ANTHROPIC_API_KEY
+        proxyManaged: true
+        inject:
+          - {domain: api.anthropic.com, header: x-api-key, format: "%s"}
+          - {domain: claude.ai, header: x-api-key, format: "%s"}
+          - {domain: console.anthropic.com, header: x-api-key, format: "%s"}
+  - type: com.docker.sandbox/credential@1
+    optional: true
+    description: GitHub and Copilot access
+    config:
+      service: github
+      phase: runtime
+      # MIGRATION NOTE: v2 spelled this `name: ""` -- empty on purpose,
+      # because the credential is handled entirely proxy-side and naming a
+      # variable (with proxyManaged) would put a sentinel into the environment
+      # that in-container tooling would read as a real token. v3 has a name for
+      # that shape: an inject-only credential, written by omitting `name`
+      # entirely, with the stronger guarantee that no variable is created for
+      # it at all.
+      apiKey:
+        # The agent's GitHub-backed model provider calls the Copilot API with a
+        # Bearer sentinel, so every Copilot host must map to this service or
+        # the sentinel tunnels through unreplaced.
+        #
+        # The proxy applies ONE auth format per service, taken from the first
+        # inject entry, so this list must stay uniform: a mixed list would
+        # silently apply Bearer everywhere anyway and the declaration would
+        # stop describing what actually happens. Bearer is the required choice
+        # -- the Copilot API rejects the "token" scheme, GitHub's REST API
+        # accepts both, and git over HTTPS on github.com is re-encoded to Basic
+        # by the proxy regardless of the format named here.
+        # https://github.blog/changelog/2026-02-13-network-configuration-changes-for-copilot-coding-agent/
+        inject:
+          - {domain: api.business.githubcopilot.com, header: Authorization, format: "Bearer %s"}    # Copilot Business
+          - {domain: api.enterprise.githubcopilot.com, header: Authorization, format: "Bearer %s"}  # Copilot Enterprise
+          - {domain: api.github.com, header: Authorization, format: "Bearer %s"}
+          - {domain: api.githubcopilot.com, header: Authorization, format: "Bearer %s"}
+          - {domain: api.individual.githubcopilot.com, header: Authorization, format: "Bearer %s"}  # Copilot Pro and Pro+
+          - {domain: copilot.github.com, header: Authorization, format: "Bearer %s"}
+          - {domain: github.com, header: Authorization, format: "Bearer %s"}
+          - {domain: raw.githubusercontent.com, header: Authorization, format: "Bearer %s"}
+  - type: com.docker.sandbox/credential@1
+    optional: true
+    description: Google AI API access
+    config:
+      service: google
+      phase: runtime
+      apiKey:
+        name: GOOGLE_API_KEY
+        proxyManaged: true
+        inject:
+          - {domain: aiplatform.googleapis.com, header: x-goog-api-key, format: "%s"}
+          - {domain: generativelanguage.googleapis.com, header: x-goog-api-key, format: "%s"}
+          - {domain: oauth2.googleapis.com, header: x-goog-api-key, format: "%s"}
+          - {domain: vertexai.googleapis.com, header: x-goog-api-key, format: "%s"}
+  - type: com.docker.sandbox/credential@1
+    optional: true
+    description: Mistral API access
+    config:
+      service: mistral
+      phase: runtime
+      apiKey:
+        name: MISTRAL_API_KEY
+        # No inject list, so the proxy routes nothing for this service: the
+        # sentinel this flag puts in MISTRAL_API_KEY is never substituted, and
+        # the service's API host is correspondingly absent from the allow list
+        # above. Kept declared so the service stays bindable on the host; see
+        # the README's "Providers without routing".
+        proxyManaged: true
+  - type: com.docker.sandbox/credential@1
+    optional: true
+    description: Nebius API access
+    config:
+      service: nebius
+      phase: runtime
+      apiKey:
+        name: NEBIUS_API_KEY
+        # Same shape as `mistral` above: declared, not routed.
+        proxyManaged: true
+  - type: com.docker.sandbox/credential@1
+    optional: true
+    description: OpenAI API access
+    config:
+      service: openai
+      phase: runtime
+      apiKey:
+        name: OPENAI_API_KEY
+        proxyManaged: true
+        inject:
+          - {domain: api.openai.com, header: Authorization, format: "Bearer %s"}
+  - type: com.docker.sandbox/credential@1
+    optional: true
+    description: OpenRouter API access
+    config:
+      service: openrouter
+      phase: runtime
+      apiKey:
+        name: OPENROUTER_API_KEY
+        proxyManaged: true
+        inject:
+          - {domain: openrouter.ai, header: Authorization, format: "Bearer %s"}
+  - type: com.docker.sandbox/credential@1
+    optional: true
+    description: xAI API access
+    config:
+      service: xai
+      phase: runtime
+      apiKey:
+        name: XAI_API_KEY
+        # Same shape as `mistral` above: declared, not routed.
+        proxyManaged: true
+
+  - type: com.docker.sandbox/lifecycle@1
+    config:
+      install:
+        # The agent rewrites its own binary when it self-updates, so the binary
+        # has to live somewhere the agent user can write. This image already
+        # installs it that way; the command re-establishes the layout when
+        # BASE_IMAGE has been re-pointed at an image that placed a root-owned
+        # binary on PATH instead. Idempotent: on this image the target already
+        # exists and the only effect is re-pointing an already-correct symlink.
+        #
+        # It declares no `env:` and needs none -- every path it touches is a
+        # literal, and $link/$target are its own shell variables, not
+        # environment it reads.
+        - command: |
+            set -eu
+            link=/usr/local/bin/docker-agent
+            target=/opt/docker-agent/bin/docker-agent
+
+            if [ ! -x "$target" ] && [ -x "$link" ]; then
+              install -d -o agent -g agent /opt/docker-agent/bin
+              install -o agent -g agent -m 0755 "$link" "$target"
+            fi
+            [ -x "$target" ] && ln -sf "$target" "$link"
+          user: "root"
+          description: Keep docker-agent on an agent-writable path so self-update works
+      startup:
+        # MIGRATION NOTE: v2 backgrounded this by hand -- a trailing `&` inside
+        # `sh -c`, wrapped in `>/dev/null 2>&1 </dev/null` on the outer group,
+        # because a backgrounded job that inherited the exec's pipe write ends
+        # kept it from reaching EOF and timed the exec out. v3 has
+        # `background: true`, so the engine owns the detaching and the
+        # redirection trick that existed only to make the hand-rolled version
+        # safe goes with it. Output is still discarded, which is the part that
+        # was about this command rather than about the backgrounding.
+        - command: [sh, -c, "{ command -v apt-get && apt-get update -qq -y || true; } >/dev/null 2>&1"]
+          user: "root"
+          background: true
+          description: Update apt package cache in background
+
+  # The agent's default configuration lists AGENTS.md among the prompt files it
+  # reads, so this is the filename composed kit context has to land in for the
+  # agent to pick it up.
+  #
+  # MIGRATION NOTE: v2 declared the filename with no `content:`. v3's
+  # agent-context is surfaced *progressively* -- the profile carries a per-kit
+  # index and the agent reads a kit's body on demand -- so a body no longer
+  # costs context on every session, and the one below states the things about
+  # this sandbox the agent cannot otherwise discover.
+  - type: com.docker.sandbox/agent-context@1
+    config:
+      filename: AGENTS.md
+      contentFile: ./docker-agent-context.md
+
+  # MIGRATION NOTE: no agent-sessions@1. testdata/tck.yaml omitted promptArgs
+  # deliberately and said why: the entrypoint launches the full-screen agent
+  # picker, which is mutually exclusive with the binary's own non-interactive
+  # `--exec` mode -- appending `--exec` to that argv is an error, not an
+  # override. A working recipe has to re-spell the whole invocation
+  # (`run --yolo --exec …`), which is more than an argv *tail* can express, and
+  # this capability's tails append rather than replace.
+  #
+  # MIGRATION NOTE: no agent-skills@1 either. Neither the v2 spec nor this
+  # kit's README ever named a path docker-agent reads shared skills from, and
+  # the capability is what a host mounts the user's shared store through --
+  # a guessed path is not something to hand it.

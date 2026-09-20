@@ -1,0 +1,110 @@
+# syntax=docker/sandbox-kit:3
+# The Droid CLI as a MIXIN: the same declarations as the standalone workload
+# kit (../droid), minus what only the kit that owns the environment can carry —
+# the entrypoint (the base workload's launch command stays; you run `droid`
+# from the shell), the context-file profile (`filename` is workload-only, so
+# this kit contributes `contentFile` alone), and `sbx@1` (a mixin's image
+# config never becomes the composed image's, so there is no identity for the
+# host to honor here).
+schemaVersion: "3"
+displayName: Droid (mixin)
+description: >-
+  Factory's Droid CLI as a mixin — the upstream install in an overlay, with
+  the Factory credential (API key or WorkOS OAuth), the egress policy the
+  agent needs, and the hooks that prepare its state directory. Layer it onto
+  a shell base and run `droid`.
+
+kind: mixin
+
+# The KIT's version, not Droid's, and the fallback version for the
+# unversioned provide below: the installer takes no pin, so there is no droid
+# release this kit could honestly name. Tracks ../droid.
+version: "1.0.0"
+
+# Same name the workload provides, so a `requires: ["droid"]` resolves against
+# either shape — and so composing this mixin with ../droid is refused rather
+# than silently installing the agent twice (SPEC-v3 §5.3).
+provides: ["droid"]
+
+capabilities:
+  # The agent's own egress rides with the kit that ships the agent: the base
+  # grants nothing for services it doesn't carry. Phase-scoped, and every host
+  # is `runtime` — the overlay is built at image-build time, so the install
+  # phase reaches nothing. The apt hosts are runtime because startup hooks run
+  # at boot, inside the runtime phase.
+  - type: com.docker.sandbox/network-policy@1
+    config:
+      runtime:
+        allow:
+          # Every domain the credential injects into — required here too, not
+          # just in the credential entry: a domain absent from this list is
+          # unreachable regardless of what the credential declares, and v3
+          # validates the pairing rather than leaving it conventional.
+          - api.factory.ai
+          - app.factory.ai
+          - relay.factory.ai
+          # The OAuth token endpoint.
+          - api.workos.com
+          # For the apt startup hook below, which refreshes metadata for every
+          # configured source and returns exit 100 if any one of them fails.
+          # All three Ubuntu hosts are listed because Ubuntu serves amd64 from
+          # archive/security and arm64 from ports, and this kit does not know
+          # which base it will land on.
+          - archive.ubuntu.com        # Ubuntu archive (amd64 main)
+          - security.ubuntu.com       # Ubuntu security updates (amd64)
+          - ports.ubuntu.com          # Ubuntu archive/security (arm64)
+          - download.docker.com       # Docker's apt repo, on the shell-docker family
+
+  # Droid cannot authenticate at all without this service. Required, not
+  # optional: v2 set `required: true`, and v3's default is required, so the
+  # faithful migration states nothing.
+  - type: com.docker.sandbox/credential@1
+    description: Factory API access for Droid (API key or WorkOS OAuth)
+    config:
+      service: droid
+      phase: runtime
+      apiKey:
+        name: FACTORY_API_KEY
+        # It has NOT been verified end-to-end whether Droid's OAuth
+        # device/token-exchange flow still resolves correctly when
+        # FACTORY_API_KEY holds the proxy's sentinel instead of a raw key the
+        # CLI reads directly. Carried over from v2 as-is; see ../droid.
+        proxyManaged: true
+        inject:
+          - {domain: api.factory.ai, header: Authorization, format: "Bearer %s"}
+          - {domain: app.factory.ai, header: Authorization, format: "Bearer %s"}
+          - {domain: relay.factory.ai, header: Authorization, format: "Bearer %s"}
+      # When both apiKey and oauth are declared on one credential, the apiKey
+      # takes precedence whenever it resolves, so a host with FACTORY_API_KEY
+      # bound never triggers the OAuth path.
+      #
+      # MIGRATION NOTE: v2's `oauth.skipIfEnv: [FACTORY_API_KEY]` is dropped —
+      # mode resolution is binding-driven in v3, which is what v2's own
+      # comment already observed it to be.
+      oauth:
+        tokenEndpoint: {host: api.workos.com, path: /user_management/authenticate}
+        sentinels:
+          accessToken: droid-oat-proxy-managed
+          refreshToken: droid-ort-proxy-managed
+
+  - type: com.docker.sandbox/lifecycle@1
+    config:
+      install:
+        - command: mkdir -p /home/agent/.factory && chown agent:agent /home/agent/.factory
+          user: "0"
+          description: Ensure .factory is owned by agent before bind mounts run
+      startup:
+        # Carried over from the workload. The `command -v apt-get` guard makes
+        # it a no-op on a base with no apt, which is the case a mixin has to
+        # tolerate and the workload did not.
+        - command: ["sh", "-c", "command -v apt-get > /dev/null 2>&1 && (apt-get update -qq -y > /dev/null 2>&1 || true)"]
+          user: "root"
+          background: true
+          description: Update apt package cache in background
+
+  # No `filename:` — the profile belongs to the workload that owns the
+  # environment, and declaring it on a mixin is a validation error. This kit
+  # contributes a body the host indexes under its own name.
+  - type: com.docker.sandbox/agent-context@1
+    config:
+      contentFile: ./droid-mixin-context.md

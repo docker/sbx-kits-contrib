@@ -1,0 +1,117 @@
+# syntax=docker/sandbox-kit:3
+schemaVersion: "3"
+displayName: GitLab SSH
+description: Appends a GitLab instance's SSH host keys to ~/.ssh/known_hosts so git clone/push/pull over SSH work without interactive host verification. GitLab.com's keys are pinned; a self-managed instance's key is supplied with the hostKey argument. Writes no private key material and touches nothing else under ~/.ssh.
+
+kind: mixin
+
+# Neither arg carries `env:` or `buildArg:`. Both are consumed entirely by
+# descriptor expansion — the runtime allow entry, the install hook's shell
+# string, and the context body — and v3 args are private by default, so
+# declaring neither is what keeps a hostname and a public key out of the
+# container environment they have no reader in.
+args:
+  host:
+    default: "gitlab.com"
+    description: "GitLab instance hostname, e.g. gitlab.example.com for a self-managed instance"
+    pattern: '^[A-Za-z0-9][A-Za-z0-9.-]*$'
+  hostKey:
+    default: ""
+    description: "known_hosts key for a self-managed instance, as 'ALGORITHM BASE64' with no trailing comment. Required when host is not gitlab.com; ignored for gitlab.com, whose keys are pinned below."
+    # Algorithm + base64 only: no comment, whitespace run, or shell
+    # metacharacter can reach the install hook's shell string.
+    pattern: '^$|^(ssh-ed25519|ssh-rsa|ecdsa-sha2-nistp256|ecdsa-sha2-nistp384|ecdsa-sha2-nistp521) [A-Za-z0-9+/]+=*$'
+
+capabilities:
+  # MIGRATION NOTE: the v2 allow list held one host and applied to every
+  # phase; here it is runtime-only. The install hook reaches nothing — that
+  # is the whole design, spelled out in its comment below: gitlab.com's
+  # keys are pinned in the hook and a self-managed instance's arrives as an
+  # arg, precisely so no install-time ssh-keyscan decides what to trust.
+  # The host is reached later, over SSH, by the git operations this kit
+  # exists to unblock. Granting the install phase nothing is therefore not
+  # a narrowing of anything the v2 kit used.
+  - type: com.docker.sandbox/network-policy@1
+    config:
+      runtime:
+        allow:
+          - ${{ kit.args.host }}
+
+  - type: com.docker.sandbox/lifecycle@1
+    config:
+      install:
+        # No `env:` list: HOST, HOST_KEY and KEYS are all set by the hook
+        # itself from expanded args, so nothing outside v3's platform
+        # baseline is read.
+        #
+        # GitLab, unlike GitHub, has no HTTPS metadata endpoint that publishes
+        # current SSH host keys, so gitlab.com's are pinned here from GitLab's
+        # own docs. These are long-lived (GitLab.com's host keys rarely rotate);
+        # if they ever do, refresh from
+        # https://docs.gitlab.com/user/gitlab_com/#ssh-host-keys and update the
+        # block below.
+        #
+        # A self-managed instance has no equivalent published source, so its key
+        # is supplied explicitly rather than scanned: an install-time ssh-keyscan
+        # would pin whatever answered first, which is trust-on-first-use dressed
+        # up as pinning. Missing key => loud failure, never a silent guess.
+        - command: |
+            set -euo pipefail
+            HOST='${{ kit.args.host }}'
+            HOST_KEY='${{ kit.args.hostKey }}'
+
+            if [ "$HOST" = "gitlab.com" ]; then
+              KEYS=$(cat <<'EOF'
+            gitlab.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAfuCHKVTjquxvt6CM6tdG4SLp1Btn/nOeHHE5UOzRdf
+            gitlab.com ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQCsj2bNKTBSpIYDEGk9KxsGh3mySTRgMtXL583qmBpzeQ+jqCMRgBqB98u3z++J1sKlXHWfM9dyhSevkMwSbhoR8XIq/U0tCNyokEi/ueaBMCvbcTHhO7FcwzY92WK4Yt0aGROY5qX2UKSeOvuP4D6TPqKF1onrSzH9bx9XUf2lEdWT/ia1NEKjunUqu1xOB/StKDHMoX4/OKyIzuS0q/T1zOATthvasJFoPrAjkohTyaDUz2LN5JoH839hViyEG82yB+MjcFV5MU3N1l1QL3cVUCh93xSaua1N85qivl+siMkPGbO5xR/En4iEY6K2XPASUEMaieWVNTRCtJ4S8H+9
+            gitlab.com ecdsa-sha2-nistp256 AAAAE2VjZHNhLXNoYTItbmlzdHAyNTYAAAAIbmlzdHAyNTYAAABBBFSMqzJeV9rUzU4kWitGjeR4PWSa29SPqJ1fVkhtj3Hw9xjLVXVYrU9QlYWrOLXBpQ6KWjbjTDTdDkoohFzgbEY=
+            EOF
+            )
+            elif [ -n "$HOST_KEY" ]; then
+              KEYS="$HOST $HOST_KEY"
+            else
+              echo "gitlab-ssh: host is $HOST, not gitlab.com, and no hostKey was supplied." >&2
+              echo "" >&2
+              echo "A self-managed instance's SSH host key is not published anywhere this" >&2
+              echo "kit can verify, so it must be supplied explicitly. On the GitLab server:" >&2
+              echo "" >&2
+              echo "    cat /etc/ssh/ssh_host_ed25519_key.pub" >&2
+              echo "" >&2
+              echo "Take the first two fields only (algorithm and key, no trailing comment)" >&2
+              echo "and pass them, quoted because of the space:" >&2
+              echo "" >&2
+              echo "    --kit-arg \"hostKey=ssh-ed25519 AAAAC3Nz...\"" >&2
+              echo "" >&2
+              echo "Confirm it is the right key before trusting it:" >&2
+              echo "    ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub" >&2
+              exit 1
+            fi
+
+            mkdir -p /home/agent/.ssh
+            chmod 700 /home/agent/.ssh
+            chown agent:agent /home/agent/.ssh
+            printf '%s\n' "$KEYS" >> /home/agent/.ssh/known_hosts
+            chmod 644 /home/agent/.ssh/known_hosts
+            chown agent:agent /home/agent/.ssh/known_hosts
+          user: "0"
+          description: Pin the target instance's SSH host keys into known_hosts
+
+  # MIGRATION NOTE: inline `content:` rather than the `contentFile:` this
+  # repo uses elsewhere, because this body names the instance. A
+  # contentFile body is read and staged into a layer at PUBLISH, while
+  # `host` is a create-phase arg expanded into the descriptor at create —
+  # so a staged body would reach the agent with a literal
+  # "${{ kit.args.host }}" in it. Inline content is a descriptor string and
+  # expands, which is what keeps the instructions true for a self-managed
+  # instance.
+  - type: com.docker.sandbox/agent-context@1
+    config:
+      content: |
+        ## GitLab SSH authentication
+
+        ${{ kit.args.host }}'s SSH host keys are pre-populated in
+        `~/.ssh/known_hosts`, so SSH operations to GitLab (clone, push, pull)
+        work without interactive host verification prompts. Use
+        `git@${{ kit.args.host }}:group/project.git` remotes — the sandbox proxy
+        does not rewrite git-over-HTTPS Basic auth for GitLab (see the `gitlab`
+        kit), so SSH is the supported push/pull path.

@@ -1,6 +1,6 @@
 # devin
 
-A standalone sandbox kit (`kind: sandbox`, `schemaVersion: "2"`) for
+A standalone workload kit (`kind: workload`, `schemaVersion: "3"`) for
 [Devin CLI](https://devin.ai), Cognition's terminal coding agent. The kit runs
 `devin --permission-mode dangerous --respect-workspace-trust=false` as the
 entrypoint and declares one credential — `devin` — that is captured when you
@@ -8,9 +8,13 @@ sign in from inside the sandbox and resolved by the sandbox proxy on every
 request after that.
 
 `devin` was previously a built-in `sbx` agent, run as `sbx run devin`. This kit
-replaces that, and is backed by a base image built from the
-[`Dockerfile`](./Dockerfile) in this directory rather than by the
-`docker/sandbox-templates` release train.
+replaces that, and its content is built from
+[`devin.dockerfile`](./devin.dockerfile) in this directory rather than taken
+from the `docker/sandbox-templates` release train.
+
+There is also a [`devin-mixin`](../devin-mixin) variant of the same kit, for
+layering the CLI onto a shell workload instead of running a sandbox of its
+own.
 
 ## Prerequisites
 
@@ -46,8 +50,10 @@ Or with a local clone of this repo:
 sbx run --kit ./devin/ devin
 ```
 
-The trailing `devin` is required, not redundant: for `kind: sandbox` kits,
-`sbx` enforces that the agent name matches the kit's own `name`.
+The trailing `devin` is required, not redundant: `sbx` enforces that the agent
+name matches the capability the kit provides, which here is `devin`. A v3
+descriptor carries no `name:` of its own — identity is the reference the kit
+is consumed by, and `provides:` is what the resolver matches on.
 
 ## Passing arguments
 
@@ -157,8 +163,8 @@ variable name invented here would read as a control while controlling nothing.
 The kit achieves the same effect two other ways, and neither depends on a name
 staying stable:
 
-- **The crash-reporting ingest host is not in
-  `permissions.network.allow`.** Devin CLI reaches a third-party Sentry
+- **The crash-reporting ingest host is not in the network policy's
+  `runtime` allow list.** Devin CLI reaches a third-party Sentry
   endpoint on a crash; under `deny-all` it simply cannot. A sandbox has no
   business reporting to a third party on your behalf.
 - **Background self-update is off**, via `{"auto_update": false}` written to
@@ -179,7 +185,7 @@ changes behaviour rather than quieting anything.
 
 ## MCP
 
-When the sandbox has an MCP gateway, a `setup.startup` hook writes
+When the sandbox has an MCP gateway, a `lifecycle@1` startup hook writes
 `~/.config/devin/mcp_config.json`:
 
 ```json
@@ -199,10 +205,10 @@ the real one per request. With no gateway the hook exits without doing
 anything.
 
 The file is written directly rather than by shelling out to `devin mcp add`,
-which puts the exact key names in the spec where the TCK can pin them
-(`testdata/tck.yaml`). `transport` is Devin's spelling; the three
-asserted-against wrong answers are `type` (Codex's and opencode's), `httpUrl`
-(Gemini's) and `http_headers` (Codex's spelling of `headers`). Devin keeps MCP
+which puts the exact key names in the descriptor rather than behind a CLI
+whose output shape nothing here asserts. `transport` is Devin's spelling; the
+three wrong answers nearest to hand are `type` (Codex's and opencode's),
+`httpUrl` (Gemini's) and `http_headers` (Codex's spelling of `headers`). Devin keeps MCP
 servers in `mcp_config.json` alone — its other settings live in the sibling
 `config.json` — so the file is rewritten whole rather than merged, which is
 also what makes re-running it on every container start converge instead of
@@ -210,10 +216,23 @@ accumulate.
 
 ## Network policy
 
-`permissions.network.allow` lists Devin's own hosts (collapsed to a single
-`*.devin.ai` wildcard, below), the alternate sign-in host, the Codeium backend
-the model and seat services still live on, and the apt sources the base image
-ships — which the startup `apt-get update` fails wholesale without.
+The `network-policy@1` capability's `runtime` allow list names Devin's own
+hosts (collapsed to a single `*.devin.ai` wildcard, below), the alternate
+sign-in host, the Codeium backend the model and seat services still live on,
+and the apt sources the base image ships — which the startup `apt-get update`
+fails wholesale without.
+
+Everything is in the `runtime` phase and there is no `install` phase: the CLI
+is installed at build time, which no phase of the policy scopes, and both
+lifecycle hooks are *startup* hooks, which run at boot — so their hosts belong
+to the runtime phase rather than to an install list that would already be
+closed by then.
+
+`api.devin.ai` appears both under the wildcard and as a literal entry. The
+wildcard is what the kit means; the literal is there because v3 checks
+credential inject domains against the allow list by exact host match and
+deliberately does not expand narrower globs, so that a published inject domain
+stays auditable. It grants nothing the wildcard did not already cover.
 
 `*.devin.ai` covers Devin's own hosts — `api.devin.ai` (the API the CLI talks
 to and the OAuth token endpoint), `app.devin.ai` (the sign-in page),
@@ -256,18 +275,25 @@ Three omissions are deliberate:
 > $ sbx policy log
 > ```
 >
-> then add the reported hosts to `permissions.network.allow` in `spec.yaml`.
+> then add the reported hosts to the `network-policy@1` capability's
+> `runtime.allow` list in `devin.yaml`.
 
 ## Agent instructions
 
-The kit declares `agentInstructions.filename: AGENTS.md`, which Devin reads
-from the workspace root. It has no product-specific profile file of its own —
-its `rules` command covers `.windsurf/rules` and `.cursor/rules` directories,
-which are a different mechanism from the single profile file this field names.
+The kit declares `agent-context@1` with `filename: AGENTS.md`, which Devin
+reads from the workspace root. It has no product-specific profile file of its
+own — its `rules` command covers `.windsurf/rules` and `.cursor/rules`
+directories, which are a different mechanism from the single profile file this
+field names.
 
-The kit contributes no content of its own to that file. There is nothing
-agent-specific to say about this environment that the sandbox does not already
-arrange, and a section that says nothing costs context on every session.
+The kit also contributes a body, [devin-context.md](./devin-context.md), which
+v2 deliberately went without — the reasoning then was that an `AGENTS.md`
+section saying little costs context on every session. v3 surfaces kit context
+*progressively*: the profile carries a per-kit index and the agent reads a
+kit's body on demand, so the cost no longer applies and the body can say the
+things about this sandbox the agent cannot otherwise discover — that `devin`
+is the auth wrapper rather than the CLI, and that the credential is
+proxy-held.
 
 ## Session state
 
@@ -277,37 +303,43 @@ survive stop/start and are rebuilt on recreate — the credential by the engine
 rendering `credentials.toml` again from what the host holds, which is the same
 path a brand-new sandbox takes.
 
-## Base image
+## Content
 
-Unlike most kits here — which are `kind: mixin` and layer onto an existing
-`docker/sandbox-templates` image — a `kind: sandbox` kit *is* the whole
-environment, so it names the image the sandbox boots from. This kit builds and
-publishes its own, from the `Dockerfile` in this directory.
+Unlike a `kind: mixin` kit, which layers onto an existing environment, a
+`kind: workload` kit *is* the whole environment: its layers are the sandbox's
+root filesystem, so the kit has content rather than a reference to an image
+built elsewhere. That content is built from
+[`devin.dockerfile`](./devin.dockerfile), the companion recipe the descriptor
+finds by filename stem.
 
-The image is **`docker.io/sbx/devin-image`**, built on
-`docker/sandbox-templates:shell-docker`, so it carries a Docker engine and
-requests Docker-in-Docker.
+It is built on `docker/sandbox-templates:shell-docker`, so it carries a Docker
+engine and requests Docker-in-Docker through the
+`com.docker.sandboxes.start-docker` label — which stays a label in v3 rather
+than becoming a capability.
 
-The `-image` suffix distinguishes the base image from the kit itself: the kit
-is published as an OCI artifact at `docker.io/sbx/devin-kit` (see
-[Usage](#usage) above). The name is derived from the kit directory and enforced
-repo-wide — see [PUBLISHING.md](../PUBLISHING.md#naming).
+A v3 kit is one OCI image carrying both its declarations and its content, so
+there is no longer a separate `-image` artifact beside the kit: the descriptor
+rides in a manifest annotation on the same image its layers belong to. The
+published name is derived from the kit directory and enforced repo-wide — see
+[PUBLISHING.md](../PUBLISHING.md#naming).
 
-How the image installs Devin CLI, and why the rename dance around
+How the build installs Devin CLI, and why the rename dance around
 `devin`/`devin-cli` is needed, is covered in
 [README.image.md](./README.image.md).
 
 ### Building and publishing
 
-How the image is named, tagged, verified and pushed is the same for every kit
-in this repo that builds its own image — see
-**[PUBLISHING.md](../PUBLISHING.md)** for the pipeline, the tagging scheme, the
-coordinates, and the Docker Hub OIDC setup.
+How the kit is named, tagged, verified and pushed is the same for every kit in
+this repo — see **[PUBLISHING.md](../PUBLISHING.md)** for the pipeline, the
+tagging scheme, the coordinates, and the Docker Hub OIDC setup. The build is
+driven by the frontend the descriptor's first line names
+(`# syntax=docker/sandbox-kit:3`), which validates `devin.yaml`, builds
+`devin.dockerfile` as the kit's content, and publishes both as one image.
 
 ### Building locally
 
 ```console
-docker build -t docker.io/sbx/devin-image:latest devin
+./scripts/test-kit.sh devin
 ```
 
 `BASE_IMAGE` is the only build arg. There is deliberately no version arg: the

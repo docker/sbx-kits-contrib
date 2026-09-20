@@ -5,6 +5,10 @@ local **[Docker Model Runner](https://docs.docker.com/ai/model-runner/)**
 instance via its OpenAI-compatible endpoint. Useful for offline development,
 cost-free experimentation, or testing custom local models with the OpenCode UI.
 
+A mixin variant lives in
+[`../opencode-model-runner-mixin`](../opencode-model-runner-mixin), for layering
+the same agent and configuration onto a shell base instead.
+
 > **Prerequisites:** Docker Model Runner must be enabled on the host with TCP
 > access on port 12434, and at least one model must be pulled:
 >
@@ -31,8 +35,8 @@ sbx run --kit "git+https://github.com/docker/sbx-kits-contrib.git#dir=opencode-m
 sbx run --kit ./opencode-model-runner/ opencode-model-runner ~/my-project
 ```
 
-The agent name passed to `sbx run` (`opencode-model-runner`) matches the
-`name:` field in the kit's `spec.yaml`.
+The agent name passed to `sbx run` (`opencode-model-runner`) matches the name
+the kit's descriptor provides ([`opencode-model-runner.yaml`](./opencode-model-runner.yaml)).
 
 All models available via `docker model ls` are automatically discovered and
 selectable in OpenCode via `/models`.
@@ -40,8 +44,8 @@ selectable in OpenCode via `/models`.
 ## How it works
 
 OpenCode reads its provider configuration from
-`~/.config/opencode/opencode.json`. This kit uses `commands.initFiles` to drop
-that JSON into the sandbox at startup, declaring:
+`~/.config/opencode/opencode.json`. This kit uses a `lifecycle@1` capability's
+`files:` entry to drop that JSON into the sandbox at startup, declaring:
 
 - An `@ai-sdk/openai-compatible` provider (`dmr`) whose `baseURL` is
   `http://host.docker.internal:12434/v1` (Model Runner's OpenAI-compatible

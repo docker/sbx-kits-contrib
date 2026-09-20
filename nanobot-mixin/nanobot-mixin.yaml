@@ -1,0 +1,76 @@
+# syntax=docker/sandbox-kit:3
+# Nanobot as a MIXIN: the same declarations as the standalone workload kit
+# (../nanobot), minus what only the kit that owns the environment can carry --
+# the entrypoint (the base workload's launch command stays; run `nanobot` from
+# the shell), the context-file profile (`filename` is workload-only, so this
+# kit contributes `contentFile` alone), agent-sessions (the verbs drive the
+# workload's entrypoint, which here is the base's shell) and sbx@1 (a mixin's
+# image config never becomes the composed image's).
+schemaVersion: "3"
+displayName: Nanobot (mixin)
+description: >-
+  nanobot as a mixin -- the agent's own uv tool installation in an overlay,
+  with the proxy-managed Anthropic credential, the chat-platform egress and
+  the preconfigured provider config. Layer it onto a shell base and run
+  `nanobot`.
+sourceUrl: https://pypi.org/project/nanobot-ai/
+
+kind: mixin
+
+# Same floating install as the workload: the recipe resolves the newest
+# nanobot-ai release out of PyPI's JSON at build time, so there is no pin to
+# hand a build arg and the provide stays unversioned over the `version:`
+# fallback.
+version: "1.0.0"
+provides: ["nanobot"]
+
+capabilities:
+  # The agent's own egress rides with the kit that ships the agent: the base
+  # grants nothing for services it does not carry. Runtime-only for the same
+  # reason as the workload -- the install happens at build, and this kit
+  # declares no install hooks.
+  - type: com.docker.sandbox/network-policy@1
+    config:
+      runtime:
+        allow:
+          # Every domain the anthropic credential below injects into; v3
+          # validates that invariant at build time (SPEC-v3 §11).
+          - api.anthropic.com
+          - claude.ai
+          - console.anthropic.com
+          # nanobot's built-in `cli_apps` tool pip-installs further packages
+          # at the agent's own request and is enabled by default, so PyPI is
+          # a runtime need rather than an install-time one.
+          - pypi.org
+          - files.pythonhosted.org
+          - '*.telegram.org'
+          - '*.discord.com'
+          - gateway.discord.gg
+          - '*.whatsapp.com'
+          - '*.whatsapp.net'
+          - '*.slack.com'
+          - '*.feishu.cn'
+
+  - type: com.docker.sandbox/credential@1
+    # Optional, matching the workload: nanobot is usable with nothing bound,
+    # so a required entry would fail create on a working configuration.
+    optional: true
+    description: Anthropic API access
+    config:
+      service: anthropic
+      phase: runtime
+      # API key only, no oauth block: nanobot passes the configured api_key
+      # straight into the official Anthropic SDK client, which sends it as
+      # x-api-key with no shape detection, so a subscription (OAuth) token
+      # cannot be presented correctly.
+      apiKey:
+        name: ANTHROPIC_API_KEY
+        proxyManaged: true
+        inject:
+          - {domain: api.anthropic.com, header: x-api-key, format: '%s'}
+          - {domain: claude.ai, header: x-api-key, format: '%s'}
+          - {domain: console.anthropic.com, header: x-api-key, format: '%s'}
+
+  - type: com.docker.sandbox/agent-context@1
+    config:
+      contentFile: ./nanobot-mixin-context.md

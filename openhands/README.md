@@ -1,12 +1,15 @@
 # openhands
 
-A standalone sandbox kit (`kind: sandbox`, `schemaVersion: "2"`) for
+A standalone workload kit (`kind: workload`, `schemaVersion: "3"`) for
 [OpenHands](https://openhands.dev/), an open-source AI software engineering
-agent. OpenHands runs on a pre-baked image — installed via
-[uv](https://astral.sh/uv/) at image-build time, not at sandbox creation, so a
+agent. The kit's content *is* the image it runs — OpenHands is installed via
+[uv](https://astral.sh/uv/) at build time, not at sandbox creation, so a
 new sandbox starts in seconds instead of waiting on the install. The kit wires
 LLM API auth through the sandbox proxy and runs `openhands --always-approve`
 as the entrypoint when you attach.
+
+[`../openhands-mixin`](../openhands-mixin) is the same agent as an overlay you
+layer onto a shell base instead.
 
 OpenHands defaults to [CodeActAgent](https://docs.all-hands.dev/usage/agents) with
 `SANDBOX_TYPE=local` — code executes directly in the sandbox container rather than
@@ -19,7 +22,6 @@ spawning nested Docker containers. See "How `SANDBOX_TYPE=local` works" below.
   [OpenAI](https://platform.openai.com/), and
   [Google Gemini](https://aistudio.google.com/), among others.
 - `sbx` CLI installed and authenticated.
-- Go 1.23+ (for running TCK tests locally).
 
 ## Setup
 
@@ -163,7 +165,8 @@ it is readable by the agent and by anything the agent runs, and this
 kit's allowlist includes hosts it could be sent to. Keep credentials
 host-side.
 
-`permissions.network.allow` is kept to what the running agent actually needs:
+The kit's `com.docker.sandbox/network-policy@1` runtime allow list is kept to
+what the running agent actually needs:
 the LLM API endpoints, GitHub (git/`gh`), PyPI (the CLI's own update-check
 ping — see "Usage" above), and npm (MCP servers launched via `npx`). OpenHands itself
 is baked into the image at build time, so none of `uv`'s install-time fetches

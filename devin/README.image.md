@@ -25,10 +25,11 @@ check whether a usable credential is present, drive Devin's own login flow when
 it is not, and replace whatever key that login leaves on disk with the sandbox
 proxy's placeholder so the container never holds a usable secret.
 
-That something is the wrapper, and it takes the name `devin` so the kit's
-`sandbox.entrypoint` stays the obvious `[devin, ...]`.
+That something is the wrapper, and it takes the name `devin` so the image
+config's `ENTRYPOINT` stays the obvious `[devin, ...]`.
 
-The rename in the Dockerfile has two steps that look fussy and are not:
+The rename in [`devin.dockerfile`](./devin.dockerfile) has two steps that look
+fussy and are not:
 
 - `devin-cli` is created with `readlink` **without** `-f`. That copies the
   installer's symlink *target* — its "current version" pointer — rather than

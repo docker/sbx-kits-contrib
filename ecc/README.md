@@ -6,7 +6,8 @@ Code": a large agent-harness content pack of skills, agents, rules, and
 commands. Pinned to `v2.0.0`, installed from upstream's **minimal
 profile**; the skills part of it needs a writable skills store (see the
 design note below). The content is Claude-Code-specific, so the kit
-declares `requires.agent: claude`.
+declares `requires: ["claude"]`, which either the [`claude`](../claude)
+workload or [`claude-mixin`](../claude-mixin) satisfies.
 
 ## Usage
 
@@ -52,6 +53,16 @@ writable.
 
   `--skills off` also works: no store is mounted, so the installer
   creates `~/.claude/skills` itself.
+
+  The kit now also *asks* for a writable store, through an
+  `agent-skills@1` capability declaring `~/.claude/skills` at
+  `mode: readwrite`. That is the one declaration the v3 migration added
+  rather than carried over: v2 had no grammar for it, which is why the
+  instructions above could only tell you to pass a host-side flag. The ask
+  is not a demand — both sides bound the result, so a host whose store is
+  read-only or off still yields read-only or off, and the write probe in
+  the install hook keeps doing its job. It is `optional`, because the
+  rules, agents and commands install either way.
 - Upstream warns **"do not stack install methods"** — this kit uses only
   the manual path; don't additionally `/plugin install ecc@ecc` in the
   same sandbox.

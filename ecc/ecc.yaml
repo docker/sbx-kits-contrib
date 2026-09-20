@@ -1,0 +1,122 @@
+# syntax=docker/sandbox-kit:3
+# Migration of this kit's v2 spec.yaml. Deltas are marked MIGRATION NOTE inline.
+#
+# This is a declaration-only kit: everything it ships, it installs from upstream
+# in a lifecycle hook, and it sets no environment variables — so it has no
+# companion dockerfile. A v3 mixin is allowed to carry no recipe.
+schemaVersion: "3"
+kind: mixin
+displayName: ECC (Everything Claude Code)
+description: 'The agent-harness optimization content pack for Claude Code: rules, agents, commands, and — when the sandbox skills store is writable — skills, installed from upstream''s minimal profile (no hooks runtime). Pinned to v2.0.0.'
+
+# MIGRATION NOTE: v2's `requires: {agent: claude}`, same name so it keeps
+# resolving against either shape of the claude kit.
+requires: ["claude"]
+
+capabilities:
+  # MIGRATION NOTE: v2 had one flat list; v3 is phase-scoped and an absent phase
+  # grants nothing. The split follows who reaches each host:
+  #
+  #   install  — everything the two install hooks download: the pinned ECC clone
+  #              from GitHub and its npm dependencies. Nothing here is reached
+  #              again once the content pack is on disk; ECC's rules, agents and
+  #              commands are files Claude Code reads locally.
+  #   runtime  — the apt sources only (see below).
+  - type: com.docker.sandbox/network-policy@1
+    config:
+      install:
+        allow:
+          - github.com
+          - objects.githubusercontent.com
+          - release-assets.githubusercontent.com
+          # Confirmed necessary via a real e2e run under deny-all.
+          - api.github.com
+          - raw.githubusercontent.com
+          - registry.npmjs.org
+          - '*.npmjs.org'
+      runtime:
+        allow:
+          # `requires: ["claude"]` composes this mixin onto a claude kit, which
+          # runs its own background `apt-get update` on every sandbox
+          # (best-effort, non-blocking) -- refreshing metadata for every
+          # configured apt source, which fails on any one of them even if the
+          # kit's own package would come from a different repo. The claude
+          # family's base images ship three sources, so all three must be
+          # allowed under `deny-all`. Ubuntu hosts amd64 packages on
+          # archive/security and arm64 packages on ports.ubuntu.com, so all
+          # three Ubuntu hosts are listed to keep the kit working cross-arch
+          # (CI runs amd64; a real e2e run on arm64 only exercised
+          # ports.ubuntu.com).
+          #
+          # These are in `runtime` rather than `install` because the hook that
+          # reaches them is a STARTUP hook of the composed base — startup hooks
+          # run at boot, in the runtime phase.
+          - archive.ubuntu.com        # Ubuntu archive (amd64 main)
+          - security.ubuntu.com       # Ubuntu security updates (amd64)
+          - ports.ubuntu.com          # Ubuntu archive/security (arm64)
+          - download.docker.com       # Docker's apt repo
+
+  # MIGRATION NOTE: new in v3, and the one declaration this migration adds rather
+  # than carries. v2 had no way to say anything about the skills store, so the
+  # kit's agent instructions could only tell the user to recreate the sandbox with
+  # `--skills readwrite` by hand — and the install hook below has to probe the
+  # directory for writability because it cannot ask. This entry is that ask, at
+  # the path the kit already documents and the hook already probes, so no path is
+  # invented.
+  #
+  # `mode: readwrite` is the most access the kit is willing to take, not a demand:
+  # the host's own setting still bounds the result, so a read-only or disabled
+  # store stays read-only or disabled and the probe below keeps doing its job.
+  # `optional: true` because the kit installs its rules, agents and commands
+  # either way — only ECC's skills module depends on this.
+  - type: com.docker.sandbox/agent-skills@1
+    optional: true
+    description: ECC installs its skills module into the shared store when it is writable
+    config:
+      path: /home/agent/.claude/skills
+      mode: readwrite
+
+  - type: com.docker.sandbox/lifecycle@1
+    config:
+      install:
+        # MIGRATION NOTE: `env:` is new and required — a v3 hook sees only the
+        # names it declares plus the platform baseline (PATH, HOME, HOSTNAME,
+        # TERM, PWD, OLDPWD, SHLVL, _).
+        - command: npm config set proxy $HTTP_PROXY && npm config set https-proxy $HTTPS_PROXY || true
+          user: "1000"
+          env: [HTTP_PROXY, HTTPS_PROXY]
+          description: Point npm at the sandbox egress proxy
+        # Since sbx v0.43.0 the shared skills store at
+        # /home/agent/.claude/skills is bind-mounted read-only unless the
+        # sandbox was created with `--skills readwrite`, and upstream's
+        # installer aborts at its first read-only write, leaving a partial
+        # install. `workflow-quality` is the only minimal-profile module
+        # whose paths live under `skills/`, so dropping it costs ECC's
+        # skills and nothing else. A store that is absent (`--skills off`)
+        # is created by the installer in a writable parent, hence the `-d`
+        # guard.
+        #
+        # The proxy variables are declared even though this command line does not
+        # name them: `git clone` and `npm install` both read
+        # HTTP_PROXY/HTTPS_PROXY from the environment, and in v2 those arrived
+        # for free with the container env.
+        - command: |
+            set -e
+            git clone --depth 1 --branch v2.0.0 https://github.com/affaan-m/ECC /tmp/ecc
+            cd /tmp/ecc
+            npm install --no-audit --no-fund --loglevel=error
+            if [ -d /home/agent/.claude/skills ] && ! { touch /home/agent/.claude/skills/.ecc-write-probe.$$ && rm -f /home/agent/.claude/skills/.ecc-write-probe.$$; } 2>/dev/null; then
+              ./install.sh --modules rules-core,agents-core,commands-core,platform-configs --target claude
+            else
+              ./install.sh --profile minimal --target claude
+            fi
+            rm -rf /tmp/ecc
+          user: "1000"
+          env: [HTTP_PROXY, HTTPS_PROXY]
+          description: Install ECC v2.0.0 into ~/.claude, omitting the skills module when the skills store is read-only
+
+  # `filename:` is workload-only — it names the profile, which belongs to the
+  # claude kit this one composes onto. A mixin contributes a body.
+  - type: com.docker.sandbox/agent-context@1
+    config:
+      contentFile: ./ecc-context.md

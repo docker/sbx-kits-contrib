@@ -1,0 +1,99 @@
+# syntax=docker/sandbox-kit:3
+# Migration of the v2 nanoclaw kit (nanoclaw/spec.yaml). The v2 kit shipped no
+# recipe at all -- it pointed `sandbox.image` straight at a published
+# third-party image. A v3 workload MUST have content, so the companion recipe
+# is the minimal one that says the same thing: that image as the base, plus the
+# env and the entrypoint v2 declared beside it.
+schemaVersion: "3"
+displayName: NanoClaw
+description: NanoClaw host + nested per-session agent containers inside a Docker Sandbox micro-VM.
+sourceUrl: https://github.com/nanocoai/nanoclaw
+
+kind: workload
+
+# The content is a third-party image this kit does not build, so there is no
+# install for a build arg to pin and no version the provide could honestly
+# claim -- the tag (`sbx-claude-alpha`) is a channel, not a release number.
+#
+# MIGRATION NOTE: v2 declared no `version:`. One is added because an
+# unversioned provide has to publish under something (SPEC-v3 §9.2); it is the
+# kit's own release number, not NanoClaw's.
+version: "1.0.0"
+provides: ["nanoclaw"]
+
+capabilities:
+  # This workload is an agent sandbox: the host launches the agent rather than
+  # running the image's entrypoint as PID 1, and honors the identity the image
+  # config declares instead of assuming one.
+  - type: com.docker.sandbox/sbx@1
+
+  # MIGRATION NOTE: two changes to v2's flat list, no hosts lost.
+  #
+  # Phase: everything is runtime. This kit declares no install hooks, so the
+  # install phase reaches nothing and an absent `install:` block grants
+  # nothing. NanoClaw does its own first-boot setup (image pulls, OneCLI,
+  # Postgres) from the running host process, which is the runtime phase.
+  #
+  # Ports: v2 wrote every entry as `host:443`; these are written portless, the
+  # contrib house style. A portless pattern matches any port on the host, so
+  # nothing v2 admitted is refused here.
+  - type: com.docker.sandbox/network-policy@1
+    config:
+      runtime:
+        allow:
+          # Docker Hub: the nested per-session agent containers are pulled by
+          # the VM's own daemon.
+          - auth.docker.io
+          - index.docker.io
+          - production.cloudflare.docker.com
+          - registry-1.docker.io
+          # OneCLI, which holds the credentials NanoClaw authenticates with.
+          - api.onecli.sh
+          - onecli.sh
+          - www.onecli.sh
+          # Claude, the default agent provider (NANOCLAW_AGENT_PROVIDER below).
+          - api.anthropic.com
+          - claude.ai
+          - claude.com
+          - console.anthropic.com
+          - downloads.claude.ai
+          - platform.claude.com
+          # Source and release fetches for the nested agents' setup.
+          - api.github.com
+          - codeload.github.com
+          - ghcr.io
+          - github.com
+          - objects.githubusercontent.com
+          - raw.githubusercontent.com
+          - release-assets.githubusercontent.com
+          # Package and toolchain downloads inside the nested containers.
+          - bun.sh
+          - checkpoint.prisma.io
+          - deb.debian.org
+          - registry.npmjs.org
+          - security.debian.org
+          # Chat channels NanoClaw connects to.
+          - api.slack.com
+          - api.telegram.org
+          - discord.com
+          - gateway.discord.gg
+          - slack.com
+          - t.me
+          - web.whatsapp.com
+
+  # MIGRATION NOTE: v2 declared no `protocol:` on any of these, so none is
+  # stated here either -- `transport` defaults to tcp.
+  - type: com.docker.sandbox/port@1
+    config: {name: webhook, container: 3000}
+  - type: com.docker.sandbox/port@1
+    config: {name: onecli-dashboard, container: 10254}
+  - type: com.docker.sandbox/port@1
+    config: {name: onecli-gateway, container: 10255}
+
+  # No credential@1 entries, faithfully: v2 declared none. NanoClaw
+  # authenticates through OneCLI inside the sandbox, the way a normal NanoClaw
+  # deployment does, so there is no host-bound secret for the proxy to present.
+  - type: com.docker.sandbox/agent-context@1
+    config:
+      filename: CLAUDE.md
+      contentFile: ./nanoclaw-context.md

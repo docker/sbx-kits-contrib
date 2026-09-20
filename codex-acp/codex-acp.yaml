@@ -1,0 +1,81 @@
+# syntax=docker/sandbox-kit:3
+# Migration of this kit's v2 spec.yaml to the v3 kit descriptor grammar. The
+# kit was already `kind: mixin`, so the shape barely moves: what changes is how
+# the base-agent affinity is spelled, where the hooks live, and that the
+# instruction body is now a file beside this one.
+#
+# This is a DECLARATION-ONLY mixin: it has no companion codex-acp.dockerfile,
+# because the v2 kit had no Dockerfile either. The adapter is not installed at
+# build time — the launcher this kit writes runs `npx -y` at invocation, which
+# is exactly why registry.npmjs.org is in the runtime allow list below. v3
+# permits a mixin with no recipe (SPEC-v3 §3.5); the published artifact is the
+# staged descriptor alone.
+schemaVersion: "3"
+displayName: Codex ACP
+description: Runs the Codex ACP adapter inside a Codex sandbox over stdio.
+
+kind: mixin
+
+# MIGRATION NOTE: v2's `requires: {agent: codex}` — a single base-agent
+# affinity matched against a sandbox kit's `name`. v3 has one flat capability
+# namespace instead, so this becomes a requires entry over the name the codex
+# kit provides. Both the `codex` workload kit and the `codex-mixin` overlay
+# provide it, so the adapter composes onto either.
+#
+# Unconstrained on purpose: v2 could not express a version floor and this
+# migration invents none. Note that an unversioned provide satisfies only an
+# unconstrained require (SPEC-v3 §5.2), and the codex kits' provides are
+# unversioned because their installers float — so a constraint added here
+# would fail to resolve against them rather than bounding them.
+requires: ["codex"]
+
+capabilities:
+  # v2's permissions.network.allow, one flat list, becomes a phase-scoped
+  # policy. Everything lands in `runtime`: this kit has no install hooks at all
+  # (its only setup step is a file write), and the npm fetch happens when the
+  # launcher is invoked during a session, not at create. An absent install
+  # phase grants nothing.
+  - type: com.docker.sandbox/network-policy@1
+    config:
+      runtime:
+        allow:
+          # Where `npx -y` resolves and downloads the adapter package, every
+          # time the launcher is run. The load-bearing entry of this list: the
+          # adapter is not installed at build time.
+          - registry.npmjs.org
+          # GitHub hosts the adapter reaches during a session.
+          - api.github.com
+          - gist.github.com
+          - github.com
+          - raw.githubusercontent.com
+
+  # No credential entry, faithfully: v2 declared none. The adapter execs the
+  # codex binary the base kit ships and inherits that kit's OpenAI credential
+  # surface (~/.codex/auth.json, config.toml) rather than authenticating on its
+  # own account.
+  - type: com.docker.sandbox/lifecycle@1
+    config:
+      files:
+        # The launcher. Its content is written verbatim and gets no runtime
+        # variable substitution — $CODEX_PATH and "$@" are for the shell that
+        # runs the script, not for the engine that writes it, and v3 leaves
+        # them alone (only `${{ kit.args.* }}` would expand here, and this kit
+        # declares no args).
+        - path: /home/agent/.local/bin/codex-acp
+          mode: "0755"
+          description: Launch the Codex ACP adapter with the sandboxed Codex binary.
+          content: |
+            #!/bin/bash
+            set -e
+            if [ -z "$CODEX_PATH" ]; then
+              export CODEX_PATH=codex
+            fi
+            exec npx -y @agentclientprotocol/codex-acp@1.1.0 "$@"
+
+  # MIGRATION NOTE: v2's agentInstructions.content moves verbatim into
+  # codex-acp-context.md beside this file. `filename` is workload-only in v3 —
+  # the profile belongs to the kit that owns the environment — and the v2 entry
+  # named none anyway, so this kit contributes a body and nothing else.
+  - type: com.docker.sandbox/agent-context@1
+    config:
+      contentFile: ./codex-acp-context.md

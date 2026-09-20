@@ -1,0 +1,116 @@
+# syntax=docker/sandbox-kit:3
+# smolagents as a declaration-only MIXIN. The v2 kit shipped no Dockerfile — it
+# built its venv through setup hooks — and v3 lets a mixin have no recipe at
+# all, so the descriptor is the whole kit.
+#
+# MIGRATION NOTE: v2's `environment.variables` has no v3 field here. A mixin's
+# image config is not the composed image's, and a recipe-less mixin has no
+# overlay to drop an /etc/profile.d file into at build time either — so the
+# last install hook below writes that drop. Both variables stayed fixed values
+# rather than becoming args with `env:`: they name the venv the hooks above them
+# create at a hard-coded path, so an installer-supplied value would point at a
+# python that does not exist.
+schemaVersion: "3"
+displayName: smolagents
+description: >-
+  Installs Hugging Face smolagents in an isolated Python virtual environment
+  and exposes the smolagent and webagent CLIs inside the sandbox.
+
+kind: mixin
+
+# The install hook pins 1.26.0, so this version is a fact about what the kit
+# installs. To bump: edit the hook, this entry and the README together.
+provides: ["smolagents@1.26.0"]
+
+capabilities:
+  # MIGRATION NOTE: v2's one flat allow list, split by the phase that reaches
+  # each host. The v2 comments already separated them — pip and apt are the
+  # install hooks', the Hugging Face and DuckDuckGo hosts are the agent's in
+  # steady state — so the split is a transcription of what was written down.
+  - type: com.docker.sandbox/network-policy@1
+    config:
+      install:
+        allow:
+          # pip install path for smolagents and its Python dependencies.
+          - pypi.org
+          - files.pythonhosted.org
+          # `apt-get update` refreshes every configured apt source from the base
+          # template. Keep all template sources allowed for amd64 and arm64 sandboxes.
+          - archive.ubuntu.com
+          - security.ubuntu.com
+          - ports.ubuntu.com
+          - download.docker.com
+      runtime:
+        allow:
+          # Hugging Face Hub and Inference Providers, used by InferenceClientModel and
+          # hub-backed agent/tool loading at runtime.
+          - huggingface.co
+          - hf.co
+          - router.huggingface.co
+          # DuckDuckGo-backed search tools from the optional toolkit extra. Webpage
+          # fetches still require allowing the target sites you ask the agent to visit.
+          - duckduckgo.com
+          - html.duckduckgo.com
+          - www.duckduckgo.com
+
+  - type: com.docker.sandbox/lifecycle@1
+    config:
+      install:
+        # Stands in for v2's `environment.variables`, and runs first because that
+        # block was in effect before any v2 hook ran. Nothing below reads these —
+        # every hook uses the absolute venv paths — so the ordering is about
+        # saying the same thing v2 said, not about sequencing.
+        #
+        # No `env:` — the body reads nothing.
+        - command: |
+            set -eu
+            mkdir -p /etc/profile.d
+            cat > /etc/profile.d/smolagents-env.sh <<'EOF'
+            # Installed by sbx-kits-contrib/smolagents. These name the venv the
+            # kit's install hooks create; see smolagents.yaml.
+            export SMOLAGENTS_PYTHON=/opt/smolagents/bin/python
+            export SMOLAGENTS_VENV=/opt/smolagents
+            EOF
+            chmod 0644 /etc/profile.d/smolagents-env.sh
+          user: "0"
+          description: Drop SMOLAGENTS_PYTHON and SMOLAGENTS_VENV into /etc/profile.d
+        - command: apt-get update && apt-get install -y --no-install-recommends ca-certificates python3 python3-venv python3-pip && rm -rf /var/lib/apt/lists/*
+          user: "0"
+          description: Install Python and venv prerequisites for smolagents
+        # MIGRATION NOTE: the body reads no variable, but pip does — it takes the
+        # proxy from the environment, and v2's unrestricted hook environment
+        # handed it over. Under v3's deny-by-default hook env it has to be
+        # declared or the install fails behind the sandbox's forced proxy.
+        - command: |
+            set -euo pipefail
+            SMOLAGENTS_VERSION=1.26.0
+            python3 -m venv /opt/smolagents
+            /opt/smolagents/bin/python -m pip install --upgrade pip setuptools wheel
+            /opt/smolagents/bin/python -m pip install "smolagents[toolkit,vision]==${SMOLAGENTS_VERSION}"
+            ln -sf /opt/smolagents/bin/smolagent /usr/local/bin/smolagent
+            ln -sf /opt/smolagents/bin/webagent /usr/local/bin/webagent
+            cat > /usr/local/bin/smolagents-python <<'SCRIPT'
+            #!/bin/sh
+            exec /opt/smolagents/bin/python "$@"
+            SCRIPT
+            chmod 0755 /usr/local/bin/smolagents-python
+            smolagent --help >/dev/null
+            webagent --help >/dev/null
+            smolagents-python -c 'import smolagents; print("smolagents", smolagents.__version__)'
+          user: "0"
+          env: [HTTP_PROXY, HTTPS_PROXY]
+          description: Install smolagents v1.26.0 with toolkit and vision extras in /opt/smolagents
+        # v2 declared these exports twice — once in `environment.variables` for
+        # the container and once here, appended to the agent's ~/.bashrc. Both
+        # are kept, because they are not the same reach: the /etc/profile.d drop
+        # above covers login shells, and ~/.bashrc covers the interactive
+        # non-login shells profile.d never gets sourced by — which is also the
+        # only place the alias can live.
+        #
+        # No `env:` — `~` expands from HOME, which is platform baseline.
+        - command: |
+            set -euo pipefail
+            grep -qF 'smolagents-python' ~/.bashrc 2>/dev/null || \
+              printf '\n# smolagents (added by sbx-kits-contrib/smolagents)\nexport SMOLAGENTS_VENV=/opt/smolagents\nexport SMOLAGENTS_PYTHON=/opt/smolagents/bin/python\nalias smolagents-python=/opt/smolagents/bin/python\n' >> ~/.bashrc
+          user: "1000"
+          description: Add smolagents helper environment variables to interactive shells

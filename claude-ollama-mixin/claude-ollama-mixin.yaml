@@ -1,0 +1,137 @@
+# syntax=docker/sandbox-kit:3
+# The Ollama wiring for Claude Code as a MIXIN: the same declarations as the
+# `claude-ollama` workload kit beside it, minus what only the kit that owns the
+# environment can carry —
+#
+#   * no ENTRYPOINT. The base workload's launch command stays; the user runs
+#     `claude-ollama` from the shell.
+#   * no sbx@1 (a mixin's image config is not the composed image's).
+#   * no agent-sessions@1 — the verbs are argv tails on a launch command this kit
+#     does not own — and no agent-context `filename:`, which names a profile the
+#     workload owns.
+schemaVersion: "3"
+kind: mixin
+displayName: Claude Code (Ollama) (mixin)
+description: >-
+  Routes Claude Code at an Ollama Anthropic-compatible API on the host as a
+  mixin — the wrapper script, the local endpoint's egress, and the model
+  variable in an overlay. Layer it onto a shell base that carries Claude Code
+  and run `claude-ollama`.
+
+version: "1.0.0"
+
+provides: ["claude-ollama"]
+
+# The wrapper execs `claude`, so a composition without it yields a wrapper with
+# no agent behind it. The workload shape got the binary from its
+# claude-code-docker base; a mixin cannot bring a base, so it states the
+# requirement instead and any claude-carrying kit satisfies it.
+#
+# Note what composing this with claude-mixin means for egress: allow-lists union
+# per phase, so the Anthropic hosts that kit declares stay reachable alongside
+# the local endpoint. The wrapper still points Claude Code at Ollama — it unsets
+# ANTHROPIC_API_KEY and overrides ANTHROPIC_BASE_URL — but "Anthropic's API is
+# not reachable" stops being true of the sandbox as a whole.
+requires: ["claude"]
+
+capabilities:
+  - type: com.docker.sandbox/network-policy@1
+    config:
+      runtime:
+        allow:
+          # The wrapper points Claude Code at http://host.docker.internal:11434;
+          # that hostname, not localhost, is what egress filtering sees. The port
+          # stays rather than following this repo's portless house style:
+          # `host.docker.internal` is the host itself, so dropping the suffix
+          # would widen the grant from one local model server to every port the
+          # host has open.
+          - host.docker.internal:11434
+
+  # No credential, as in the workload shape: Ollama is a local model, so there is
+  # no service to authenticate to and no SBX_CRED_ANTHROPIC_MODE for the engine
+  # to surface.
+
+  - type: com.docker.sandbox/lifecycle@1
+    config:
+      install:
+        # Seed ~/.claude/settings.json early (install runs synchronously before
+        # the agent launches). This kit declares no credential service, so
+        # SBX_CRED_ANTHROPIC_MODE is never set on its account and the branch
+        # falls through to the "none" path: settings.json is written WITHOUT
+        # apiKeyHelper. The name is declared in `env:` because the hook reads it
+        # and a v3 hook sees only what it declares — which in the mixin shape
+        # also means the branch does the right thing when a claude-carrying base
+        # did bind a credential.
+        #
+        # The test -f guard makes re-runs a no-op and never clobbers a
+        # user-edited file — including one a composed claude kit wrote first.
+        # root-write + chown because base-image ownership of /home/agent/.claude
+        # is not guaranteed agent-owned.
+        - command: |
+            set -e
+            mkdir -p /home/agent/.claude
+            if [ ! -f /home/agent/.claude/settings.json ]; then
+              HELPER=''
+              if [ "${SBX_CRED_ANTHROPIC_MODE:-none}" != none ]; then
+                HELPER='  "apiKeyHelper": "echo proxy-managed",
+            '
+              fi
+              printf '%s' "{
+              \"themeId\": 1,
+              \"alwaysThinkingEnabled\": true,
+            ${HELPER}  \"defaultMode\": \"bypassPermissions\",
+              \"bypassPermissionsModeAccepted\": true
+            }
+            " > /home/agent/.claude/settings.json
+            fi
+            # Enumerated, not recursive: ~/.claude holds runtime-managed content
+            # this kit doesn't own, so `chown -R` on the parent would take
+            # ownership of paths outside the kit's control.
+            chown agent:agent /home/agent/.claude /home/agent/.claude/settings.json
+          user: root
+          env: [SBX_CRED_ANTHROPIC_MODE]
+          description: Seed Claude settings.json (none path; no credential service)
+      files:
+        # Credential-independent bypass flags. A static init file, so
+        # `overwrite: false` is the right idempotency — and in the mixin shape it
+        # is what keeps this kit from overwriting the richer ~/.claude.json a
+        # composed claude kit seeds from WORKSPACE_DIR.
+        - path: /home/agent/.claude.json
+          content: |
+            {
+              "bypassPermissionsModeAccepted": true,
+              "hasCompletedOnboarding": true,
+              "projects": {
+                  "/": {
+                  "hasTrustDialogAccepted": true
+                }
+              }
+            }
+          overwrite: false
+          description: Claude bypass flags (mode-independent)
+        # The wrapper. In the workload shape this is the entrypoint; here it is
+        # a command the user runs. `$CLAUDE_OLLAMA_MODEL` and `"$@"` are shell
+        # expansions at run time and pass through untouched — only
+        # kit-arg references are substituted into file content, and this kit
+        # declares no args.
+        - path: /home/agent/.local/bin/claude-ollama
+          content: |
+            #!/usr/bin/env bash
+            set -euo pipefail
+
+            export ANTHROPIC_AUTH_TOKEN="ollama"
+            unset ANTHROPIC_API_KEY
+            export ANTHROPIC_BASE_URL="http://host.docker.internal:11434"
+
+            export ANTHROPIC_DEFAULT_OPUS_MODEL="$CLAUDE_OLLAMA_MODEL"
+            export ANTHROPIC_DEFAULT_SONNET_MODEL="$CLAUDE_OLLAMA_MODEL"
+            export ANTHROPIC_DEFAULT_HAIKU_MODEL="$CLAUDE_OLLAMA_MODEL"
+            export CLAUDE_CODE_SUBAGENT_MODEL="$CLAUDE_OLLAMA_MODEL"
+
+            exec claude "$@"
+          mode: "0755"
+          description: Wrapper script that routes Claude Code to the local Ollama instance
+
+  - type: com.docker.sandbox/agent-context@1
+    config:
+      contentFile: ./claude-ollama-mixin-context.md

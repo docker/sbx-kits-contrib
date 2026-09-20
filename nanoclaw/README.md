@@ -9,6 +9,10 @@ image. The image contains a clean upstream NanoClaw checkout with dependencies
 already installed, so first run focuses on pulling the nested service images,
 starting OneCLI/Postgres, and walking through NanoClaw setup.
 
+A mixin variant lives in [`../nanoclaw-mixin`](../nanoclaw-mixin), but it
+carries only the launcher and the checkout — not the runtime the prebuilt image
+ships around them — so this workload kit is the supported way to run NanoClaw.
+
 ## Usage
 
 ```console

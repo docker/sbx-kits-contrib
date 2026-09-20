@@ -3,9 +3,10 @@
 A mixin that installs [code-server](https://github.com/coder/code-server)
 and runs it as a background service on port 8080, with the
 [Claude Code VS Code extension](https://code.claude.com/docs/en/vscode)
-pre-installed. The kit declares port 8080 in `network.publishedPorts`,
-so the sandbox runtime publishes it on an ephemeral host port at start
-time — no separate `sbx ports --publish` step is needed. You get a
+pre-installed. The kit requests port 8080 through a
+`com.docker.sandbox/port@1` capability, so the sandbox runtime publishes
+it on an ephemeral host port at start time — no separate
+`sbx ports --publish` step is needed. You get a
 web-based VS Code pointed at the sandbox workspace with a native Claude
 panel that shares credentials and conversation history with the `claude`
 CLI agent.
@@ -47,18 +48,20 @@ sbx exec -it <sandbox-name> -- cat /tmp/code-server.log
 
 ## How the workspace path gets set
 
-The kit uses `commands.initFiles` to write a tiny wrapper script at
-`/home/agent/.local/bin/start-code-server.sh` each time the sandbox
-starts. `${WORKDIR}` expands to the actual workspace path at that
-point, so the script has the correct folder baked in before
-`code-server` runs. `commands.startup` invokes the script directly,
-backgrounded with `nohup … &`, stdout/stderr redirected to
-`/tmp/code-server.log`. `mode: "0755"` on the initFile makes the
-generated file executable.
+A lifecycle install hook writes a tiny wrapper script at
+`/home/agent/.local/bin/start-code-server.sh`, reading `WORKSPACE_DIR`
+from its declared `env:` and single-quoting the value into the script, so
+the wrapper has the correct folder baked in before `code-server` runs. A
+lifecycle startup hook invokes the script with `background: true` —
+the engine detaches it — and redirects stdout/stderr to
+`/tmp/code-server.log`.
 
-This is the cleanest place to see why `initFiles` exists — the
-workspace path isn't known until the sandbox starts, so it can't be
-hardcoded in a static file or a shell-string command.
+The workspace path isn't known until the sandbox is created, so it can't
+be hardcoded in a static file. It has to be read from the environment,
+and a hook is the only lifecycle declaration that gets an environment: a
+`files:` entry's `content` expands `${{ kit.args.* }}` and nothing else,
+so a `$WORKSPACE_DIR` written there would reach the script as literal
+text rather than as the workspace path.
 
 ## About authentication
 
@@ -102,8 +105,9 @@ data directory to reduce first-launch noise:
 
 VS Code doesn't have a clean "auto-open this view on startup" setting,
 so Claude still needs one click on the Spark icon the first time.
-After that, state persists across browser reloads (the sandbox's
-`persistence: persistent` volume preserves `~/.local/share/code-server/`).
+After that, state persists across browser reloads. This kit requests no
+volume of its own, so whether `~/.local/share/code-server/` survives a
+sandbox recreate is up to the base workload's own storage.
 
 Edit `files/home/.local/share/code-server/User/settings.json` in a fork
 to customize further.
