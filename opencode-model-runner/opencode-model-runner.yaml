@@ -13,18 +13,67 @@ sourceUrl: https://docs.docker.com/ai/model-runner/
 
 kind: workload
 
-# The content is a published template this kit does not build, and the kit's
-# own substance is the provider config below rather than a version of OpenCode.
+# The OpenCode inside the content, by reference: SPEC-v3 §4 allows this field
+# to be a build-phase arg reference expanded at publish, so it names the
+# `version` arg below, the same one the provide reads.
 #
-# MIGRATION NOTE: v2 declared no `version:`. One is added because an
-# unversioned provide has to publish under something (SPEC-v3 §9.2).
-version: "1.0.0"
+# Read that arg's note before trusting this field, because this kit installs
+# nothing: OpenCode arrives already built in the base template, so the value
+# is ASSERTED rather than selected -- nothing here chooses which release the
+# artifact gets. What makes the reference honest anyway is that the build
+# verifies the assertion against the base and fails when it does not hold, so
+# what this field publishes is a version the content was checked for.
+#
+# MIGRATION NOTE: v2 declared no `version:`. One is added because §9.3 derives
+# `org.opencontainers.image.version` from it -- and pointed here it names the
+# agent the artifact carries, which is the only version this kit has to state.
+version: "${{ kit.args.version }}"
+
+# The OpenCode release this kit ships, which it does NOT install: the content
+# is `FROM docker/sandbox-templates:opencode-docker` and OpenCode arrives
+# already built into that template. So this arg cannot select a release the way
+# the sibling ../opencode kit's can, and declaring it as if it could would be a
+# pin in name only.
+#
+# It is an ASSERTION instead. The recipe reads `opencode --version` out of the
+# base and fails the build when it does not equal this value, so the version
+# the provide publishes is verified against the content of every artifact
+# rather than asserted over it. That is what makes putting a version here
+# honest at all -- SPEC-v3 has no way for a provide to quote something read out
+# of the content, so the only alternatives were to enforce a declared value or
+# to state none.
+#
+# WHY ENFORCE rather than leave it unversioned: unversioned, the provide takes
+# the `version:` above and publishes `opencode-model-runner@1.0.0`, which says
+# nothing about the agent a consumer would be constraining. The cost is a
+# tripwire -- `:opencode-docker` is a floating tag Docker rebuilds, so the day
+# it carries a newer OpenCode this kit stops building until someone bumps the
+# default below. For a kit whose entire content is someone else's moving tag
+# that is a feature: it is the only channel that reports the content changed,
+# and the build log names both versions.
+#
+# HOW THE DEFAULT WAS ESTABLISHED, and how to bump it: ask the base itself --
+#   docker run --rm --entrypoint opencode \
+#     docker/sandbox-templates:opencode-docker --version
+# which printed 1.18.23 at the time of writing. Do not read it from npm: this
+# kit ships whatever the template froze, which trails `opencode-ai@latest`
+# (1.18.31 on the same day).
+args:
+  version:
+    default: "1.18.23"
+    pattern: '^[0-9]+\.[0-9]+\.[0-9]+$'
+    description: OpenCode release the base template is expected to carry
+    buildArg: EXPECTED_OPENCODE_VERSION
 
 # The kit's own name, not bare `opencode`. Both this kit and ../opencode ship
 # an OpenCode, and a capability name has exactly one owner in a composition
 # (SPEC-v3 §5.3) -- claiming `opencode` here would make the two unresolvable
 # together for no gain, since nothing in this repo requires that name.
-provides: ["opencode-model-runner"]
+#
+# The version on it is the OpenCode release inside, which is the only thing
+# about this capability a consumer could usefully constrain: the provider
+# config the kit adds on top has no version of its own.
+provides: ["opencode-model-runner@${{ kit.args.version }}"]
 
 capabilities:
   # This workload is an agent sandbox: the host launches the agent rather than
@@ -60,8 +109,10 @@ capabilities:
         # MIGRATION NOTE: v2's `setup.files` entry, unchanged. v2 declared no
         # `onlyIfMissing`, so `overwrite` keeps its v3 default of true and the
         # config is rewritten on every start -- the same behavior. The `$schema`
-        # key is written literally: file content expands `${{ kit.args.* }}`
-        # only, and this kit declares no args.
+        # key is written literally: file content expands a kit-arg reference
+        # and nothing else, so a `$schema` written plainly survives. The kit's
+        # one arg is the asserted OpenCode version, which this file never
+        # names.
         - path: /home/agent/.config/opencode/opencode.json
           content: |
             {

@@ -10,6 +10,27 @@ kind: mixin
 # provide at publish. Bump it when this kit's declarations change.
 version: "1.0.0"
 
+# What this kit needs from whatever it composes onto. Both names are derived
+# rather than authored: publishing a workload reads its dpkg database and
+# states one entry per installed package (SPEC-v3 §9.6), so a Debian-family
+# base provides these by construction and a mixin may require them.
+#
+#   deb/jq             the install hook pipes api.github.com/meta through jq.
+#                      §12's floor is bash, sh, curl, git and a CA store, so
+#                      this was an unstated assumption the v2 hook inherited
+#                      from its base image; it is stated now rather than
+#                      quietly changed.
+#   deb/openssh-client ~/.ssh/known_hosts is OpenSSH's file, at OpenSSH's path.
+#                      Writing it on a base with no ssh client leaves the kit
+#                      silently inert — the host keys are pinned and nothing
+#                      ever reads them — which is worse than refusing to
+#                      compose.
+#
+# Both unversioned: the kit uses jq's oldest surface (`-r` with a field
+# selector) and writes a known_hosts format that has not moved, so a floor
+# would bound nothing.
+requires: ["deb/jq", "deb/openssh-client"]
+
 capabilities:
   # MIGRATION NOTE: v2 declared one flat allow list (github.com,
   # api.github.com) that applied to the whole sandbox life. v3 scopes egress
@@ -31,10 +52,8 @@ capabilities:
       install:
         # No `env:` list: the hook reads nothing outside v3's platform
         # baseline (PATH, HOME, …), so deny-by-default costs it nothing.
-        # It does assume `jq`, which is NOT part of v3's platform floor
-        # (§12 promises bash, sh, curl, git and a CA store) — the same
-        # assumption the v2 hook made about its base image, carried over
-        # rather than quietly changed.
+        # The `jq` it assumes is declared in `requires:` above rather than
+        # left to the base, which is the one thing v2 had no way to say.
         - command: |
             mkdir -p /home/agent/.ssh
             chmod 700 /home/agent/.ssh

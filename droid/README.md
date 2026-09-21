@@ -30,7 +30,7 @@ Either of these works — you do not need both:
 ## Usage
 
 ```console
-sbx run --kit "docker.io/sbx/droid-kit:latest" droid
+sbx run --kit "docker.io/docker/sbx-kit-droid:latest" droid
 ```
 
 Or from a git URL targeting this repo:
@@ -126,7 +126,7 @@ The image is **`docker.io/sbx/droid-image`**, built on
 requests Docker-in-Docker.
 
 The `-image` suffix distinguishes the base image from the kit itself: the kit
-itself is published as an OCI artifact at `docker.io/sbx/droid-kit` (see
+itself is published as an OCI artifact at `docker.io/docker/sbx-kit-droid` (see
 [Usage](#usage) above).
 The name is derived from the kit directory and enforced repo-wide — see
 [PUBLISHING.md](../PUBLISHING.md#naming).
@@ -149,8 +149,16 @@ are below.
 ### Building locally
 
 ```console
-docker build -f droid/droid.dockerfile -t docker.io/sbx/droid-image:latest droid
+cd droid && docker buildx build . -f droid.yaml --output type=cacheonly
 ```
+
+The descriptor is the build target, not the recipe: its `# syntax=` line
+dispatches the kit frontend, which validates the descriptor, builds
+`droid.dockerfile` as the content and attaches the published descriptor to the
+result. Building the recipe directly with `-f droid.dockerfile` would produce an
+ordinary image and no kit. `--output type=cacheonly` keeps the artifact out of
+the local store, which is what you want when the question is only whether it
+builds.
 
 `-f` is needed now that the recipe is named for its descriptor's stem rather
 than `Dockerfile`; the kit frontend finds it by that convention without one.
@@ -158,3 +166,41 @@ than `Dockerfile`; the kit frontend finds it by that convention without one.
 `BASE_IMAGE` is a build arg, so the base can be re-pointed or digest-pinned
 without editing `droid.dockerfile`: `--build-arg BASE_IMAGE=…` accepts a tag
 or a digest.
+
+`DROID_VERSION` is the other one: the Droid release to install, declared as
+the descriptor's `version` arg and expanded into
+`provides: ["droid@<version>"]`, so the kit cannot claim a release it does not
+ship. It has no default in the recipe — an empty value fails the build.
+
+The recipe no longer pipes `https://app.factory.ai/cli` into a shell, because
+that installer takes no version. `VER="0.223.0"` is a plain assignment rather
+than a `${VER:-…}` default, the script reads neither `$@` nor the environment,
+and its argument surface is nothing — so neither `VER=x | sh` nor
+`| sh -s -- x` reaches it, and passing one would read as a pin while pinning
+nothing. What the script *does* publish is a versioned artifact layout, in its
+own two URL lines:
+
+```sh
+URL="$BASE_URL/factory-cli/releases/$VER/$platform/$droid_architecture/$binary_name"
+SHA_URL="$BASE_URL/factory-cli/releases/$VER/$platform/$droid_architecture/$binary_name.sha256"
+```
+
+Those paths are durable (0.220.0, 0.222.0 and 0.223.0 all answer 200 today)
+and each carries its own published `.sha256`, so the recipe reproduces that
+download step with `$VER` replaced by the kit's arg: same host, same path
+template, same checksum verification, same install location, including the
+installer's `-baseline` fallback for x64 CPUs without AVX2. It then asserts
+the installed binary reports the declared release. Bypassing the installer
+therefore loses nothing an integrity check would have caught — `curl | sh`
+verified the same digest from the same origin.
+
+To bump, re-read the installer's own literal:
+
+```console
+$ curl -fsSL https://app.factory.ai/cli | grep '^VER='
+VER="0.223.0"
+```
+
+The build reaches `downloads.factory.ai` (the binary and its checksum). It no
+longer reaches `app.factory.ai` for the install script; that host stays in the
+kit's runtime allow list as a credential inject domain.

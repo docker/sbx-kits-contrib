@@ -5,33 +5,87 @@ description: "The polyglot dev-tool version manager (https://mise.jdx.dev) — i
 
 kind: mixin
 
-# The install hook pins the release, so the provide states the version it
-# lands rather than leaning on a `version:` fallback. Bumping mise means
-# editing MISE_VERSION, the two digests, and this line.
-provides: ["mise@2026.5.2"]
+# The mise release this kit's overlay carries, by reference to the `version`
+# arg below — SPEC-v3 §4 admits a build-phase arg reference in this field and
+# expands it at publish, so the release is stated in exactly one place and the
+# publish tag and `org.opencontainers.image.version` name the CLI the kit
+# ships.
+#
+# MIGRATION NOTE: this kit had no `version:` field at all, which was defensible
+# while it had no content — an unversioned provide would have fallen back to
+# it, and there was none to fall back on. Now the field and the provide read
+# the same arg.
+version: "${{ kit.args.version }}"
+
+# The mise release mise.dockerfile downloads, declared once: validated here,
+# handed to the recipe as MISE_VERSION, and expanded into `provides` and into
+# the top-level `version:` — so the kit cannot publish a release its overlay
+# does not carry. The recipe proves the agreement by running the installed
+# binary and comparing what it reports.
+#
+# `buildArg:`, not `env:` — the two are mutually exclusive and this value
+# resolves at build. Nothing in the container reads a MISE_VERSION, and mise
+# itself would misread one if it did.
+#
+# An installer may override it, but not silently: the per-arch SHA256s in the
+# recipe are pinned to this release, so another version fails the digest check
+# rather than installing under a descriptor that goes on claiming this number.
+# Bumping mise is therefore a three-part edit — this default and both digests
+# in mise.dockerfile, together — with the checksums from the release's
+# SHASUMS256.txt.
+args:
+  version:
+    default: "2026.5.2"
+    # mise versions are CalVer, but the shape is the same three dotted numeric
+    # segments, and every value this accepts is a legal provide version under
+    # SPEC-v3 §5.2. No leading `v`, which the release URL adds for itself.
+    pattern: '^[0-9]+\.[0-9]+\.[0-9]+$'
+    description: mise release to install
+    buildArg: MISE_VERSION
+
+# MIGRATION NOTE: the provide was the literal `mise@2026.5.2` and now reads the
+# arg, so the version is not repeated in two places that could drift. The claim
+# is unchanged in kind: the recipe pins the release, so the provide states the
+# version it lands rather than leaning on a `version:` fallback.
+provides: ["mise@${{ kit.args.version }}"]
+
+# MIGRATION NOTE: `requires: ["deb/dpkg"]` is gone, and it went out with the
+# hook that justified it. The install hook picked its release tarball with
+# `dpkg --print-architecture` under `set -euo pipefail`, so a base without dpkg
+# died at that line and sandbox creation failed — that, and only that, is what
+# the requirement recorded. mise.dockerfile makes the same choice at build from
+# buildx's TARGETARCH, and the one hook left appends a line to ~/.bashrc, which
+# asks nothing of a package database. `requires` is a closed-set check
+# (SPEC-v3 §5.3): a name kept past its reason refuses compositions in exchange
+# for nothing, so the kit now declares no requires at all.
+#
+# Nothing is required for the tools mise itself installs at runtime either:
+# those are the user's choice, resolved by mise into its own shims, and no kit
+# here can name them in advance.
 
 capabilities:
   - type: com.docker.sandbox/network-policy@1
     config:
-      # MIGRATION NOTE: v2's single flat list is split by phase here, and the
+      # MIGRATION NOTE: v2's single flat list was split by phase here, and the
       # v2 comments already said which side each host was on. github.com and
-      # the two asset hosts serve the pinned install-time download *and*
-      # mise's `ubi` backend at runtime, so they appear in both phases;
-      # api.github.com is runtime-only, since the install hook fetches a fixed
-      # release-download URL and never touches the API.
-      install:
-        allow:
-          # github.com — release tag URL for the install-time tarball.
-          # Confirmed by hand: this 302-redirects to objects.githubusercontent.com,
-          # signed S3 URLs under a per-asset path — not release-assets.githubusercontent.com,
-          # which this list previously assumed and which turned out to be wrong (caught by
-          # this kit's first real e2e run under `sbx policy init deny-all`, curl exit 22).
-          - github.com
-          - objects.githubusercontent.com
-          # Kept alongside objects.githubusercontent.com rather than replacing it: GitHub's
-          # redirect target for a release asset isn't necessarily the same host for every
-          # repo/asset, and this one was never confirmed against a real request either.
-          - release-assets.githubusercontent.com
+      # the two asset hosts served the pinned install-time download *and*
+      # mise's `ubi` backend at runtime, so they appeared in both phases;
+      # api.github.com was runtime-only, since the install hook fetched a
+      # fixed release-download URL and never touched the API.
+      #
+      # MIGRATION NOTE: the install phase is now gone entirely.
+      # mise.dockerfile fetches that tarball at image build, which is the
+      # builder's traffic and not governed by this policy, and the one hook
+      # that remains appends a line to ~/.bashrc without reaching anything. An
+      # absent phase grants nothing, which is the whole point of moving the
+      # download: the grant existed only to let that hook reach the network.
+      #
+      # The same three hosts stay in `runtime`, and that is not the grant
+      # surviving under another name. They are there for mise's `ubi` backend,
+      # which fetches from them when the agent runs `mise install` — the
+      # user's traffic, genuinely in-sandbox, and the reason this kit exists.
+      # What closed is the window before the agent starts: nothing this kit
+      # does at create can reach the network now.
       runtime:
         allow:
           # github.com — release download URLs for mise's `ubi` backend
@@ -42,7 +96,19 @@ capabilities:
           # `mise install <github-tool>@<exact-version>` fails because the resolver still
           # touches the API to validate the tag.
           - api.github.com
+          # The object stores a github.com release-download URL 302s to.
+          # Confirmed by hand against a real request when this kit still
+          # fetched its own release here: github.com redirects to
+          # objects.githubusercontent.com, signed S3 URLs under a per-asset
+          # path — NOT release-assets.githubusercontent.com, which this list
+          # once assumed, caught by the kit's first e2e run under
+          # `sbx policy init deny-all` with curl exiting 22. That evidence
+          # came from the install-time download and is kept here because the
+          # `ubi` backend fetches release assets exactly the same way.
           - objects.githubusercontent.com
+          # Kept alongside it rather than replacing it: GitHub's redirect
+          # target for a release asset isn't necessarily the same host for
+          # every repo/asset, and `ubi` fetches from arbitrary repos.
           - release-assets.githubusercontent.com
           # Runtime tool installs (`mise install <tool>`) hit per-language hosts beyond GitHub
           # (nodejs.org, pypi.org, go.dev, crates.io, etc.) that vary by what the user asks
@@ -52,62 +118,45 @@ capabilities:
   - type: com.docker.sandbox/lifecycle@1
     config:
       install:
-        # Install mise from a pinned, digest-verified GitHub release tarball. The official
-        # `curl https://mise.run | sh` flow is fine for a workstation, but inside a sandbox
-        # we want the version and binary digest captured in git. To bump: change MISE_VERSION
-        # and the per-arch SHA256 below (sourced from the release's SHASUMS256.txt).
+        # MIGRATION NOTE: two of this kit's three hooks are in mise.dockerfile
+        # now, and one could not go.
         #
-        # No `env:` — the body reads only its own locals, and a v3 hook sees
-        # nothing it does not declare.
-        - command: |
-            set -euo pipefail
-            MISE_VERSION=2026.5.2
-            ARCH=$(dpkg --print-architecture)
-            case "$ARCH" in
-              amd64)
-                TARBALL="mise-v${MISE_VERSION}-linux-x64.tar.gz"
-                SHA256="cdf616b3d8554bece574cb1a5c0f19cc0f551dffbecf66037df1cc06569a42ef"
-                ;;
-              arm64)
-                TARBALL="mise-v${MISE_VERSION}-linux-arm64.tar.gz"
-                SHA256="a746ad85fe8a7b62a6c72939da5fb4231074fd16c482f6334a598bd92926f41e"
-                ;;
-              *)
-                echo "unsupported sandbox arch: $ARCH (expected amd64 or arm64)" >&2
-                exit 1
-                ;;
-            esac
-            URL="https://github.com/jdx/mise/releases/download/v${MISE_VERSION}/${TARBALL}"
-            curl --proto '=https' --tlsv1.2 -fsSL -o /tmp/mise.tgz "$URL"
-            echo "${SHA256}  /tmp/mise.tgz" | sha256sum -c -
-            tar -C /tmp -xzf /tmp/mise.tgz mise/bin/mise
-            install -m 0755 /tmp/mise/bin/mise /usr/local/bin/mise
-            rm -rf /tmp/mise /tmp/mise.tgz
-            mise --version
-          user: "0"
-          description: "Install mise CLI v2026.5.2, version+digest pinned"
+        # The first, "Install mise CLI, version+digest pinned", moved with the
+        # same release and the same two SHA256s. Nothing in its body needed
+        # sandbox-create time: it read no arg, no credential and no
+        # create-time path, and its one environment-shaped input was
+        # `dpkg --print-architecture`, which buildx answers better as
+        # TARGETARCH because it can answer it once per platform.
+        #
+        # The second, "Export MISE_TRUSTED_CONFIG_PATHS from /etc/profile.d",
+        # moved too, and its own comment said why it should: a mixin's image
+        # config is not the composed image's, so v2's `environment.variables`
+        # had to become a profile.d drop — and a drop is content. The hook
+        # existed only because the kit had no recipe to hold it. The file, its
+        # comment and its value are carried over verbatim. Note the contrast
+        # with the hook below, which also writes a shell snippet: the
+        # difference is ownership, not mechanism. /etc/profile.d/mise-env.sh
+        # is a file only this kit writes, so a layer replacing it is correct;
+        # ~/.bashrc is the base's, so a layer replacing it is destruction.
+        #
+        # What that bought, in order of how visible it is: github.com and the
+        # two asset hosts left this policy's install phase, which no longer
+        # exists at all; `deb/dpkg` left `requires`, which the kit no longer
+        # declares at all; the
+        # tarball's digest is fixed in a scannable published layer rather than
+        # re-verified in every sandbox; a withdrawn or re-rolled release fails
+        # the build at publish instead of failing sandbox creation for a user;
+        # and every `sbx run` of this kit saves the download.
 
-        # MIGRATION NOTE: v2 set MISE_TRUSTED_CONFIG_PATHS under
-        # `environment.variables`, which a v3 mixin has no slot for — a mixin's
-        # image config is not the composed image's. This kit ships no recipe to
-        # bake the value into a layer, so a root hook writes the profile.d
-        # snippet the migration guide prescribes. The same export is repeated in
-        # the ~/.bashrc snippet below, because profile.d reaches login shells
-        # while ~/.bashrc reaches the interactive non-login shells that mise
-        # activation is actually wired into — and an unset value here is a trust
-        # prompt, which is the one thing this variable exists to prevent.
-        - command: |
-            set -euo pipefail
-            cat > /etc/profile.d/mise-env.sh <<'SCRIPT'
-            # Treat the whole sandbox filesystem as trusted so `.mise.toml` files don't trigger an
-            # interactive trust prompt. This is appropriate inside a sandbox: the user has already
-            # opted into running this code by attaching the workspace.
-            export MISE_TRUSTED_CONFIG_PATHS="/"
-            SCRIPT
-            chmod 0644 /etc/profile.d/mise-env.sh
-          user: "0"
-          description: "Export MISE_TRUSTED_CONFIG_PATHS from /etc/profile.d"
-
+        # WHY THIS ONE STAYS A HOOK: it appends to ~/.bashrc, a file the
+        # composed workload owns and writes itself. An overlay's file entries
+        # REPLACE the base's rather than merging with them, so shipping a
+        # .bashrc in a layer would discard whatever the base put in its own —
+        # and what this kit needs is one line added to that file, not the
+        # file. /home/agent may also be a mounted volume on the composed base,
+        # which would cover a baked copy in any case. Appending to somebody
+        # else's file is create-time work by nature.
+        #
         # Wire shell activation into the agent user's bashrc so interactive shells get
         # `mise activate` (PATH shimming + auto-`mise install` on cd). Append rather than
         # overwrite so we don't clobber whatever the template image already ships.

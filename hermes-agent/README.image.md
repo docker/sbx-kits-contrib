@@ -10,9 +10,11 @@ no Docker engine (Hermes' terminal backend defaults to `local`, so it does
 not need one). On top of that:
 
 - [Hermes Agent](https://github.com/NousResearch/hermes-agent), installed
-  from a git checkout of upstream's latest tagged release (rebuilt nightly)
-  via upstream's own `scripts/install.sh`, with the browser-tool
-  (Playwright/Chromium) and computer-use (macOS-only) installers skipped
+  from a git checkout of the release tag the kit's `version` arg pins, via
+  upstream's own `scripts/install.sh`, with the browser-tool
+  (Playwright/Chromium) and computer-use (macOS-only) installers skipped.
+  The build fails unless the installed CLI reports the pinned release, so
+  the image's own version is what the kit publishes
 - the `anthropic` extra added on top, so the native Anthropic SDK — the
   provider this kit's credentials wire up — is present without a
   runtime PyPI install

@@ -17,7 +17,7 @@ layer onto a shell base instead.
 ## Usage
 
 ```console
-$ sbx run --kit "docker.io/sbx/zeroclaw-kit:latest" zeroclaw
+$ sbx run --kit "docker.io/docker/sbx-kit-zeroclaw:latest" zeroclaw
 ```
 
 Or from a git URL targeting this repo:

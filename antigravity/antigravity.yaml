@@ -12,13 +12,45 @@ description: >-
 
 kind: workload
 
-# The KIT's version, carried over from v2. The binary inside the image floats:
-# Google's install.sh takes its target from a manifest it fetches itself and
-# exposes no version variable a caller can set, so there is no pin to declare
-# as an arg and nothing for a versioned provide to reference. `version:` is
-# the fallback publishing uses for the unversioned provide below.
+# The KIT's version, carried over from v2, and the fallback publishing uses
+# for the unversioned provide below.
 version: "1.0.0"
 
+# DELIBERATELY UNVERSIONED. agy's version is not a pin this kit can make, and
+# an unversioned provide that matches only unconstrained `requires` is the
+# honest way to say so. Three independent reasons, in increasing order of how
+# hard they are to work around:
+#
+#  1. The installer takes no version. Google's install.sh
+#     (https://antigravity.google/cli/install.sh, the script the recipe runs)
+#     parses exactly two options -- `-d|--dir <path>` and `-h|--help`, and
+#     rejects anything else with "Unknown parameter". It reads no version
+#     environment variable either: it fetches
+#     `<updater>/manifests/linux_<arch>.json` and installs the `url` it finds
+#     there, whatever that is. There is nothing for a build arg to reach.
+#  2. The manifest's URL is not derivable from a version, so even bypassing
+#     the installer does not give a version-shaped pin. Today linux_amd64.json
+#     reads version 1.2.7 against
+#     `https://storage.googleapis.com/antigravity-public/antigravity-cli/1.2.7-6731160148115456/linux-x64/cli_linux_x64.tar.gz`
+#     -- the path carries an opaque build id beside the version. Pinning would
+#     mean hardcoding a full URL and its sha512 per architecture, which pins
+#     an artifact rather than a release and abandons the vendor installer the
+#     mixin shares.
+#  3. And it would stop being true anyway, because agy SELF-UPDATES AT
+#     RUNTIME. install.sh says so in as many words ("The Antigravity CLI
+#     automatically self-updates in the background during regular runs"), and
+#     this kit's own runtime allow list admits the updater and its bucket --
+#     see antigravity-cli-auto-updater-...run.app and storage.googleapis.com
+#     below, which are there for exactly that. So a version pinned at build
+#     would be a claim about the first few minutes of a sandbox's life. Even
+#     asserting the built version (the shape the gstack and nanoclaw kits are
+#     judged by) would only move the lie later, while breaking the scheduled
+#     rebuild on every Google release.
+#
+# What would change this: an install.sh that accepts a version, or a manifest
+# endpoint addressable by one (`/manifests/<version>/linux_amd64.json`). Then
+# this becomes an ordinary `args.version` + `provides: ["antigravity@..."]`
+# pin, and the runtime self-update becomes the only caveat left to weigh.
 provides: ["antigravity"]
 
 capabilities:

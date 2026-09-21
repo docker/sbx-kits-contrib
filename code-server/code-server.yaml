@@ -15,10 +15,56 @@ kind: mixin
 # exactly as it did.
 requires: ["claude"]
 
-# The upstream install script always takes the latest release, so the provide
-# floats and `version:` is the fallback a resolver reads for it.
-provides: ["code-server"]
-version: "1.0.0"
+# The code-server release this kit's overlay carries, by reference to the
+# `version` arg below — SPEC-v3 §4 admits a build-phase arg reference here and
+# expands it at publish, so the version is stated in exactly one place and the
+# publish tag and `org.opencontainers.image.version` name the editor rather than
+# a kit release number of their own.
+version: "${{ kit.args.version }}"
+
+# The code-server release the recipe installs, declared once: validated here,
+# handed to the upstream install script, and expanded into `provides` and
+# `version:` — so the kit cannot claim a release its overlay does not carry. The
+# recipe asserts the agreement at build time by asking the installed binary.
+#
+# HOW THE DEFAULT WAS DETERMINED, and how to bump it: install.sh with no
+# `--version` calls its own echo_latest_version(), which follows
+# `https://github.com/coder/code-server/releases/latest` and strips the tag's
+# leading `v`. This default is what that resolved to at the moment of pinning —
+# 4.138.0 — so it is exactly what the unpinned recipe installed that day, not a
+# jump to another channel. To bump, read the same redirect:
+#
+#     curl -fsSLI -o /dev/null -w '%{url_effective}\n' \
+#       https://github.com/coder/code-server/releases/latest
+#
+# WHY PINNED, and the objection this answers: what stood here said a pin nobody
+# verifies is worse than an honest float, which is true and is the reason the
+# recipe now verifies. It runs `code-server --version` against the staged install
+# and fails the build unless what the editor reports is what this arg says, so
+# the provide describes the layer rather than asserting over it. Left floating,
+# the unversioned provide took this descriptor's `version:` as its version at
+# resolution and published `code-server@1.0.0` — the kit's own release number
+# wearing the editor's name.
+#
+# The script's `--edge` channel is deliberately out of reach: this arg admits
+# only a version, and the recipe passes nothing else.
+args:
+  version:
+    default: "4.138.0"
+    # The script's own `--version X.X.X`, tightened to the shape coder publishes
+    # (it would accept any string and 404 on the release asset). Every value this
+    # accepts is a legal provide version under SPEC-v3 §5.2, and the `v` the
+    # release tag carries is deliberately not part of it — §5.2 admits no `v`
+    # prefix, and the script strips it too.
+    pattern: '^[0-9]+\.[0-9]+\.[0-9]+$'
+    description: code-server release to install
+    buildArg: CODE_SERVER_VERSION
+
+# Names the editor this overlay carries, at the release it carries. The
+# preinstalled `anthropic.claude-code` extension is deliberately not part of the
+# claim: it is resolved from open-vsx at build time and has no version of its own
+# here, and this entry is about the editor.
+provides: ["code-server@${{ kit.args.version }}"]
 
 capabilities:
   # MIGRATION NOTE: v2's `ports[]` entry, one capability per port. `protocol:`
@@ -33,54 +79,43 @@ capabilities:
 
   - type: com.docker.sandbox/network-policy@1
     config:
-      # MIGRATION NOTE: v2's single flat list is split by phase. Everything in
-      # it is reached by an install hook, and all of it was consequently
-      # reachable from the running editor too. Only the extension marketplace
-      # is named in both phases: installing further extensions from the
-      # code-server UI is ordinary use of this kit. The rest — the install
-      # script's own hosts and GitHub's release-resolution and asset hosts —
-      # is install-only, so that download surface closes before the agent
-      # starts. The union of the two phases is the v2 list.
-      install:
-        allow:
-          # `https://code-server.dev/install.sh` is a Cloudflare 302 redirect to
-          # `https://raw.githubusercontent.com/cdr/code-server/main/install.sh` —
-          # the install hook's `curl -fsSL https://code-server.dev/install.sh`
-          # transparently follows the redirect, so the kit needs both hosts
-          # allowed for the install script to even download.
-          - code-server.dev
-          - raw.githubusercontent.com
-          - github.com
-          # The code-server install.sh resolves the latest release via a
-          # `github.com/.../releases/latest` redirect, then follows the
-          # `github.com` release URL to the asset host. GitHub recently
-          # rotated asset downloads from `objects.githubusercontent.com` to
-          # `release-assets.githubusercontent.com`; both must be allowed.
-          - api.github.com
-          - objects.githubusercontent.com
-          - release-assets.githubusercontent.com
-          # Where `--install-extension anthropic.claude-code` resolves the
-          # extension, and the CDN it serves the .vsix from.
-          - open-vsx.org
-          - openvsx.eclipsecontent.org
+      # MIGRATION NOTE: v2's single flat list was first split by phase, and then
+      # the install phase was deleted outright, because both install hooks that
+      # reached a host moved into the recipe. The whole download surface — the
+      # `code-server.dev` install script and the raw.githubusercontent.com
+      # redirect it is served from, GitHub's release-resolution and asset hosts,
+      # and open-vsx's extension CDN — is now contacted by the builder, which
+      # this policy does not govern. Nothing the sandbox does at create time
+      # talks to a network any more: the one surviving install hook writes a
+      # wrapper script. An absent phase grants nothing, so the grant is not
+      # narrowed here, it is gone.
+      #
+      # What is left is the one host group that was never install-only: the
+      # extension marketplace stays open in steady state, because a user
+      # browsing the Extensions view and installing something is the point of a
+      # web IDE, and v2's flat list permitted it.
       runtime:
         allow:
-          # The marketplace stays open in steady state: a user browsing the
-          # Extensions view and installing something is the point of a web IDE,
-          # and v2's flat list permitted it.
           - open-vsx.org
           - openvsx.eclipsecontent.org
 
   - type: com.docker.sandbox/lifecycle@1
     config:
       install:
-        - command: curl -fsSL https://code-server.dev/install.sh | sh
-          description: Install code-server via the upstream install script
-
-        - command: code-server --install-extension anthropic.claude-code
-          user: "1000"
-          description: Pre-install the Claude Code extension from open-vsx so you have a native chat panel that talks to the claude agent's credentials
-
+        # MIGRATION NOTE: two install hooks used to stand here — the upstream
+        # `code-server.dev/install.sh` run and the `--install-extension
+        # anthropic.claude-code` run — and both are in code-server.dockerfile
+        # now. Neither needed anything from sandbox-create time: the editor is a
+        # self-contained deb payload and the extension is an unpacked .vsix, so
+        # both are ordinary content, and a v2 mixin only installed them from
+        # hooks because it had no way to carry content at all. Moving them takes
+        # a ~100 MB download and a ~235 MB download out of every sandbox create,
+        # empties this kit's install-phase network grant (see above), and turns a
+        # broken install into a failed publish rather than a failed sandbox.
+        #
+        # What is left below is the one install hook that is not content: it
+        # reads a value that does not exist until the sandbox is created.
+        #
         # MIGRATION NOTE: this was a v2 `setup.files` entry whose content
         # interpolated the runtime `${WORKDIR}`. A v3 `files[].content` expands
         # `${{ kit.args.* }}` and nothing else, so that reference would have

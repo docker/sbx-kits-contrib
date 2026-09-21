@@ -14,21 +14,18 @@ description: >-
 kind: workload
 
 # MIGRATION NOTE: v2 declared no `version:`, and the guide's default for that
-# case is "1.0.0" — but gstack's install does not float, so 1.0.0 would
-# publish `gstack@1.0.0`, a statement about a release number wearing the name
-# of the tool. This is upstream's own VERSION for the commit the `ref` arg
-# below defaults to, as recorded in the v2 Dockerfile.
-#
-# It is a fallback rather than the authority, and v3 cannot make it one: the
-# authority is a 40-char commit SHA (gstack publishes no release tags), and a
-# provide's version must be version-shaped — dotted numeric segments, per
-# SPEC-v3 §5.2 — so the SHA cannot be referenced into `provides` the way a
-# semver build arg would be. Overriding `ref` therefore leaves this stale;
-# move them together.
-version: "1.57.10.0"
+# case is "1.0.0" — but gstack's install does not float, so 1.0.0 would have
+# published a release number wearing the name of the tool. SPEC-v3 §4 allows
+# this field to be a build-phase arg reference expanded at publish, so it
+# names the `version` arg below: upstream's own VERSION at the pinned `ref`,
+# the value the recipe re-reads out of the checkout and fails the build over.
+# One statement of what this kit carries, in one place — the field, the
+# provide and the `org.opencontainers.image.version` annotation §9.3 derives
+# from this field all move when that arg's default moves.
+version: "${{ kit.args.version }}"
 
-# The two pins the recipe already carried, declared so an installer can move
-# them and so the published descriptor records what was built.
+# The pins the recipe carries, declared so an installer can move them and so
+# the published descriptor records what was built.
 args:
   ref:
     # gstack has no release tags; pin a commit SHA.
@@ -36,17 +33,43 @@ args:
     pattern: '^[0-9a-f]{40}$'
     description: gstack commit to check out and run ./setup from
     buildArg: GSTACK_REF
+  version:
+    # The version the provide publishes under, and the special case in this
+    # set: gstack's real authority is `ref` above, a 40-char commit SHA,
+    # because upstream publishes no release tags. A SHA is not a SPEC-v3 §5.2
+    # version (the first segment must be numeric), so `ref` cannot be
+    # referenced into `provides` the way a semver build arg can.
+    #
+    # HOW THIS VALUE WAS ESTABLISHED, and how to bump it: upstream keeps a
+    # VERSION file at the repository root, and this is its contents AT THE
+    # PINNED COMMIT — upstream's own answer to what that tree is, not a number
+    # invented here:
+    #
+    #   curl -fsSL https://raw.githubusercontent.com/garrytan/gstack/<ref>/VERSION
+    #
+    # That makes the provide honest, but only as long as the two agree, and a
+    # comment asking the next person to move them together is not a mechanism.
+    # So the recipe READS VERSION OUT OF THE CHECKOUT and fails the build when
+    # it does not equal this value. Bumping `ref` alone therefore breaks the
+    # build rather than publishing `gstack@1.57.10.0` over a different tree,
+    # and the declared version cannot drift from the content.
+    default: "1.57.10.0"
+    # Upstream's VERSION is four dotted numeric segments, not semver.
+    pattern: '^[0-9]+(\.[0-9]+)*$'
+    description: gstack's own VERSION at the pinned ref; the build verifies it matches
+    buildArg: GSTACK_VERSION
   bunVersion:
     default: "1.3.10"
     pattern: '^[0-9]+\.[0-9]+\.[0-9]+$'
     description: Bun release the gstack binaries are built with
     buildArg: BUN_VERSION
 
-# Unversioned, answered by the `version:` fallback above. `claude` is
-# deliberately NOT provided even though the base template carries it: this kit
-# never installs or pins it, and claiming the name would refuse composition
-# with the claude mixin on a fact this kit did not establish.
-provides: ["gstack"]
+# Versioned, so a kit asking for `gstack >= 1.57` resolves against what the
+# checkout actually is — see the `version` arg above for what enforces that.
+# `claude` is deliberately NOT provided even though the base template carries
+# it: this kit never installs or pins it, and claiming the name would refuse
+# composition with the claude mixin on a fact this kit did not establish.
+provides: ["gstack@${{ kit.args.version }}"]
 
 capabilities:
   # This workload is an agent sandbox: the host launches the agent rather than

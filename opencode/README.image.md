@@ -46,8 +46,9 @@ roughly twice the size of the bare binary the installer would drop.
 ## Build args
 
 - `BASE_IMAGE` — re-point or digest-pin the base.
-- `OPENCODE_VERSION` — pin a published version (`1.2.3`, npm semver, no leading
-  `v`). Left empty, the build installs the newest published version.
+- `OPENCODE_VERSION` — the release to install (`1.2.3`, npm semver, no leading
+  `v`). No default in the recipe: the kit descriptor owns the pin and passes it
+  in, so the version the kit advertises in `provides` is the version installed.
 
 Runs as the non-root `agent` user, with `CMD ["opencode"]`.
 

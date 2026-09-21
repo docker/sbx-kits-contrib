@@ -1,8 +1,20 @@
 # syntax=docker/sandbox-kit:3
-# T3 Code's sandbox prerequisites as a declaration-only MIXIN. The v2 kit
-# shipped no Dockerfile — it apt-installed a toolchain and npm-installed `t3`
-# through setup hooks — and v3 lets a mixin have no recipe at all, so the
-# descriptor is the whole kit.
+# T3 Code's sandbox prerequisites as a MIXIN. The v2 kit shipped no Dockerfile
+# — it apt-installed a toolchain and npm-installed `t3` through setup hooks,
+# because a v2 mixin could carry no content at all — and the first v3 cut kept
+# both hooks and stayed declaration-only.
+#
+# v3 lets a mixin carry an overlay, and the two hooks do not belong on the
+# same side of that line:
+#
+#   * `t3` is pure content and moved into t3code.dockerfile, which is why
+#     registry.npmjs.org is gone from the allow list below.
+#   * The toolchain is apt and stays a hook. An overlay carries files, not
+#     dpkg state, so packages baked here would arrive on the composed base
+#     with no entry in its package database and without the shared-library
+#     closure apt would have pulled in — and this kit's agent context promises
+#     the toolchain is present *in the sandbox*, for any later `npm install`
+#     or `npm rebuild` that touches node-pty.
 schemaVersion: "3"
 displayName: T3 Code
 description: >-
@@ -12,27 +24,61 @@ description: >-
 
 kind: mixin
 
-# MIGRATION NOTE: the provide is named after the kit, not after `t3`, and the
-# version is the kit's own. The install hook asks npm for `t3@latest`, so the
-# kit cannot state what version of the tool it carries; `provides: ["t3"]`
-# under this fallback would publish t3@1.0.0 — the kit's release number
-# wearing the package's name. Pin the hook and this becomes `t3@<version>`.
-provides: ["t3code"]
-version: "1.0.0"
+# The `t3` release this kit's overlay carries, by reference to the `version` arg
+# below — SPEC-v3 §4 admits a build-phase arg reference here and expands it at
+# publish, so the version is stated in exactly one place and the publish tag and
+# `org.opencontainers.image.version` name the package rather than a kit release
+# number of their own.
+version: "${{ kit.args.version }}"
+
+# The `t3` release the recipe installs, declared once: validated here, handed to
+# npm as an exact version, and expanded into `provides` and `version:` — so the
+# kit cannot claim a release its overlay does not carry. The recipe asserts the
+# agreement at build time by asking the installed binary.
+#
+# HOW THE DEFAULT WAS DETERMINED, and how to bump it: the `latest` dist-tag of
+# the npm package the recipe installs, read from
+# `https://registry.npmjs.org/t3/latest` — the same document `t3@latest` was
+# resolving before the pin, so this default is what the unpinned build installed
+# the day it was pinned. 0.0.42 then; re-read that URL to bump.
+args:
+  version:
+    default: "0.0.42"
+    # The shape `t3` publishes. Narrow on purpose: it refuses the dist-tags npm
+    # would also accept in the install spec (`latest` is not a version and cannot
+    # stand in a provide), and everything it accepts is a legal provide version
+    # under SPEC-v3 §5.2. The value carries no leading `v` even though the CLI
+    # prints one; see the recipe's comparison step.
+    pattern: '^[0-9]+\.[0-9]+\.[0-9]+$'
+    description: t3 release to install
+    buildArg: T3_VERSION
+
+# MIGRATION NOTE: this provide was `t3code`, named after the kit, because the
+# recipe asked npm for `t3@latest` and so the kit could not state what version of
+# the tool it carried — the honest name for "a version I cannot vouch for" was
+# not the tool's. Now that the install is pinned, the note left here for exactly
+# this moment applies: the entry names the package the overlay installs and
+# carries its version, which is what a kit writing `requires: ["t3 >= 0.0.42"]`
+# can resolve against. Nothing in this repo required the old name.
+provides: ["t3@${{ kit.args.version }}"]
 
 capabilities:
-  # MIGRATION NOTE: v2's one flat allow list becomes an install phase only. Both
-  # hooks are install hooks and the agent context is explicit that the runtime
-  # path needs no registry — pre-installing `t3` is precisely what keeps the
-  # first T3 Code connection off the network. An absent runtime phase grants
-  # nothing, which is the intent stated in prose in v2.
+  # MIGRATION NOTE: v2's one flat allow list becomes an install phase only.
+  # The remaining hook is an install hook and the agent context is explicit
+  # that the runtime path needs no registry — pre-installing `t3` is precisely
+  # what keeps the first T3 Code connection off the network. An absent runtime
+  # phase grants nothing, which is the intent stated in prose in v2.
+  #
+  # MIGRATION NOTE: registry.npmjs.org is gone from this list. It was here for
+  # the `npm install -g t3@latest` hook, which t3code.dockerfile now performs
+  # at image-build time — the tarball is the builder's traffic, not the
+  # sandbox's. The apt hosts stay, because the toolchain hook stays. Unlike
+  # the other kits in this pass, then, the install phase does not disappear:
+  # it narrows to the one hook that still runs.
   - type: com.docker.sandbox/network-policy@1
     config:
       install:
         allow:
-          # npm package: the t3 tarball and its dependencies, including
-          # node-pty, which compiles from source on Linux.
-          - registry.npmjs.org
           # apt-get update refreshes every configured source, so all template
           # apt sources must be reachable even though we only install from
           # Ubuntu's main archive. amd64 uses archive/security, arm64 uses
@@ -48,6 +94,15 @@ capabilities:
       install:
         # No `env:` — the body reads nothing. DEBIAN_FRONTEND is exported, not
         # consumed from the environment.
+        #
+        # This hook stays a hook. apt in a mixin has nowhere else to go: an
+        # overlay carries files, and a package's value here is its dpkg state
+        # and its dependency closure on the base that ends up composing this
+        # kit. It is also what the agent context promises — that the sandbox
+        # itself can compile node-pty — so it has to exist in the sandbox and
+        # not only in a builder. t3code.dockerfile installs the same three
+        # packages in its build stage, where they compile the CLI's native
+        # dependency and then stay behind.
         - command: |
             set -euo pipefail
             export DEBIAN_FRONTEND=noninteractive
@@ -56,21 +111,18 @@ capabilities:
             rm -rf /var/lib/apt/lists/*
           user: "0"
           description: Install the build toolchain node-pty needs to compile from source on Linux
-        - command: |
-            set -euo pipefail
-            command -v npm >/dev/null || { echo "npm not found: this mixin needs a base image with Node.js >= 18 (all standard agent templates ship it)" >&2; exit 1; }
-            if [ -n "${HTTP_PROXY:-}" ]; then
-              npm config set proxy "$HTTP_PROXY"
-            fi
-            if [ -n "${HTTPS_PROXY:-${HTTP_PROXY:-}}" ]; then
-              npm config set https-proxy "${HTTPS_PROXY:-$HTTP_PROXY}"
-            fi
-            npm install -g t3@latest
-            ln -sf "$(command -v t3)" /usr/local/bin/t3
-            t3 --version
-          user: "0"
-          env: [HTTP_PROXY, HTTPS_PROXY]
-          description: Install the t3 npm package globally
+
+        # MIGRATION NOTE: the second hook, "Install the t3 npm package
+        # globally", is gone — t3code.dockerfile runs that install at image
+        # build instead. Nothing in the hook body needed sandbox-create time:
+        # the two proxy lines existed because a sandbox reaches the registry
+        # through the sandbox's forced proxy (a builder does not, which is why
+        # HTTP_PROXY and HTTPS_PROXY are no longer declared anywhere here),
+        # the `command -v npm` guard turned a Node-less base into a legible
+        # create-time error, and the `ln -sf` is now a symlink in the overlay.
+        # What the kit exists for — `t3` already on PATH so T3 Code's first
+        # connection does not go to the registry — is better served by a layer
+        # than by a hook that has to do it again for every sandbox.
 
   # No `filename:` — that is workload-only, and this mixin contributes a body
   # to whichever agent owns the profile.

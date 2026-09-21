@@ -15,10 +15,41 @@ description: >-
 kind: mixin
 
 # The KIT's version, not Kiro's, and the fallback version for the unversioned
-# provide below: the installer takes no pin, so there is no kiro-cli release
-# this kit could honestly name. Tracks ../kiro.
+# provide below. Tracks ../kiro.
 version: "1.0.0"
 
+# UNVERSIONED, DELIBERATELY, and for the same reason as ../kiro: this install
+# cannot be pinned, so there is no kiro-cli release the kit could name without
+# lying. The sibling agent mixins in this repo all expand a `version` arg into
+# their provide over a pinned install; kiro is the one that does not.
+# (Spelling the reference out here would not be a comment — the frontend scans
+# the descriptor's raw text for `kit.args` references and would demand the
+# arg.)
+#
+# `curl -fsSL https://cli.kiro.dev/install | bash` takes no version. Its whole
+# option surface is `--help, -h` and `--channel CHANNEL`, `parse_args` ends in
+# `*) error "Unknown option: $1"` so nothing else is accepted, it reads no
+# version from the environment, and the paths it builds are literally
+# unversioned:
+#
+#     local channel_base_url="${BASE_URL}/${CHANNEL}"
+#     MANIFEST_URL="${channel_base_url}/latest/manifest.json"
+#     download_url="${channel_base_url}/latest/$filename"
+#
+# Bypassing it does not work out either: versioned archives exist
+# (`https://prod.download.cli.kiro.dev/stable/<version>/kirocli-x86_64-linux.zip`
+# answers 200 for 2.19.0 through 2.22.1) but no versioned manifest does —
+# `stable/<version>/manifest.json` answers 403, only `stable/latest/
+# manifest.json` is served — so a pinned download would have no published
+# checksum to verify against, which the current install does have.
+#
+# THE COST, stated rather than hidden: §9.2 gives this provide the `version:`
+# above, so it publishes `kiro@1.0.0` — this kit's release number wearing
+# Kiro's name. It answers a bare `requires: ["kiro"]`, and it will wrongly
+# satisfy a `kiro >= 1.0`. Pinning the provide without pinning the install
+# would be worse. Re-check the installer when bumping; the day it grows a
+# version flag this becomes a `version` arg like the siblings'.
+#
 # Same name the workload provides, so composing this mixin with ../kiro is
 # refused rather than installing the agent twice (SPEC-v3 §5.3).
 provides: ["kiro"]

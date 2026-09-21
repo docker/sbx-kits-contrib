@@ -46,10 +46,9 @@ RUN mkdir -p /home/agent/.codex
 # patch the script to strip its own name out of $BROWSER before consulting it,
 # so it falls through to the browser list instead of recursing.
 #
-# Deliberately placed above the Codex install layer below. That layer floats
-# on whatever the installer resolves as "latest" and re-runs on every nightly
-# rebuild; this one has nothing to do with which Codex version is installed,
-# and above it stays a cache hit.
+# Deliberately placed above the Codex install layer below. That layer changes
+# whenever the pinned release changes; this one has nothing to do with which
+# Codex version is installed, and above it stays a cache hit.
 USER root
 RUN apt-get update && \
     apt-get install -y --no-install-recommends xdg-utils && \
@@ -80,16 +79,35 @@ USER agent
 # without this symlink that wrapper would exec a binary that no longer exists
 # at the path it hardcodes.
 #
-# The install floats: no version pin here, which is why the descriptor's
-# `provides: ["codex"]` is unversioned and leans on its `version:` fallback.
+# The install is pinned, via the kit's `version` arg. CODEX_RELEASE is the
+# installer's own documented knob for this — `install.sh --help` lists it as
+# "Version to install; overridden by --release" — so the pin goes through the
+# vendor's supported path rather than around it. No default on the ARG: an
+# empty CODEX_RELEASE means `latest` to the installer, and a float underneath a
+# descriptor that publishes `codex@${{ kit.args.version }}` is the one failure
+# mode worse than floating outright. The guard below fails the build instead.
 #
 # `codex --version` last, deliberately: the installer's exit code says only
-# that the script ran, not that a usable binary landed on PATH.
+# that the script ran, not that a usable binary landed on PATH. And it is
+# COMPARED against the pin rather than merely printed, so the provide cannot
+# claim a release the image does not ship. `codex --version` prints
+# "codex-cli <version>", so the second field is the number to match.
+ARG CODEX_VERSION
 ENV CODEX_INSTALL_DIR=/home/agent/.local/bin
-RUN CODEX_NON_INTERACTIVE=true sh -c "$(curl -fsSL https://chatgpt.com/codex/install.sh)" \
- && codex --version \
- && mkdir -p /usr/local/share/npm-global/bin \
- && ln -sf "${CODEX_INSTALL_DIR}/codex" /usr/local/share/npm-global/bin/codex
+RUN <<EOF
+set -eux
+[ -n "${CODEX_VERSION}" ] || { echo "CODEX_VERSION must be set" >&2; exit 1; }
+
+CODEX_NON_INTERACTIVE=true CODEX_RELEASE="${CODEX_VERSION}" \
+  sh -c "$(curl -fsSL https://chatgpt.com/codex/install.sh)"
+
+installed=$(codex --version | awk '{print $2}')
+[ "$installed" = "${CODEX_VERSION}" ] || {
+  echo "installed codex $installed != pinned ${CODEX_VERSION}" >&2; exit 1; }
+
+mkdir -p /usr/local/share/npm-global/bin
+ln -sf "${CODEX_INSTALL_DIR}/codex" /usr/local/share/npm-global/bin/codex
+EOF
 
 # Inherited from the base image, but re-declared deliberately so the value is
 # owned here rather than depending on inheritance from an image this repository

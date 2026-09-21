@@ -8,40 +8,70 @@ licenses:
 
 kind: mixin
 
-# `npm install -g @onkernel/cli` takes whatever the registry publishes as
-# latest, so the provide floats and `version:` is the fallback a resolver
-# reads for it.
-provides: ["kernel"]
-version: "1.0.0"
+# The Kernel CLI release this kit's overlay carries, by reference to the
+# `version` arg below — SPEC-v3 §4 admits a build-phase arg reference here and
+# expands it at publish, so the version is stated in exactly one place and the
+# publish tag and `org.opencontainers.image.version` name the CLI rather than a
+# kit release number of their own.
+version: "${{ kit.args.version }}"
+
+# The @onkernel/cli release the recipe installs, declared once: validated here,
+# handed to npm as an exact version, and expanded into `provides` and `version:`
+# — so the kit cannot claim a release its overlay does not carry. The recipe
+# asserts the agreement at build time by asking the installed binary.
+#
+# HOW THE DEFAULT WAS DETERMINED, and how to bump it: the `latest` dist-tag of
+# the npm package the recipe installs, read from
+# `https://registry.npmjs.org/@onkernel/cli/latest` — the same document
+# `@onkernel/cli@latest` was resolving before the pin, so this default is what
+# the unpinned build installed the day it was pinned. 0.39.3 then; re-read that
+# URL to bump.
+#
+# WHY PINNED rather than left floating: an unversioned provide takes this
+# descriptor's `version:` as its version at resolution, so `provides: ["kernel"]`
+# published `kernel@1.0.0` — this kit's release number wearing the CLI's name,
+# which a kit writing `requires: ["kernel >= 0.39"]` would refuse to resolve
+# against. Moving the install out of the create-time hook and into the recipe had
+# changed only *when* `latest` was resolved (once per publish rather than once
+# per sandbox); this changes *what* it resolves to, which is the half that makes
+# the provide worth constraining.
+args:
+  version:
+    default: "0.39.3"
+    # The shape @onkernel/cli publishes. Narrow on purpose: it refuses the
+    # dist-tags npm would also accept here (`latest` is not a version and cannot
+    # stand in a provide), and everything it does accept is a legal provide
+    # version under SPEC-v3 §5.2.
+    pattern: '^[0-9]+\.[0-9]+\.[0-9]+$'
+    description: Kernel CLI release to install
+    buildArg: KERNEL_VERSION
+
+provides: ["kernel@${{ kit.args.version }}"]
 
 capabilities:
   - type: com.docker.sandbox/network-policy@1
     config:
-      # MIGRATION NOTE: v2's single flat list is split by phase, following what
-      # its own comments said each host was for. The npm and PyPI hosts are
-      # named in both phases — the CLI install needs npm at create, and the v2
-      # comments put the SDK installs (which the README documents as something
-      # the agent does in its project) in steady state. The GitHub hosts stay
-      # install-only: v2 tied them specifically to @onkernel/cli's postinstall.
-      # A runtime `npm install` of some *other* package that fetches a GitHub
-      # release asset would now be refused; add them back to `runtime` in a
-      # fork if that is the workflow you want.
-      install:
-        allow:
-          # npm — the CLI install itself
-          - registry.npmjs.org
-          - '*.npmjs.org'
-          # @onkernel/cli's postinstall (install.js, GoReleaser-generated) downloads
-          # the actual kernel binary from a GitHub release asset
-          # (github.com/kernel/cli/releases/download/...). The 302 redirect target
-          # isn't a fixed constant -- confirmed by hand to land on
-          # objects.githubusercontent.com once and release-assets.githubusercontent.com
-          # on a real e2e run -- so both are allowed. Without these, `npm install -g
-          # @onkernel/cli` fails under a deny-all policy even though the npm
-          # registry fetch itself succeeds.
-          - github.com
-          - objects.githubusercontent.com
-          - release-assets.githubusercontent.com
+      # There is no `install:` phase, and an absent phase grants nothing.
+      #
+      # It used to hold registry.npmjs.org, `*.npmjs.org`, github.com,
+      # objects.githubusercontent.com and release-assets.githubusercontent.com —
+      # every one of them for the single install hook that ran
+      # `npm install -g @onkernel/cli` (the npm hosts for the package, the GitHub
+      # hosts for the release asset its GoReleaser postinstall downloads). That
+      # install is now build-time content in kernel.dockerfile, so no hook is left
+      # to reach any of those hosts and the whole phase is dead config. Dropping it
+      # is the point of the move: the kit's create-time permission surface is now
+      # its runtime surface and nothing more, and the CLI's egress happens once at
+      # publish instead of once per sandbox.
+      #
+      # The npm and PyPI hosts below are NOT the same grant re-appearing: they are
+      # there for the SDK installs the README documents as something the *agent*
+      # does in its project, in steady state. The GitHub hosts are deliberately not
+      # carried into `runtime` — v2 tied them specifically to @onkernel/cli's
+      # postinstall, which no longer runs in the sandbox at all. A runtime
+      # `npm install` of some *other* package that fetches a GitHub release asset
+      # would be refused; add them to `runtime` in a fork if that is the workflow
+      # you want.
       runtime:
         allow:
           # CDP WebSocket proxy URLs take the form:
@@ -84,14 +114,18 @@ capabilities:
         inject:
           - {domain: api.onkernel.com, header: Authorization, format: "Bearer %s"}
 
-  - type: com.docker.sandbox/lifecycle@1
-    config:
-      install:
-        # No `env:` — the body reads nothing from the environment, and v3 hooks
-        # see only what they declare plus the platform baseline.
-        - command: npm install -g @onkernel/cli
-          user: "0"
-          description: Install the Kernel CLI
+  # No lifecycle@1 at all. The kit's only hook was an install hook running
+  # `npm install -g @onkernel/cli` as uid 0; in v2 that was the sole mechanism a
+  # mixin had for installing anything, but the CLI is pure content — a language-
+  # package install that reads nothing from sandbox-create time — so it is now
+  # baked by kernel.dockerfile and arrives with the image. With that hook gone the
+  # capability would have held an empty `install:` list, so it is removed rather
+  # than left as a declaration that asks the host for nothing.
+  #
+  # Everything this kit now does at create time, it does through content and
+  # declarations: the CLI and the quick-reference guide ride the overlay, the API
+  # key is injected by the proxy at request time, and the runtime allow list is the
+  # kit's entire permission surface.
 
   # MIGRATION NOTE: v2's `agentInstructions.content` moves into a file beside
   # this descriptor. No `filename:` — that field names the profile the agent

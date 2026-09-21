@@ -10,24 +10,76 @@ description: Droid CLI by Factory, an agentic coding CLI.
 
 kind: workload
 
-# The KIT's version, not Droid's. It covers this descriptor, the network
-# policy and the hooks — the agent inside the image floats, so a newer
-# droid-cli does not bump this and this does not track releases of droid-cli.
+# Droid's version, by reference. SPEC-v3 §4 admits a build-phase arg reference
+# here and expands it at publish, so this field resolves out of the `version`
+# arg below — the same release the recipe downloads and the provide publishes
+# under. This descriptor, the network policy and the hooks are released as the
+# CLI they carry rather than under a number of their own.
 #
-# MIGRATION NOTE: in v3 this field does a second job — it is the fallback
-# version for the unversioned provide below (SPEC-v3 §9.2 refuses a published
-# provide with no version at all). The install is `curl -fsSL
-# https://app.factory.ai/cli | sh`, which takes no pin, so there is no droid
-# release this kit could honestly name; the kit's own release number answers
-# instead. v2's comment about `vnd.docker.sandbox.kit.version` is stale: v3
-# derives `org.opencontainers.image.version` from this field (§9.3).
-version: "1.0.0"
+# MIGRATION NOTE: v2's comment about `vnd.docker.sandbox.kit.version` is stale:
+# v3 derives `org.opencontainers.image.version` from this field (§9.3) — which
+# is the second reason to resolve it rather than write it. That annotation now
+# names the Droid the image ships, where a hand-written `1.0.0` named something
+# no consumer could check against the content. The same literal was the fallback
+# an unversioned provide took its version from; the note on the arg has the long
+# form of why that had to stop.
+version: "${{ kit.args.version }}"
+
+# The Droid release the recipe installs, declared once: validated here, handed
+# to the recipe as the version path of the artifact it downloads, and expanded
+# into the provide — so the kit cannot claim a release it does not ship.
+#
+# HOW THE DEFAULT WAS ESTABLISHED, and how to bump it: Factory's installer
+# names its own target. `curl -fsSL https://app.factory.ai/cli` is a 151-line
+# shell script whose only statement of intent is the literal assignment
+#
+#     VER="0.223.0"
+#
+# so reading that line is how you learn what the floating install would have
+# fetched, and re-reading it is how you bump this. 0.223.0 at the time of
+# writing.
+#
+# HOW THE PIN REACHES THE INSTALL, and why the recipe no longer pipes the
+# installer to a shell. The script accepts no version: `VER` is a plain
+# assignment rather than a `${VER:-…}` default, it never reads `$@` or the
+# environment, and its whole argument surface is nothing — so neither
+# `VER=x | sh` nor `| sh -s -- x` reaches it, and passing one would read as a
+# pin while pinning nothing. What the script DOES expose is a versioned
+# artifact layout, in its own two URL lines:
+#
+#     URL="$BASE_URL/factory-cli/releases/$VER/$platform/$droid_architecture/$binary_name"
+#     SHA_URL="$BASE_URL/factory-cli/releases/$VER/$platform/$droid_architecture/$binary_name.sha256"
+#
+# Those paths are durable — 0.220.0, 0.222.0 and 0.223.0 all answer 200 today,
+# and each carries its own published `.sha256` — so the recipe fetches the
+# pinned one directly and verifies it against the vendor's own checksum,
+# reproducing what the installer does at a version this kit chooses. The
+# recipe then asserts the installed binary reports this exact release.
+#
+# WHY PINNED rather than left floating: an unversioned provide takes the
+# descriptor's `version:` as its version at resolution, so `provides: ["droid"]`
+# published `droid@1.0.0` — this kit's release number wearing Droid's name. A
+# mixin asking for `droid >= 0.22` would refuse to resolve against it.
+# Floating the install and stating a version are not both available; stating
+# one the content may not have is the worse of the two, so the install is
+# pinned to make the claim true.
+#
+# The pattern admits a three-segment release and nothing else, which is the
+# shape of every path under `factory-cli/releases/`. There is no channel name
+# to admit: `…/releases/latest/…` answers 403, so the vendor publishes no
+# floating alias that a value here could name.
+args:
+  version:
+    default: "0.223.0"
+    pattern: '^[0-9]+\.[0-9]+\.[0-9]+$'
+    description: Droid release to install
+    buildArg: DROID_VERSION
 
 # Nothing a v2 kit offered was requirable by name. Stated now so a mixin can
 # ask for `droid` — and so this kit and a future droid mixin cannot both be
 # composed into one sandbox, which is what SPEC-v3 §5.3's one-provider rule
 # exists to refuse.
-provides: ["droid"]
+provides: ["droid@${{ kit.args.version }}"]
 
 capabilities:
   # This workload is an agent sandbox: the host launches the agent rather

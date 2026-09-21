@@ -14,7 +14,13 @@
 ARG BASE_IMAGE=docker/sandbox-templates:claude-code
 FROM ${BASE_IMAGE} AS build
 
+# Declared as kit args in gstack-mixin.yaml (`ref`, `version`, `bunVersion`),
+# with the defaults repeated here so a plain `docker build` of this file still
+# works. GSTACK_VERSION is upstream's own VERSION file at the pinned commit,
+# which is what the descriptor publishes as `gstack@<version>`; the checkout
+# step below verifies the two agree.
 ARG GSTACK_REF=a5833c413f98b13f105beac96262e8098b628461
+ARG GSTACK_VERSION=1.57.10.0
 ARG BUN_VERSION=1.3.10
 
 USER root
@@ -44,6 +50,18 @@ WORKDIR /home/agent
 # Keep .git — /gstack-upgrade and the version stamp use it.
 RUN git clone https://github.com/garrytan/gstack.git /home/agent/.claude/skills/gstack && \
     git -C /home/agent/.claude/skills/gstack checkout --quiet "${GSTACK_REF}"
+
+# The pin's own check, as in the workload: `ref` is the authority and
+# `version` is what the descriptor publishes, so read upstream's VERSION out of
+# the tree that was actually checked out and refuse to continue if it is not
+# the version the descriptor claims.
+RUN set -eu; \
+    checked_out="$(cat /home/agent/.claude/skills/gstack/VERSION)"; \
+    echo "gstack VERSION at ${GSTACK_REF}: ${checked_out}"; \
+    [ "${checked_out}" = "${GSTACK_VERSION}" ] || { \
+      echo "pin mismatch: descriptor says ${GSTACK_VERSION}, checkout ${GSTACK_REF} carries ${checked_out}" >&2; \
+      exit 1; \
+    }
 
 # Builds the Bun binaries, registers every skill under ~/.claude/skills,
 # creates ~/.gstack state.

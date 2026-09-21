@@ -8,6 +8,15 @@
 # workload's own base as a build stage, the unmodified install run on it, and
 # the specific resulting paths copied into a scratch overlay.
 #
+# No version build arg, unlike the sibling agent mixins in this repo. The
+# installer takes none: its whole option surface is `--help` and
+# `--channel CHANNEL`, it refuses anything else (`*) error "Unknown option:
+# $1"`), it reads no version from the environment, and the URLs it builds
+# spell the release as the literal `latest`
+# (`${BASE_URL}/${CHANNEL}/latest/manifest.json`). So the descriptor declares
+# no `args` and publishes an unversioned provide — see the note beside
+# `provides:` in kiro-mixin.yaml for the full evidence.
+#
 # It runs as `agent` with HOME at /home/agent, the sandbox runtime's own home,
 # so the paths the installer and `setup` bake are already correct when the
 # overlay lands.

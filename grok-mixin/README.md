@@ -25,10 +25,18 @@ The `xai` credential (`XAI_API_KEY`, injected as a bearer token on requests to
 
 ## How it differs from the workload
 
-- **The CLI is baked in, not installed at create.** `../grok` fetches the CLI
-  from `x.ai` in a lifecycle install hook; this kit runs that same install
-  when the overlay is built. So there is no install hook, and `x.ai` is not in
-  the egress policy at all — nothing inside the sandbox reaches it.
+- **The CLI is baked in, not installed at create.** Both forms of this kit run
+  the install when their content is built — `../grok` into its own root
+  filesystem, this kit into an overlay. So there is no install hook, and `x.ai`
+  is not in the egress policy at all — nothing inside the sandbox reaches it.
+- **Same release, pinned the same way.** The descriptor's `version` arg carries
+  the Grok release, the recipe passes it to `install.sh` as its one positional
+  argument, and the kit publishes `provides: ["grok@<version>"]` plus a
+  top-level `version:` from that arg — so a kit asking for `grok >= 1` can
+  resolve against it. The build runs `grok --version` and fails if the installed
+  binary reports anything else. `curl -fsSL https://x.ai/cli/stable` returns the
+  current release; bump this kit and `../grok` together, since both provide the
+  name `grok` and must name the same release.
 - **No launch flags.** The mixin sets no `ENTRYPOINT`, so `--yolo` and
   `--no-auto-update` are yours to pass rather than the kit's to bake.
 - **No session verbs.** `agent-sessions@1` drives the workload's entrypoint,

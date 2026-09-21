@@ -24,9 +24,11 @@ opencode
 opencode run "explain this repo"
 ```
 
-Pin a release at build time with `--build-arg OPENCODE_VERSION=1.2.3`; left
-unset, the build installs the newest published version, which is why the kit's
-`provides` is unversioned.
+The OpenCode release is pinned by the kit's `version` arg, which the descriptor
+hands to the recipe as `OPENCODE_VERSION` and also expands into
+`provides: ["opencode@<version>"]` — so the kit advertises the release it
+installs. Move it with `--build-arg version=1.2.3` (npm semver, no leading
+`v`), and keep it equal to [`../opencode`](../opencode)'s default.
 
 ## What it carries
 

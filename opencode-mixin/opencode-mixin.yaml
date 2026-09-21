@@ -16,12 +16,55 @@ sourceUrl: https://github.com/sst/opencode
 
 kind: mixin
 
-# The KIT's version, not OpenCode's, and the fallback the unversioned provide
-# below publishes under (SPEC-v3 §9.2). The binary floats: the recipe installs
-# `opencode-ai@latest` unless a build passes OPENCODE_VERSION, so no version
-# the descriptor could state would be true of every build.
-version: "1.0.0"
-provides: ["opencode"]
+# The OpenCode release the overlay carries, by reference: SPEC-v3 §4 allows
+# this field to be a build-phase arg reference expanded at publish, so it
+# names the same `version` arg the provide reads. One version in the file,
+# and it is the one the recipe installs.
+version: "${{ kit.args.version }}"
+
+# The OpenCode release the recipe installs, declared once: validated here,
+# handed to the recipe as the npm pin, and expanded into the provide -- so the
+# kit cannot claim a release it does not ship.
+#
+# HOW THE DEFAULT WAS ESTABLISHED, and how to bump it: the `latest` dist-tag of
+# the npm package the recipe installs, read from
+# https://registry.npmjs.org/opencode-ai/latest -- the same document
+# `opencode-ai@latest` would have resolved. 1.18.31 at the time of writing.
+#
+# WHY PINNED rather than left floating: an unversioned provide takes the
+# descriptor's `version:` as its version at resolution, so `provides:
+# ["opencode"]` published `opencode@1.0.0` -- this kit's release number wearing
+# OpenCode's name, which nothing can usefully constrain. The pattern refuses
+# the word `latest` and the `0.0.0-<branch>-<timestamp>` snapshot versions the
+# registry also carries.
+#
+# THIS MUST STAY EQUAL TO ../opencode's `version` default. The two kits install
+# the same package the same way and provide the same name, so a composition
+# that resolved one against the other's requires must see the same release.
+# Nothing enforces it across kit directories -- bump both together.
+args:
+  version:
+    default: "1.18.31"
+    pattern: '^[0-9]+\.[0-9]+\.[0-9]+$'
+    description: OpenCode release to install
+    buildArg: OPENCODE_VERSION
+
+provides: ["opencode@${{ kit.args.version }}"]
+
+# What the Copilot seed hook below borrows from the base rather than from this
+# overlay. It takes a lock with `flock` and merges auth.json with jq, both
+# under `set -e`, and a startup command that exits non-zero leaves the sandbox
+# unable to start — so neither is a soft dependency. §12's floor covers bash,
+# sh, curl, git and a CA store and stops there.
+#
+# These are derived names, not authored ones: publishing a workload reads its
+# dpkg database and states one entry per installed package (SPEC-v3 §9.6), so
+# a Debian-family base provides them by construction. `flock` is packaged in
+# util-linux, which is why the name is not `deb/flock`.
+#
+# The workload beside this one needs neither entry: it owns its base image, so
+# its own dpkg database states what it carries at publish.
+requires: ["deb/jq", "deb/util-linux"]
 
 capabilities:
   # The agent's own egress rides with the kit that ships the agent: the base
@@ -279,9 +322,9 @@ capabilities:
         # is ambient -- the host supplies it -- and is deliberately NOT the
         # github credential's `apiKey.name`, which stays empty above.
         #
-        # This hook needs `jq` and `flock`, which it expects from the base
-        # workload rather than from this overlay; every sandbox-templates base
-        # ships both. It exits without seeding rather than failing if the seed
+        # This hook needs `jq` and `flock` from the base workload rather than
+        # from this overlay, which is what the `deb/` entries in `requires:`
+        # above state. It exits without seeding rather than failing if the seed
         # cannot be built.
         - command:
             - sh

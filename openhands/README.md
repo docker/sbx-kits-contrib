@@ -41,7 +41,7 @@ on first run) and pick the provider and model there. That choice is saved to
 the Anthropic credential this kit resolves automatically:
 
 ```console
-sbx run --kit "docker.io/sbx/openhands-kit:latest" openhands
+sbx run --kit "docker.io/docker/sbx-kit-openhands:latest" openhands
 # inside the sandbox: open Settings and choose e.g. openai/gpt-4o
 ```
 
@@ -66,7 +66,7 @@ sbx secret set-custom -g \
 ## Usage
 
 ```console
-sbx run --kit "docker.io/sbx/openhands-kit:latest" openhands
+sbx run --kit "docker.io/docker/sbx-kit-openhands:latest" openhands
 ```
 
 Or from a git URL targeting this repo:
@@ -83,10 +83,12 @@ sbx run --kit ./openhands/ openhands
 
 OpenHands is already installed in the image, so the first launch starts in
 seconds rather than waiting on a multi-minute install; subsequent starts reuse
-the same sandbox. There is no per-start upgrade step — the image is rebuilt
-nightly against whatever release is newest on PyPI (see
-[PUBLISHING.md](../PUBLISHING.md)), so a running sandbox picks up a newer
-OpenHands only on its next recreate. The CLI's own splash screen still pings
+the same sandbox. There is no per-start upgrade step, and no per-rebuild one
+either: the descriptor pins the PyPI release in `args.version` and advertises
+the same value in `provides`, so the nightly rebuild (see
+[PUBLISHING.md](../PUBLISHING.md)) refreshes the base image and leaves the
+agent where the pin puts it. Moving to a newer OpenHands is a deliberate bump
+of that default. The CLI's own splash screen still pings
 PyPI on each interactive launch to show an "update available" notice; that
 check never installs anything.
 

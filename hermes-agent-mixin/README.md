@@ -27,6 +27,33 @@ The Hermes virtualenv and project tree under `~/.hermes`, the `anthropic`,
 resolution needs, and the startup hook that decides which of the three
 credentials is genuinely bound.
 
+## The pinned release
+
+The release is pinned rather than resolved at build time. The descriptor's
+`version` arg carries upstream's release tag without its leading `v`, the recipe
+checks out exactly that tag with upstream's own `scripts/install.sh`, and the kit
+publishes `provides: ["hermes-agent@<version>"]` plus a top-level `version:` from
+the same arg — so a kit asking for `hermes-agent >= 2026.9` can resolve against
+it.
+
+Hermes reports two numbers and only one of them is selectable. `hermes --version`
+opens with `Hermes Agent v<package version> (<release date>)`: the package
+version (`hermes_cli.__version__`) moves on its own and no installer input picks
+it, while the parenthesised release date is upstream's stamp for the tag. The pin
+is that tag, and the build fails unless the installed CLI reports it in that
+field.
+
+To bump, take the newest stable tag and drop its `v`:
+
+```console
+curl -fsSI -o /dev/null -w '%{redirect_url}\n' \
+  https://github.com/NousResearch/hermes-agent/releases/latest
+```
+
+[`../hermes-agent`](../hermes-agent) must move in the same change — both kits
+provide `hermes-agent`, and their copies of `hermes-anthropic-auth.sh` are
+byte-identical by hand.
+
 ## Run it from a login shell
 
 The startup hook writes `~/.hermes/anthropic-auth.env` and appends a source

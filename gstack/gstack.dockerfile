@@ -23,13 +23,18 @@ FROM ${BASE_IMAGE}
 # the end of this file would expand to an empty string.
 ARG BASE_IMAGE
 
-# Both of these are now declared as kit args in gstack.yaml (`ref` and
-# `bunVersion`, with buildArg: GSTACK_REF / BUN_VERSION), so the frontend
-# hands them in and the published descriptor records what was built. The
-# defaults stay here so a plain `docker build` of this file still works.
+# All three are declared as kit args in gstack.yaml (`ref`, `version` and
+# `bunVersion`, with buildArg: GSTACK_REF / GSTACK_VERSION / BUN_VERSION), so
+# the frontend hands them in and the published descriptor records what was
+# built. The defaults stay here so a plain `docker build` of this file still
+# works.
 #
-# gstack has no release tags; pin a commit SHA (VERSION 1.57.10.0).
+# gstack has no release tags; pin a commit SHA. GSTACK_VERSION is upstream's
+# own VERSION file at that commit, which is what the descriptor publishes as
+# `gstack@<version>` — the checkout step below verifies the two agree rather
+# than trusting this comment to keep them together.
 ARG GSTACK_REF=a5833c413f98b13f105beac96262e8098b628461
+ARG GSTACK_VERSION=1.57.10.0
 ARG BUN_VERSION=1.3.10
 
 USER root
@@ -66,6 +71,20 @@ WORKDIR /home/agent
 # sandbox runtime. Keep .git — /gstack-upgrade and the version stamp use it.
 RUN git clone https://github.com/garrytan/gstack.git /home/agent/.claude/skills/gstack && \
     git -C /home/agent/.claude/skills/gstack checkout --quiet "${GSTACK_REF}"
+
+# The pin's own check. `ref` is the authority and `version` is what the
+# descriptor publishes, so the build is where they have to be reconciled: read
+# upstream's VERSION out of the tree that was actually checked out and refuse
+# to continue if it is not the version the descriptor claims. Bumping the SHA
+# without bumping the version (or the reverse) fails here instead of shipping
+# an image whose published provide describes a different commit.
+RUN set -eu; \
+    checked_out="$(cat /home/agent/.claude/skills/gstack/VERSION)"; \
+    echo "gstack VERSION at ${GSTACK_REF}: ${checked_out}"; \
+    [ "${checked_out}" = "${GSTACK_VERSION}" ] || { \
+      echo "pin mismatch: descriptor says ${GSTACK_VERSION}, checkout ${GSTACK_REF} carries ${checked_out}" >&2; \
+      exit 1; \
+    }
 
 # Run setup non-interactively: builds the Bun binaries, registers every
 # skill under ~/.claude/skills, creates ~/.gstack state. Fonts are already

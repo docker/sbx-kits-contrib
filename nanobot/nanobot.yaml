@@ -13,17 +13,44 @@ sourceUrl: https://pypi.org/project/nanobot-ai/
 
 kind: workload
 
-# No `args.version` and an unversioned provide, deliberately: the recipe
-# resolves the newest nanobot-ai release out of PyPI's JSON at build time
-# rather than pinning one (rolling updates, see nanobot.dockerfile), so there
-# is no pin to hand a build arg and no version the provide could honestly
-# claim.
+# MIGRATION NOTE: v2 declared no `version:`. One is added here because a kit
+# publishes under something (SPEC-v3 §9.2), and what it publishes under is the
+# nanobot the image carries: SPEC-v3 §4 allows this field to be a build-phase
+# arg reference expanded at publish, so it names the `version` arg below — the
+# same one the provide reads. A literal here would be a second version of the
+# kit's own, competing with the pin; there is only the pin.
+version: "${{ kit.args.version }}"
+
+# nanobot's own version, pinned.
 #
-# MIGRATION NOTE: v2 declared no `version:`. One is added here because an
-# unversioned provide has to publish under something (SPEC-v3 §9.2) — it is
-# the kit's own release number, not nanobot's.
-version: "1.0.0"
-provides: ["nanobot"]
+# HOW THIS VALUE WAS ESTABLISHED, and how to bump it: the package is
+# `nanobot-ai` on PyPI (sourceUrl above), so the authority is PyPI's own JSON
+# API — the same endpoint the recipe used to read at build time to install
+# whatever was newest:
+#
+#   curl -fsS https://pypi.org/pypi/nanobot-ai/json \
+#     | python3 -c 'import json,sys; print(json.load(sys.stdin)["info"]["version"])'
+#
+# That floating read is what this pin replaces. It made every rebuild a
+# different agent with no record of which one, and left the provide with
+# nothing honest to claim.
+#
+# The pattern admits PEP 440 `.postN` suffixes because upstream uses them
+# (0.1.5.post1, .post2, .post3). They stay legal SPEC-v3 §5.2 versions: the
+# first segment is numeric and later segments may be alphanumeric, so
+# `nanobot@0.1.5.post1` parses. A release carrying an epoch (`1!2.0`) or a
+# local version (`+local`) would not, and would need this pattern revisited.
+args:
+  version:
+    default: "0.3.5"
+    pattern: '^[0-9]+\.[0-9]+\.[0-9]+(\.post[0-9]+)?$'
+    description: nanobot-ai release to install from PyPI
+    buildArg: NANOBOT_VERSION
+
+# Versioned, so a kit asking for `nanobot >= 0.3` resolves against the version
+# the image actually carries. The recipe installs exactly this version and then
+# re-reads it out of the installed entry point.
+provides: ["nanobot@${{ kit.args.version }}"]
 
 capabilities:
   # This workload is an agent sandbox: the host launches the agent rather than

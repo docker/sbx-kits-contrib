@@ -2,7 +2,17 @@
 # Docker Sandboxes kit for a Gitea instance.
 # Usage, prerequisites and design notes: see README.md in this directory.
 schemaVersion: "3"
-version: "0.1.0"
+
+# The `tea` release this kit's overlay carries, by reference to the `version`
+# arg below — SPEC-v3 §4 admits a build-phase arg reference in this field and
+# expands it at publish, so the release is stated in exactly one place and the
+# publish tag and `org.opencontainers.image.version` name the CLI the kit
+# ships.
+#
+# MIGRATION NOTE: this was a standalone "0.1.0" while `tea` arrived from an
+# install hook, because the kit had no content and so nothing to version. Now
+# that the install is a layer, the kit can say what it carries.
+version: "${{ kit.args.version }}"
 displayName: Gitea
 description: Wires a Gitea access token into the sandbox proxy so git-over-HTTPS and the Gitea API both authenticate against your instance, self-hosted or gitea.com. The token stays on the host.
 licenses:
@@ -10,16 +20,29 @@ licenses:
 
 kind: mixin
 
+# MIGRATION NOTE: `requires: ["deb/dpkg"]` is gone, and it went out with the
+# hook that justified it. The tea install hook chose its release asset with
+# `dpkg --print-architecture` under `set -euo pipefail`, so a base without dpkg
+# died at that line and sandbox creation failed — that, and only that, is what
+# the requirement recorded. gitea.dockerfile makes the same choice at build
+# from buildx's TARGETARCH, and the one hook left reads no distribution
+# package at all. `requires` is a closed-set check (SPEC-v3 §5.3): a name kept
+# past its reason refuses compositions in exchange for nothing.
+
 # Which Gitea instance this sandbox talks to. Overridable at install time:
 #   sbx run --kit docker.io/sbx/gitea-kit:latest --kit-arg gitea.host=git.example.com claude
 #
 # No `env:` and no `buildArg:`. There is nothing in the container that
 # reads a GITEA_HOST variable — `tea` learns the instance from the config
-# file the second install hook writes — and a build arg would bake one
+# file the kit's one install hook writes — and a build arg would bake one
 # instance into the published kit, which is the opposite of what this arg
 # is for. It stays a create-phase descriptor value: the runtime allow
 # entry, the inject domain, the hook's shell string and the context body
 # are all expanded from it (SPEC-v3 §6).
+#
+# Contrast the `version` arg below, which takes `buildArg:` for exactly the
+# inverted reason: the release is the kit's choice and must be baked, while
+# the instance is the installer's and must not be.
 args:
   host:
     default: "gitea.com"
@@ -29,17 +52,55 @@ args:
     # A bare hostname, optionally with a port for an instance that is not
     # behind a reverse proxy on 443 (the common `:3000` deployment).
     pattern: '^[A-Za-z0-9]([A-Za-z0-9.-]*[A-Za-z0-9])?(:[0-9]{1,5})?$'
+  version:
+    # The `tea` release gitea.dockerfile downloads, declared once: validated
+    # here, handed to the recipe as TEA_VERSION, and expanded into `provides`
+    # and into the top-level `version:` — so the kit cannot publish a release
+    # its overlay does not carry. The recipe proves the agreement by running
+    # the installed binary and comparing what it reports.
+    #
+    # `buildArg:`, not `env:` — the two are mutually exclusive and this value
+    # resolves at build. Nothing in the container reads a TEA_VERSION.
+    #
+    # An installer may override it, but not silently: the per-arch SHA256s in
+    # the recipe are pinned to this release, so another version fails the
+    # digest check rather than installing under a descriptor that goes on
+    # claiming this number. Bumping tea is therefore a three-part edit — this
+    # default and both digests in gitea.dockerfile, together — with the
+    # checksums from
+    # https://dl.gitea.com/tea/<version>/tea-<version>-linux-<arch>.sha256
+    default: "0.15.1"
+    pattern: '^[0-9]+\.[0-9]+\.[0-9]+$'
+    description: tea release to install
+    buildArg: TEA_VERSION
+
+# The CLI the overlay puts on PATH, carrying the version it actually landed.
+# MIGRATION NOTE: this kit declared no provide at all while `tea` came from an
+# install hook — there was no content to describe, and the honest name for "a
+# binary some sandbox may or may not have downloaded" was none. The overlay
+# changes that, so a kit writing `requires: ["tea >= 0.15"]` now has something
+# to resolve against.
+provides: ["tea@${{ kit.args.version }}"]
 
 capabilities:
-  # Every destination the kit needs. MIGRATION NOTE: v2 declared one flat
-  # allow list; v3 scopes egress by phase, and the v2 comments already
-  # said which entry belonged to which. dl.gitea.com is the pinned `tea`
-  # binary and its checksum, fetched once by the first install hook and
-  # never again — so it closes before the agent starts. The instance
-  # itself is runtime: git-over-HTTPS, the REST API and `tea` are all
-  # steady-state traffic, and the second install hook only writes a config
-  # file rather than calling the instance (deliberately — see its
-  # comment). The union of the two phases is the v2 list.
+  # Every destination the kit needs, and there is now exactly one.
+  #
+  # MIGRATION NOTE: v2 declared one flat allow list; v3 scopes egress by phase,
+  # and the v2 comments already said which entry belonged to which. The first
+  # v3 cut therefore split it into an install phase holding dl.gitea.com and a
+  # runtime phase holding the instance.
+  #
+  # MIGRATION NOTE: the install phase is gone entirely. dl.gitea.com was the
+  # pinned `tea` binary and its checksum, and nothing else — gitea.dockerfile
+  # fetches that at image build now, which is the builder's traffic and not
+  # governed by this policy. The one hook that remains writes a config file
+  # without calling the instance (deliberately — see its comment), so the
+  # phase had no consumer left. An absent phase grants nothing, which is the
+  # whole point of moving the download: the grant existed only to let that
+  # hook reach the network.
+  #
+  # The instance itself stays runtime: git-over-HTTPS, the REST API and `tea`
+  # are all steady-state traffic.
   #
   # The inject rule below targets ${{ kit.args.host }} in the runtime
   # phase, and validation requires an inject domain to appear in that same
@@ -48,9 +109,6 @@ capabilities:
   # after expansion, not merely at authoring time.
   - type: com.docker.sandbox/network-policy@1
     config:
-      install:
-        allow:
-          - dl.gitea.com
       runtime:
         allow:
           - ${{ kit.args.host }}
@@ -74,11 +132,13 @@ capabilities:
       # MIGRATION NOTE: v2 had no phases, so this token was present while
       # install hooks ran as well as afterwards. `runtime` is still the
       # right phase — the credential exists for the agent's git and API
-      # traffic, not to let an install hook download something (that is
-      # dl.gitea.com's job, and it is unauthenticated). The visible
-      # consequence is in the second install hook: under strict phase
-      # scoping GITEA_TOKEN may be unset while it runs, which its existing
-      # guard already handles by skipping the tea login and saying so.
+      # traffic, not to let an install hook download something. Nothing is
+      # downloaded in a sandbox at all now that the `tea` binary ships in the
+      # overlay, so there is no longer even a hypothetical install-time
+      # fetch for it to authenticate. The visible consequence is in the one
+      # remaining install hook: under strict phase scoping GITEA_TOKEN may be
+      # unset while it runs, which its existing guard already handles by
+      # skipping the tea login and saying so.
       phase: runtime
       apiKey:
         # proxyManaged sets GITEA_TOKEN to the sentinel inside the container. The
@@ -104,37 +164,31 @@ capabilities:
   - type: com.docker.sandbox/lifecycle@1
     config:
       install:
-        # Install tea from a pinned, digest-verified Gitea release (same pattern as
-        # the sibling `gitlab` kit: no curl|sh, version AND SHA256 pinned in git).
-        # To bump: change TEA_VERSION plus the per-arch SHA256 below, sourced from
-        # https://dl.gitea.com/tea/<version>/tea-<version>-linux-<arch>.sha256
+        # MIGRATION NOTE: the first hook, "Install tea, version+digest pinned",
+        # is gone — gitea.dockerfile performs that download at image build
+        # instead, with the same release and the same two SHA256s. Nothing in
+        # the hook body needed sandbox-create time: it read no arg, no
+        # credential and no create-time path, and its one environment-shaped
+        # input was `dpkg --print-architecture`, which buildx answers better as
+        # TARGETARCH because it can answer it once per platform.
         #
-        # No `env:` list: every variable is set by the hook itself.
-        - command: |
-            set -euo pipefail
-            TEA_VERSION=0.15.1
-            ARCH=$(dpkg --print-architecture)
-            case "$ARCH" in
-              amd64)
-                SHA256="aac99cc6e650a81ae7b5061f8c75bc0eade4509c828d97b6072e1f0a3bd24357"
-                ;;
-              arm64)
-                SHA256="0db109df6696bfe01f9203402f503404692404d4ea9c16a540ecaeecc8e6bab2"
-                ;;
-              *)
-                echo "unsupported sandbox arch: $ARCH (expected amd64 or arm64)" >&2
-                exit 1
-                ;;
-            esac
-            URL="https://dl.gitea.com/tea/${TEA_VERSION}/tea-${TEA_VERSION}-linux-${ARCH}"
-            curl --proto '=https' --tlsv1.2 -fsSL -o /tmp/tea "$URL"
-            echo "${SHA256}  /tmp/tea" | sha256sum -c -
-            install -m 0755 /tmp/tea /usr/local/bin/tea
-            rm -f /tmp/tea
-            tea --version
-          user: "0"
-          description: "Install tea v0.15.1, version+digest pinned"
+        # What that bought, in order of how visible it is: dl.gitea.com left
+        # the network policy above (no install phase remains), `deb/dpkg` left
+        # `requires`, the binary's digest is now fixed in a scannable published
+        # layer rather than re-verified in every sandbox, a withdrawn or
+        # re-rolled release fails the build at publish instead of failing
+        # sandbox creation for a user, and every `sbx run` of this kit saves
+        # the download.
+        #
+        # The one hook that remains is the one that could not move.
 
+        # WHY THIS ONE STAYS A HOOK, three times over: its body is built from
+        # the create-phase `host` arg, which is the installer's choice and has
+        # no value at build; it reads the proxy-managed GITEA_TOKEN sentinel
+        # and SBX_CRED_GITEA_MODE, which exist only inside a running sandbox;
+        # and it writes under /home/agent, which on the composed base may be a
+        # mounted volume that would cover anything an overlay put there.
+        #
         # Seed tea's login so it starts out authenticated. Written directly rather
         # than via `tea login add`, which calls the instance to validate the token
         # and would fail sandbox creation whenever no credential is bound (the e2e

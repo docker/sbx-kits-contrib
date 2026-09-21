@@ -11,12 +11,43 @@ sourceUrl: https://www.npmjs.com/package/@earendil-works/pi-coding-agent
 
 kind: workload
 
-# The install floats: PI_VERSION defaults to the `latest` dist-tag and the
-# nightly rebuild is the update mechanism, so there is no pin for a provide
-# to quote. The provide is unversioned and `version:` below answers for it;
-# v2 declared no version, hence 1.0.0.
-version: "1.0.0"
-provides: ["pi"]
+# pi's own release, by reference: SPEC-v3 §4 allows this field to be a
+# build-phase arg reference expanded at publish, so it names the `version` arg
+# below -- the same one the provide reads and the recipe installs. v2 declared
+# none and the migration wrote 1.0.0, which put a number about the kit next to
+# the number about the agent; bumping the pin now moves this too.
+version: "${{ kit.args.version }}"
+
+# The pi release the recipe installs, declared once: validated here, handed to
+# the recipe as the npm pin, and expanded into the provide -- so the kit cannot
+# claim a release it does not ship.
+#
+# HOW THE DEFAULT WAS ESTABLISHED, and how to bump it: the `latest` dist-tag of
+# the npm package the recipe installs, read from
+# https://registry.npmjs.org/@earendil-works%2Fpi-coding-agent/latest -- the
+# same document the recipe used to fetch when PI_VERSION was the literal
+# `latest`. 0.86.1 at the time of writing.
+#
+# WHY PINNED rather than left floating: an unversioned provide takes the
+# descriptor's `version:` as its version at resolution, so `provides: ["pi"]`
+# published `pi@1.0.0` -- this kit's release number wearing pi's name, which no
+# mixin could usefully constrain. The nightly rebuild no longer moves the
+# agent; bumping this default does, which makes the upgrade a reviewed step
+# past the `pi --version` gate in the recipe rather than an automatic one.
+#
+# The pattern admits a three-segment release and nothing else: that is the
+# shape of all 47 versions upstream has published, and it is what refuses the
+# literal `latest` the recipe's ARG used to default to. Note the other
+# dist-tag, `legacy-node20` (0.74.2), is reachable only by version number
+# here -- by design, since a provide cannot claim a moving tag.
+args:
+  version:
+    default: "0.86.1"
+    pattern: '^[0-9]+\.[0-9]+\.[0-9]+$'
+    description: pi release to install
+    buildArg: PI_VERSION
+
+provides: ["pi@${{ kit.args.version }}"]
 
 capabilities:
   # v2 `kind: sandbox`: the host launches the agent rather than running the

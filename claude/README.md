@@ -44,7 +44,7 @@ These are the commands the kit is meant to be run with. They do **not** work
 while `claude` is still a built-in agent — see the note at the top.
 
 ```console
-sbx run --kit "docker.io/sbx/claude-kit:latest" claude
+sbx run --kit "docker.io/docker/sbx-kit-claude:latest" claude
 ```
 
 Or from a git URL targeting this repo:
@@ -148,10 +148,11 @@ variable names change.
 Self-update is left on. Claude Code's native build checks
 `downloads.claude.ai` and updates itself in place, into a tree the `agent`
 user owns — which is why that host is allow-listed at run time and not only
-at build time. That is deliberate: the kit version covers this spec and its
-hooks, not the binary, which floats with whatever release the image build
-resolved. Set `DISABLE_AUTOUPDATER=1` per sandbox to pin a session to the
-version the image shipped.
+at build time. The image ships an exact release (see
+[Pinning a release](#pinning-a-release)) and the kit publishes that release as
+its `claude` provide; a long-running sandbox may then move past it. Set
+`DISABLE_AUTOUPDATER=1` per sandbox to hold a session at the version the image
+shipped.
 
 ## Session state
 
@@ -318,14 +319,37 @@ scheme, the coordinates, and the Docker Hub OIDC setup.
 ### Pinning a release
 
 The descriptor declares one arg, `version`, wired to the recipe's
-`CLAUDE_CODE_VERSION` build arg. It is passed to Anthropic's installer as its one
-positional target, so `stable`, `latest`, or an exact version such as `2.1.267`
-all work. Left at its default — the empty string — no target is passed and the
-installer picks its own, which is what the agent this kit replaces installed.
+`CLAUDE_CODE_VERSION` build arg and passed to Anthropic's installer as its one
+positional target. It defaults to an exact release — `2.1.267` — rather than
+floating, and the recipe asks the installed binary for its version and fails the
+build if the two disagree.
 
-That floating default is also why `provides` is the unversioned `claude` with a
-`version: "1.0.0"` fallback rather than `claude@<version>`: the kit version covers
-this descriptor and its hooks, not the binary.
+The installer would also accept `stable` and `latest`, but the arg's pattern
+rejects them, because the same value is expanded into the kit's provide:
+
+```yaml
+provides: ["claude@${{ kit.args.version }}"]
+```
+
+`claude@stable` is not a version, and an unversioned provide falls back to the
+descriptor's `version:` — which is how this kit once published `claude@1.0.0`,
+its own release number wearing Claude Code's name, and why a mixin asking for
+`claude >= 2.1` refused to resolve against it. There is nothing left for it to
+fall back to: the descriptor's `version:` is that same arg reference, expanded
+at publish, so the kit's published version, its
+`org.opencontainers.image.version` annotation and its provide all name the
+Claude Code the image carries, stated in one place.
+
+To bump: read the channel pointer the installer's own default resolves to,
+
+```console
+$ curl -fsSL https://downloads.claude.ai/claude-code-releases/stable
+2.1.267
+```
+
+and set the new value in both `claude.yaml` and
+[`claude-mixin`](../claude-mixin)'s descriptor — the two ship the same binary
+under the same provide name and must agree.
 
 The recipe keeps its `BASE_IMAGE` build arg for local experiments, but it is not
 surfaced as a kit arg — v2 did not expose it through `spec.yaml` either, and

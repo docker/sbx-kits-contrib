@@ -12,25 +12,75 @@
 schemaVersion: "3"
 displayName: GitHub Copilot
 description: GitHub Copilot CLI, GitHub's agentic coding CLI.
-# The KIT's version, not Copilot's. It covers this descriptor, the network
-# policy and the hooks — the agent inside the image floats, so a newer
-# copilot-cli does not bump this and this does not track releases of
-# copilot-cli.
+# The Copilot CLI's version, by reference. SPEC-v3 §4 admits a build-phase arg
+# reference here and expands it at publish, so this field, the release the
+# recipe installs and the version the provide publishes under are one value —
+# the `version` arg below — and there is exactly one place in this file a
+# version is stated.
 #
-# MIGRATION NOTE: in v2 this was published as the vnd.docker.sandbox.kit.version
-# annotation. In v3 it is the version *fallback* for unversioned provides
-# (SPEC-v3 §4), which is what gives the bare `copilot` provide below a version
-# at publish time. `scripts/check-release-tag.sh` still reads it.
-version: "1.0.0"
+# MIGRATION NOTE: in v2 this was the kit's own release, published as the
+# vnd.docker.sandbox.kit.version annotation. In v3 it is also the version
+# *fallback* for unversioned provides (SPEC-v3 §4): bare `provides: ["copilot"]`
+# published `copilot@1.0.0`, this descriptor's release number wearing the CLI's
+# name, which no `copilot >= 1.0.8` could be satisfied by. Pinning the provide
+# took that job away, and resolving this field from the same arg takes away the
+# number it used to fall back to — so the publish tag and
+# org.opencontainers.image.version now name the copilot-cli the image ships.
+#
+# `scripts/check-release-tag.sh` reads this through `scripts/kit-version.sh` —
+# the same resolver `publish-kit.sh` tags with, so a release tag and a published
+# tag cannot disagree — and that resolver follows an arg reference to the arg's
+# default, so a field written this way resolves for it rather than defeating it.
+version: "${{ kit.args.version }}"
 
 kind: workload
 
+# The release of the Copilot CLI this kit installs and publishes.
+#
+# MIGRATION NOTE: this kit used to say "the vendor installer takes no version
+# pin". That was wrong. https://gh.io/copilot-install reads a VERSION
+# environment variable, documented in its own usage header and handled at the
+# top of its download-URL selection:
+#
+#     if [ "${VERSION}" = "latest" ] || [ -z "$VERSION" ]; then
+#       DOWNLOAD_URL=".../releases/latest/download/copilot-${PLATFORM}-${ARCH}.tar.gz"
+#     ...
+#     else
+#       # Prefix version with 'v' if not already present
+#       case "$VERSION" in
+#         v*) ;;
+#         *) VERSION="v$VERSION" ;;
+#       esac
+#       DOWNLOAD_URL=".../releases/download/${VERSION}/copilot-${PLATFORM}-${ARCH}.tar.gz"
+#
+# Two things follow from that snippet. An EMPTY value is not "no opinion", it
+# is `latest` — which is why the recipe refuses to build without one rather
+# than defaulting the ARG. And the `v` prefix is the installer's job: upstream
+# tags this release `v1.0.86`, SPEC-v3 §5.2 admits no `v` in a version, so the
+# arg carries the bare number and the installer puts the `v` back.
+#
+# HOW THE DEFAULT WAS DETERMINED, and how to bump it: the installer downloads
+# GitHub release assets of github/copilot-cli, so the release list there is the
+# source of truth. The latest was `v1.0.86` when this was pinned:
+#
+#   curl -fsSL https://api.github.com/repos/github/copilot-cli/releases/latest \
+#     | jq -r .tag_name        # -> v1.0.86
+args:
+  version:
+    default: "1.0.86"
+    pattern: '^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$'
+    description: GitHub Copilot CLI release to install
+    buildArg: COPILOT_VERSION
+
 # MIGRATION NOTE: v2 had no provides — identity was the kit's `name`, which a
 # v2 mixin matched with `requires: {agent: copilot}`. v3 has no implicit
-# identity, so a kit that wants to be requirable states so. Unversioned because
-# the vendor installer takes no version pin; the `version:` above is the
-# publish-time fallback.
-provides: ["copilot"]
+# identity, so a kit that wants to be requirable states so.
+#
+# Versioned from the arg above, which is the same value the recipe hands the
+# installer — so what is published here is what the image ships, not an
+# assertion about content nobody checked. The recipe asserts the agreement at
+# build time by asking the installed binary.
+provides: ["copilot@${{ kit.args.version }}"]
 
 capabilities:
   # This workload is an agent sandbox: the host launches the agent rather than

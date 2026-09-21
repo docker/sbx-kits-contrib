@@ -20,7 +20,7 @@ every skill available — nothing installs at sandbox creation.
 ## Usage
 
 ```console
-$ sbx run --kit "docker.io/sbx/gstack-kit:latest" gstack
+$ sbx run --kit "docker.io/docker/sbx-kit-gstack:latest" gstack
 ```
 
 Or from a git URL targeting this repo:
@@ -67,7 +67,7 @@ the image the sandbox boots from. This kit builds and publishes its own, from
 [`gstack.dockerfile`](./gstack.dockerfile) in this directory:
 
 ```
-docker.io/sbx/gstack-image
+docker.io/docker/sbx-kit-gstack
 └── FROM docker/sandbox-templates:claude-code
     ├── Bun 1.3.10 (/usr/local)
     ├── /opt/playwright-browsers        Chromium + xvfb/fonts for /browse
@@ -78,7 +78,7 @@ docker.io/sbx/gstack-image
 ```
 
 The `-image` suffix distinguishes the base image from the kit itself: the
-kit is published separately as an OCI artifact at `docker.io/sbx/gstack-kit`
+kit is published separately as an OCI artifact at `docker.io/docker/sbx-kit-gstack`
 (see [Usage](#usage) above).
 
 gstack publishes no release tags — the image pins a commit SHA, declared as
@@ -86,10 +86,21 @@ the kit's `ref` arg (`buildArg: GSTACK_REF`) so an installer can move it and
 the published descriptor records what was built. The checkout keeps `.git` so
 `/gstack-upgrade` and version checks work from inside the sandbox.
 
-The descriptor's `version:` is upstream's own VERSION for that commit, and it
-is a fallback rather than the authority: a v3 `provides` version must be
-dotted-numeric, so a 40-character SHA cannot be referenced into it the way a
-semver build arg would be. Override `ref` and `version:` together.
+A v3 `provides` version must be dotted-numeric, so that SHA cannot be
+referenced into `provides` the way a semver build arg would be. What the kit
+publishes instead is upstream's own VERSION file **at the pinned commit**,
+declared as a second arg (`version`, `buildArg: GSTACK_VERSION`) and referenced
+as `provides: ["gstack@${{ kit.args.version }}"]`. Read it with:
+
+```console
+curl -fsSL https://raw.githubusercontent.com/garrytan/gstack/<ref>/VERSION
+```
+
+That is honest only while the two agree, so the recipe reads VERSION out of the
+checkout it actually made and fails the build when it is not the declared
+value. Bumping `ref` without bumping `version` therefore breaks the build
+rather than publishing a version that describes a different commit — move them
+together, here and in `../gstack-mixin`.
 
 ### Building and publishing
 
@@ -101,21 +112,32 @@ the same way it does for `kiro`/`copilot`.
 
 To bump gstack: set the `ref` arg's default to a new upstream commit SHA in
 [`gstack.yaml`](./gstack.yaml) (and the matching `GSTACK_REF` default in the
-recipe, which is what a plain `docker build` reads), update `version:`, and
-rebuild.
+recipe, which is what a plain `docker build` reads), set the `version` arg's
+default to upstream's VERSION at that commit, and rebuild. The descriptor's
+top-level `version:` is a reference to that arg rather than a number of its
+own, so it follows the bump without being edited.
 
 ### Building locally
 
 ```console
-$ docker build -f gstack/gstack.dockerfile -t docker.io/sbx/gstack-image:latest gstack
-$ ./scripts/test-kit.sh gstack
+$ cd gstack && docker buildx build . -f gstack.yaml --output type=oci,dest=/tmp/gstack-kit,tar=false
+$ kit-tck kit --layout /tmp/gstack-kit 1.57.10.0
 ```
+
+The descriptor is the build target, not the recipe: its `# syntax=` line
+dispatches the kit frontend, which validates the descriptor, builds
+`gstack.dockerfile` as the content and attaches the published descriptor to the
+result. Building the recipe directly with `-f gstack.dockerfile` would produce
+an ordinary image and no kit. Exporting an OCI layout rather than loading an
+image is what lets `kit-tck` judge the artifact without a registry — and note
+it takes the tag alone, not `gstack-kit:1.57.10.0`.
 
 `-f` is needed now that the recipe is named for its descriptor's stem rather
 than `Dockerfile`; the kit frontend finds it by that convention without one.
 
-`scripts/test-kit.sh` builds the kit's own image before running the suite
-(`SBX_KIT_SKIP_IMAGE_BUILD=1` to skip and reuse what's already built).
+`scripts/test-kit.sh` builds the kit into a throwaway OCI layout and judges
+the result with `kit-tck`. There is no separate image to build first: the
+descriptor is the build target, and the frontend validates it on the way.
 
 ## Debugging
 

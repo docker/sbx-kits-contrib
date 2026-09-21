@@ -25,12 +25,21 @@ FROM ${BASE_IMAGE} AS build
 # overlay under emulation.
 ARG TARGETARCH
 
-# Supplied by the descriptor's `version` arg, which declares the same empty
-# default. Left empty, the build resolves the newest release from github.com's
-# /releases/latest redirect, not the releases API: unauthenticated
-# api.github.com quota is counted per source IP and hosted CI runners share
-# egress addresses, so the API can rate-limit the fetch mid-build.
-ARG DOCKER_AGENT_VERSION=""
+# Supplied by the descriptor's `version` arg, which owns the default and the
+# accepted shape. No default here on purpose: the descriptor expands this same
+# value into a versioned provide, so an unset value has to fail the build
+# rather than resolve to whatever the newest release happens to be.
+#
+# It holds a bare version (`1.141.0`), not the tag -- SPEC-v3 §5.2 versions
+# carry no `v` prefix, and the value has to be referenceable from `provides`.
+# The `v` the tag needs is re-added below.
+#
+# MIGRATION NOTE: v2 spelled this `ARG DOCKER_AGENT_VERSION=""` and treated
+# empty as "resolve the newest release from github.com's /releases/latest
+# redirect". That branch is gone with the empty default; the redirect is still
+# how the descriptor's default is established, but a human reads it at bump
+# time rather than the build reading it at build time.
+ARG DOCKER_AGENT_VERSION
 
 # Root for the staging tree's ownership work; nothing from this stage ships
 # except /out, so the build user is not the sandbox's.
@@ -42,14 +51,14 @@ USER root
 RUN <<EOF
 set -euxo pipefail
 
-TAG="${DOCKER_AGENT_VERSION}"
-if [ -z "${TAG}" ]; then
-    TAG=$(curl -fsSI -o /dev/null -w '%{redirect_url}' "https://github.com/docker/docker-agent/releases/latest" | sed -n 's#.*/releases/tag/##p') || TAG=""
-fi
-if [ -z "${TAG}" ]; then
-    echo "Failed to resolve a docker-agent release tag: DOCKER_AGENT_VERSION is empty and the request to github.com/docker/docker-agent/releases/latest failed or did not redirect to a release tag (curl's own error, if any, is printed above). Supply the kit's version arg, or --build-arg DOCKER_AGENT_VERSION=<tag>." >&2
+if [ -z "${DOCKER_AGENT_VERSION}" ]; then
+    echo "DOCKER_AGENT_VERSION is empty. This kit publishes a versioned provide built from it, so there is no newest-release fallback: supply the kit's version arg, or --build-arg DOCKER_AGENT_VERSION=1.2.3 (no 'v')." >&2
     exit 1
 fi
+
+# The `v` the release tag carries and the arg does not. Kept here rather than
+# in the arg so the arg stays a §5.2 version the descriptor can reference.
+TAG="v${DOCKER_AGENT_VERSION}"
 
 mkdir -p /out/opt/docker-agent/bin /out/usr/local/bin /out/etc/profile.d
 
@@ -63,6 +72,19 @@ chown -R 1000:1000 /out/opt/docker-agent
 ln -s /opt/docker-agent/bin/docker-agent /out/usr/local/bin/docker-agent
 
 test -x /out/opt/docker-agent/bin/docker-agent
+
+# The asset name embeds the tag, so a wrong pin already fails at the download
+# above -- but only because the tag does not exist. This asserts the stronger
+# thing the provide claims: that the staged binary reports this release.
+# Invoked by its staging path, since nothing has put it on PATH in this stage.
+#
+# `version`, the subcommand -- there is no --version flag, and passing one is
+# an error rather than a fallback. The binary answers `docker-agent version
+# v1.141.0`, so the assertion matches $TAG and not $DOCKER_AGENT_VERSION: the
+# reported string carries the `v`, and `grep -w` would refuse the bare version
+# inside it because `v` is a word character.
+/out/opt/docker-agent/bin/docker-agent version
+/out/opt/docker-agent/bin/docker-agent version | grep -Fw "${TAG}"
 EOF
 
 # v2's environment.variables plus the agent's own knobs, which the v2 Dockerfile

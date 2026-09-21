@@ -17,7 +17,7 @@ layer onto a shell base instead.
 ## Usage
 
 ```console
-sbx run --kit "docker.io/sbx/picoclaw-kit:latest" picoclaw
+sbx run --kit "docker.io/docker/sbx-kit-picoclaw:latest" picoclaw
 ```
 
 Or from a git URL targeting this repo:

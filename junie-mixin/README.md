@@ -19,9 +19,18 @@ capability name has one owner.
 
 ## What it carries
 
-The stable-channel Junie install, the six model-provider credentials Junie can
-route through (`anthropic`, `google`, `junie`, `openai`, `openrouter`, `xai`,
-all optional) and the runtime egress policy they need.
+A pinned stable-channel Junie install, the six model-provider credentials
+Junie can route through (`anthropic`, `google`, `junie`, `openai`,
+`openrouter`, `xai`, all optional) and the runtime egress policy they need.
+
+The pin is two args, because JetBrains ships two version numbers: `version`
+(build arg `JUNIE_MARKETING_VERSION`, e.g. `26.9.21`) is the release the
+binary reports and what `provides: ["junie@<version>"]` publishes, and `build`
+(build arg `JUNIE_VERSION`, e.g. `3294.5`) is the JetBrains build number,
+which is the only thing `install.sh`'s own documented override accepts. The
+overlay asserts `junie --version` contains both, so they cannot drift apart.
+Both must stay equal to the workload's, since the two shapes provide one name.
+See [`../junie/README.md`](../junie/README.md) for how to bump them.
 
 ## Prefer a login shell
 

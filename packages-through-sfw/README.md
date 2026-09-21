@@ -15,7 +15,7 @@ Enterprise or a forked kit with the right network and credential wiring.
 Run it with any agent kit or built-in agent, from its published OCI artifact on Docker Hub:
 
 ```console
-sbx run --kit "docker.io/sbx/packages-through-sfw-kit:latest" <agent>
+sbx run --kit "docker.io/docker/sbx-kit-packages-through-sfw:latest" <agent>
 ```
 
 Or from a git URL targeting this repo:
@@ -42,14 +42,29 @@ pip index versions pyfiglet
 
 ## How the install works
 
-A lifecycle install hook installs Node.js, npm, Python pip, curl, and CA
-certificates from the base image's apt repositories. A second hook downloads
-Socket Firewall Free v1.10.0 from the upstream GitHub release, verifies the
-binary against a SHA256 captured in `packages-through-sfw.yaml`, and installs
-it as `/usr/local/bin/sfw`.
+`packages-through-sfw.dockerfile` downloads Socket Firewall Free v1.10.0
+from the upstream GitHub release **at build time**, verifies the binary
+against the per-arch SHA256 captured beside the download, and stages it as
+`/usr/local/bin/sfw` in an overlay together with the shims and the
+`/etc/profile.d` snippet. Creating a sandbox therefore downloads nothing,
+and GitHub is not on the kit's network policy at all.
 
-The initial install supports Linux `amd64` and `arm64`, which cover the
-normal Docker Desktop sandbox architectures.
+Two lifecycle install hooks remain, because neither is content:
+
+- **apt prerequisites** — Node.js, npm, Python pip, curl and CA
+  certificates come from the composed base's own apt repositories. apt
+  packages cannot travel in an overlay: they need the base's real dpkg
+  database, and an overlay cannot carry a package's shared-library
+  closure. The shims wrap the tools this hook installs.
+- **the `~/.bashrc` line** — an overlay's files *replace* the base's
+  rather than merging with them, so shipping `/home/agent/.bashrc` would
+  shadow whatever the composed workload put there instead of adding one
+  line to it. Appending to a file this kit does not own is create-time
+  work by nature.
+
+The build supports Linux `amd64` and `arm64`, which cover the normal
+Docker Desktop sandbox architectures; a multi-platform build resolves each
+leg to its own pinned asset.
 
 ## How the wrappers work
 
@@ -70,9 +85,10 @@ commands delegate to the real interpreter. The pip shims clear Python CA
 override variables so Socket Firewall can provide the certificate environment
 for its local wrapper proxy under the sandbox egress proxy.
 
-For interactive shells, the kit also writes shell functions to
-`/etc/profile.d/packages-through-sfw.sh` and sources that file from the agent
-user's `~/.bashrc`. Those functions delegate to the PATH shims.
+For interactive shells, the overlay also ships shell functions in
+`/etc/profile.d/packages-through-sfw.sh`, and an install hook sources that
+file from the agent user's `~/.bashrc`. Those functions delegate to the
+PATH shims.
 
 ## Scope and bypasses
 
@@ -93,10 +109,12 @@ exactly the package-manager egress the kit exists to mediate.
 
 `install` covers:
 
-- GitHub release hosts for the pinned `sfw` binary download
 - the apt sources `apt-get update` refreshes for the prerequisites — all
   three Ubuntu hosts for cross-arch coverage, plus Docker's repo, which the
   `shell-docker` base pre-adds
+
+The GitHub release hosts used to be here too. They are gone: the `sfw`
+download happens on the builder now, which this policy does not govern.
 
 `runtime` covers:
 

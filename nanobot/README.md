@@ -5,7 +5,7 @@ A standalone workload kit (`kind: workload`) for
 personal AI assistant with multi-platform chat (Telegram, Discord,
 WhatsApp, Slack, Feishu) and multi-provider LLM support. The kit's own
 content ([`nanobot.dockerfile`](./nanobot.dockerfile)) has nanobot
-already installed at the latest upstream PyPI release, ships a
+already installed at a pinned PyPI release, ships a
 preconfigured `config.json` that points it at Anthropic via the
 sandbox proxy, and runs `nanobot agent` as the entrypoint when you
 attach.
@@ -16,7 +16,7 @@ the same agent onto a shell base instead.
 ## Usage
 
 ```console
-sbx run --kit "docker.io/sbx/nanobot-kit:latest" nanobot
+sbx run --kit "docker.io/docker/sbx-kit-nanobot:latest" nanobot
 ```
 
 Or from a git URL targeting this repo:

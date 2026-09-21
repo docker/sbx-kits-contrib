@@ -5,10 +5,29 @@ description: Installs the GitLab CLI (glab) with proxy-injected personal access 
 
 kind: mixin
 
-# The kit's own version, not the version of anything it installs: it is the
-# tag this kit publishes under, and the fallback that versions an unversioned
-# provide at publish. Bump it when this kit's declarations change.
-version: "1.0.0"
+# The `glab` release this kit's overlay carries, by reference to the `version`
+# arg below — SPEC-v3 §4 admits a build-phase arg reference in this field and
+# expands it at publish, so the release is stated in exactly one place and the
+# publish tag and `org.opencontainers.image.version` name the CLI the kit
+# ships.
+#
+# MIGRATION NOTE: this was a standalone "1.0.0", described here as "the kit's
+# own version, not the version of anything it installs". That was the honest
+# reading while `glab` came from an install hook — the kit had no content, so
+# it had nothing of its own to version but its declarations. Now that the CLI
+# ships in the kit's layers, the kit and the release it carries are the same
+# artifact, and versioning them separately would mean maintaining a number
+# that says nothing a consumer can act on.
+version: "${{ kit.args.version }}"
+
+# MIGRATION NOTE: `requires: ["deb/dpkg"]` is gone, and it went out with the
+# hook that justified it. The glab install hook picked its release asset with
+# `dpkg --print-architecture` under `set -euo pipefail`, so a base without dpkg
+# died at that line and sandbox creation failed — that, and only that, is what
+# the requirement recorded. gitlab.dockerfile makes the same choice at build
+# from buildx's TARGETARCH, and the one hook left reads no distribution
+# package at all. `requires` is a closed-set check (SPEC-v3 §5.3): a name kept
+# past its reason refuses compositions in exchange for nothing.
 
 args:
   host:
@@ -40,32 +59,68 @@ args:
     # this pattern is what guarantees the expanded `service:` is still a
     # well-formed credential name whatever the installer supplies.
     pattern: '^[a-z0-9]([a-z0-9-]{0,62}[a-z0-9])?$'
+  version:
+    # The `glab` release gitlab.dockerfile downloads, declared once: validated
+    # here, handed to the recipe as GLAB_VERSION, and expanded into `provides`
+    # and into the top-level `version:` — so the kit cannot publish a release
+    # its overlay does not carry. The recipe proves the agreement by running
+    # the installed binary and comparing what it reports.
+    #
+    # `buildArg:`, not `env:` — the two are mutually exclusive and this value
+    # resolves at build. Note the contrast with `host` above, which takes
+    # `env:` for the opposite reason: the instance is the installer's choice
+    # and must not be baked, while the release is the kit's choice and must be.
+    #
+    # An installer may override it, but not silently: the per-arch SHA256s in
+    # the recipe are pinned to this release, so another version fails the
+    # digest check rather than installing under a descriptor that goes on
+    # claiming this number. Bumping glab is therefore a three-part edit — this
+    # default and both digests in gitlab.dockerfile, together — with the
+    # checksums from the release's checksums.txt.
+    default: "1.118.0"
+    pattern: '^[0-9]+\.[0-9]+\.[0-9]+$'
+    description: glab release to install
+    buildArg: GLAB_VERSION
+
+# The CLI the overlay puts on PATH, carrying the version it actually landed.
+# MIGRATION NOTE: this kit declared no provide at all while `glab` came from an
+# install hook — there was no content to describe, and the honest name for "a
+# binary some sandbox may or may not have downloaded" was none. The overlay
+# changes that, so a kit writing `requires: ["glab >= 1.118"]` now has
+# something to resolve against.
+provides: ["glab@${{ kit.args.version }}"]
 
 capabilities:
-  # MIGRATION NOTE, two changes to one v2 list.
+  # One host, one phase — and getting there took two steps.
   #
-  # Phases: the v2 comments already sorted these. gitlab.com is "install
-  # time only" — the pinned glab release tarball is served from gitlab.com
-  # whatever instance the kit targets, and the download redirects to a
-  # gitlab.com /api/v4/projects/… package path. The target instance is
-  # runtime: glab API traffic in the agent's steady state. The second
-  # install hook only writes a config file, so it needs no egress. The
-  # union of the two phases is the v2 list.
+  # MIGRATION NOTE: v2 declared one flat allow list holding gitlab.com and the
+  # target instance, and the v2 comments already sorted them. gitlab.com was
+  # "install time only" — the pinned glab release tarball is served from
+  # gitlab.com whatever instance the kit targets — while the target instance is
+  # runtime, being glab's API traffic in the agent's steady state. So the first
+  # v3 cut split the list by phase.
   #
-  # This phase split also hardens the v2 note that gitlab.com is
-  # deliberately NOT an injection destination: the credential is
-  # runtime-scoped and gitlab.com is only reachable at install, so the two
-  # cannot meet even in the default configuration where host IS gitlab.com.
+  # MIGRATION NOTE: the install phase is now gone entirely. gitlab.com was in
+  # it for the release tarball and nothing else, and gitlab.dockerfile fetches
+  # that at image build — the builder's traffic, which this policy does not
+  # govern. The one hook that remains writes a config file and needs no egress
+  # at all, so the phase had no consumer left. An absent phase grants nothing,
+  # which is the whole point of moving the download: the grant existed only to
+  # let that hook reach the network.
   #
-  # Ports: v2 wrote both entries as `:443`. Dropped for the contrib house
-  # style of portless entries; allow-list membership ignores a port suffix
-  # either way, so this only widens the grant from 443 to any port on two
-  # hosts that speak nothing else.
+  # It also retires a hazard rather than merely a grant. The v2 list kept
+  # gitlab.com reachable-but-never-injected-into, because a domain-wide inject
+  # rule there would have attached a self-managed instance's PAT to the
+  # download and 401'd it. With no download, a sandbox targeting a
+  # self-managed instance cannot reach gitlab.com at all, and the awkward case
+  # the README documented at length simply does not arise.
+  #
+  # Ports: v2 wrote its entries as `:443`. Dropped for the contrib house style
+  # of portless entries; allow-list membership ignores a port suffix either
+  # way, so this only widens the grant from 443 to any port on a host that
+  # speaks nothing else.
   - type: com.docker.sandbox/network-policy@1
     config:
-      install:
-        allow:
-          - gitlab.com
       runtime:
         allow:
           - ${{ kit.args.host }}
@@ -82,8 +137,9 @@ capabilities:
       # requires, so the expanded form is well-formed by construction.
       service: ${{ kit.args.service }}
       # runtime, not install: the token is for the agent's glab and API
-      # traffic. The install-time download is unauthenticated and comes
-      # from gitlab.com, which this credential must never inject into.
+      # traffic. There is no install-time traffic left to authenticate —
+      # the release download moved into gitlab.dockerfile — so runtime is
+      # now the only phase this credential could sensibly name.
       phase: runtime
       apiKey:
         # glab reads GITLAB_TOKEN and treats itself as logged in. proxyManaged
@@ -99,11 +155,15 @@ capabilities:
         name: GITLAB_TOKEN
         proxyManaged: true
         inject:
-          # Only the target instance. gitlab.com must not appear here when it is
-          # not the target: the install-time download above would then carry a
-          # PAT minted on another instance, and GitLab rejects a bad token
-          # outright rather than falling back to anonymous access — the download
-          # 401s and the kit fails to apply.
+          # Only the target instance, and now that is all it can be. While the
+          # release tarball was downloaded in-sandbox, gitlab.com had to be
+          # reachable-but-never-injected-into: a domain-wide rule here would
+          # have attached a PAT minted on another instance to that download,
+          # and GitLab rejects a bad token outright rather than falling back
+          # to anonymous access, so the download 401'd and the kit failed to
+          # apply. With the download gone, gitlab.com is not in the allow list
+          # unless it *is* the target, and validation would reject an inject
+          # domain that is not.
           #
           # This domain and the runtime allow entry are the same placeholder,
           # so the "inject domain must appear in the matching phase's allow
@@ -115,38 +175,26 @@ capabilities:
   - type: com.docker.sandbox/lifecycle@1
     config:
       install:
-        # Install glab from a pinned, digest-verified GitLab release (same
-        # pattern as the trivy kit: no curl|sh, version AND SHA256 pinned in
-        # git). To bump: change GLAB_VERSION plus the per-arch SHA256 below,
-        # sourced from the release's checksums.txt.
+        # MIGRATION NOTE: the first hook, "Install glab, version+digest
+        # pinned", is gone — gitlab.dockerfile performs that download at image
+        # build instead, with the same release and the same two SHA256s.
+        # Nothing in the hook body needed sandbox-create time: it read no arg,
+        # no credential and no create-time path, and its one
+        # environment-shaped input was `dpkg --print-architecture`, which
+        # buildx answers better as TARGETARCH because it can answer it once
+        # per platform.
         #
-        # No `env:` list: every variable is set by the hook itself.
-        - command: |
-            set -euo pipefail
-            GLAB_VERSION=1.118.0
-            ARCH=$(dpkg --print-architecture)
-            case "$ARCH" in
-              amd64)
-                SHA256="f3782ddb62b6ab20d0031699ea7b43f345dc6f63e991883660e21343b9524931"
-                ;;
-              arm64)
-                SHA256="0f6171766dd7f8246b7ce85bab18bd99d57ce2538e0ec9121c48fe004308eac4"
-                ;;
-              *)
-                echo "unsupported sandbox arch: $ARCH (expected amd64 or arm64)" >&2
-                exit 1
-                ;;
-            esac
-            TARBALL="glab_${GLAB_VERSION}_linux_${ARCH}.tar.gz"
-            URL="https://gitlab.com/gitlab-org/cli/-/releases/v${GLAB_VERSION}/downloads/${TARBALL}"
-            curl --proto '=https' --tlsv1.2 -fsSL -o /tmp/glab.tgz "$URL"
-            echo "${SHA256}  /tmp/glab.tgz" | sha256sum -c -
-            tar -C /tmp -xzf /tmp/glab.tgz bin/glab
-            install -m 0755 /tmp/bin/glab /usr/local/bin/glab
-            rm -rf /tmp/glab.tgz /tmp/bin
-            glab --version
-          user: "0"
-          description: "Install glab v1.118.0, version+digest pinned"
+        # What that bought, in order of how visible it is: gitlab.com left the
+        # network policy above (no install phase remains), `deb/dpkg` left
+        # `requires`, the tarball's digest is now fixed in a scannable
+        # published layer rather than re-verified in every sandbox, a
+        # withdrawn or re-rolled release fails the build at publish instead of
+        # failing sandbox creation for a user, and every `sbx run` of this kit
+        # saves the download.
+        #
+        # The one hook that remains is the one that could not move — see
+        # below, and note that its first act is to look at what is already on
+        # disk, which is the shape of decision no layer can make.
 
         # glab consults GITLAB_TOKEN for a host only if that host appears in its
         # config. gitlab.com is built in; any other host without an entry is
@@ -158,6 +206,15 @@ capabilities:
         # No `env:` list: the host reaches this hook by arg expansion into
         # the heredoc, not through the environment. GITLAB_HOST exists in
         # the container (see args.host) but nothing here reads it.
+        #
+        # WHY THIS STAYS A HOOK, three times over: the config body is built
+        # from the create-phase `host` arg, which is the installer's choice
+        # and has no value at build; the `if [ ! -f "$CFG" ]` guard reads the
+        # state of the sandbox it is running in, and a layer replaces a file
+        # rather than looking at one, so baking this would clobber exactly
+        # the edited config the guard exists to protect; and it writes under
+        # /home/agent, which on the composed base may be a mounted volume
+        # that covers whatever an overlay put there.
         - command: |
             set -euo pipefail
             CFG=/home/agent/.config/glab-cli/config.yml

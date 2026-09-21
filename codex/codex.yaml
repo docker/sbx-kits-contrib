@@ -12,17 +12,51 @@
 schemaVersion: "3"
 displayName: Codex
 description: OpenAI Codex CLI, OpenAI's agentic coding CLI.
-# The KIT's version, not Codex's. It covers this descriptor, the network
-# policy and the hooks — the agent inside the image floats, so a newer Codex
-# CLI does not bump this and this does not track releases of the CLI.
+# The Codex CLI's version, by reference. SPEC-v3 §4 admits a build-phase arg
+# reference here and expands it at publish, so this field resolves out of the
+# `version` arg below — the same release the recipe installs and the provide
+# publishes under. This descriptor, the network policy and the hooks are
+# released as the CLI they carry rather than under a number of their own.
 #
-# MIGRATION NOTE: in v2 this was published as the vnd.docker.sandbox.kit.version
-# annotation. In v3 it is the version *fallback* for unversioned provides
-# (SPEC-v3 §4), which is what gives the bare `codex` provide below a version
-# at publish time. `scripts/check-release-tag.sh` still reads it.
-version: "1.0.0"
+# MIGRATION NOTE: in v2 this was the kit's own release, published as the
+# vnd.docker.sandbox.kit.version annotation. In v3 it is also the version
+# *fallback* for unversioned provides (SPEC-v3 §4) — which is how bare
+# `provides: ["codex"]` came to publish `codex@1.0.0`, the kit's release number
+# wearing the CLI's name. Pinning the provide took that job away; resolving this
+# field from the same arg takes away the competing number as well, and makes the
+# publish tag and org.opencontainers.image.version name the CLI the image ships.
+#
+# `scripts/check-release-tag.sh` reads this through `scripts/kit-version.sh` —
+# the same resolver `publish-kit.sh` tags with, so a release tag and a published
+# tag cannot disagree — and that resolver follows an arg reference to the arg's
+# default, so a field written this way resolves for it rather than defeating it.
+version: "${{ kit.args.version }}"
 
 kind: workload
+
+# The release of the Codex CLI this kit installs and publishes.
+#
+# HOW THE DEFAULT WAS DETERMINED, and how to bump it: the recipe installs from
+# the vendor's standalone installer, whose release assets are the GitHub
+# releases of openai/codex. The latest release there was tagged `rust-v0.155.1`
+# when this was pinned:
+#
+#   curl -fsSL https://api.github.com/repos/openai/codex/releases/latest \
+#     | jq -r .tag_name        # -> rust-v0.155.1
+#
+# The tag's `rust-v` prefix is stripped here rather than carried: SPEC-v3 §5.2
+# admits no `v` prefix in a version, so `rust-v0.155.1` could not be referenced
+# into the provide below. Nothing has to re-add it — the installer normalizes
+# `rust-vX`, `vX` and bare `X` to the same release itself.
+args:
+  version:
+    # RE2 transcription of the installer's own `validate_version()` regex, so a
+    # value this arg accepts is a value the installer accepts, and the
+    # descriptor rejects the rest before any content is built.
+    default: "0.155.1"
+    pattern: '^[0-9]+\.[0-9]+\.[0-9]+(-alpha(\.[0-9]+){0,2}|-beta(\.[0-9]+)?)?$'
+    description: Codex CLI release to install
+    buildArg: CODEX_VERSION
 
 # MIGRATION NOTE: v2 had no provides — a v2 mixin asked for a base agent by
 # `requires: {agent: codex}`, matched against the sandbox kit's `name`. v3
@@ -30,11 +64,14 @@ kind: workload
 # stated: codex-acp and codex-app-server both carry `requires: ["codex"]`
 # and resolve against this entry.
 #
-# Unversioned on purpose. The Dockerfile runs the vendor's standalone
-# installer with no version pin, so the installed CLI floats; a versioned
-# provide would state a release this kit does not choose. The `version:`
-# above supplies the publish-time fallback (SPEC-v3 §9.2).
-provides: ["codex"]
+# Versioned from the arg above, which is the same value the recipe hands the
+# installer — so what is published here is what the image ships, not an
+# assertion about content nobody checked. The recipe asserts the agreement at
+# build time by asking the installed binary. Before the pin this was bare
+# `codex` and fell back to the kit's own `version:`, which published
+# `codex@1.0.0` — the kit's release number wearing the CLI's name, and a value
+# no `codex >= 0.1` constraint could ever be satisfied by.
+provides: ["codex@${{ kit.args.version }}"]
 
 capabilities:
   # This workload is an agent sandbox: the host launches the agent rather

@@ -16,13 +16,49 @@ sourceUrl: https://devin.ai
 
 kind: mixin
 
-# The KIT's version, not Devin CLI's. The binary inside the overlay floats --
-# Cognition's install.sh takes its target from a manifest it fetches itself and
-# exposes no version variable a caller can set -- so there is no pin to declare
-# and this is the fallback publishing uses for the unversioned provide.
-version: "1.0.0"
+# Devin CLI's version, by reference: the `version` arg below, expanded at
+# publish, which SPEC-v3 §4 admits here. The kit states no release number of its
+# own, so the one pin drives the install, the provide and the published version
+# together -- which is also what makes "the same pin as the workload" below a
+# single thing to keep in step rather than two.
+version: "${{ kit.args.version }}"
 
-provides: ["devin"]
+# The same pin as the workload, and it must STAY the same: the two shapes
+# provide one name, so a `requires: ["devin >= X"]` that resolved against one
+# must see the same release in the other. Nothing enforces it across kit
+# directories -- bump both together.
+#
+# HOW THE DEFAULT WAS ESTABLISHED, and how to bump it: the `version` field of
+# https://static.devin.ai/cli/current/manifest.json, the document the unpinned
+# installer reads to decide what "current" means. 3000.10.31 at the time of
+# writing.
+#
+# HOW THE PIN REACHES THE INSTALL: Cognition's installer takes no version from
+# its environment or its argv -- the top-level script carries a bare
+# `PINNED_VERSION=""` literal. Its comment on that line says the value is "Set
+# by the build system for versioned setup scripts (e.g. cli/2026.3.5-1/
+# setup.sh)", and those are published: https://static.devin.ai/cli/<version>/
+# setup.sh is byte-for-byte the top-level script with `PINNED_VERSION` filled
+# in, which sends it at .../<version>/manifest.json instead of
+# .../current/manifest.json. The overlay recipe fetches that path and asserts
+# the installed binary reports this exact version.
+#
+# WHY PINNED: an unversioned provide takes the descriptor's `version:` as its
+# version at resolution, so `provides: ["devin"]` published `devin@1.0.0` --
+# this kit's release number wearing Devin's name, which no `devin >= 3000.10`
+# could resolve against.
+#
+# The pattern admits the vendor's two release shapes and nothing else: the
+# three-segment release this pin uses and the `-N` respin suffix the
+# installer's own comment documents.
+args:
+  version:
+    default: "3000.10.31"
+    pattern: '^[0-9]+\.[0-9]+\.[0-9]+(-[0-9]+)?$'
+    description: Devin CLI release to install
+    buildArg: DEVIN_VERSION
+
+provides: ["devin@${{ kit.args.version }}"]
 
 capabilities:
   # The agent's own egress rides with the kit that ships the agent: the base

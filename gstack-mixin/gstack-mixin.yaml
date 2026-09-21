@@ -15,12 +15,11 @@ description: >-
 
 kind: mixin
 
-# Upstream's own VERSION for the commit the `ref` arg defaults to, and the
-# fallback version for the unversioned provide below. The real authority is
-# the 40-char commit SHA, which v3 cannot carry in a provide (a version must
-# be dotted-numeric, SPEC-v3 §5.2), so overriding `ref` leaves this stale —
-# move them together. Tracks ../gstack.
-version: "1.57.10.0"
+# Upstream's own VERSION for the commit the `ref` arg defaults to, stated once:
+# SPEC-v3 §4 allows this field to be a build-phase arg reference expanded at
+# publish, so it names the same `version` arg the provide reads rather than
+# repeating its value as a literal that could fall behind it. Tracks ../gstack.
+version: "${{ kit.args.version }}"
 
 args:
   ref:
@@ -29,6 +28,28 @@ args:
     pattern: '^[0-9a-f]{40}$'
     description: gstack commit to check out and run ./setup from
     buildArg: GSTACK_REF
+  version:
+    # The version the provide publishes under. gstack's real authority is
+    # `ref` above, a 40-char commit SHA, because upstream publishes no release
+    # tags — and a SHA is not a SPEC-v3 §5.2 version (the first segment must be
+    # numeric), so `ref` cannot be referenced into `provides`.
+    #
+    # HOW THIS VALUE WAS ESTABLISHED, and how to bump it: it is upstream's own
+    # VERSION file AT THE PINNED COMMIT, read with
+    #
+    #   curl -fsSL https://raw.githubusercontent.com/garrytan/gstack/<ref>/VERSION
+    #
+    # and the recipe READS THE SAME FILE OUT OF THE CHECKOUT and fails the
+    # build when it does not equal this value — so bumping `ref` alone breaks
+    # the build rather than publishing a version that describes a different
+    # tree. Same pin and same enforcement as ../gstack; keep them in step when
+    # bumping, since a kit's build context is its own and nothing checks across
+    # directories.
+    default: "1.57.10.0"
+    # Upstream's VERSION is four dotted numeric segments, not semver.
+    pattern: '^[0-9]+(\.[0-9]+)*$'
+    description: gstack's own VERSION at the pinned ref; the build verifies it matches
+    buildArg: GSTACK_VERSION
   bunVersion:
     default: "1.3.10"
     pattern: '^[0-9]+\.[0-9]+\.[0-9]+$'
@@ -36,10 +57,11 @@ args:
     buildArg: BUN_VERSION
 
 # Same name the workload provides, so composing this mixin with ../gstack is
-# refused rather than installing the pack twice (SPEC-v3 §5.3). `claude` is
-# not provided: this kit does not install it, and it requires a base that
-# already carries it.
-provides: ["gstack"]
+# refused rather than installing the pack twice (SPEC-v3 §5.3) — and the same
+# version, so a kit asking for `gstack >= 1.57` resolves the same way against
+# either shape. `claude` is not provided: this kit does not install it, and it
+# requires a base that already carries it.
+provides: ["gstack@${{ kit.args.version }}"]
 
 # The skill pack drives Claude Code; it is not an agent of its own. Stated so
 # resolution refuses a composition with nothing to drive, rather than the

@@ -18,11 +18,12 @@ licenses: [Apache-2.0]
 
 kind: mixin
 
-# The install floats, as in the workload: the recipe installs from a `latest`
-# channel, so the provide carries no version of its own and the v2 `version:`
-# answers for it.
-version: "0.1.0"
-provides: ["vibe"]
+# Vibe's own release, by reference: SPEC-v3 §4 allows this field to be a
+# build-phase arg reference expanded at publish, so it names the same
+# `version` arg the provide reads. `agent` below could not stand here even
+# though it is an arg too — it resolves at create, and this field is expanded
+# at publish. v2's own 0.1.0 is gone with the literal.
+version: "${{ kit.args.version }}"
 
 # The agent profile Vibe starts with, carried over from the workload
 # unchanged -- including the create-phase `env:` placement, which matters
@@ -37,6 +38,34 @@ args:
       a custom agent declared in ~/.vibe/agents/NAME.toml.
     pattern: '^[A-Za-z0-9_-]+$'
     env: VIBE_AGENT
+
+  # The Mistral Vibe release the recipe installs, declared once: validated
+  # here, handed to the recipe as the PyPI pin, and expanded into the provide
+  # -- so the kit cannot claim a release it does not ship.
+  #
+  # `buildArg:` and not `env:`, unlike `agent` above: the pin has to reach the
+  # install, which happens at build.
+  #
+  # HOW THE DEFAULT WAS ESTABLISHED, and how to bump it: `info.version` of
+  # https://pypi.org/pypi/mistral-vibe/json, the same PyPI project the recipe
+  # installs from. 2.25.5 at the time of writing.
+  #
+  # WHY PINNED rather than left floating: an unversioned provide takes the
+  # descriptor's `version:` as its version at resolution, so `provides:
+  # ["vibe"]` published `vibe@0.1.0` -- this kit's release number wearing
+  # Vibe's name, which nothing can usefully constrain.
+  #
+  # THIS MUST STAY EQUAL TO ../vibe's `version` default. The two kits run the
+  # same `uv tool install` and provide the same name, so a composition
+  # resolving one against the other's requires must see the same release.
+  # Nothing enforces it across kit directories -- bump both together.
+  version:
+    default: "2.25.5"
+    pattern: '^[0-9]+\.[0-9]+\.[0-9]+$'
+    description: Mistral Vibe release to install
+    buildArg: VIBE_VERSION
+
+provides: ["vibe@${{ kit.args.version }}"]
 
 capabilities:
   # The agent's own egress rides with the kit that ships the agent: the base

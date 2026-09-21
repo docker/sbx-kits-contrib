@@ -38,24 +38,32 @@ RUN apt-get update && \
     apt-get install -y --no-install-recommends fd-find && \
     rm -rf /var/lib/apt/lists/*
 
-# Rolling updates by design: pi tracks the `latest` dist-tag. BuildKit
-# re-downloads this URL on every build to compute its digest, so the install
-# layer re-runs exactly when the fetched packument changes and is a cache hit
-# otherwise. PI_VERSION is part of the URL, so overriding it reproduces a
-# specific version and keeps the cache key stable. It is not a kit arg: the
-# descriptor's provide is unversioned precisely because the default floats.
-ARG PI_VERSION=latest
-ADD --chmod=644 https://registry.npmjs.org/@earendil-works%2Fpi-coding-agent/${PI_VERSION} /tmp/pi-latest.json
+# The kit's `version` arg arriving as a build arg -- pi-mixin.yaml declares it
+# with `buildArg: PI_VERSION`, validates its shape, and expands the same value
+# into `provides: ["pi@..."]`. Deliberately no default here: the descriptor is
+# the single source of the pin.
+#
+# MIGRATION NOTE: this used to default to the literal `latest` dist-tag. The
+# provide quotes the pin now, so a floating install would make the kit claim a
+# version it might not carry.
+ARG PI_VERSION
+
+# PI_VERSION is part of the URL, which is what makes the pin reach the install:
+# the registry answers with that one version's document, and the version read
+# out of it below is what npm is asked for. A pinned document also keeps the
+# cache key stable where the `latest` one did not, and a version that does not
+# exist 404s here rather than silently resolving to something else.
+ADD --chmod=644 https://registry.npmjs.org/@earendil-works%2Fpi-coding-agent/${PI_VERSION} /tmp/pi-release.json
 
 # The install, unmodified from the workload recipe: the version comes out of
-# the packument ADDed above rather than being re-resolved at RUN time, the
-# install runs as agent because the template's global prefix is agent-owned
+# the pinned document ADDed above rather than being re-resolved at RUN time,
+# the install runs as agent because the template's global prefix is agent-owned
 # (which is the ownership `pi update --self` and `pi install` need), and
 # `pi --version` is the build-time gate -- npm only WARNS on an engines
 # mismatch, so executing pi is what actually fails the build on a release
 # this Node cannot run.
 USER agent
-RUN version="$(node -p 'require("/tmp/pi-latest.json").version')" && \
+RUN version="$(node -p 'require("/tmp/pi-release.json").version')" && \
     npm install -g "@earendil-works/pi-coding-agent@${version}" && \
     pi --version
 

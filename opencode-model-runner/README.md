@@ -25,7 +25,7 @@ the same agent and configuration onto a shell base instead.
 ## Usage
 
 ```console
-sbx run --kit "docker.io/sbx/opencode-model-runner-kit:latest" opencode-model-runner ~/my-project
+sbx run --kit "docker.io/docker/sbx-kit-opencode-model-runner:latest" opencode-model-runner ~/my-project
 ```
 
 Or from a git URL or a local clone of this repo:

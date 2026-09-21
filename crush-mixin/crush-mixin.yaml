@@ -15,13 +15,45 @@ description: >-
 
 kind: mixin
 
-# The install floats by design -- `apt-get install crush` resolves whatever
-# Charm's apt repo currently serves, and the nightly rebuild keeps it current
-# -- so there is no pin to declare and `version:` is the fallback publishing
-# uses for the unversioned provide.
-version: "1.0.0"
+# The kit's published version, by reference: the `version` arg below, expanded
+# at publish, which SPEC-v3 §4 admits here. The kit states no release number of
+# its own, which also makes "keep this in step with the workload" a smaller
+# thing to get wrong -- one pin per directory moves the apt selector, the
+# provide and the published version together, so the two kits cannot end up
+# claiming different releases of the same name.
+version: "${{ kit.args.version }}"
 
-provides: ["crush"]
+# Crush's own version, pinned -- the same release the workload pins, because a
+# workload and its mixin that installed different Crushes would be two kits
+# wearing one name. Keep these in step when bumping; nothing enforces it across
+# directories, since a kit's build context is its own.
+#
+# HOW THIS VALUE WAS ESTABLISHED, and how to bump it: Crush comes from Charm's
+# apt repository (see crush-mixin.dockerfile), so the authority is that
+# repository's package index rather than the GitHub release feed:
+#
+#   curl -fsSL 'https://repo.charm.sh/apt/dists/*/*/binary-amd64/Packages.gz' \
+#     | gzip -dc \
+#     | awk '/^Package: crush$/{p=1} p&&/^Version:/{print $2} p&&/^$/{p=0}' \
+#     | sort -V | tail -5
+#
+# The index records plain upstream semver (`Version: 0.95.0` -- no epoch, no
+# Debian revision), so one string is both an exact apt selector and a legal
+# SPEC-v3 §5.2 version; and it serves its history (193 crush stanzas, 0.1.1
+# through 0.95.0), which is what an apt pin depends on -- `crush=<version>`
+# only resolves while the index still offers that version. See ../crush for the
+# longer form of this reasoning.
+args:
+  version:
+    default: "0.95.0"
+    pattern: '^[0-9]+\.[0-9]+\.[0-9]+$'
+    description: Crush release to install from Charm's apt repository
+    buildArg: CRUSH_VERSION
+
+# Versioned, so a kit asking for `crush >= 0.9` resolves against the version
+# the overlay actually carries. The recipe installs exactly this version and
+# re-reads it out of the installed binary before copying anything out.
+provides: ["crush@${{ kit.args.version }}"]
 
 capabilities:
   # The agent's own egress rides with the kit that ships the agent: the base

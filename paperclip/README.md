@@ -15,7 +15,7 @@ sandbox serves the web UI in seconds.
 ## Usage
 
 ```console
-sbx run --kit "docker.io/sbx/paperclip-kit:latest" paperclip
+sbx run --kit "docker.io/docker/sbx-kit-paperclip:latest" paperclip
 ```
 
 Or from a git URL targeting this repo:
@@ -135,7 +135,7 @@ paperclip (the kit's own layers)
 
 There is no longer a separately published `docker.io/sbx/paperclip-image` for
 a `sandbox.image:` field to point at: a v3 Kit is one OCI image carrying both
-the declarations and the content, published at `docker.io/sbx/paperclip-kit`
+the declarations and the content, published at `docker.io/docker/sbx-kit-paperclip`
 (see [Usage](#usage) above). [`../paperclip-mixin`](../paperclip-mixin) is the
 same app as an overlay you layer onto a shell base instead — read its README
 first, because an overlay cannot carry PostgreSQL or the Claude Code CLI.
@@ -151,12 +151,21 @@ the same way it does for `kiro`/`copilot`.
 ### Building locally
 
 ```console
-docker build -f paperclip/paperclip.dockerfile -t paperclip:local paperclip
+cd paperclip && docker buildx build . -f paperclip.yaml --output type=cacheonly
 ./scripts/test-kit.sh paperclip
 ```
 
-`scripts/test-kit.sh` builds the kit's own image before running the suite
-(`SBX_KIT_SKIP_IMAGE_BUILD=1` to skip and reuse what's already built).
+The descriptor is the build target: its `# syntax=docker/sandbox-kit:3` line
+dispatches the kit frontend, which validates the descriptor, builds
+`paperclip.dockerfile` as the content and attaches the published descriptor to
+the result. Building the recipe on its own —
+`docker build -f paperclip/paperclip.dockerfile -t paperclip:local paperclip` —
+gives you the content and no kit, and it also needs `PAPERCLIP_VERSION` passed
+by hand, since the descriptor is what supplies the pin.
+
+`scripts/test-kit.sh` builds the kit into a throwaway OCI layout and judges
+the result with `kit-tck`. There is no separate image to build first: the
+descriptor is the build target, and the frontend validates it on the way.
 
 The `paperclipai` release is the kit's `version` arg, declared in
 `paperclip.yaml` and handed to the recipe as the `PAPERCLIP_VERSION` build

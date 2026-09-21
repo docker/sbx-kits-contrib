@@ -6,38 +6,65 @@ kind: workload
 displayName: Claude Code
 description: Anthropic's Claude Code, with API-key and subscription sign-in both resolved by the sandbox proxy.
 
-# The KIT's version, not Claude Code's. It covers this descriptor, the network
-# policy and the lifecycle hooks — the binary inside the image floats (the
-# image build resolves the current release), so a newer Claude Code does not
-# bump this and this does not track its releases.
+# Claude Code's version, by reference. SPEC-v3 §4 admits a build-phase arg
+# reference here and expands it at publish, so this field resolves out of the
+# `version` arg below — the same arg the recipe installs from and the provide
+# publishes under. The kit no longer carries a release number of its own, and
+# bumping the pin bumps all three together.
 #
-# In v3 it also carries a second job: it is the fallback version for the
-# unversioned `provides` entry below, which is what `claude@1.0.0` resolves to
-# when this kit is consumed by a reference that carries no version of its own.
-version: "1.0.0"
+# Removing the second number is the point. This field used to be the fallback
+# an unversioned provide took its version from, so a kit shipping Claude Code
+# 2.1.267 under a literal `1.0.0` offered `claude@1.0.0`, and a mixin asking for
+# `claude >= 2.1` refused to resolve. Pinning the provide fixed the provide;
+# pointing this field at the same arg finishes the job, and it is also what
+# makes the kit's publish tag and its org.opencontainers.image.version
+# annotation name the Claude Code the image actually carries rather than a
+# number that tracked nothing.
+version: "${{ kit.args.version }}"
 
 # The pin the v2 Dockerfile took as `--build-arg CLAUDE_CODE_VERSION=...`,
 # surfaced as a kit arg so the v3 frontend can pass it through. The value is
 # handed to Anthropic's installer as its one positional target, which is the
-# same target the installed binary's own `claude install [target]` takes:
-# `stable`, `latest`, or a specific version. Left empty — the default — no
-# target is passed and the installer picks its own, which is what the agent
-# this kit replaces installs.
+# same target the installed binary's own `claude install [target]` takes.
+#
+# It is no longer allowed to be empty, `stable` or `latest`, and that is the
+# whole point of this change: the value is expanded into `provides` below, so it
+# has to be a version the built image really reports. A channel name would
+# publish `claude@stable`, which is not a version at all, and an empty default
+# would publish the kit's own release number wearing Claude Code's name —
+# `claude@1.0.0` — which a mixin asking for `claude >= 2.1` would refuse.
+#
+# HOW THE DEFAULT WAS DETERMINED, and how to bump it: the installer resolves an
+# omitted target to the `stable` channel, and that channel's current release is
+# published as a bare version string at
+# `https://downloads.claude.ai/claude-code-releases/stable` — 2.1.267 when this
+# was pinned. So this default is exactly what the unpinned recipe installed the
+# day it was pinned, not a jump to a different channel. (`.../latest` was 2.1.278
+# at the same moment; it is the faster-moving channel and is deliberately not
+# what this tracks.) Re-read that URL to bump.
 args:
   version:
-    default: ""
-    # The four shapes the installer's positional target accepts, including the
-    # empty string that means "no target".
-    pattern: '^$|^stable$|^latest$|^[0-9]+\.[0-9]+\.[0-9]+$'
-    description: Claude Code release to install (empty, `stable`, `latest`, or an exact version)
+    default: "2.1.267"
+    # Narrower than the installer's own target grammar
+    # (`^(stable|latest|[0-9]+\.[0-9]+\.[0-9]+(-[^[:space:]]+)?)$`) on purpose:
+    # the channel names are dropped for the reason above, and the prerelease
+    # tail is constrained to characters SPEC-v3 §5.2 admits in a version
+    # segment, so anything this pattern accepts is also a legal provide.
+    pattern: '^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$'
+    description: Claude Code release to install
     buildArg: CLAUDE_CODE_VERSION
 
-# Unversioned on purpose, with `version:` above as the fallback: the install
-# floats by default, so `claude@${{ kit.args.version }}` would publish an empty
-# version whenever the arg is left at its default. The NAME is load-bearing —
-# every mixin in this family carries `requires: ["claude"]`, and this entry
-# plus claude-mixin's identical one are what those resolve against.
-provides: ["claude"]
+# Versioned from the arg above, which is the same value the recipe hands the
+# installer — so the version published here is the version the image ships,
+# rather than an assertion about content nobody checked. The recipe asserts the
+# agreement at build time by asking the installed binary.
+#
+# The NAME is load-bearing — every mixin in this family carries
+# `requires: ["claude"]`, and this entry plus claude-mixin's identical one are
+# what those resolve against. Unconstrained requires keep resolving; a
+# constrained one (`claude >= 2.1`) can now resolve too, which it could not
+# against the old unversioned form.
+provides: ["claude@${{ kit.args.version }}"]
 
 capabilities:
   # This workload is an agent sandbox: the host launches the agent rather than

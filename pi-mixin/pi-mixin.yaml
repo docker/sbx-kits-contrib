@@ -16,11 +16,39 @@ sourceUrl: https://www.npmjs.com/package/@earendil-works/pi-coding-agent
 
 kind: mixin
 
-# The install floats, as in the workload: the recipe tracks the `latest`
-# dist-tag, so the provide carries no version of its own and `version:`
-# answers for it.
-version: "1.0.0"
-provides: ["pi"]
+# pi's own release, by reference: SPEC-v3 §4 allows this field to be a
+# build-phase arg reference expanded at publish, so it names the same
+# `version` arg the provide reads — so this field cannot fall behind the pin
+# the way a literal of the kit's own could.
+version: "${{ kit.args.version }}"
+
+# The pi release the recipe installs, declared once: validated here, handed to
+# the recipe as the npm pin, and expanded into the provide -- so the kit cannot
+# claim a release it does not ship.
+#
+# HOW THE DEFAULT WAS ESTABLISHED, and how to bump it: the `latest` dist-tag of
+# the npm package the recipe installs, read from
+# https://registry.npmjs.org/@earendil-works%2Fpi-coding-agent/latest -- the
+# same document the recipe used to fetch when PI_VERSION was the literal
+# `latest`. 0.86.1 at the time of writing.
+#
+# WHY PINNED rather than left floating: an unversioned provide takes the
+# descriptor's `version:` as its version at resolution, so `provides: ["pi"]`
+# published `pi@1.0.0` -- this kit's release number wearing pi's name, which
+# nothing can usefully constrain.
+#
+# THIS MUST STAY EQUAL TO ../pi's `version` default. The two kits run the same
+# npm install and provide the same name, so a composition resolving one against
+# the other's requires must see the same release. Nothing enforces it across
+# kit directories -- bump both together.
+args:
+  version:
+    default: "0.86.1"
+    pattern: '^[0-9]+\.[0-9]+\.[0-9]+$'
+    description: pi release to install
+    buildArg: PI_VERSION
+
+provides: ["pi@${{ kit.args.version }}"]
 
 capabilities:
   # The agent's own egress rides with the kit that ships the agent: the base

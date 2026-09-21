@@ -3,22 +3,57 @@
 # v2 shipped no Dockerfile — it pointed sandbox.image straight at a published
 # template and installed the agent from a setup hook. A v3 workload's layers
 # ARE its root filesystem, so grok.dockerfile now states that image as its
-# `FROM` and carries v2's sandbox.entrypoint; the install stays where v2 put
-# it, in the lifecycle hook below.
+# `FROM`, carries v2's sandbox.entrypoint, and performs the install v2 left to
+# create time. That last part is why this kit declares no lifecycle hook and
+# no install-phase egress; see the MIGRATION NOTEs below.
 schemaVersion: "3"
 displayName: Grok Build
 description: xAI's terminal-based coding agent, powered by Grok models.
 
 kind: workload
 
-# MIGRATION NOTE: v2 declared no `version:`. One is added because v3 refuses a
-# published provide with no version at all (SPEC-v3 §9.2) and the install
-# below floats — `https://x.ai/cli/install.sh` takes no pin, so there is no
-# grok release this kit could honestly name in the provide. This is the kit's
-# own release number answering for the artifact.
-version: "1.0.0"
+# MIGRATION NOTE: v2 declared no `version:`. What stands here now is the Grok
+# release this kit installs, by reference to the `version` arg below — SPEC-v3
+# §4 admits a build-phase arg reference in this field and expands it at
+# publish. So the kit states its version in exactly one place, and its publish
+# tag and `org.opencontainers.image.version` name the agent the image carries
+# rather than a kit release number of their own.
+version: "${{ kit.args.version }}"
 
-provides: ["grok"]
+# The Grok release the recipe installs, declared once: validated here, handed
+# to the installer as its version argument, and expanded into `provides` and
+# `version:` — so the kit cannot claim a release it does not carry. The recipe
+# asserts the agreement at build time by asking the installed binary.
+#
+# HOW THE DEFAULT WAS DETERMINED, and how to bump it: with no target given the
+# installer reads its channel pointer, `https://x.ai/cli/<channel>` with
+# GROK_CHANNEL defaulting to `stable`, which serves the current release as a
+# bare version string — 1.0.34 when this was pinned. So this default is
+# exactly what the unpinned recipe installed the day it was pinned, not a jump
+# to a different channel. Re-read `curl -fsSL https://x.ai/cli/stable` to bump,
+# and bump ../grok-mixin in the same change.
+#
+# WHY PINNED, and a correction to what this kit used to say here: the claim was
+# that install.sh takes no pin. It does — a version is its first positional
+# argument, which its own usage block documents as
+# `curl -fsSL https://x.ai/cli/install.sh | bash -s 0.1.42`, and it refuses a
+# target that is not X.Y.Z[-suffix]. So the float was never forced. It also
+# could not stay: an unversioned provide takes this descriptor's `version:` as
+# its version at resolution, so `provides: ["grok"]` published `grok@1.0.0` —
+# the kit's own release number wearing the agent's name, which a mixin writing
+# `requires: ["grok >= 1"]` would refuse to resolve against.
+args:
+  version:
+    default: "1.0.34"
+    # The installer's own target grammar
+    # (`^[0-9]+\.[0-9]+\.[0-9]+(-[A-Za-z0-9._]+)?$`) minus the underscore: a
+    # version segment admits `[0-9A-Za-z-]` under SPEC-v3 §5.2, so every value
+    # this pattern accepts is also a legal provide version.
+    pattern: '^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$'
+    description: Grok release to install
+    buildArg: GROK_VERSION
+
+provides: ["grok@${{ kit.args.version }}"]
 
 capabilities:
   # This workload is an agent sandbox: the host launches the agent rather than
@@ -27,21 +62,21 @@ capabilities:
   - type: com.docker.sandbox/sbx@1
 
   # MIGRATION NOTE: v2's single flat allow list is phase-scoped in v3, and an
-  # absent phase grants nothing. This kit is the one in the group with a real
-  # split to make, because it is the one that still installs its agent at
-  # sandbox-create time rather than at image-build time:
+  # absent phase grants nothing. There is no `install:` phase here, and v2's
+  # `x.ai` is gone with it.
   #
-  #   x.ai      → install only. It is the installer host and the binary
-  #               download (BASE_URL_PRIMARY in x.ai/cli/install.sh), reached
-  #               by the setup hook below and by nothing afterwards: the
-  #               entrypoint passes --no-auto-update, so the CLI never fetches
-  #               from it in steady state. Install-phase grants are closed
-  #               before the agent starts, which is exactly the right lifetime
-  #               for a download host.
-  #   the rest  → runtime. Login, inference and settings, reached by the agent
-  #               in steady state and by nothing during install.
+  # That host existed for exactly one reason: the setup hook that fetched the
+  # CLI at sandbox-create time. grok.dockerfile now runs that install at
+  # image-build time — outside any sandbox phase, and so outside this policy
+  # altogether — which is what ../grok-mixin's overlay has always done. An
+  # install grant with no installer left to serve is egress this kit would be
+  # asking for and never using, so it is dropped rather than left standing.
+  # Nothing inside a sandbox built from this kit reaches x.ai: the entrypoint
+  # passes --no-auto-update, so the CLI never fetches from it in steady state
+  # either.
   #
-  # The union of the two phases is v2's list, host for host.
+  # The runtime phase is v2's list minus that one download host, and is the
+  # whole of what the agent reaches.
   #
   # MIGRATION NOTE: v2 wrote every entry with an explicit `:443`. Dropped for
   # the contrib house style of portless entries — port suffixes are ignored
@@ -49,12 +84,6 @@ capabilities:
   # no host changes reachability by the rewrite.
   - type: com.docker.sandbox/network-policy@1
     config:
-      install:
-        # Installer + binary download. The script falls back to
-        # storage.googleapis.com if x.ai is unreachable; that fallback is
-        # intentionally not allowed here, so the primary path is the only one
-        # that works under deny-all.
-        allow: [x.ai]
       runtime:
         allow:
           # The xAI chat-completions API. Declaring it in the credential's
@@ -90,27 +119,13 @@ capabilities:
         inject:
           - {domain: api.x.ai, header: Authorization, format: "Bearer %s"}
 
-  - type: com.docker.sandbox/lifecycle@1
-    config:
-      install:
-        # The installer only symlinks `grok` onto an existing, writable PATH
-        # directory (~/.local/bin or /usr/local/bin); it does not create
-        # either. ~/.local/bin is on PATH already (shell-docker template), but
-        # the base image never creates it, so on a fresh container the
-        # installer would silently fall through to rewriting .bashrc/.zshrc
-        # instead — which a non-interactive kit entrypoint never sources.
-        # Pre-creating the directory here makes the installer's own
-        # PATH-symlink step succeed.
-        #
-        # $HOME needs no `env:` entry: it is part of the platform baseline
-        # every hook sees (lifecycle@1, "hook-env-restricted"). Nothing else
-        # in this hook body reads a variable.
-        - command: |
-            set -e
-            mkdir -p "$HOME/.local/bin"
-            curl -fsSL https://x.ai/cli/install.sh | bash
-          user: "1000"
-          description: Install Grok Build (grok)
+  # MIGRATION NOTE: no lifecycle entry. v2's one hook installed the CLI at
+  # sandbox create; grok.dockerfile now does that at build, with the same
+  # command and the same ~/.local/bin pre-creation the hook needed — the
+  # installer only symlinks `grok` onto an existing, writable PATH directory
+  # and never creates one. Nothing is left for a hook to do at create time,
+  # and a lifecycle entry declaring no hooks, no files and no interactive tail
+  # is invalid, so the entry is dropped rather than left empty.
 
   # The session control surface: how a harness drives grok without a human at
   # the terminal. Argv tails append to the entrypoint the way user args do.

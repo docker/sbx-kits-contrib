@@ -39,7 +39,19 @@ version: "1.0.0"
 # unconstrained require (SPEC-v3 §5.2), and the codex kits' provides are
 # unversioned because their installers float — so a constraint added here would
 # fail to resolve against them rather than bounding them.
-requires: ["codex"]
+#
+# `deb/apt` is the second half, and v2 had no way to state it at all. The first
+# install hook is a bare `apt-get update && apt-get install openssh-server`
+# with no guard and no fallback, so a base without apt fails sandbox creation
+# with apt-get's own error rather than this kit's. Publishing a workload
+# derives an entry per installed package from its dpkg database (SPEC-v3 §9.6),
+# so `deb/apt` is a real name on any Debian-family base and turns that into a
+# resolution error naming the kit.
+#
+# Note what is NOT required: `deb/openssh-server`. The hook installs it, and a
+# kit does not require what it installs for itself — the templates do not carry
+# it, so requiring it would refuse every base this kit is built for.
+requires: ["codex", "deb/apt"]
 
 capabilities:
   # v2's permissions.network.allow, one flat list, becomes a phase-scoped

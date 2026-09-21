@@ -15,14 +15,71 @@ description: >-
 
 kind: mixin
 
-# The fallback version for the unversioned provide below: the install floats
-# (install.sh always takes the current stable build), so there is no junie
-# release this kit could honestly name. Tracks ../junie.
-version: "1.0.0"
+# Junie's marketing release, by reference: SPEC-v3 §4 allows this field to be
+# a build-phase arg reference expanded at publish, so it names the `version`
+# arg below, the same one the provide reads. `build` is deliberately not the
+# one referenced — a JetBrains build number is the vendor's artifact key, not
+# what the binary calls itself. One number to bump, as in ../junie.
+version: "${{ kit.args.version }}"
+
+# The same pins as the workload, and they must STAY the same: the two shapes
+# provide one name, so a `requires: ["junie >= X"]` that resolved against one
+# must see the same release in the other. Nothing enforces it across kit
+# directories — bump both together.
+#
+# Junie is pinned by TWO values because JetBrains ships two, and the install
+# and the provide need different ones.
+#
+#   `version` is the marketing release — what the binary calls itself and the
+#       only honest thing to publish in a provide.
+#   `build`   is the JetBrains build number — the vendor's artifact key, and
+#       the only thing the installer's pin accepts.
+#
+# `junie --version` prints both on one line:
+#
+#     Junie version: 26.9.21 (3294.5)
+#
+# and the overlay asserts that line contains both, so the two cannot drift
+# apart: a build number carrying some other marketing version fails the build
+# rather than publishing a false provide.
+#
+# HOW THE DEFAULTS WERE ESTABLISHED, and how to bump them: the last entry for
+# a `linux-*` platform in
+# https://raw.githubusercontent.com/JetBrains/junie/main/update-info.jsonl,
+# the feed install.sh itself resolves "the current stable build" from. Its
+# `version` field is the build number and its `marketing` field is the
+# release:
+#
+#   curl -fsSL https://raw.githubusercontent.com/JetBrains/junie/main/update-info.jsonl \
+#     | grep '"platform":"linux-aarch64"' | tail -1
+#
+# 3294.5 / 26.9.21 at the time of writing.
+#
+# HOW THE PIN REACHES THE INSTALL: install.sh documents the variable in its
+# own header — `curl -fsSL https://junie.jetbrains.com/install.sh |
+# JUNIE_VERSION=656.1 bash` — and takes the branch `VERSION="$JUNIE_VERSION"`
+# when it is set, downloading that exact release and still looking its
+# published checksum up in the feed.
+#
+# WHY PINNED: an unversioned provide takes the descriptor's `version:` as its
+# version at resolution, so `provides: ["junie"]` published `junie@1.0.0` —
+# this kit's release number wearing Junie's name, which no `junie >= 26.9`
+# could resolve against.
+args:
+  version:
+    default: "26.9.21"
+    pattern: '^[0-9]+\.[0-9]+\.[0-9]+$'
+    description: Junie marketing release, the version the binary reports
+    buildArg: JUNIE_MARKETING_VERSION
+  build:
+    default: "3294.5"
+    pattern: '^[0-9]+\.[0-9]+$'
+    description: JetBrains build number for that release, the installer's own pin
+    buildArg: JUNIE_VERSION
 
 # Same name the workload provides, so composing this mixin with ../junie is
 # refused rather than installing the agent twice (SPEC-v3 §5.3).
-provides: ["junie"]
+provides: ["junie@${{ kit.args.version }}"]
 
 capabilities:
   # The agent's own egress rides with the kit that ships the agent: the base

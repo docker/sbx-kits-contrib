@@ -20,6 +20,25 @@ unrelocatable installer. The `/opt/docker-agent` tree is built agent-owned
 (uid/gid 1000) because `DOCKER_AGENT_AUTO_UPDATE` means the agent replaces the
 binary in place.
 
+## The pin
+
+`version` (build arg `DOCKER_AGENT_VERSION`) is the release the overlay
+installs, expanded into `provides: ["docker-agent@<version>"]` and into the
+descriptor's own `version:`, and it must stay equal to the workload's, since
+the two shapes provide one name. **It holds a bare version, not the tag**
+(`1.2.3`, not `v1.2.3`) — SPEC-v3 §5.2 versions carry no `v` prefix, so the
+recipe re-adds it. That is a change from the v2 spelling, and the empty
+"resolve the newest release" default is gone with it: an empty value now fails
+the build.
+
+The versioned provide is a claim with a caveat, since `DOCKER_AGENT_AUTO_UPDATE`
+lets the agent move past the pin at run time. It is still the honest one — an
+unversioned provide falls back to the descriptor's `version:`, which used to be
+a hand-written `1.0.0` and published `docker-agent@1.0.0`, false at every
+instant rather than only after an update. The full reasoning is beside the arg
+in `docker-agent-mixin.yaml`, and the bump procedure is in
+[`../docker-agent/README.md`](../docker-agent/README.md).
+
 ## Compose it
 
 ```console

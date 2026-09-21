@@ -5,7 +5,18 @@
 # `dockerfile:` field.
 #
 # Requires egress to both `cli.kiro.dev` (the install script) and
-# `prod.download.cli.kiro.dev` (the versioned binary the script fetches).
+# `prod.download.cli.kiro.dev` (the binary the script fetches).
+#
+# No version build arg, unlike the sibling agent kits in this repo. The
+# installer takes none: its whole option surface is `--help` and
+# `--channel CHANNEL`, it refuses anything else (`*) error "Unknown option:
+# $1"`), it reads no version from the environment, and the URLs it builds
+# spell the release as the literal `latest`
+# (`${BASE_URL}/${CHANNEL}/latest/manifest.json`). A DOWNLOAD_VERSION-ish arg
+# here would read as a pin while pinning nothing, which is why the descriptor
+# declares no `args` and publishes an unversioned provide — see the long note
+# beside `provides:` in kiro.yaml for the full evidence, including why
+# bypassing the installer for the versioned archives is not an improvement.
 #
 # One image, no flavour suffix: the kit picks its own image, so the
 # Docker-in-Docker detail never reaches the user. There is no dockerless variant

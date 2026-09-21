@@ -13,19 +13,64 @@ sourceUrl: https://devin.ai
 
 kind: workload
 
-# The KIT's version, not Devin CLI's. It covers this descriptor, the network
-# policy, the lifecycle hooks and the entrypoint wrapper -- the binary inside
-# the image floats (the build resolves the current release), so a newer Devin
-# CLI does not bump this and this does not track its releases.
+# Devin CLI's version, by reference. SPEC-v3 §4 admits a build-phase arg
+# reference here and expands it at publish, so this field resolves out of the
+# `version` arg below -- the same release the recipe installs and the provide
+# publishes under. This descriptor, the network policy, the lifecycle hooks and
+# the entrypoint wrapper are released as the CLI they carry rather than under a
+# number of their own.
 #
-# In v3 it is also the fallback the unversioned provide below publishes under:
-# Cognition's install.sh takes its target from a manifest it fetches itself and
-# its PINNED_VERSION is a literal the script overwrites unconditionally, so
-# there is no pin to declare as an arg and nothing for a versioned provide to
-# reference.
-version: "1.0.0"
+# The literal that used to sit here was the losing half of the argument the arg
+# below makes: an unversioned provide takes this field as its version (SPEC-v3
+# §9.2), which is how `provides: ["devin"]` published `devin@1.0.0`. Pinning the
+# provide fixed that; resolving this field from the same arg leaves nothing
+# behind to disagree with it.
+version: "${{ kit.args.version }}"
 
-provides: ["devin"]
+# The Devin CLI release the recipe installs, declared once: validated here,
+# handed to the recipe as the version path of the setup script it fetches, and
+# expanded into the provide -- so the kit cannot claim a release it does not
+# ship.
+#
+# HOW THE DEFAULT WAS ESTABLISHED, and how to bump it: the `version` field of
+# https://static.devin.ai/cli/current/manifest.json, which is the same document
+# the unpinned installer reads to decide what "current" means. 3000.10.31 at
+# the time of writing.
+#
+# HOW THE PIN REACHES THE INSTALL: Cognition's installer takes no version from
+# its environment or its argv -- the top-level script carries a bare
+# `PINNED_VERSION=""` literal. But its own comment on that line says the value
+# is "Set by the build system for versioned setup scripts (e.g.
+# cli/2026.3.5-1/setup.sh)", and those scripts are published:
+# https://static.devin.ai/cli/<version>/setup.sh is byte-for-byte the top-level
+# script with `PINNED_VERSION="<version>"` in place of the empty literal, which
+# sends it at .../<version>/manifest.json instead of .../current/manifest.json.
+# So the pin is expressed by fetching the versioned script rather than by
+# passing the installer anything, which is the vendor's own supported way to do
+# it. The recipe fetches `https://static.devin.ai/cli/${DEVIN_VERSION}/setup.sh`
+# and asserts the installed binary reports this exact version.
+#
+# WHY PINNED rather than left floating: an unversioned provide takes the
+# descriptor's `version:` as its version at resolution, so `provides: ["devin"]`
+# published `devin@1.0.0` -- this kit's release number wearing Devin's name. A
+# mixin asking for `devin >= 3000.10` would refuse to resolve against it.
+# Floating the install and stating a version are not both available; stating
+# one the content may not have is the worse of the two, so the install is
+# pinned to make the claim true.
+#
+# The pattern admits the vendor's two release shapes and nothing else: the
+# three-segment release this pin uses, and the `-N` respin suffix the
+# installer's own comment documents (`2026.3.5-1`). `current` is deliberately
+# not admitted -- the value is expanded into `provides` below, and
+# `devin@current` is not a version.
+args:
+  version:
+    default: "3000.10.31"
+    pattern: '^[0-9]+\.[0-9]+\.[0-9]+(-[0-9]+)?$'
+    description: Devin CLI release to install
+    buildArg: DEVIN_VERSION
+
+provides: ["devin@${{ kit.args.version }}"]
 
 capabilities:
   # This workload is an agent sandbox: the host launches the agent rather than

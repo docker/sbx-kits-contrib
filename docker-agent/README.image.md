@@ -19,8 +19,10 @@ self-update can rewrite its own binary.
 Build args:
 
 - `BASE_IMAGE` — re-point or digest-pin the base.
-- `DOCKER_AGENT_VERSION` — pin a release tag (`v1.2.3`). Left empty, the build
-  resolves the newest release from github.com's `/releases/latest` redirect.
+- `DOCKER_AGENT_VERSION` — the release to install, as a bare version (`1.2.3`,
+  not `v1.2.3`; the recipe re-adds the tag's prefix). Required: there is no
+  newest-release fallback, because the kit publishes a provide built from this
+  value.
 - `TARGETARCH` — supplied by BuildKit; selects the release asset.
 
 Runs as the non-root `agent` user, with `CMD ["docker-agent"]`.

@@ -33,6 +33,10 @@ RUN set -euo pipefail; \
     tar -xzf /tmp/picoclaw.tar.gz -C /out/usr/local/bin picoclaw; \
     rm /tmp/picoclaw.tar.gz; \
     chmod 0755 /out/usr/local/bin/picoclaw; \
+    # The release tarball records the publisher's CI uid, and tar preserves it:
+    # as image content on an unknown base that id may be a real account, and a
+    # file's owner can rewrite it whatever its mode says.
+    chown 0:0 /out/usr/local/bin/picoclaw; \
     /out/usr/local/bin/picoclaw version
 
 # The kit's own scripts and seed config.

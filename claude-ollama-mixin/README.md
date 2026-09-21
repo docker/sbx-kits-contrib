@@ -13,9 +13,17 @@ sbx run --kit ./claude-mixin/ --kit ./claude-ollama-mixin/ <base-agent>
 
 It declares `requires: ["claude"]`, so the composition must include something
 that provides `claude` — either [`claude-mixin`](../claude-mixin) or a base that
-already ships the binary. The workload shape got `claude` from its
-`docker/sandbox-templates:claude-code-docker` base; a mixin cannot bring a base,
-so it states the requirement instead.
+already ships the binary. The workload shape gets `claude` from its
+`docker/sandbox-templates:claude-code-docker` base and re-pins it to an exact
+release; a mixin cannot bring a base, so it states the requirement instead.
+
+That is also why this is the one kit in the family whose `provides` stays
+unversioned. [`claude-ollama`](../claude-ollama) publishes
+`claude-ollama@<Claude Code version>` because it ships the binary behind the
+wrapper. This overlay ships one `export` and no binary at all, so a version here
+would be a claim about the base's content, wrong on every base carrying a
+different release. Constrain `claude` — the name the base actually provides —
+rather than `claude-ollama`.
 
 ## Usage inside the sandbox
 

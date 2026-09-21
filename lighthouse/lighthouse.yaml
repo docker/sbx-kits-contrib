@@ -1,27 +1,69 @@
 # syntax=docker/sandbox-kit:3
+# Lighthouse as a MIXIN. The v2 kit shipped no Dockerfile and installed
+# everything through setup hooks, because a v2 mixin had no content mechanism —
+# a lifecycle install hook was the only way for one to install anything.
+#
+# MIGRATION NOTE: v3 lifts that, so most of those hooks encoded a v2 limitation
+# rather than a v3 requirement, and they now build into lighthouse.dockerfile:
+# the /etc/profile.d drop and the pinned npm install with its CLI wrapper were
+# pure content, and so is the browser tree, which is a version-pinned artifact
+# download that needs nothing from sandbox-create time. What that buys is no
+# per-create download, a much smaller install-phase permission surface (see the
+# network policy below), and content that is digest-pinned and scannable in the
+# published kit.
+#
+# WHAT STAYED A HOOK, AND WHY: Chromium's system libraries. `install
+# --with-deps` apt-installs them, and apt packages are not copyable content —
+# they need the composed base's own dpkg database, and an overlay cannot carry a
+# package's shared-library closure. So the two halves of v2's third hook
+# separate: the browser tree travels in the overlay and the apt call stays
+# below, run from the playwright-core the overlay stages for it. ../playwright
+# and ../openclaw-mixin split the same work the same way.
+#
+# What a composed sandbox gets in each case: the lighthouse CLI, its wrapper and
+# the browser binaries arrive with the layer, at compose time, whatever the base;
+# the libraries Chromium links against arrive at create, from the base's own apt.
+# Where that hook cannot run — a base that is not Debian-family, or the apt hosts
+# blocked by policy — Chromium is present and does not launch.
+#
+# MIGRATION NOTE: v2's three `environment.variables` have no v3 field here — a
+# mixin's image config is not the composed image's — so the overlay drops them
+# into /etc/profile.d/lighthouse-env.sh, which the base's login shell sources.
+# The consequence worth knowing has not changed with the move to build time:
+# profile.d is sourced by login shells, so a process started outside one does not
+# inherit them, and the `lighthouse` wrapper therefore defaults all three itself.
+# That is what keeps the promise lighthouse-context.md makes true however the CLI
+# was invoked.
 schemaVersion: "3"
 displayName: Lighthouse
 description: Google Lighthouse CLI for auditing performance, accessibility, SEO, and best practices — headless Chromium included so agents can score pages served inside the sandbox.
 
 kind: mixin
 
-# The install hook pins the release, so the provide states the version it
-# lands rather than leaning on a `version:` fallback. To bump, LIGHTHOUSE_VERSION
-# below, this line, lighthouse-context.md, and the README all move together.
+# The recipe pins the release, so the provide states the version it lands rather
+# than leaning on a `version:` fallback. To bump, LIGHTHOUSE_VERSION in
+# lighthouse.dockerfile, this line, lighthouse-context.md, and the README all
+# move together.
 provides: ["lighthouse@12.6.1"]
 
 capabilities:
   - type: com.docker.sandbox/network-policy@1
     config:
-      # MIGRATION NOTE: every host in v2's flat list serves an install hook —
-      # npm tarballs, Playwright's Chromium CDNs, the apt sources `--with-deps`
-      # needs — so the whole list lands in the install phase and the kit
-      # declares no runtime phase at all. That is not a gap: an absent phase
-      # grants nothing, and this kit's audits target servers on localhost
-      # inside the sandbox, which needs no allow entry. External audit targets
-      # were never reachable under v2 either (they are not on this list) and
-      # still are not; the agent context says so. A user auditing an external
-      # site grants that host through their own sandbox policy.
+      # MIGRATION NOTE: every host in v2's flat list served an install hook, so
+      # the whole list landed in the install phase. Moving those hooks into the
+      # recipe empties most of it again: the npm tarballs and the Chromium
+      # download are fetched by the builder, which this policy does not govern,
+      # so registry.npmjs.org and all three browser CDNs leave the kit's
+      # surface entirely. The one host group left is the one the surviving apt
+      # hook needs — a partial move means a smaller install list, not an absent
+      # one.
+      #
+      # The kit still declares no runtime phase, and that is still not a gap: an
+      # absent phase grants nothing, and this kit's audits target servers on
+      # localhost inside the sandbox, which needs no allow entry. External audit
+      # targets were never reachable under v2 either and still are not; the agent
+      # context says so. A user auditing an external site grants that host
+      # through their own sandbox policy.
       #
       # MIGRATION NOTE: the v2 entries carried explicit ports (`:443`, `:80`).
       # They are dropped for the contrib house style of portless entries —
@@ -30,24 +72,11 @@ capabilities:
       # are kept.
       install:
         allow:
-          # npm package (install time): lighthouse and its dependency tree
-          # (chrome-launcher, puppeteer-core, axe-core, …). puppeteer-core
-          # does not download a browser; Chromium comes from the second hook.
-          - registry.npmjs.org
-          # Chromium via `npx playwright install --with-deps chromium` — the
-          # same channel the playwright kit uses. cdn.playwright.dev is the
-          # primary CDN; prss.microsoft.com is the documented fallback.
-          - cdn.playwright.dev
-          - playwright.download.prss.microsoft.com
-          # On amd64, Playwright's Chromium is a Chrome-for-Testing build:
-          # cdn.playwright.dev 302s to this bucket. arm64 builds come from
-          # prss.microsoft.com instead.
-          - storage.googleapis.com
-          # `--with-deps` apt-installs Chromium's system libraries.
-          # `apt-get update` refreshes every configured source, so all
-          # template sources must be reachable: Ubuntu hosts amd64 on
-          # archive/security and arm64 on ports.ubuntu.com, and the
-          # *-docker templates pre-add Docker's apt repo.
+          # `install-deps chromium` apt-installs Chromium's system libraries.
+          # `apt-get update` refreshes every configured source, so all template
+          # sources must be reachable: Ubuntu hosts amd64 on archive/security
+          # and arm64 on ports.ubuntu.com, and the *-docker templates pre-add
+          # Docker's apt repo.
           - archive.ubuntu.com      # HTTP
           - security.ubuntu.com     # HTTP
           - ports.ubuntu.com        # HTTP
@@ -56,114 +85,39 @@ capabilities:
   - type: com.docker.sandbox/lifecycle@1
     config:
       install:
-        # MIGRATION NOTE: v2 declared these three under `environment.variables`,
-        # which a v3 mixin has no slot for — a mixin's image config is not the
-        # composed image's. They become the profile.d snippet the migration
-        # guide prescribes, written by a root hook because this kit ships no
-        # recipe to bake the file into a layer. The consequence worth knowing:
-        # profile.d is sourced by login shells, so a process started outside one
-        # does not inherit them. The `lighthouse` wrapper installed below
-        # therefore defaults all three itself, which is what keeps the promise
-        # lighthouse-context.md makes true however the CLI was invoked.
+        # All that is left of v2's three install hooks. The first two and the
+        # download half of this one are in the overlay; this is the half that
+        # cannot travel in one, so it still runs at create, against the composed
+        # base's own apt.
+        #
+        # `install-deps` rather than `install --with-deps`: the browser is
+        # already on disk from the layer, and this is the apt-only verb, so the
+        # hook touches no CDN and the install phase needs no CDN grant. It runs
+        # from the playwright-core the overlay stages under /usr/local/lib rather
+        # than from `npx -y playwright@...`, which is what keeps the npm registry
+        # out of the install phase too.
+        #
+        # v2 also used this hook to skip the download when ../playwright had
+        # already put a Chromium under /opt/ms-playwright. That was a create-time
+        # look at the composed filesystem, which a build cannot make and no
+        # longer needs to: neither kit downloads a browser at create any more,
+        # and both pin the same Playwright release, so both overlays carry the
+        # same revision at the same path.
+        #
+        # MIGRATION NOTE: HTTP_PROXY/HTTPS_PROXY are declared where v2's hook
+        # declared only PLAYWRIGHT_BROWSERS_PATH. The body reads neither itself,
+        # but the apt-get run behind it takes the proxy from the environment, and
+        # under v3's deny-by-default hook env it has to be declared or the
+        # package fetch fails behind the sandbox's forced proxy — the same
+        # declaration ../playwright carries on the same call. PLAYWRIGHT_BROWSERS_PATH
+        # is gone with the download it used to steer.
         - command: |
             set -euo pipefail
-            cat > /etc/profile.d/lighthouse-env.sh <<'SCRIPT'
-            # chrome-launcher reads CHROME_PATH (LIGHTHOUSE_CHROMIUM_PATH is
-            # deprecated). The install hook points this symlink at Playwright's
-            # chrome binary so the path stays stable across Chromium builds.
-            export CHROME_PATH=/usr/local/bin/chromium
-            # Same system path as the playwright kit, so composing both kits
-            # shares one browser tree instead of downloading Chromium twice.
-            export PLAYWRIGHT_BROWSERS_PATH=/opt/ms-playwright
-            # Lets `require('lighthouse')` / `import('lighthouse')` resolve
-            # from the global npm install in a workspace with no package.json.
-            # Projects with their own node_modules are unaffected.
-            export NODE_PATH=/usr/local/share/npm-global/lib/node_modules
-            SCRIPT
-            chmod 0644 /etc/profile.d/lighthouse-env.sh
+            node /usr/local/lib/lighthouse-kit/node_modules/playwright-core/cli.js install-deps chromium
+            rm -rf /var/lib/apt/lists/*
           user: "0"
-          description: Export the kit's environment from /etc/profile.d
-
-        # Lighthouse 13.x requires Node >= 22.19; standard agent templates
-        # only guarantee Node >= 18. 12.6.1 is the last 12.x line and
-        # accepts Node >= 18.20. npm verifies tarballs against registry
-        # sha512 integrity, so pinning the version pins the content.
-        # To bump: change LIGHTHOUSE_VERSION here, the `provides` entry above,
-        # and the version in lighthouse-context.md / README.
-        # Do not jump to 13.x until templates ship Node 22.19.
-        - command: |
-            set -euo pipefail
-            command -v npm >/dev/null || { echo "npm not found: this mixin needs a base image with Node.js >= 18 (all standard agent templates ship it)" >&2; exit 1; }
-            if [ -n "${HTTP_PROXY:-}" ]; then
-              npm config set proxy "$HTTP_PROXY"
-              npm config set https-proxy "$HTTP_PROXY"
-            fi
-            LIGHTHOUSE_VERSION=12.6.1
-            npm install -g "lighthouse@${LIGHTHOUSE_VERSION}"
-            LH_JS="$(npm prefix -g)/lib/node_modules/lighthouse/cli/index.js"
-            test -f "$LH_JS" || { echo "lighthouse CLI entry not found at $LH_JS" >&2; exit 1; }
-            # printf (not a YAML-indented heredoc) so the shebang stays in column 0.
-            {
-              printf '%s\n' '#!/bin/sh' 'set -eu' 'has_flags=0'
-              # The three variables the profile.d snippet exports, defaulted here
-              # too: a non-login shell has not sourced profile.d, and
-              # chrome-launcher reading an unset CHROME_PATH goes looking for a
-              # host Chrome that is not in this sandbox.
-              printf '%s\n' ': "${CHROME_PATH:=/usr/local/bin/chromium}"'
-              printf '%s\n' ': "${PLAYWRIGHT_BROWSERS_PATH:=/opt/ms-playwright}"'
-              printf '%s\n' ': "${NODE_PATH:=/usr/local/share/npm-global/lib/node_modules}"'
-              printf '%s\n' 'export CHROME_PATH PLAYWRIGHT_BROWSERS_PATH NODE_PATH'
-              printf '%s\n' 'for arg in "$@"; do'
-              printf '%s\n' '  case "$arg" in' '    --chrome-flags|--chrome-flags=*) has_flags=1 ;;' '  esac'
-              printf '%s\n' 'done'
-              printf '%s\n' 'if [ "$has_flags" -eq 0 ]; then'
-              printf '%s\n' '  set -- "$@" --chrome-flags="--no-sandbox --disable-dev-shm-usage --disable-gpu"'
-              printf '%s\n' 'fi'
-              printf '%s\n' "exec node \"${LH_JS}\" --no-enable-error-reporting \"\$@\""
-            } > /usr/local/bin/lighthouse
-            chmod 0755 /usr/local/bin/lighthouse
-            NPM_LH="$(npm prefix -g)/bin/lighthouse"
-            if [ -e "$NPM_LH" ] && [ "$NPM_LH" != /usr/local/bin/lighthouse ]; then
-              ln -sfn /usr/local/bin/lighthouse "$NPM_LH"
-            fi
-            lighthouse --version
-          user: "0"
-          # HTTP_PROXY is the sandbox's egress proxy, which npm needs told
-          # about explicitly. v3 hook environments are deny-by-default, so the
-          # `${HTTP_PROXY:-}` read above only sees a value because of this line.
-          env: [HTTP_PROXY]
-          description: Install lighthouse v12.6.1 from registry.npmjs.org, version pinned, with a container-safe CLI wrapper
-
-        - command: |
-            set -euo pipefail
-            export PLAYWRIGHT_BROWSERS_PATH="${PLAYWRIGHT_BROWSERS_PATH:-/opt/ms-playwright}"
-            mkdir -p "$PLAYWRIGHT_BROWSERS_PATH"
-            find_chrome() {
-              find "$PLAYWRIGHT_BROWSERS_PATH" -type f -name chrome ! -path '*headless*' 2>/dev/null | head -1
-            }
-            CHROME_BIN="$(find_chrome || true)"
-            if [ -z "$CHROME_BIN" ]; then
-              # Reuse the playwright kit's browser channel so composing both
-              # kits shares one Chromium tree. Ubuntu apt chromium is often a
-              # snap stub that does not run in the sandbox.
-              npx -y playwright@1.61.1 install --with-deps chromium
-              rm -rf /var/lib/apt/lists/*
-              CHROME_BIN="$(find_chrome || true)"
-            fi
-            if [ -z "$CHROME_BIN" ] || [ ! -x "$CHROME_BIN" ]; then
-              echo "failed to locate Chromium chrome binary under $PLAYWRIGHT_BROWSERS_PATH" >&2
-              exit 1
-            fi
-            ln -sfn "$CHROME_BIN" /usr/local/bin/chromium
-            chmod -R a+rX "$PLAYWRIGHT_BROWSERS_PATH"
-            chromium --version
-          user: "0"
-          # Declared because the body reads it. It will normally be *unset* — a
-          # hook does not source profile.d — and the `:-` fallback is what makes
-          # that harmless; naming it here is what lets a composed kit that does
-          # export it (the playwright kit) be honored instead of overridden.
-          env: [PLAYWRIGHT_BROWSERS_PATH]
-          description: Install Playwright Chromium into /opt/ms-playwright and symlink /usr/local/bin/chromium
+          env: [HTTP_PROXY, HTTPS_PROXY]
+          description: Install Chromium's system libraries via apt — the overlay carries the browser tree, apt packages cannot travel in one
 
   # v2's agentInstructions body, staged from the file beside this descriptor.
   # No `filename:` — that is workload-only, and this mixin contributes a body

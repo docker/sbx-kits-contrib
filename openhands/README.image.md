@@ -13,8 +13,8 @@ spawns a sandboxed runtime container. On top of that:
 
 - [OpenHands](https://docs.openhands.dev/openhands/usage/cli/installation)
   (the `openhands` PyPI package — the V1 terminal CLI, powered by
-  `openhands-sdk`), installed via `uv tool install --python 3.12`, at
-  whatever release is newest on PyPI (rebuilt nightly)
+  `openhands-sdk`), installed via `uv tool install --python 3.12`, at the
+  release the kit pins in `OPENHANDS_VERSION`
 - `~/.local/bin/openhands`, the command `uv tool install` produces
 - `/usr/local/bin/openhands-start`, a copy of the kit's entrypoint script so
   the image also runs standalone outside `sbx`

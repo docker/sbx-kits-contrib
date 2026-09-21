@@ -16,16 +16,60 @@ kind: mixin
 # the emulators come from whatever `tonistiigi/binfmt` resolves to at startup,
 # on a floating tag. `provides: ["qemu"]` under this fallback would publish
 # qemu@1.0.0 — the kit's release number wearing the emulator's name.
+#
+# STAYS AS IT IS — pinning the `tonistiigi/binfmt` reference in the startup
+# hook below would NOT make a versioned provide honest here, and the reasons
+# are structural rather than a matter of effort. Recorded so the question does
+# not get reopened from scratch:
+#
+#  * There is nothing to pin at build. This is a declaration-only mixin: it
+#    ships no recipe, so there is no install for a `buildArg` to reach. The
+#    emulators arrive from a `docker run` in a startup hook, which is the
+#    runtime phase.
+#  * The kit often installs nothing at all, by design. binfmt_misc
+#    registrations are kernel-global and survive sandbox restarts, so the hook
+#    below skips the whole install when `/proc/sys/fs/binfmt_misc/qemu-*`
+#    already exists. On a host where anything else registered first — another
+#    sandbox, the Docker host itself — the pinned image never runs and the
+#    emulators in effect are whichever ones got there first. A kit cannot
+#    declare a version of something it did not install.
+#  * Even when it does run, it does not guarantee the result. `--install all`
+#    exits 0 with individual architectures failed, and the hook treats an
+#    unreachable daemon or a binfmt timeout as a warning rather than a failure
+#    — deliberately, because a non-zero startup command takes the sandbox down
+#    with it. So the successful case is also not assertable.
+#
+# `qemu-binfmt` names what this kit really offers: the registration step, not
+# a build of the emulators. That is what makes the unversioned provide correct
+# rather than merely unfinished — it matches only unconstrained `requires`,
+# which is exactly the promise this kit can keep. A kit that wanted to speak
+# for a qemu version would have to ship the emulators as content and register
+# them from its own copy.
 provides: ["qemu-binfmt"]
 version: "1.0.0"
 
-# MIGRATION NOTE: v3 could express this kit's hard dependency on a
-# Docker-in-Docker base as `requires: ["docker-engine"]`, which v2 had no field
-# for — the v2 kit could only say it in prose and check at runtime. It is left
-# unstated because `requires` is judged as a closed set: no sandbox template
-# declares a matching `provides`, so stating it would fail resolution for every
-# base instead of only the ones actually missing docker. The startup hook's own
-# `command -v docker` check stays the enforcement.
+# This kit's hard dependency on a Docker-in-Docker base, which v2 had no field
+# for — the v2 kit could only say it in prose and check at runtime.
+#
+# MIGRATION NOTE: the migration first left this unstated, reasoning that
+# `requires` is a closed-set check and nothing provides `docker-engine`. That
+# was true of `docker-engine` and of no other name: publishing a workload
+# derives one entry per installed distribution package out of the content's own
+# dpkg database (SPEC-v3 §9.6), so any Debian-family base states what it
+# carries whether or not its author wrote anything down. The *-docker templates
+# carry docker-ce, so this resolves against them.
+#
+# `deb/docker-ce` rather than `deb/docker-ce-cli` because the daemon is what
+# this kit needs: the plain `shell` template ships the client alone, where
+# `command -v docker` succeeds and `docker info` never will. That is precisely
+# the distinction the hook below cannot draw, and the reason to draw it here.
+#
+# Unversioned: any docker that answers `docker run --privileged` will do, and
+# a floor invented here would be a guess.
+#
+# The hook's `command -v docker` check stays. Resolution covers a composition;
+# the check still gives a clear error on a base reached some other way.
+requires: ["deb/docker-ce"]
 
 capabilities:
   # MIGRATION NOTE: v2's one flat allow list, split by the phase that reaches

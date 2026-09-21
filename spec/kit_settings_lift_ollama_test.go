@@ -17,7 +17,13 @@ import (
 // real container. The lifted install command therefore always takes the unset
 // -> none path: settings.json without apiKeyHelper.
 func TestClaudeOllamaSettingsLift(t *testing.T) {
-	a, err := LoadFromDirectory("../claude-ollama")
+	// Reads a frozen copy of the kit's v2 spec.yaml rather than the live
+	// directory: the kit itself has since migrated to the v3 descriptor, so
+	// there is no v2 spec.yaml in the tree for this to load. The fixture is
+	// the v2 artifact this lift was written against, which is what keeps the
+	// assertion meaningful now that the v2 grammar is history the package
+	// documents rather than a format the repository's kits are authored in.
+	a, err := LoadFromDirectory("testdata/claude-ollama-v2")
 	require.NoError(t, err)
 
 	// (a) settings: block removed (no settings deprecation warning means the

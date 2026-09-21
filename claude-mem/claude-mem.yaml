@@ -111,6 +111,48 @@ capabilities:
         # they arrived for free with the container env; under v3's
         # deny-by-default hook environment an undeclared name is simply absent,
         # which would leave those child downloads unproxied.
+        #
+        # WHY THIS STAYS A HOOK. v3 lets a mixin carry an overlay, so many v2
+        # install hooks are really v2 limitations and belong in the recipe. This one
+        # does not, and the reasons are specific rather than a general preference.
+        # Checked by running the installer in a build stage and reading what it
+        # produced:
+        #
+        #   - It is not a package install, it is a provisioning run against the
+        #     composed environment. It probes for its runtimes and installs only
+        #     what is missing ("Checking Bun… Checking uv…"), which is a question
+        #     about the base this mixin lands on — a base that already ships bun
+        #     gets nothing, and one that does not gets ~78MB under ~/.bun. A build
+        #     can only answer that for the one base it happens to run on, and the
+        #     resulting /home/agent/.bun directory entry would override whatever the
+        #     composed base has there.
+        #   - It writes Claude Code's *shared* plugin registry:
+        #     ~/.claude/plugins/installed_plugins.json and known_marketplaces.json
+        #     are single files keyed by plugin and marketplace name, covering
+        #     everything registered in the sandbox. The installer merges into
+        #     whatever is on disk at create; a layer cannot merge — its file entry
+        #     replaces the base's outright. Baking them would make composition order
+        #     decide which plugin registration survives, silently, the moment
+        #     anything else in the composition registers one.
+        #   - The version float is load-bearing here, not incidental. The README's
+        #     design note explains why this kit tracks `@latest` against the repo's
+        #     usual pin convention: claude-mem's own hooks compare the
+        #     marketplace-tracked version against the installed worker's and recycle
+        #     the worker on a mismatch, which fails closed. The registered
+        #     marketplace carries `autoUpdate: true`. Resolving the install at
+        #     create keeps the two aligned; resolving it at publish freezes the
+        #     worker while the catalog keeps moving, turning a deliberately narrow
+        #     mismatch window into an unbounded one.
+        #   - Its ~/.claude/settings.json write is overwritten at create anyway: the
+        #     engine seeds that file late in the create sequence, which is the whole
+        #     reason for the startup reconciler below. Baking it would be pointless
+        #     for the same reason baking under a mounted volume is.
+        #
+        # For the record, the volume question specifically does NOT block this. The
+        # claude kits declare volumes at ~/.claude/projects, sessions, todos,
+        # shell-snapshots and statsig; the installer writes ~/.claude/settings.json,
+        # ~/.claude/plugins/** and ~/.claude-mem/**, so no declared volume would
+        # mount over any of it. The blockers above are what keep it here.
         - command: npm_config_legacy_peer_deps=true npx -y claude-mem@latest install --provider claude
           user: "1000"
           env: [HTTP_PROXY, HTTPS_PROXY]

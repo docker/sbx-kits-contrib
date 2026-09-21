@@ -47,7 +47,7 @@ These are the commands the kit is meant to be run with. They do **not** work
 while `cursor` is still a built-in agent — see the note at the top.
 
 ```console
-sbx run --kit "docker.io/sbx/cursor-kit:latest" cursor
+sbx run --kit "docker.io/docker/sbx-kit-cursor:latest" cursor
 ```
 
 Or from a git URL targeting this repo:
@@ -74,8 +74,9 @@ pass is appended after `--yolo`.
 
 Two details are worth knowing about that entrypoint:
 
-- **The path is absolute.** The installer puts `cursor-agent` in
-  `~/.local/bin`, which is on the image's `PATH` — but `PATH` belongs to the
+- **The path is absolute.** The recipe puts `cursor-agent` in
+  `~/.local/bin`, where the vendor's installer puts it, which is on the image's
+  `PATH` — but `PATH` belongs to the
   runtime, which may replace it, and the entrypoint is exec'd rather than run
   through a login shell. Naming the file in full means the launch does not
   depend on a lookup succeeding.
@@ -185,8 +186,8 @@ credential injection possible on that connection at all.
 ## Network policy
 
 The `network-policy@1` capability's `runtime.allow` list mirrors every host the
-credential injects into or routes to, plus `downloads.cursor.com` (where
-`cursor.com/install` redirects the package fetch, and where `cursor-agent`
+credential injects into or routes to, plus `downloads.cursor.com` (where the
+recipe fetches the pinned release package from, and where `cursor-agent`
 self-updates from), plus
 the apt sources the base image ships with (needed because the startup hook runs
 `apt-get update`, which fails wholesale if any configured source is
@@ -238,7 +239,7 @@ carries a Docker engine and requests Docker-in-Docker.
 
 There is one artifact rather than two. Under v2 this kit named a separately
 published `docker.io/sbx/cursor-image` in `sandbox.image` and the kit itself
-shipped as `docker.io/sbx/cursor-kit`; a v3 kit is one OCI image carrying both
+shipped as `docker.io/docker/sbx-kit-cursor`; a v3 kit is one OCI image carrying both
 the declarations (in a manifest annotation) and the content (in its layers), so
 the published kit *is* the image the sandbox boots. The name is derived from the
 kit directory and enforced repo-wide — see
@@ -262,7 +263,7 @@ are below.
 ### Building locally
 
 ```console
-docker build -f cursor/cursor.dockerfile -t docker.io/sbx/cursor:latest cursor
+docker build -f cursor/cursor.dockerfile -t docker.io/docker/sbx-kit-cursor:latest cursor
 ```
 
 That builds the content alone. To build the kit — content plus the validated,
@@ -271,7 +272,7 @@ expanded descriptor in its manifest annotation — build
 `# syntax=docker/sandbox-kit:3` line dispatches to the kit frontend:
 
 ```console
-docker build -f cursor/cursor.yaml -t docker.io/sbx/cursor:latest cursor
+docker build -f cursor/cursor.yaml -t docker.io/docker/sbx-kit-cursor:latest cursor
 ```
 
 `BASE_IMAGE` is a build arg, so the base can be re-pointed or digest-pinned

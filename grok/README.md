@@ -2,16 +2,16 @@
 
 A standalone workload kit (`kind: workload`, `schemaVersion: "3"`) for
 [Grok Build](https://github.com/xai-org/grok-build) (`grok`), xAI's
-terminal-based coding agent. The kit installs Grok Build into the sandbox at
-creation time, wires its API auth through the sandbox proxy, and runs
-`grok --yolo --no-auto-update` as the entrypoint when you attach.
+terminal-based coding agent. The kit ships Grok Build in its layers, wires its
+API auth through the sandbox proxy, and runs `grok --yolo --no-auto-update` as
+the entrypoint when you attach.
 
 The declarations live in [`grok.yaml`](./grok.yaml); the recipe beside it
 ([`grok.dockerfile`](./grok.dockerfile)) is found by the filename-stem
-convention. If you want Grok layered onto a shell base you already have,
-rather than as the whole environment, use [`../grok-mixin`](../grok-mixin)
-instead — that form bakes the CLI into its overlay rather than installing it
-at create.
+convention and is where the install happens. If you want Grok layered onto a
+shell base you already have, rather than as the whole environment, use
+[`../grok-mixin`](../grok-mixin) instead — it carries the same install in an
+overlay.
 
 ## Prerequisites
 
@@ -41,8 +41,9 @@ Or with a local clone of this repo:
 $ sbx run --kit ./grok/ grok
 ```
 
-The first launch installs Grok Build via its official install script.
-Subsequent launches reuse the sandbox.
+Grok Build is already installed in the kit's image — its official install
+script runs when the kit is built, not when a sandbox is created — so a launch
+has nothing to download. Subsequent launches reuse the sandbox.
 
 ## How auth works
 
@@ -73,26 +74,46 @@ existing, writable `PATH` directory — either `~/.local/bin` or
 via the `shell-docker` base image, but the image never creates the
 directory itself, so on a fresh container the installer would silently fall
 back to appending `~/.bashrc`, which a non-interactive kit entrypoint never
-sources. The `lifecycle@1` install hook works around this by
-`mkdir -p ~/.local/bin` before running the installer, so `grok` is on `PATH`
-immediately.
+sources. The recipe works around this by `mkdir -p ~/.local/bin` before
+running the installer, and then gates on `grok` really being there, so a
+change of prefix upstream fails the build instead of shipping an image with no
+agent in it.
+
+The install runs as the `agent` user (uid 1000), so the CLI lands at
+`~/.grok/bin/grok` with the `PATH` symlink at `~/.local/bin/grok` — the same
+paths the create-time hook produced, and the same paths the agent sees at run
+time.
+
+The release is pinned. The descriptor's `version` arg carries it, the recipe
+passes it to the installer as its one positional argument (`... | bash -s
+1.0.34`, the interface the script's own usage block documents), and the kit
+publishes `provides: ["grok@<version>"]` plus a top-level `version:` from the
+same arg — so the kit's publish tag names the agent release it carries. The
+recipe then runs `grok --version` and fails the build if what installed is not
+what was asked for, which is what makes the provide worth constraining against.
+To bump it, read the installer's own channel pointer and set the arg's default
+to what it returns:
+
+```console
+curl -fsSL https://x.ai/cli/stable
+```
+
+`../grok-mixin` installs the same release the same way and must be bumped in the
+same change.
 
 ## Network phases
 
 v3 egress policy is phase-scoped: `install` is open only while lifecycle
 install hooks run and is closed before the agent starts, and `runtime` is the
-agent's steady state. This kit is the clearest case for that split in the
-repo, because it is the one that still installs its agent at sandbox-create
-time:
+agent's steady state. This kit declares **no install phase at all**:
 
-- **`install`** — `x.ai` alone. It is the installer host and the binary
-  download, reached by the hook above and by nothing afterwards, since the
-  entrypoint passes `--no-auto-update`.
 - **`runtime`** — `api.x.ai`, `auth.x.ai`, `cli-chat-proxy.grok.com`: login,
   inference and settings.
 
-The union is exactly what the v2 flat list allowed; the difference is that the
-download host is no longer reachable from the running agent.
+The v2 kit also allowed `x.ai`, for the create-time installer. With the
+install baked into the image, that host is contacted by whoever builds the
+kit, so it is not in the sandbox's policy in any phase — and the entrypoint
+passes `--no-auto-update`, so nothing in the running sandbox wants it either.
 
 ## Customization
 

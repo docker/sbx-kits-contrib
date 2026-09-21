@@ -40,7 +40,7 @@ the sandbox so the built-in `claude` kit can refresh its Claude settings.
 Create a sandbox from its published OCI artifact on Docker Hub:
 
 ```console
-sbx create --kit "docker.io/sbx/claude-acp-kit:latest" --name my-task claude /path/to/task
+sbx create --kit "docker.io/docker/sbx-kit-claude-acp:latest" --name my-task claude /path/to/task
 ```
 
 Or from a git URL targeting this repo:

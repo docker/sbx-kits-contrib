@@ -17,13 +17,56 @@ kind: workload
 #
 # MIGRATION NOTE: in v3 this field does a second job — it is the fallback
 # version for the unversioned provide below (SPEC-v3 §9.2 refuses a published
-# provide with no version at all). The install is `curl -fsSL
-# https://cli.kiro.dev/install | bash`, which takes no pin, so there is no
-# kiro-cli release this kit could honestly name. v2's comment about
+# provide with no version at all). v2's comment about
 # `vnd.docker.sandbox.kit.version` is stale: v3 derives
 # `org.opencontainers.image.version` from this field (§9.3).
 version: "1.0.0"
 
+# UNVERSIONED, DELIBERATELY — this kit's install cannot be pinned, so there is
+# no kiro-cli release it could name without lying. The sibling agent kits in
+# this repo all expand a `version` arg into their provide over a pinned
+# install; kiro is the one that does not, and this is the evidence. (Spelling
+# the reference out here would not be a comment — the frontend scans the
+# descriptor's raw text for `kit.args` references and would demand the arg.)
+#
+# The installer is `curl -fsSL https://cli.kiro.dev/install | bash`, and it
+# takes no version:
+#
+#   * Its whole option surface is two flags. `show_help` lists them —
+#     `--help, -h` and `--channel CHANNEL  Specify a release channel (default:
+#     stable)` — and `parse_args` ends in `*) error "Unknown option: $1"`, so
+#     an unrecognized spelling is refused rather than quietly accepted. There
+#     is no hidden flag to find.
+#   * It reads no version from the environment either. The only selector is
+#     CHANNEL, and a channel is not a release.
+#   * The paths it builds are literally unversioned:
+#
+#         local channel_base_url="${BASE_URL}/${CHANNEL}"
+#         MANIFEST_URL="${channel_base_url}/latest/manifest.json"
+#         download_url="${channel_base_url}/latest/$filename"
+#
+# What about bypassing it, the way ../droid does? Checked, and it does not
+# work out here. Versioned archives do exist — `https://prod.download.cli.
+# kiro.dev/stable/<version>/kirocli-x86_64-linux.zip` answers 200 for 2.19.0
+# through 2.22.1 — but there is no versioned manifest to go with them:
+# `stable/<version>/manifest.json` and `stable/manifest.json` both answer 403,
+# and only `stable/latest/manifest.json` is served, describing the current
+# release alone. So a pinned download has no published checksum once `latest`
+# moves past it, while the installer this kit uses today does verify one. That
+# trade — abandon the vendor's install path AND its integrity check, to buy a
+# version string — is the wrong way round. (Kiro also self-updates at runtime;
+# see the allow list below. That alone would not stop a pin, but it does mean
+# the pin would buy less than it costs.)
+#
+# THE COST OF LEAVING IT UNVERSIONED, stated rather than hidden: §9.2 gives
+# this provide the `version:` above, so it publishes `kiro@1.0.0`. That is
+# this kit's own release number wearing Kiro's name. It resolves against a
+# bare `requires: ["kiro"]`, which is the only constraint that is honestly
+# answerable here, and it will wrongly satisfy a `kiro >= 1.0`. Pinning the
+# provide without pinning the install would be worse: it would assert a
+# release the content may well not have. Re-check the installer when bumping
+# this kit — the day it grows a version flag, or the day a versioned manifest
+# appears, this becomes a `version` arg like the siblings'.
 provides: ["kiro"]
 
 capabilities:

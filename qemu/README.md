@@ -5,7 +5,7 @@ A mixin kit that registers **QEMU user-mode emulators** with the kernel's `binfm
 ## Usage
 
 ```console
-sbx run claude --kit "docker.io/sbx/qemu-kit:latest" .
+sbx run claude --kit "docker.io/docker/sbx-kit-qemu:latest" .
 ```
 
 Or straight from this repository over git:

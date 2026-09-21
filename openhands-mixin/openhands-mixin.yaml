@@ -17,11 +17,39 @@ description: >-
 
 kind: mixin
 
-# The install floats, as in the workload: the recipe resolves whatever
-# `openhands` is newest on PyPI, so the provide carries no version of its own
-# and `version:` answers for it.
-version: "1.0.0"
-provides: ["openhands"]
+# The OpenHands release the overlay carries, by reference: SPEC-v3 §4 allows
+# this field to be a build-phase arg reference expanded at publish, so it
+# names the same `version` arg the provide reads. The arg's default below is
+# the one value to keep equal to ../openhands's, and now the only one.
+version: "${{ kit.args.version }}"
+
+# The OpenHands release the recipe installs, declared once: validated here,
+# handed to the recipe as the PyPI pin, and expanded into the provide -- so the
+# kit cannot claim a release it does not ship.
+#
+# HOW THE DEFAULT WAS ESTABLISHED, and how to bump it: `info.version` of
+# https://pypi.org/pypi/openhands/json, the same PyPI project the recipe
+# installs from. 1.16.0 at the time of writing. The distribution is `openhands`
+# -- the V1 terminal CLI -- not `openhands-ai` or `openhands-sdk`, which
+# version independently.
+#
+# WHY PINNED rather than left floating: an unversioned provide takes the
+# descriptor's `version:` as its version at resolution, so `provides:
+# ["openhands"]` published `openhands@1.0.0` -- this kit's release number
+# wearing the agent's name, which nothing can usefully constrain.
+#
+# THIS MUST STAY EQUAL TO ../openhands's `version` default. The two kits run
+# the same install and provide the same name, so a composition resolving one
+# against the other's requires must see the same release. Nothing enforces it
+# across kit directories -- bump both together.
+args:
+  version:
+    default: "1.16.0"
+    pattern: '^[0-9]+\.[0-9]+\.[0-9]+$'
+    description: OpenHands release to install
+    buildArg: OPENHANDS_VERSION
+
+provides: ["openhands@${{ kit.args.version }}"]
 
 capabilities:
   # The agent's own egress rides with the kit that ships the agent: the base

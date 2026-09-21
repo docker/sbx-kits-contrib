@@ -24,6 +24,19 @@ kiro-cli and its seeded state, the `start.sh` device-flow launcher, the egress
 policy Kiro's auth, chat and telemetry backends need, and the hooks that re-run
 `kiro-cli setup` at create and register the MCP gateway at boot.
 
+## No version pin
+
+This kit and `../kiro` are the exception among the agent kits in this repo:
+the others pin their tool and publish `provides: ["<tool>@<version>"]`, while
+kiro's `provides: ["kiro"]` stays unversioned, because the install cannot be
+pinned. The installer's whole option surface is `--help` and
+`--channel CHANNEL`, `parse_args` refuses anything else, it reads no version
+from the environment, and the URLs it builds spell the release as the literal
+`latest`. Versioned archives exist but no versioned manifest does, so a pinned
+download would lose the checksum verification the current install has. The
+full evidence, and the cost of leaving it unversioned, is in
+[`../kiro/README.md`](../kiro/README.md).
+
 ## Authentication is interactive
 
 Kiro has no API-key path, so this kit declares **no credential** — there is

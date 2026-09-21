@@ -25,10 +25,15 @@ ARG BASE_IMAGE
 # Pin a release with the kit's `version` arg, which the descriptor hands over as
 # this build arg. The value is passed to the installer as its one positional
 # target, which is the same target the installed binary's own
-# `claude install [target]` takes: `stable`, `latest`, or a specific version.
-# Left empty — the arg's default — no target is passed and the installer picks
-# its own default, which is what the agent this kit replaces installs.
-ARG CLAUDE_CODE_VERSION=""
+# `claude install [target]` takes.
+#
+# No default here, deliberately. The descriptor's arg always supplies one, and
+# an empty fallback is the failure this pin exists to prevent: the install would
+# float to whatever the installer's own default resolves to, while the
+# descriptor's `provides: ["claude@${{ kit.args.version }}"]` went on asserting
+# the pinned number. A missing value fails the build instead — see the guard in
+# the RUN below.
+ARG CLAUDE_CODE_VERSION
 
 # Claude Code is installed from Anthropic's own installer, which is what its
 # documentation leads with and what the agent this kit replaces already used.
@@ -56,6 +61,13 @@ ARG CLAUDE_CODE_VERSION=""
 # that the script ran, not that a working binary reached PATH. A `curl | bash`
 # whose curl dies after partial output still exits 0.
 #
+# And it is not just run, it is COMPARED against the requested version. The
+# descriptor publishes `claude@${{ kit.args.version }}`, so a build that
+# installed something else would ship a provide that lies about its own content
+# — the one failure mode worse than floating. `claude --version` prints
+# "<version> (Claude Code)", so the first field is the number to match. This is
+# what makes the pin verified rather than merely requested.
+#
 # The mkdir is the image half of a two-part fix for the session-state volumes
 # the kit declares. When a volume mounts on a *missing* path the runtime
 # auto-creates the target as root, leaving the agent user unable to write — so
@@ -67,9 +79,13 @@ ARG CLAUDE_CODE_VERSION=""
 RUN <<EOF
 set -eux
 
+[ -n "${CLAUDE_CODE_VERSION}" ] || { echo "CLAUDE_CODE_VERSION must be set" >&2; exit 1; }
+
 curl -fsSL https://claude.ai/install.sh | bash -s -- ${CLAUDE_CODE_VERSION}
 
-claude --version
+installed=$(claude --version | awk '{print $1}')
+[ "$installed" = "${CLAUDE_CODE_VERSION}" ] || {
+  echo "installed claude $installed != pinned ${CLAUDE_CODE_VERSION}" >&2; exit 1; }
 
 mkdir -p \
   /home/agent/.claude/projects \

@@ -26,20 +26,59 @@ description: >-
   OpenAI's Codex CLI as a mixin — the CLI in an overlay, with the OpenAI
   credential (API key or ChatGPT OAuth), scoped egress, and the config and
   auth seeds the agent needs. Layer it onto a shell base and run `codex`.
-# The KIT's version, not Codex's, and the publish-time fallback for the
-# unversioned provide below. Tracks the codex kit it is derived from.
-version: "1.0.0"
+# The Codex CLI's version, by reference: the `version` arg below, expanded at
+# publish, which SPEC-v3 §4 admits here. Tracking the codex kit this is derived
+# from is now one value to keep in step rather than two — the arg drives the
+# install, the provide and this kit's own release together. The literal that
+# used to sit here was the publish-time fallback for an unversioned provide, so
+# leaving it behind once the provide was pinned would only have left a second
+# version for the first to disagree with.
+version: "${{ kit.args.version }}"
 
 kind: mixin
 
-# Same name the codex workload provides, so a composition using this mixin
-# satisfies `requires: ["codex"]` from codex-acp and codex-app-server exactly
-# as the workload does. Unversioned for the same reason: the vendor installer
-# takes no version pin, so the installed CLI floats.
+# Same arg, same default, same installer knob as the codex workload, and that
+# is a requirement rather than a coincidence: this kit and `codex` beside it
+# ship the same CLI under the same name, so a composition that picked one or
+# the other must get the same release either way. The two move together — bump
+# one, bump the other.
+#
+# HOW THE DEFAULT WAS DETERMINED, and how to bump it: the recipe installs from
+# the vendor's standalone installer, whose release assets are the GitHub
+# releases of openai/codex. The latest release there was tagged `rust-v0.155.1`
+# when this was pinned:
+#
+#   curl -fsSL https://api.github.com/repos/openai/codex/releases/latest \
+#     | jq -r .tag_name        # -> rust-v0.155.1
+#
+# The `rust-v` prefix is stripped: SPEC-v3 §5.2 admits no `v` prefix in a
+# version, so the tag as written could not be referenced into the provide
+# below. Nothing has to re-add it — the installer normalizes `rust-vX`, `vX`
+# and bare `X` to the same release itself.
+args:
+  version:
+    # RE2 transcription of the installer's own `validate_version()` regex, so a
+    # value this arg accepts is a value the installer accepts, and the
+    # descriptor rejects the rest before any content is built.
+    default: "0.155.1"
+    pattern: '^[0-9]+\.[0-9]+\.[0-9]+(-alpha(\.[0-9]+){0,2}|-beta(\.[0-9]+)?)?$'
+    description: Codex CLI release to install
+    buildArg: CODEX_VERSION
+
+# Same name AND same version the codex workload provides, so a composition
+# using this mixin satisfies `requires: ["codex"]` from codex-acp and
+# codex-app-server exactly as the workload does — including a constrained
+# require, which the old unversioned form could not satisfy.
+#
+# MIGRATION NOTE: this comment used to read "the vendor installer takes no
+# version pin". That was wrong. `install.sh --help` documents both `--release
+# VERSION` and the `CODEX_RELEASE` environment variable; the overlay's build
+# stage now uses the latter and asserts the installed binary reports this
+# version before staging it.
 #
 # The two kits are alternatives, never composed together: one name has one
 # owner (SPEC-v3 §5.3), so resolution refuses codex + codex-mixin.
-provides: ["codex"]
+provides: ["codex@${{ kit.args.version }}"]
 
 capabilities:
   # The agent's own egress rides with the kit that ships the agent: the base

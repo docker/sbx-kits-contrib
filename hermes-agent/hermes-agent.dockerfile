@@ -14,40 +14,48 @@ ARG BASE_IMAGE
 # (hermes_cli/setup_terminal.py) -- commands run in this container, and
 # Docker is just one of seven equally unprovisioned backends.
 
-# Empty resolves upstream's newest stable release at build time; a release tag
-# pins it. Pinning does not pin the layer: the cache key below is independent of
-# this arg, so a pinned build still re-runs the install layer whenever upstream
-# publishes.
+# THE PIN. The kit's `version` arg arrives as this build arg: hermes-agent.yaml
+# validates its shape and expands the same value into `provides` and into its own
+# `version:` field. It is the release tag without its leading `v`, which the RUN
+# below puts back -- SPEC-v3 §5.2 admits no `v` prefix in the version the
+# descriptor publishes.
 #
-# Now also declared as a kit arg in hermes-agent.yaml (`version`, with
-# buildArg: HERMES_VERSION), so the frontend hands it in and the published
-# descriptor records what was built. The default stays here so a plain
-# `docker build` of this file still works.
-ARG HERMES_VERSION=""
+# No default here any more, and that is the change. It used to default to the
+# empty string, which the RUN read as "resolve upstream's newest stable"; that
+# resolution is gone with it, because a build that picks its own version cannot be
+# the build a pinned provide describes. An empty value now fails the build.
+ARG HERMES_VERSION
 
-# Cache key only -- the RUN below never reads this file. BuildKit re-fetches the
-# URL on every build to compute the layer's digest, and the feed changes on
-# every published release, which is what invalidates the install layer below. A
-# pre-release changes it too, costing one rebuild that still resolves the newest
-# stable tag. The feed is roughly 340 KB and ships in the image. It is
-# root-owned under /tmp's sticky bit (this ADD precedes the USER switch below),
-# so an `rm` of it as agent would fail the RUN, and a later-layer delete would
-# only add a whiteout on top of this layer.
-ADD --chmod=644 https://github.com/NousResearch/hermes-agent/releases.atom /tmp/hermes-releases.atom
+# REMOVED WITH THE PIN: an `ADD` of
+# https://github.com/NousResearch/hermes-agent/releases.atom to
+# /tmp/hermes-releases.atom. Nothing read the file -- it was a cache key, there so
+# that BuildKit's re-fetch of the feed would invalidate the install layer whenever
+# upstream published, keeping a floating install fresh. A pinned install wants the
+# opposite: the layer's cache key is now the pin itself (the RUN below expands
+# HERMES_VERSION), so a re-run on someone else's release would reinstall the same
+# tag for nothing, and bumping the arg invalidates the layer on its own. It also
+# took a root-owned 340 KB copy of the feed into the published image, which no
+# sandbox had a use for.
 
 USER agent
 WORKDIR /home/agent
 
-# The tag comes from github.com's own /releases/latest redirect, not from the
-# releases API: unauthenticated api.github.com quota is counted per source IP
-# and hosted CI runners share egress addresses, so the API intermittently
-# rate-limits the fetch mid-build, and BuildKit's URL fetch carries no token to
-# lift that limit. The redirect resolves the newest release, skipping drafts and
-# pre-releases.
+# HOW THE PIN REACHES THE INSTALLER: as the git tag. `v` + the arg is the tag
+# name, which is fetched from raw.githubusercontent.com to get that release's own
+# copy of the installer and then handed to it as `--branch`, so install.sh clones
+# and checks out exactly that release. A value naming no tag fails the fetch of
+# the install script rather than falling through to a default.
+#
+# What used to stand here instead: when HERMES_VERSION was empty the build
+# resolved the newest release itself, from github.com's own /releases/latest
+# redirect (deliberately not the releases API, whose unauthenticated quota is
+# counted per source IP and intermittently rate-limits hosted CI mid-build). That
+# resolution is gone -- it is now how a human bumps the arg's default, recorded in
+# hermes-agent.yaml, rather than something the build does behind the pin.
 #
 # scripts/install.sh, not `pip install hermes-agent`: PyPI trails the git
 # tags by weeks, too stale for a nightly-rebuilt image. Fetched from the
-# resolved tag (not main) so the installer and the code it installs match.
+# pinned tag (not main) so the installer and the code it installs match.
 #
 # --skip-browser/--skip-computer-use drop Playwright and the macOS-only
 # cua-driver fetch -- neither is part of this kit's supported surface.
@@ -57,23 +65,41 @@ WORKDIR /home/agent
 # so it can't be left to upstream's lazy-install-at-runtime path.
 #
 # `hermes --version` is the build-time gate: a broken release fails the
-# build instead of shipping a non-starting agent.
+# build instead of shipping a non-starting agent. It is also the pin's check now,
+# and the field it compares needs saying, because Hermes reports two numbers.
+# Its first line is
+#
+#     Hermes Agent v<package version> (<release date>)
+#
+# optionally followed by `· upstream <sha>` for a git install, which this is. The
+# package version (0.21.3 at the tag pinned here) is `hermes_cli.__version__` and
+# no installer input selects it; the parenthesised release date is
+# `__release_date__`, which upstream stamps with the release's own tag minus the
+# `v` -- the identity this kit asked for. So the pin is matched against
+# `(<version>)`, parentheses included, which keeps it anchored to that field
+# rather than matching the digits anywhere in the line.
+#
+# The descriptor publishes `hermes-agent@${HERMES_VERSION}`, so a checkout whose
+# own stamp disagrees with the tag it came from fails the build instead of
+# publishing a provide that lies about its content -- the one failure mode worse
+# than floating. If a future release ever stamps something other than its tag,
+# this is where that shows up, and the honest fix is to look rather than to
+# loosen the comparison.
 RUN set -eu; \
-    tag="${HERMES_VERSION}"; \
-    if [ -z "$tag" ]; then \
-        tag="$(curl -fsSI -o /dev/null -w '%{redirect_url}' https://github.com/NousResearch/hermes-agent/releases/latest | sed -n 's#.*/releases/tag/##p')"; \
-    fi; \
-    if [ -z "$tag" ]; then \
-        echo "Failed to resolve a hermes-agent release tag: HERMES_VERSION is empty and the request to github.com/NousResearch/hermes-agent/releases/latest failed or did not redirect to a release tag (curl's own error, if any, is printed above). Pass --build-arg HERMES_VERSION=<tag>." >&2; \
-        exit 1; \
-    fi; \
+    [ -n "${HERMES_VERSION}" ] || { echo "HERMES_VERSION must be set" >&2; exit 1; }; \
+    tag="v${HERMES_VERSION}"; \
     curl -fsSL "https://raw.githubusercontent.com/NousResearch/hermes-agent/${tag}/scripts/install.sh" -o /tmp/hermes-install.sh; \
     chmod +x /tmp/hermes-install.sh; \
     /tmp/hermes-install.sh --branch "$tag" --skip-setup --skip-browser --skip-computer-use --non-interactive; \
     rm -f /tmp/hermes-install.sh; \
     "$HOME/.hermes/bin/uv" pip install --python "$HOME/.hermes/hermes-agent/venv/bin/python" \
         -e "$HOME/.hermes/hermes-agent[anthropic]"; \
-    "$HOME/.local/bin/hermes" --version
+    reported="$("$HOME/.local/bin/hermes" --version | head -1)"; \
+    echo "hermes --version: $reported"; \
+    case "$reported" in \
+      *"(${HERMES_VERSION})"*) ;; \
+      *) echo "pin mismatch: descriptor says ${HERMES_VERSION}, hermes reports '$reported'" >&2; exit 1 ;; \
+    esac
 
 # Everything outside the `all` + `anthropic` extras baked above -- other
 # providers, gateways, TTS/STT, search backends, memory providers -- is a

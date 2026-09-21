@@ -4,10 +4,11 @@
 # layers are the root filesystem, so there is no separate published base image
 # and no sandbox.image pointing at one.
 #
-# The build reaches `cli.devin.ai` (install.sh) and `static.devin.ai` (the
-# manifest and the versioned bundle the script fetches). Both are also covered
-# by the kit's runtime allow list, because `devin update` re-runs the same
-# download.
+# The build reaches `static.devin.ai` alone now that the install is pinned --
+# the versioned setup script, the versioned manifest and the bundle all live
+# there. It used to reach `cli.devin.ai` too, for the unpinned top-level
+# install.sh. Both hosts stay covered by the kit's runtime allow list (which
+# scopes to `*.devin.ai`), because `devin update` re-runs the same download.
 #
 # One image, no flavour suffix: the kit is its own content, so the
 # Docker-in-Docker detail never reaches the user.
@@ -21,17 +22,20 @@ FROM ${BASE_IMAGE}
 # would expand to an empty string.
 ARG BASE_IMAGE
 
-# No version build arg, unlike the sibling kits whose installers document one.
-# Cognition's install script takes its target from a manifest it fetches
-# itself, and its `PINNED_VERSION` is a literal the script overwrites
-# unconditionally, not an environment variable a caller can set -- so a
-# DEVIN_VERSION arg would be silently ignored, reading as a pin while pinning
-# nothing. That is also why the descriptor declares no `args` and publishes an
-# unversioned provide under its own `version:` fallback. Cognition publishes
-# per-version setup scripts (`<base>/cli/<version>/setup.sh`); wiring one in
-# here is the supported way to pin, if a release needs it. Pin the whole image
-# by digest instead, or re-point BASE_IMAGE and install a chosen release by
-# hand in the meantime.
+# Supplied by the descriptor's `version` arg, which owns the default and the
+# accepted shape. No default here on purpose: an unset value must fail the
+# build rather than quietly fall back to whatever "current" means today,
+# because the descriptor expands this same value into a versioned provide.
+#
+# Cognition's installer reads no version from its environment or its argv --
+# the top-level script carries a bare `PINNED_VERSION=""` literal, so a
+# DEVIN_VERSION passed *to* it would be ignored and read as a pin while
+# pinning nothing. The pin is expressed by WHICH script is fetched instead:
+# the per-version setup scripts the installer's own comment documents
+# (`e.g. cli/2026.3.5-1/setup.sh`) are the same script with PINNED_VERSION
+# filled in, and that value redirects the manifest lookup from
+# .../current/manifest.json to .../<version>/manifest.json.
+ARG DEVIN_VERSION
 
 # Runs as the base image's default user (`agent`, uid 1000), which matters:
 # install.sh is a per-user installer with no --prefix, so everything below
@@ -39,25 +43,41 @@ ARG BASE_IMAGE
 RUN <<EOF
 set -eux
 
-# `|| true` is not laziness. install.sh ends by running `devin setup`, an
+test -n "${DEVIN_VERSION}" || { echo "DEVIN_VERSION is empty; pass the kit's version arg" >&2; exit 1; }
+
+# `|| true` is not laziness. setup.sh ends by running `devin setup`, an
 # interactive wizard that cannot complete without a TTY and exits non-zero
 # ("Login canceled"). Because that is the script's last command it is also the
 # script's exit status, so a clean install reports failure here.
 #
-# The download is also unauthenticated and unpinned: this build sends no
-# credential, and while install.sh does verify the bundle against a sha256
-# from the manifest, both come from the same vendor origin -- and the script
-# itself is verified by nothing. What arrives is whatever that host serves
-# at build time. And `curl | bash` exits 0 whenever curl dies after
-# producing some output, so a truncated response is indistinguishable from
-# success at this line. That is the other reason the outcome is asserted below
-# rather than inferred from a status.
-curl -fsSL https://cli.devin.ai/install.sh | bash || true
+# The versioned script, not the top-level https://cli.devin.ai/install.sh: the
+# two are byte-identical apart from `PINNED_VERSION`, which the top-level one
+# leaves empty so the manifest lookup lands on `current/`. Fetching this path
+# is what makes the install pinned. Note the host is static.devin.ai, the
+# installer's own BASE_URL -- cli.devin.ai serves only the top-level script and
+# 301s a versioned path to the docs site.
+#
+# The download is still unauthenticated: this build sends no credential, and
+# while the script verifies the bundle against a sha256 from the manifest, both
+# come from the same vendor origin -- and the script itself is verified by
+# nothing. What the pin buys is that the *same* release arrives on every
+# rebuild, not that the origin is trusted. And `curl | bash` exits 0 whenever
+# curl dies after producing some output, so a truncated response is
+# indistinguishable from success at this line. That is the other reason the
+# outcome is asserted below rather than inferred from a status.
+curl -fsSL "https://static.devin.ai/cli/${DEVIN_VERSION}/setup.sh" | bash || true
 
 # ...so assert the outcome instead of trusting the status that was just
 # discarded. A genuine download, checksum or unpack failure still fails the
 # build here, which is the only thing that makes the `|| true` above safe.
+#
+# `grep -Fw` rather than a bare run, because the descriptor publishes
+# `devin@${DEVIN_VERSION}` as a provide: a pin that silently installed some
+# other release would make that claim false, and this is the line that stops
+# it. -F because a version is dots, not a regexp; -w so a declared 3000.10.3
+# cannot be satisfied by an installed 3000.10.31.
 devin --version
+devin --version | grep -Fw "${DEVIN_VERSION}"
 
 # The installer's `devin` is the only one on PATH, and the auth wrapper has to
 # take that name for the image's ENTRYPOINT to stay `[devin, ...]`. Expose the

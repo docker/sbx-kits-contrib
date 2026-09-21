@@ -38,7 +38,7 @@ two credential services (`github` and `copilot`) instead of one.
 ## Usage
 
 ```console
-sbx run --kit "docker.io/sbx/copilot-kit:latest" copilot
+sbx run --kit "docker.io/docker/sbx-kit-copilot:latest" copilot
 ```
 
 Or from a git URL targeting this repo:
@@ -143,7 +143,7 @@ carries a Docker engine and requests Docker-in-Docker.
 
 There is one artifact rather than two. Under v2 this kit named a separately
 published `docker.io/sbx/copilot-image` in `sandbox.image` and the kit itself
-shipped as `docker.io/sbx/copilot-kit`; a v3 kit is one OCI image carrying both
+shipped as `docker.io/docker/sbx-kit-copilot`; a v3 kit is one OCI image carrying both
 the declarations (in a manifest annotation) and the content (in its layers), so
 the published kit *is* the image the sandbox boots. The name is derived from the
 kit directory and enforced repo-wide — see
@@ -167,7 +167,7 @@ parts are below.
 ### Building locally
 
 ```console
-docker build -f copilot/copilot.dockerfile -t docker.io/sbx/copilot:latest copilot
+docker build -f copilot/copilot.dockerfile -t docker.io/docker/sbx-kit-copilot:latest copilot
 ```
 
 That builds the content alone. To build the kit — content plus the validated,
@@ -176,7 +176,7 @@ expanded descriptor in its manifest annotation — build
 `# syntax=docker/sandbox-kit:3` line dispatches to the kit frontend:
 
 ```console
-docker build -f copilot/copilot.yaml -t docker.io/sbx/copilot:latest copilot
+docker build -f copilot/copilot.yaml -t docker.io/docker/sbx-kit-copilot:latest copilot
 ```
 
 `BASE_IMAGE` is a build arg, so the base can be re-pointed or digest-pinned

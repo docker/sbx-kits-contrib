@@ -22,33 +22,76 @@ ARG BASE_IMAGE
 
 # Cursor Agent has no interactive-auth wrapper to install (unlike kiro's
 # device-flow launcher) — the sandbox proxy resolves the `cursor` credential
-# the descriptor declares and injects it per request. So this is just the
-# upstream install script, verbatim from https://cursor.com/cli.
+# the descriptor declares and injects it per request. So all this layer has to
+# do is put the agent on disk.
 #
 # It installs into /home/agent/.local/bin/cursor-agent. That path is what the
 # ENTRYPOINT below names, in full: the directory is on this image's PATH, but
 # the runtime owns PATH and the entrypoint is exec'd rather than run through a
 # login shell, so the kit does not rely on the lookup succeeding.
 #
-# The install floats: no version pin here (and cursor-agent self-updates),
-# which is why the descriptor's `provides: ["cursor"]` is unversioned and leans
-# on its `version:` fallback.
+# WHY THIS NO LONGER PIPES https://cursor.com/install INTO BASH. The kit's
+# `version` arg pins the release, and that installer cannot be pinned: it
+# takes no version argument and no version environment variable, and the
+# endpoint ignores query parameters — `?version=` and `?v=` both return the
+# current script unchanged. The release identifier is baked into the script
+# body when the vendor generates it. Piping it while the descriptor published
+# `cursor@${{ kit.args.version }}` would assert a version the content need not
+# have, which is worse than floating.
 #
-# Two departures from the vendor's published one-liner, both about failing
-# closed rather than open:
+# So the layer does what the script does, with the version as a parameter. The
+# script is short and its install step is entirely mechanical — the whole of it
+# is reproduced here:
+#
+#   1. map uname to the vendor's arch spelling (x86_64 -> x64, aarch64 ->
+#      arm64). TARGETARCH is the build's own answer to the same question, and
+#      is what makes a cross-build fetch the right tarball rather than the
+#      builder's.
+#   2. fetch https://downloads.cursor.com/lab/<version>/<os>/<arch>/agent-cli-package.tar.gz
+#      and untar it with --strip-components=1 into
+#      ~/.local/share/cursor-agent/versions/<version>/. (The script extracts to
+#      a .tmp- directory and renames, for atomicity against a half-written
+#      install in a real home directory. A build layer is atomic already:
+#      either the RUN succeeds and the layer exists, or it does not.)
+#   3. symlink both names the script creates — `agent`, the primary, and
+#      `cursor-agent`, which it labels legacy and which this kit's ENTRYPOINT
+#      names — into ~/.local/bin.
+#
+# Two departures from the vendor's one-liner survive the change, both about
+# failing closed rather than open:
 #
 #   - `-L`. `-f` does not treat a 3xx as an error, so without `-L` a redirect
-#     would pipe an empty body into bash, bash would exit 0, and `pipefail`
-#     would see nothing wrong — an image with no agent in it that built
-#     "successfully".
-#   - the `test -x` afterwards. The installer's own failure paths are the other
-#     half of the same problem: a completed install command proves an exit
-#     code, not an installed binary. Nothing else in this repo's local
-#     verification asserts the binary exists, so assert it here.
+#     would leave tar reading an empty body, and `pipefail` is what turns that
+#     into a failed build rather than an image with no agent in it.
+#   - the assertion afterwards. A completed install proves an exit code, not an
+#     installed binary — so the binary is executed, and its reported version is
+#     compared against the pin. `cursor-agent --version` prints the identifier
+#     bare, on one line, which is exactly the string in the URL above: that
+#     round trip is what makes `provides: ["cursor@..."]` a checked claim.
+ARG CURSOR_VERSION
+ARG TARGETARCH
 RUN <<EOF
 set -exo pipefail
-curl -fsSL https://cursor.com/install | bash
+[ -n "${CURSOR_VERSION}" ] || { echo "CURSOR_VERSION must be set" >&2; exit 1; }
+
+case "${TARGETARCH}" in
+  amd64) arch=x64 ;;
+  arm64) arch=arm64 ;;
+  *) echo "unsupported TARGETARCH: ${TARGETARCH}" >&2; exit 1 ;;
+esac
+
+dir="/home/agent/.local/share/cursor-agent/versions/${CURSOR_VERSION}"
+mkdir -p "$dir" /home/agent/.local/bin
+curl -fsSL "https://downloads.cursor.com/lab/${CURSOR_VERSION}/linux/$arch/agent-cli-package.tar.gz" \
+  | tar --strip-components=1 -xzf - -C "$dir"
+
+ln -sfn "$dir/cursor-agent" /home/agent/.local/bin/agent
+ln -sfn "$dir/cursor-agent" /home/agent/.local/bin/cursor-agent
+
 test -x /home/agent/.local/bin/cursor-agent
+installed=$(/home/agent/.local/bin/cursor-agent --version)
+[ "$installed" = "${CURSOR_VERSION}" ] || {
+  echo "installed cursor-agent $installed != pinned ${CURSOR_VERSION}" >&2; exit 1; }
 EOF
 
 # Inherited from the base image, but re-declared deliberately so the value is

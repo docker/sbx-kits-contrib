@@ -24,40 +24,31 @@ ARG BASE_IMAGE
 # containers; LSPs and MCP servers are commands the user configures and Crush
 # execs them directly. The plain base is correct here.
 
-# Upstream's tagged releases land roughly weekly, sometimes with same-week
-# patch releases (v0.91.0, v0.91.1, v0.91.2 within four days) -- frequent
-# enough that a rolling `latest`, rebuilt nightly, is the right model rather
-# than a hand-maintained pin. Re-check the cadence before trusting this
-# reasoning to still hold. It is also why the descriptor declares no version
-# arg and an unversioned provide: there is no pin here for one to reference.
-#
-# The feed is not parsed for a version string -- `apt-get install crush`
-# below always resolves whatever Charm's own apt repo currently serves, and
-# Charm publishes the .deb and the GitHub release from the same pipeline, so
-# a new release entry here is a reliable signal that the apt repo has moved
-# too. What the ADD buys is cache invalidation: BuildKit re-fetches the URL
-# on every build to compute its digest, so this layer -- and every RUN after
-# it -- re-runs whenever the feed's content has changed since the last build.
-# That happens on every tagged release, and at least once a day regardless:
-# upstream also re-cuts a rolling `nightly` pre-release entry every night, so
-# the digest moves daily even between stable releases. A same-day cache hit
-# is still possible, but the scheduled nightly publish always builds without
-# cache anyway, and the cost of a same-day miss is only one redundant apt
-# install.
-#
-# The feed is served by github.com, not the API: it sits outside the per-IP
-# unauthenticated quota hosted CI runners share on api.github.com, and
-# BuildKit's URL fetch carries no token to lift that limit anyway. The feed
-# is roughly 150 KB and ships in the image -- it lands before the apt install
-# layers, so a later-layer delete would only add a whiteout on top of its own
-# layer.
-ADD --chmod=644 https://github.com/charmbracelet/crush/releases.atom /tmp/crush-releases.atom
+# The pin, handed in by the frontend from the descriptor's `version` arg
+# (buildArg: CRUSH_VERSION). The default is repeated here so a plain
+# `docker build` of this file still works; the descriptor is the authority
+# and the two move together. See crush.yaml for how the value is read out of
+# Charm's package index and what makes an apt pin durable here.
+ARG CRUSH_VERSION=0.95.0
 
 # GPG key, apt repository, and install run once here at image-build time,
 # where they have ordinary internet access. repo.charm.sh (the apt index and
 # GPG key) and the Gemfury-fronted S3 bucket its index redirects package
 # downloads to are both build-time-only: neither is a credential inject
 # domain, so neither belongs in the kit's runtime allow list.
+#
+# `crush=${CRUSH_VERSION}` rather than `crush`: an exact apt selector, which
+# fails the build outright when the index cannot serve that version instead of
+# quietly installing a different one. That failure mode is the point -- the
+# descriptor publishes `crush@${CRUSH_VERSION}`, so an install that silently
+# slid to another release would make the published provide false.
+#
+# The apt index used to be fetched here as a GitHub releases.atom `ADD`, purely
+# so BuildKit's daily digest check would bust the cache and pull whatever was
+# newest. A pinned install wants the opposite: the cache key is now the pin
+# itself, so a rebuild that changes nothing installs the same release, and the
+# feed fetch (150 KB, shipped in the image) is gone with the floating install
+# it served.
 USER root
 RUN set -euo pipefail; \
     mkdir -p /etc/apt/keyrings; \
@@ -65,14 +56,22 @@ RUN set -euo pipefail; \
     echo 'deb [signed-by=/etc/apt/keyrings/charm.gpg] https://repo.charm.sh/apt/ * *' \
       > /etc/apt/sources.list.d/charm.list; \
     apt-get update -qq; \
-    apt-get install -y -qq crush; \
+    apt-get install -y -qq "crush=${CRUSH_VERSION}"; \
     rm -rf /var/lib/apt/lists/*
 
-# `crush --version` is the build-time gate: it actually runs the installed
-# binary, so a release apt cannot install, or whose binary fails to start,
-# fails the build -- and so the nightly publish -- instead of shipping a
-# non-starting agent.
-RUN crush --version
+# The build-time gate, and the check that keeps the descriptor honest: it runs
+# the installed binary, so a release apt cannot install or whose binary fails
+# to start fails the build instead of shipping a non-starting agent -- and it
+# compares what the binary reports against the pin, so a Charm package whose
+# contents disagree with its package version fails here rather than publishing
+# `crush@${CRUSH_VERSION}` over content that is not that release.
+RUN set -eu; \
+    reported="$(crush --version)"; \
+    echo "crush --version: ${reported}"; \
+    case "${reported}" in \
+      *"${CRUSH_VERSION}"*) ;; \
+      *) echo "pin mismatch: descriptor says ${CRUSH_VERSION}, binary reports '${reported}'" >&2; exit 1 ;; \
+    esac
 
 # Crush is a single statically-linked Go binary -- `go install
 # github.com/charmbracelet/crush@latest` is one of upstream's own install

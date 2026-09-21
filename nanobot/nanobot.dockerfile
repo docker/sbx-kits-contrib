@@ -19,10 +19,11 @@ ARG BASE_IMAGE
 # (checked against upstream's pyproject.toml) has no Docker dependency, and
 # neither the kit's config nor its entrypoint touches a container engine.
 
-# BuildKit re-fetches this URL on every build to compute its digest, so
-# this layer is a cache hit until PyPI ships a new nanobot-ai release, and
-# re-runs -- picking up the new version -- exactly when it has.
-ADD --chmod=644 https://pypi.org/pypi/nanobot-ai/json /tmp/nanobot-release.json
+# The pin, handed in by the frontend from the descriptor's `version` arg
+# (buildArg: NANOBOT_VERSION). The default is repeated here so a plain
+# `docker build` of this file still works; nanobot.yaml is the authority and
+# carries the PyPI query that establishes the value.
+ARG NANOBOT_VERSION=0.3.5
 
 USER agent
 WORKDIR /home/agent
@@ -31,17 +32,29 @@ WORKDIR /home/agent
 # template's Python is externally managed (PEP 668); uv builds its own
 # isolated venv instead of touching system site-packages.
 #
-# The version is read out of the JSON ADDed above, not re-resolved at RUN
-# time, so it's a pure function of that layer -- pinning both arches to the
-# same release. `nanobot --version` is the build-time gate: a broken
-# release fails the build.
+# This used to `ADD https://pypi.org/pypi/nanobot-ai/json` and read
+# `info.version` out of it at RUN time, so every build installed whatever PyPI
+# currently called newest -- both arches got the same release, but which
+# release was whatever the day decided, and the descriptor had no honest
+# version to publish. The `==${NANOBOT_VERSION}` selector replaces that: uv
+# fails outright when PyPI cannot serve the pinned release rather than sliding
+# to a neighbour, and the ADD is gone with the floating read it fed.
 #
-# /tmp/nanobot-release.json is left in place: it's root-owned from the ADD
-# (this RUN runs as agent, so it couldn't unlink it anyway).
+# The second RUN is the build-time gate and the check that keeps the descriptor
+# honest: it runs the installed entry point, so a broken release fails the
+# build, and it compares what nanobot reports against the pin, so a package
+# whose contents disagree with its PyPI version fails here rather than
+# publishing `nanobot@${NANOBOT_VERSION}` over content that is not that
+# release.
 RUN set -eu; \
-    version="$(python3 -c 'import json; print(json.load(open("/tmp/nanobot-release.json"))["info"]["version"])')"; \
-    uv tool install "nanobot-ai==${version}"; \
-    nanobot --version
+    uv tool install "nanobot-ai==${NANOBOT_VERSION}"
+RUN set -eu; \
+    reported="$(nanobot --version)"; \
+    echo "nanobot --version: ${reported}"; \
+    case "${reported}" in \
+      *"${NANOBOT_VERSION}"*) ;; \
+      *) echo "pin mismatch: descriptor says ${NANOBOT_VERSION}, nanobot reports '${reported}'" >&2; exit 1 ;; \
+    esac
 
 # MIGRATION NOTE: v2 shipped this config as kit content under `files/home/`,
 # which the v2 artifact loader staged into the sandbox at create -- which is

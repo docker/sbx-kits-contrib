@@ -16,15 +16,62 @@ description: >-
 
 kind: mixin
 
-# The KIT's version, not Droid's, and the fallback version for the
-# unversioned provide below: the installer takes no pin, so there is no droid
-# release this kit could honestly name. Tracks ../droid.
-version: "1.0.0"
+# Droid's version, by reference: the `version` arg below, expanded at publish,
+# which SPEC-v3 §4 admits here. The kit states no release number of its own, so
+# tracking ../droid is one value to keep in step rather than two — the arg
+# drives the download, the provide and the published version together. See the
+# note on the arg for why the pin exists at all.
+version: "${{ kit.args.version }}"
+
+# The same pin as the workload, and it must STAY the same: the two shapes
+# provide one name, so a `requires: ["droid >= X"]` that resolved against one
+# must see the same release in the other. Nothing enforces it across kit
+# directories — bump both together.
+#
+# HOW THE DEFAULT WAS ESTABLISHED, and how to bump it: Factory's installer
+# names its own target. `curl -fsSL https://app.factory.ai/cli` is a 151-line
+# shell script whose only statement of intent is the literal assignment
+#
+#     VER="0.223.0"
+#
+# so reading that line is how you learn what the floating install would have
+# fetched, and re-reading it is how you bump this. 0.223.0 at the time of
+# writing.
+#
+# HOW THE PIN REACHES THE INSTALL, and why the overlay no longer pipes the
+# installer to a shell. The script accepts no version: `VER` is a plain
+# assignment rather than a `${VER:-…}` default, and it never reads `$@` or the
+# environment — so passing one would read as a pin while pinning nothing. What
+# it does expose is a versioned artifact layout, in its own two URL lines:
+#
+#     URL="$BASE_URL/factory-cli/releases/$VER/$platform/$droid_architecture/$binary_name"
+#     SHA_URL="$BASE_URL/factory-cli/releases/$VER/$platform/$droid_architecture/$binary_name.sha256"
+#
+# Those paths are durable — 0.220.0, 0.222.0 and 0.223.0 all answer 200 today,
+# and each carries its own published `.sha256` — so the overlay fetches the
+# pinned one directly and verifies it against the vendor's own checksum,
+# reproducing what the installer does at a version this kit chooses. It then
+# asserts the installed binary reports this exact release.
+#
+# WHY PINNED: an unversioned provide takes the descriptor's `version:` as its
+# version at resolution, so `provides: ["droid"]` published `droid@1.0.0` —
+# this kit's release number wearing Droid's name, which no `droid >= 0.22`
+# could resolve against.
+#
+# The pattern admits a three-segment release and nothing else, the shape of
+# every path under `factory-cli/releases/`. There is no channel name to admit:
+# `…/releases/latest/…` answers 403, so the vendor publishes no floating alias.
+args:
+  version:
+    default: "0.223.0"
+    pattern: '^[0-9]+\.[0-9]+\.[0-9]+$'
+    description: Droid release to install
+    buildArg: DROID_VERSION
 
 # Same name the workload provides, so a `requires: ["droid"]` resolves against
 # either shape — and so composing this mixin with ../droid is refused rather
 # than silently installing the agent twice (SPEC-v3 §5.3).
-provides: ["droid"]
+provides: ["droid@${{ kit.args.version }}"]
 
 capabilities:
   # The agent's own egress rides with the kit that ships the agent: the base

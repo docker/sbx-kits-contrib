@@ -1,20 +1,34 @@
 # amp
 
 A standalone workload kit (`kind: workload`, `schemaVersion: "3"`) for the
-[Amp](https://ampcode.com/) coding agent. The kit installs Amp into the
-sandbox at creation time with a `lifecycle@1` install hook, wires its API auth
-through the sandbox proxy, and runs `amp --dangerously-allow-all` as the
-entrypoint when you attach.
+[Amp](https://ampcode.com/) coding agent. The kit ships Amp in its layers,
+wires its API auth through the sandbox proxy, and runs
+`amp --dangerously-allow-all` as the entrypoint when you attach.
 
-Its content ([amp.dockerfile](./amp.dockerfile)) is the thinnest a workload
-gets: the `docker/sandbox-templates:shell-docker` template as its base and the
-launch command in the image config, because everything else this kit does it
-does through declarations rather than layers.
+Its content ([amp.dockerfile](./amp.dockerfile)) is the
+`docker/sandbox-templates:shell-docker` template, Amp's own installer run at
+build time, and the launch command in the image config. Everything else this
+kit does it does through declarations rather than layers.
+
+The Amp release is pinned. The descriptor's `version` arg holds it, the recipe
+exports it as `AMP_VERSION` for Amp's installer to read, and the kit publishes
+`provides: ["amp@<version>"]` plus a top-level `version:` from that same arg —
+so the publish tag names the Amp release the image carries. The build then runs
+`amp --version` and fails if the installed binary reports anything else. Amp
+publishes continuously (`0.0.<timestamp>-g<commit>`, a new build most hours), so
+expect the pin to sit behind upstream; past versions stay on the CDN, so it
+keeps building. To bump it, set the arg's default to what Amp's own pointer
+returns:
+
+```console
+curl -fsSL https://static.ampcode.com/cli/cli-version.txt
+```
+
+[`../amp-mixin`](../amp-mixin) installs the same release and must be bumped with
+it.
 
 There is also an [`amp-mixin`](../amp-mixin) variant, for layering Amp onto a
-shell workload instead of running a sandbox of its own. It is
-declaration-only — with the install happening at create time there is no build
-output for an overlay to carry.
+shell workload instead of running a sandbox of its own.
 
 It's also the worked example for
 [Build your own agent kit](https://docs.docker.com/ai/sandboxes/customize/build-an-agent/)
@@ -57,7 +71,7 @@ Run the kit. Pass the kit's name (`amp`) as the agent argument. The primary
 form is its published OCI artifact on Docker Hub:
 
 ```console
-sbx run --kit "docker.io/sbx/amp-kit:latest" amp
+sbx run --kit "docker.io/docker/sbx-kit-amp:latest" amp
 ```
 
 Or from a git URL targeting this repo:
@@ -72,9 +86,11 @@ Or with a local clone of this repo:
 sbx run --kit ./amp/ amp
 ```
 
-The first launch installs Amp via its `curl | bash` script and applies
-the kit's network and proxy auth wiring. Subsequent launches reuse the
-sandbox.
+Amp is already installed in the kit's image — its `curl | bash` script runs
+when the kit is built, not when a sandbox is created — so a launch only
+applies the kit's network and proxy auth wiring. That is also why the kit
+declares no install-phase egress at all: `ampcode.com` and its wildcard are
+granted for the running agent only. Subsequent launches reuse the sandbox.
 
 ## How auth works
 

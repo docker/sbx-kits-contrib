@@ -2,10 +2,10 @@
 # Migration of the v2 `trivy` sandbox kit. This kit shipped no Dockerfile:
 # `sandbox.image` named a published template directly and `setup.install`
 # fetched the scanner at sandbox create. A v3 workload must carry content, so
-# trivy.dockerfile is the minimal recipe that says the same thing — that
-# template, plus v2's sandbox.entrypoint in the image config. The install
-# deliberately stays a lifecycle hook (see the network policy below).
-# Deltas are marked MIGRATION NOTE inline.
+# trivy.dockerfile states that template, carries v2's sandbox.entrypoint in
+# the image config, and performs the pinned, digest-verified install itself —
+# which is what lets this kit declare no install phase at all (see the
+# network policy below). Deltas are marked MIGRATION NOTE inline.
 schemaVersion: "3"
 displayName: Trivy
 description: >-
@@ -16,11 +16,12 @@ sourceUrl: https://github.com/aquasecurity/trivy
 kind: workload
 
 # MIGRATION NOTE: the version is stated literally rather than through an arg.
-# The recipe pins nothing — the install hook does, and it pins by version
-# *and* per-arch SHA256, so a version an installer supplied would fail the
-# digest check rather than install that release. Bumping is therefore the
-# three-place edit the README documents: the hook's TRIVY_VERSION, both
-# SHA256s, and this entry, together.
+# The recipe pins by version *and* per-arch SHA256, so a version an arg
+# supplied would fail the digest check rather than install that release.
+# Bumping is therefore the three-place edit the README documents: the recipe's
+# TRIVY_VERSION, both SHA256s, and this entry, together. (The pin moved from
+# the install hook into the recipe with the install itself; the values are
+# unchanged.)
 provides: ["trivy@0.70.0"]
 
 capabilities:
@@ -29,25 +30,24 @@ capabilities:
   # declares.
   - type: com.docker.sandbox/sbx@1
 
-  # MIGRATION NOTE: v2's single flat allow list splits cleanly here, and this
-  # kit is the one in this group where the split does real work — its v2
-  # comments already sorted the hosts by who reaches them. The three release
-  # hosts are reached once, by the install hook below, and a conforming
-  # runtime closes that grant before the entrypoint starts; the running
-  # scanner keeps only what its database pull needs. The union is the v2 list
-  # exactly, with every host now reachable from strictly fewer places.
+  # MIGRATION NOTE: v2's single flat allow list is phase-scoped in v3, and
+  # v2's three release hosts — github.com, objects.githubusercontent.com and
+  # release-assets.githubusercontent.com — are gone from it entirely.
+  #
+  # The first v3 cut kept them in an `install:` phase, on the reasoning that a
+  # create-time install is what gives the phase split something to do: the
+  # download hosts open for the length of one hook and a conforming runtime
+  # closes them before the shell starts. Moving the install into
+  # trivy.dockerfile is better on that same axis rather than a retreat from
+  # it. The tarball is fetched by the builder now, so those hosts are not in
+  # this policy in any phase, and a sandbox created from this kit cannot reach
+  # github.com even for the length of a hook. What the sandbox gets is what
+  # remains below: the vulnerability-database pull, and nothing else.
+  #
+  # ../trivy-mixin already carried exactly this policy, for exactly this
+  # reason.
   - type: com.docker.sandbox/network-policy@1
     config:
-      install:
-        allow:
-          # Release tarball download (install time, one-shot).
-          # github.com 302-redirects to objects.githubusercontent.com for
-          # binary downloads (confirmed by hand); release-assets.
-          # githubusercontent.com kept alongside it since that isn't
-          # guaranteed to be the same host for every repo/asset.
-          - github.com
-          - objects.githubusercontent.com
-          - release-assets.githubusercontent.com
       runtime:
         allow:
           # Vulnerability DB pull at runtime. Trivy's default chain is
@@ -59,50 +59,15 @@ capabilities:
           - ghcr.io
           - pkg-containers.githubusercontent.com
 
-  - type: com.docker.sandbox/lifecycle@1
-    config:
-      install:
-        # Install Trivy from a pinned, digest-verified GitHub release.
-        # Why not the official `install.sh`: that pattern (curl|sh) is exactly
-        # what TeamPCP weaponized in March 2026 against tag-rewriteable
-        # references. We pin a known-good release by version AND SHA256, in
-        # the kit, in git. To bump: change TRIVY_VERSION, the per-arch SHA256
-        # below (sourced from the release's checksums.txt), and the `provides`
-        # entry above.
-        #
-        # MIGRATION NOTE: this stays an install hook rather than moving into
-        # the recipe. Keeping it here is what makes the phase split above
-        # meaningful — the three GitHub release hosts are open for exactly as
-        # long as this command runs and are unreachable from the running
-        # scanner. It declares no `env:`: every variable it reads it assigns
-        # itself, and `dpkg --print-architecture` needs nothing from the
-        # environment beyond the platform baseline.
-        - command: |
-            set -euo pipefail
-            TRIVY_VERSION=0.70.0
-            ARCH=$(dpkg --print-architecture)
-            case "$ARCH" in
-              amd64)
-                TARBALL="trivy_${TRIVY_VERSION}_Linux-64bit.tar.gz"
-                SHA256="8b4376d5d6befe5c24d503f10ff136d9e0c49f9127a4279fd110b727929a5aa9"
-                ;;
-              arm64)
-                TARBALL="trivy_${TRIVY_VERSION}_Linux-ARM64.tar.gz"
-                SHA256="2f6bb988b553a1bbac6bdd1ce890f5e412439564e17522b88a4541b4f364fc8d"
-                ;;
-              *)
-                echo "unsupported sandbox arch: $ARCH (expected amd64 or arm64)" >&2
-                exit 1
-                ;;
-            esac
-            URL="https://github.com/aquasecurity/trivy/releases/download/v${TRIVY_VERSION}/${TARBALL}"
-            curl --proto '=https' --tlsv1.2 -fsSL -o /tmp/trivy.tgz "$URL"
-            echo "${SHA256}  /tmp/trivy.tgz" | sha256sum -c -
-            tar -C /usr/local/bin -xzf /tmp/trivy.tgz trivy
-            rm /tmp/trivy.tgz
-            trivy --version
-          user: "0"
-          description: Install Trivy CLI v0.70.0, version+digest pinned
+  # MIGRATION NOTE: no lifecycle entry. v2's one hook — "Install Trivy CLI
+  # v0.70.0, version+digest pinned" — now runs in trivy.dockerfile, as a build
+  # step with the same version, the same two SHA256s and the same verification
+  # order. It reads nothing that exists only at sandbox-create time (the one
+  # thing it did read from the environment, the architecture, is something the
+  # build knows better: TARGETARCH names the platform being built rather than
+  # the one sandbox a hook happened to run in). Nothing else was in the entry,
+  # and a lifecycle entry declaring no hooks, no files and no interactive tail
+  # is invalid, so the entry is dropped rather than left empty.
 
   # v2's agentInstructions declared a filename and no body, so this entry
   # carries the profile name alone and there is no trivy-context.md to

@@ -9,6 +9,11 @@
 # copies the paths it produced into a scratch overlay at exactly the paths they
 # were built for.
 #
+# The same manifest indirection is why no version arg reaches the install line
+# below: install.sh parses only `-d|--dir` and `-h|--help`, so there is no pin
+# for the descriptor's provide to reference. See ../antigravity for the full
+# argument.
+#
 # The copy is the whole of /home/agent/.local rather than just .local/bin:
 # --dir names where the launcher goes, not where the installer stages the
 # bundle it launches, so copying bin alone risks an overlay of launchers with

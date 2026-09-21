@@ -20,7 +20,7 @@ ssh-add ~/.ssh/id_ed25519
 Then start the sandbox with the kit attached, from its published OCI artifact on Docker Hub:
 
 ```console
-sbx run claude --kit "docker.io/sbx/git-ssh-sign-kit:latest" ~/my-project
+sbx run claude --kit "docker.io/docker/sbx-kit-git-ssh-sign:latest" ~/my-project
 ```
 
 Or from a git URL targeting this repo:

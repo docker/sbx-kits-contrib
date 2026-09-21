@@ -23,26 +23,48 @@ description: >-
   sandbox proxy, the session-state volumes, and the hooks the agent needs.
   Layer it onto a shell base and run `claude`.
 
-# The KIT's version, not Claude Code's — see the workload's descriptor. It is
-# also the fallback version for the unversioned `provides` below.
-version: "1.0.0"
+# Claude Code's version, by reference — the `version` arg below, expanded at
+# publish, which SPEC-v3 §4 admits here. The workload's descriptor carries the
+# long form of why; the short form is that the literal that used to sit here was
+# a second version competing with the provide's, and the one an unversioned
+# provide fell back to. Keeping this kit and `claude` in step is now one value
+# to move rather than two.
+version: "${{ kit.args.version }}"
 
-# Same arg as the workload, handed to the same installer as its one positional
-# target: `stable`, `latest`, an exact version, or empty for the installer's own
-# default.
+# Same arg, same default, same installer target as the workload, and that is a
+# requirement rather than a coincidence: this kit and `claude` beside it ship
+# the same software under the same name, so a composition that picked one or the
+# other must get the same Claude Code either way. The two move together — bump
+# one, bump the other.
+#
+# HOW THE DEFAULT WAS DETERMINED, and how to bump it: the installer resolves an
+# omitted target to the `stable` channel, published as a bare version string at
+# `https://downloads.claude.ai/claude-code-releases/stable` — 2.1.267 when this
+# was pinned, so the pin is what the unpinned recipe was already installing.
+# (`.../latest` was 2.1.278 at the same moment, and is deliberately not what
+# this tracks.) Re-read that URL to bump.
 args:
   version:
-    default: ""
-    pattern: '^$|^stable$|^latest$|^[0-9]+\.[0-9]+\.[0-9]+$'
-    description: Claude Code release to install (empty, `stable`, `latest`, or an exact version)
+    default: "2.1.267"
+    # Narrower than the installer's own target grammar: the `stable`/`latest`
+    # channel names are gone because the value is expanded into `provides`
+    # below, and `claude@stable` is not a version; the prerelease tail is
+    # constrained to what SPEC-v3 §5.2 admits in a version segment.
+    pattern: '^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$'
+    description: Claude Code release to install
     buildArg: CLAUDE_CODE_VERSION
 
-# The same name the workload provides, which is what keeps every
-# `requires: ["claude"]` mixin in this family resolvable in either shape. Only
-# one of the two may be composed at a time — a composition carrying both would
-# have two providers of one name, which resolution refuses, and rightly: the
-# workload already carries the agent this kit installs.
-provides: ["claude"]
+# The same name AND the same version the workload provides, which is what keeps
+# every `requires: ["claude"]` mixin in this family resolvable in either shape —
+# including a constrained one like `claude >= 2.1`, which the old unversioned
+# form could not satisfy. Only one of the two may be composed at a time — a
+# composition carrying both would have two providers of one name, which
+# resolution refuses, and rightly: the workload already carries the agent this
+# kit installs.
+#
+# The overlay's build stage asserts the installed binary reports this version
+# before staging it, so the claim is checked rather than asserted.
+provides: ["claude@${{ kit.args.version }}"]
 
 capabilities:
   # The agent's own egress rides with the kit that ships the agent: a shell base

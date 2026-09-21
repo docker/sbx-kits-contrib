@@ -14,14 +14,50 @@ description: >-
 
 kind: mixin
 
-# The fallback version for the unversioned provide below: the upstream
-# installer takes no pin, so there is no grok release this kit could honestly
-# name. Tracks ../grok.
-version: "1.0.0"
+# The Grok release this kit's overlay carries, by reference to the `version`
+# arg below — SPEC-v3 §4 admits a build-phase arg reference here and expands it
+# at publish, so the version is stated in exactly one place and the publish tag
+# names the agent rather than a kit release number of its own.
+version: "${{ kit.args.version }}"
+
+# The Grok release the recipe installs, declared once: validated here, handed to
+# the installer as its version argument, and expanded into `provides` and
+# `version:` — so the kit cannot claim a release its overlay does not carry. The
+# recipe asserts the agreement at build time by asking the installed binary.
+#
+# HOW THE DEFAULT WAS DETERMINED, and how to bump it: with no target given the
+# installer reads its channel pointer, `https://x.ai/cli/<channel>` with
+# GROK_CHANNEL defaulting to `stable`, which serves the current release as a
+# bare version string — 1.0.34 when this was pinned. Re-read
+# `curl -fsSL https://x.ai/cli/stable` to bump.
+#
+# WHY PINNED, and a correction to what this kit used to say here: the claim was
+# that the installer takes no pin. It does — a version is install.sh's first
+# positional argument, documented in its own usage block as
+# `curl -fsSL https://x.ai/cli/install.sh | bash -s 0.1.42`. The float was never
+# forced, and it could not stay either: an unversioned provide takes this
+# descriptor's `version:` as its version at resolution, so `provides: ["grok"]`
+# published `grok@1.0.0` — this kit's release number wearing the agent's name,
+# which a kit writing `requires: ["grok >= 1"]` would refuse to resolve against.
+#
+# THIS MUST STAY EQUAL TO ../grok's `version` default. The two kits run the same
+# installer at the same pin and provide the same name, so a composition that
+# resolved one against the other's requires must see the same release. Nothing
+# enforces it across kit directories — bump both together.
+args:
+  version:
+    default: "1.0.34"
+    # The installer's own target grammar
+    # (`^[0-9]+\.[0-9]+\.[0-9]+(-[A-Za-z0-9._]+)?$`) minus the underscore: a
+    # version segment admits `[0-9A-Za-z-]` under SPEC-v3 §5.2, so every value
+    # this pattern accepts is also a legal provide version.
+    pattern: '^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$'
+    description: Grok release to install
+    buildArg: GROK_VERSION
 
 # Same name the workload provides, so composing this mixin with ../grok is
 # refused rather than installing the agent twice (SPEC-v3 §5.3).
-provides: ["grok"]
+provides: ["grok@${{ kit.args.version }}"]
 
 capabilities:
   # The agent's own egress rides with the kit that ships the agent: the base

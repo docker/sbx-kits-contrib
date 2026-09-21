@@ -20,12 +20,40 @@ description: >-
 
 version: "1.0.0"
 
+# DELIBERATELY UNVERSIONED, and the one kit in this family that stays that way.
+#
+# Its sibling `claude-ollama` publishes `claude-ollama@<Claude Code version>`,
+# because the name is a wrapper whose last line is `exec claude "$@"` and the
+# honest version for such a name is the version of the binary behind it. That
+# kit can say so because it ships that binary: its recipe re-installs Claude
+# Code at the pinned release on top of its template.
+#
+# THIS kit ships no binary at all. Its whole overlay is one file —
+# /etc/profile.d/claude-ollama-env.sh, holding a single
+# `export CLAUDE_OLLAMA_MODEL=...` — and the wrapper itself is a lifecycle
+# `files:` entry the runtime writes, not image content. The `claude` the
+# wrapper execs comes from whatever base the composition supplies, which is
+# exactly what `requires: ["claude"]` below says out loud. So there is no
+# version here to state: a `claude-ollama@2.1.267` on this kit would be a claim
+# about content it does not carry and cannot check, and it would be wrong on
+# every base carrying a different release. That is the failure mode pinning
+# exists to prevent, so the provide stays bare and falls back to the `version:`
+# above at publish.
+#
+# The practical consequence, stated rather than discovered: a
+# `requires: ["claude-ollama >= 2"]` resolves against the workload and not
+# against this kit. A composition that needs a specific Claude Code behind the
+# Ollama wiring should constrain `claude` — the name the base actually
+# provides — rather than this one.
 provides: ["claude-ollama"]
 
 # The wrapper execs `claude`, so a composition without it yields a wrapper with
 # no agent behind it. The workload shape got the binary from its
-# claude-code-docker base; a mixin cannot bring a base, so it states the
-# requirement instead and any claude-carrying kit satisfies it.
+# claude-code-docker base and now re-pins it there; a mixin cannot bring a
+# base, so it states the requirement instead and any claude-carrying kit
+# satisfies it. Left unconstrained on purpose — the wrapper only sets
+# environment variables Claude Code has read for many releases, so narrowing it
+# to the workload's pin would refuse compositions that work.
 #
 # Note what composing this with claude-mixin means for egress: allow-lists union
 # per phase, so the Anthropic hosts that kit declares stay reachable alongside

@@ -36,7 +36,7 @@ Start the sandbox with this kit attached, from its published OCI artifact
 on Docker Hub:
 
 ```console
-sbx run --kit "docker.io/sbx/gitlab-ssh-kit:latest" claude
+sbx run --kit "docker.io/docker/sbx-kit-gitlab-ssh:latest" claude
 ```
 
 Or from a git URL targeting this repo:

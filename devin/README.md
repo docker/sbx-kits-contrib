@@ -35,7 +35,7 @@ sbx secret set devin      # only if you already have a Devin key to paste
 ## Usage
 
 ```console
-sbx run --kit "docker.io/sbx/devin-kit:latest" devin
+sbx run --kit "docker.io/docker/sbx-kit-devin:latest" devin
 ```
 
 Or from a git URL targeting this repo:
@@ -342,11 +342,34 @@ driven by the frontend the descriptor's first line names
 ./scripts/test-kit.sh devin
 ```
 
-`BASE_IMAGE` is the only build arg. There is deliberately no version arg: the
-installer takes its target from a manifest it fetches itself, and its
-`PINNED_VERSION` is a literal the script overwrites unconditionally, not an
-environment variable a caller can set — so an argument the script quietly
-ignored would read as a pin while pinning nothing. Cognition publishes
-per-version setup scripts (`<base>/cli/<version>/setup.sh`); wiring one in
-here is the supported way to pin, if a release needs it. Pin the whole image
-by digest instead in the meantime.
+Two build args: `BASE_IMAGE` and `DEVIN_VERSION`.
+
+`DEVIN_VERSION` is the Devin CLI release to install, declared as the
+descriptor's `version` arg and expanded into the kit's
+`provides: ["devin@<version>"]`, so the kit cannot claim a release it does not
+ship. It has no default in the recipe — an empty value fails the build rather
+than falling back to whatever "current" means today.
+
+The pin is expressed by *which script the recipe fetches*, not by anything
+passed to it. Cognition's installer reads no version from its environment or
+its argv: the top-level script carries a bare `PINNED_VERSION=""` literal, so
+an argument it quietly ignored would read as a pin while pinning nothing. But
+the comment on that very line says the value is "Set by the build system for
+versioned setup scripts (e.g. `cli/2026.3.5-1/setup.sh`)", and those scripts
+are published. `https://static.devin.ai/cli/<version>/setup.sh` is
+byte-for-byte the top-level script with `PINNED_VERSION="<version>"` filled
+in, which redirects its manifest lookup from `current/` to `<version>/`. The
+recipe fetches that path and then asserts the installed binary reports the
+declared release, so a pin that silently installed something else fails the
+build.
+
+To bump it, read the release the unpinned installer would have taken:
+
+```console
+$ curl -fsSL https://static.devin.ai/cli/current/manifest.json | head -c 40
+{"version":"3000.10.31","platforms":{"aa
+```
+
+Note that the build now reaches `static.devin.ai` only. It used to reach
+`cli.devin.ai` as well, for the unpinned top-level `install.sh`; that host
+serves no versioned path (it 301s one to the docs site).

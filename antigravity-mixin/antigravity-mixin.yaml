@@ -15,12 +15,34 @@ description: >-
 
 kind: mixin
 
-# The binary floats: Google's install.sh takes its target from a manifest it
-# fetches itself and exposes no version variable a caller can set, so there is
-# no pin to declare and `version:` is the fallback for the unversioned provide.
+# The KIT's version, and the fallback publishing uses for the unversioned
+# provide below.
 version: "1.0.0"
 
+# DELIBERATELY UNVERSIONED, matching ../antigravity -- the two run the same
+# vendor installer, so neither can pin what the other cannot. In short:
+# install.sh accepts only `-d|--dir` and `-h|--help` and reads no version
+# variable, taking its target from a manifest it fetches itself; that
+# manifest's download URL carries an opaque build id beside the version
+# (`.../antigravity-cli/1.2.7-6731160148115456/...`) so it is not derivable
+# from a version either; and agy self-updates in the background at runtime,
+# which the runtime allow list below deliberately permits. An unversioned
+# provide matches only unconstrained `requires`, which is the honest answer
+# when there is no pin to make. The long form of the argument, and what would
+# change it, is in ../antigravity/antigravity.yaml.
 provides: ["antigravity"]
+
+# Both startup hooks below rewrite JSON with jq under `set -e`, and a startup
+# command that exits non-zero leaves the sandbox unable to start -- so on a
+# base without jq this kit does not degrade, it takes the boot with it. jq is
+# not in §12's floor (bash, sh, curl, git, a CA store, the agent user), which
+# is exactly why it is worth stating.
+#
+# The name is derived rather than authored: publishing a workload reads its
+# dpkg database and states one entry per installed package (SPEC-v3 §9.6), so
+# any Debian-family base provides `deb/jq` by construction. Unversioned --
+# `del`, `*` and `-s` are jq's oldest surface.
+requires: ["deb/jq"]
 
 capabilities:
   # The agent's own egress rides with the kit that ships the agent: the base

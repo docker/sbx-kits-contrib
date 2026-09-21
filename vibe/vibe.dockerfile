@@ -7,8 +7,9 @@
 # v2's environment.variables and sandbox.entrypoint land at the bottom, in
 # the image config that already owns runtime config.
 #
-# The base is a floating tag and Vibe is installed from a `latest` channel,
-# which is why CI also rebuilds on a schedule.
+# The base is a floating tag, which is why CI also rebuilds on a schedule.
+# Vibe itself is not: the kit pins its release (see ARG VIBE_VERSION below),
+# so a scheduled rebuild refreshes the base and leaves the agent where it is.
 ARG BASE_IMAGE=docker/sandbox-templates:shell-docker
 
 # MIGRATION NOTE: the install runs in a build stage, where the v2 recipe had a
@@ -23,11 +24,17 @@ ARG BASE_IMAGE=docker/sandbox-templates:shell-docker
 # single-stage build produced.
 FROM ${BASE_IMAGE} AS build
 
-# PyPI version of mistral-vibe: "latest", or an exact number such as 2.25.0 to
-# pin the image to a known release. Not a kit arg: the descriptor's provide is
-# unversioned precisely because the default floats, and a kit arg would have
-# to pin.
-ARG VIBE_VERSION=latest
+# The kit's `version` arg arriving as a build arg -- vibe.yaml declares it with
+# `buildArg: VIBE_VERSION`, validates its shape, and expands the same value
+# into `provides: ["vibe@..."]`. Deliberately no default here: the descriptor
+# is the single source of the pin, and a second default in this file would be
+# one more thing to keep in sync with it.
+#
+# MIGRATION NOTE: this used to default to the literal `latest`, with the
+# nightly rebuild as the update mechanism. Bumping the descriptor's default is
+# the update mechanism now -- the provide quotes it, so a floating install
+# would make the kit claim a version it might not carry.
+ARG VIBE_VERSION
 
 USER root
 RUN set -ex; \
@@ -47,10 +54,18 @@ RUN set -ex; \
 # interpreter that carries its headers. The version is pinned to 3.14 to match
 # the interpreter the v2 image ran on, so this changes where Python comes from
 # and not which Python it is.
+#
+# The requirement is `mistral-vibe==<version>`, an exact specifier rather than
+# a range: what uv resolves is the release the descriptor promised, which is
+# what makes the provide's version true of the built image. The `latest` branch
+# this line used to carry is gone with the ARG's default.
+#
+# `vibe --version` last, as the build-time gate -- a release that does not run
+# fails the build instead of shipping, and its output is the build log's record
+# of what the pin resolved to.
 USER agent
 RUN set -ex; \
-    if [ "${VIBE_VERSION}" = "latest" ]; then SPEC="mistral-vibe"; else SPEC="mistral-vibe==${VIBE_VERSION}"; fi; \
-    uv tool install --managed-python --python 3.14 "${SPEC}"; \
+    uv tool install --managed-python --python 3.14 "mistral-vibe==${VIBE_VERSION}"; \
     vibe --version
 
 FROM ${BASE_IMAGE}

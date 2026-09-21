@@ -38,7 +38,7 @@ These are the commands the kit is meant to be run with. They do **not** work
 while `docker-agent` is still a built-in agent — see the note at the top.
 
 ```console
-sbx run --kit "docker.io/sbx/docker-agent-kit:latest" docker-agent
+sbx run --kit "docker.io/docker/sbx-kit-docker-agent:latest" docker-agent
 ```
 
 Or from a git URL targeting this repo:
@@ -291,23 +291,51 @@ image. Only the docker-agent-specific parts are below.
 
 Two build args beyond `BASE_IMAGE`:
 
-- `DOCKER_AGENT_VERSION` pins a release tag. It is declared as the
-  descriptor's `version` arg, so a kit install can supply it; a direct build
-  passes `--build-arg DOCKER_AGENT_VERSION=v1.2.3`. Left empty, the build
-  resolves the newest release from github.com's `/releases/latest` redirect.
-  The kit's `provides` stays unversioned regardless, because
-  `DOCKER_AGENT_AUTO_UPDATE` means the agent replaces its own binary at
-  runtime and any build-time version stops being true the first time it does.
+- `DOCKER_AGENT_VERSION` pins the release. It is declared as the descriptor's
+  `version` arg, so a kit install can supply it; a direct build passes
+  `--build-arg DOCKER_AGENT_VERSION=1.2.3`. **It holds a bare version, not the
+  tag** — SPEC-v3 §5.2 versions carry no `v` prefix, and the value is expanded
+  into the kit's `provides`, so the recipe re-adds the `v` the tag needs. This
+  is a change from the v2 spelling, which took `v1.2.3`.
+
+  It has no empty default any more, and the build no longer resolves the
+  newest release from github.com's `/releases/latest` redirect — an empty
+  value fails the build. That redirect is still how the default is
+  established, but a human reads it when bumping the pin rather than the build
+  reading it at build time, so the release the image carries is the release
+  the descriptor names:
+
+  ```console
+  $ curl -fsSI -o /dev/null -w '%{redirect_url}\n' \
+      https://github.com/docker/docker-agent/releases/latest
+  ```
+
+  The kit's `provides` is versioned from it (`docker-agent@1.141.0`), and so
+  is the descriptor's own `version:` — the same arg reference, expanded at
+  publish, so the kit is released as the agent it ships rather than under a
+  number of its own. That is a claim with a caveat worth knowing:
+  `DOCKER_AGENT_AUTO_UPDATE` is on, so the agent can replace its own binary at
+  run time and move past the pin. The pin is still the honest thing to publish
+  — an unversioned provide falls back to the descriptor's `version:`, which
+  used to be a hand-written `1.0.0` and published `docker-agent@1.0.0`, false
+  at every instant rather than only after an update; the provide describes the
+  content at resolution time, which the build asserts; and self-update only
+  moves forward, so it cannot invalidate the lower bounds consumers write.
+  The reasoning is spelled out beside the arg in `docker-agent.yaml`.
 - `TARGETARCH` is supplied by BuildKit and selects the release asset. It is not
   derived from `uname -m`, which would read the builder rather than the target
   and produce an amd64 binary inside an arm64 image under emulation.
 
 > [!NOTE]
-> Pin the tag to avoid depending on the redirect at all. Through the kit,
-> supply the `version` arg; through a direct build of the recipe, pass the
-> build arg it maps to:
+> To build some release other than the pinned default, supply the kit's
+> `version` arg; through a direct build of the recipe, pass the build arg it
+> maps to:
 >
 > ```console
 > $ docker build -f docker-agent/docker-agent.dockerfile \
->     --build-arg DOCKER_AGENT_VERSION=v1.2.3 docker-agent
+>     --build-arg DOCKER_AGENT_VERSION=1.2.3 docker-agent
 > ```
+>
+> Note the missing `v`. A `v`-prefixed value is refused by the arg's pattern,
+> because it would otherwise be expanded into the un-referenceable provide
+> `docker-agent@v1.2.3`.

@@ -36,34 +36,40 @@ ARG BASE_IMAGE
 # same way, and the template already ships /usr/bin/rg. Nothing to add here.
 #
 # Deliberately placed above the ARG PI_VERSION / ADD section below: every layer
-# after that ADD re-runs whenever upstream publishes a release, and this one has
-# nothing to do with which pi version is installed. Kept up here it stays a
-# cache hit across the nightly rebuilds.
+# after that ADD re-runs whenever the pin moves, and this one has nothing to do
+# with which pi version is installed. Kept up here it stays a cache hit across
+# version bumps and the nightly rebuilds.
 USER root
 RUN apt-get update && \
     apt-get install -y --no-install-recommends fd-find && \
     rm -rf /var/lib/apt/lists/* && \
     ln -sf "$(command -v fdfind)" /usr/local/bin/fd
 
-# Rolling updates by design: pi tracks the `latest` dist-tag, and the nightly
-# scheduled run of build-and-publish-kits.yml rebuilds this image against it.
-# The ADD below is what makes that work under CI's layer cache: BuildKit
-# re-downloads the URL on every build to compute its digest, so the install
-# layer re-runs exactly when the fetched packument changes and is a cache hit
-# otherwise. Without it, the unchanging RUN line would hit the gha cache
-# forever and the nightly rebuild would ship a stale binary.
+# The kit's `version` arg arriving as a build arg -- pi.yaml declares it with
+# `buildArg: PI_VERSION`, validates its shape, and expands the same value into
+# `provides: ["pi@..."]`. Deliberately no default here: the descriptor is the
+# single source of the pin, and a second default in this file would be one more
+# thing to keep in sync with it.
 #
-# PI_VERSION is part of the URL, so overriding it reproduces a specific
-# version *and* keeps the cache key stable: a pinned build fetches that
-# version's document, which does not change when upstream publishes something
-# unrelated. It is not a kit arg: the descriptor's provide is unversioned
-# precisely because the default floats, and a kit arg would have to pin.
-ARG PI_VERSION=latest
+# MIGRATION NOTE: this used to default to the literal `latest` dist-tag, with
+# the nightly scheduled run of build-and-publish-kits.yml as the update
+# mechanism. Bumping the descriptor's default is the update mechanism now --
+# the provide quotes it, so a floating install would make the kit claim a
+# version it might not carry.
+ARG PI_VERSION
 
+# PI_VERSION is part of the URL, which is what makes the pin reach the install:
+# the registry answers with that one version's document, and the version read
+# out of it below is what npm is asked for. It also keeps the cache key stable
+# where the `latest` document did not -- a pinned document does not change when
+# upstream publishes something unrelated, so the install layer re-runs when the
+# pin moves and is a cache hit otherwise. A version that does not exist 404s
+# here rather than silently resolving to something else.
+#
 # --chmod=644 because a URL ADD lands 0600 root-owned by default, and the RUN
 # below reads this file as agent.
 USER root
-ADD --chmod=644 https://registry.npmjs.org/@earendil-works%2Fpi-coding-agent/${PI_VERSION} /tmp/pi-latest.json
+ADD --chmod=644 https://registry.npmjs.org/@earendil-works%2Fpi-coding-agent/${PI_VERSION} /tmp/pi-release.json
 # No Node install step: the template already ships Node 22.22.1, which
 # satisfies pi's `engines.node >= 22.19.0`. (openclaw's image has to run
 # `n 22` because openclaw needs a newer minor than the template had at the
@@ -71,14 +77,12 @@ ADD --chmod=644 https://registry.npmjs.org/@earendil-works%2Fpi-coding-agent/${P
 #
 # The version installed is read out of the document ADDed above rather than
 # re-resolved from the registry at RUN time, so what lands in the image is a
-# pure function of that layer's content. Within a single build that pins both
-# architectures together: amd64 and arm64 resolve the same packument layer, so
-# one manifest list cannot mix two releases. Across separate builds it does
-# not -- each buildx invocation re-fetches the URL, so a release published in
-# between changes the digest and the later build installs something the
-# earlier one never saw. What covers that is the `pi --version` gate below: it
-# re-runs inside whichever build cache-misses, so a broken release fails that
-# build rather than being published.
+# pure function of that layer's content -- and since that document is now the
+# pinned version's own, the value read here is PI_VERSION as the registry
+# spells it. Both architectures resolve the same packument layer, so one
+# manifest list cannot mix two releases; and because the URL no longer names a
+# moving dist-tag, two separate builds of the same pin install the same
+# release, which is what the descriptor's provide is claiming.
 #
 # The install runs as agent because the global prefix is agent-owned in the
 # template, so installing as agent gets the ownership `pi update --self` and
@@ -96,11 +100,11 @@ ADD --chmod=644 https://registry.npmjs.org/@earendil-works%2Fpi-coding-agent/${P
 # upstream ships a release this image's Node cannot run, or one whose bin
 # exists but whose entry module throws.
 #
-# /tmp/pi-latest.json is deliberately not removed: it lives in the ADD's own
+# /tmp/pi-release.json is deliberately not removed: it lives in the ADD's own
 # layer, so deleting it here would only add a whiteout on top of the ~5 KB
 # that ships either way.
 USER agent
-RUN version="$(node -p 'require("/tmp/pi-latest.json").version')" && \
+RUN version="$(node -p 'require("/tmp/pi-release.json").version')" && \
     npm install -g "@earendil-works/pi-coding-agent@${version}" && \
     pi --version
 

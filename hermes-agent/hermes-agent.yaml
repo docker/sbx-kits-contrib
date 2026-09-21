@@ -13,27 +13,64 @@ description: >-
 
 kind: workload
 
-# MIGRATION NOTE: v2 declared no `version:`. One is added because v3 refuses a
-# published provide with no version at all (SPEC-v3 §9.2), and the install
-# genuinely floats — the recipe's HERMES_VERSION defaults to empty, which
-# resolves upstream's newest stable release at build time, and the nightly
-# rebuild keeps it rolling. So there is no hermes release this kit could
-# honestly name in the provide; this is the kit's own release number
-# answering for the artifact.
-version: "1.0.0"
+# MIGRATION NOTE: v2 declared no `version:`. What stands here now is the
+# hermes-agent release this kit installs, by reference to the `version` arg
+# below — SPEC-v3 §4 admits a build-phase arg reference in this field and expands
+# it at publish. So the kit states its version in exactly one place, and its
+# publish tag and `org.opencontainers.image.version` name the agent release the
+# image carries rather than a kit release number of their own.
+version: "${{ kit.args.version }}"
 
-# The pin the recipe already accepted, declared so an installer can supply it
-# and so the published descriptor records what was built. Empty is the real
-# default and the rolling behavior v2 shipped; a release tag pins it. It is
-# deliberately NOT referenced from `provides` — a floating default cannot
-# stand behind a version claim.
+# The hermes-agent release the recipe installs, declared once: validated here,
+# handed to the recipe as the git tag it checks out, and expanded into `provides`
+# and `version:` — so the kit cannot claim a release it does not carry. The recipe
+# asserts the agreement at build time by asking the installed CLI.
+#
+# The arg is not new; what is new is that it has a real default and that the
+# provide rests on it. It used to default to the empty string, which the recipe
+# read as "resolve upstream's newest stable at build time", and the pattern below
+# now refuses that value outright: an empty default was the rolling behavior the
+# provide could not stand behind.
+#
+# WHICH NUMBER THIS IS, because Hermes carries two and only one of them can be
+# selected:
+#
+#   * Upstream's releases are git tags of the form `vYYYY.M.D[.N]` — v2026.9.14,
+#     v2026.9.11, v2026.8.16.2. That tag is what scripts/install.sh takes as its
+#     `--branch`, so it is the only release identity this kit can *ask* for.
+#   * The Python package's own version (`hermes_cli.__version__`, 0.21.3 at the
+#     tag pinned here) moves on its own schedule and no installer input selects
+#     it. A provide carrying it would be a number the kit cannot pin.
+#
+# So this arg is the tag, minus the `v` that SPEC-v3 §5.2 does not admit in a
+# version; the recipe puts the `v` back. `hermes --version` opens with
+# `Hermes Agent v<package version> (<release date>)`, and that release date is
+# upstream's `__release_date__` stamp, which for a release tag is the tag itself
+# without the `v` — so the value declared here is a number the built artifact
+# reports, and the recipe compares exactly that field.
+#
+# HOW THE DEFAULT WAS DETERMINED, and how to bump it: the newest stable release
+# tag, from the same redirect the recipe used to follow when this was empty —
+# github.com's own `/releases/latest`, which skips drafts and pre-releases:
+#
+#     curl -fsSI -o /dev/null -w '%{redirect_url}\n' \
+#       https://github.com/NousResearch/hermes-agent/releases/latest
+#
+# That resolved to v2026.9.14 at the moment of pinning, so this default is what
+# the unpinned recipe would have installed that day. Strip the `v` when you set
+# it, and bump ../hermes-agent-mixin in the same change.
 args:
   version:
-    default: ""
-    description: hermes-agent release tag to install; empty resolves upstream's newest stable
+    default: "2026.9.14"
+    # Upstream's date-tag shape, with the fourth segment that same-day releases
+    # use (v2026.8.16.2) optional. It refuses the empty string this arg used to
+    # default to, and every value it accepts is a legal provide version under
+    # SPEC-v3 §5.2.
+    pattern: '^[0-9]{4}\.[0-9]{1,2}\.[0-9]{1,2}(\.[0-9]+)?$'
+    description: hermes-agent release to install, without the tag's leading "v"
     buildArg: HERMES_VERSION
 
-provides: ["hermes-agent"]
+provides: ["hermes-agent@${{ kit.args.version }}"]
 
 capabilities:
   # This workload is an agent sandbox: the host launches the agent rather than

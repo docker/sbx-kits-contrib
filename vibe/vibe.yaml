@@ -13,11 +13,12 @@ licenses: [Apache-2.0]
 
 kind: workload
 
-# The install floats: VIBE_VERSION defaults to `latest` and the nightly
-# rebuild is the update mechanism, so there is no pin for a provide to quote.
-# The provide is unversioned and the v2 `version:` below answers for it.
-version: "0.1.0"
-provides: ["vibe"]
+# Vibe's own release, by reference: SPEC-v3 §4 allows this field to be a
+# build-phase arg reference expanded at publish, so it names the `version` arg
+# below — the same one the provide reads and the recipe installs. v2's own
+# 0.1.0 is gone with it; bumping the pin is now the only way to move what this
+# kit publishes under, and what it publishes under is the Vibe it installs.
+version: "${{ kit.args.version }}"
 
 # The agent profile Vibe starts with. Overridable at install time:
 #   sbx run --kit docker.io/sbx/vibe-kit:latest --kit-arg agent=plan vibe
@@ -39,6 +40,35 @@ args:
       a custom agent declared in ~/.vibe/agents/NAME.toml.
     pattern: '^[A-Za-z0-9_-]+$'
     env: VIBE_AGENT
+
+  # The Mistral Vibe release the recipe installs, declared once: validated
+  # here, handed to the recipe as the PyPI pin, and expanded into the provide
+  # -- so the kit cannot claim a release it does not ship.
+  #
+  # `buildArg:` and not `env:`, unlike `agent` above: the pin has to reach the
+  # install, which happens at build. A create-phase `env:` would arrive long
+  # after the version it names was baked in.
+  #
+  # HOW THE DEFAULT WAS ESTABLISHED, and how to bump it: `info.version` of
+  # https://pypi.org/pypi/mistral-vibe/json, the same PyPI project the recipe
+  # installs from and the release a bare `uv tool install mistral-vibe` would
+  # have resolved. 2.25.5 at the time of writing.
+  #
+  # WHY PINNED rather than left floating: an unversioned provide takes the
+  # descriptor's `version:` as its version at resolution, so `provides:
+  # ["vibe"]` published `vibe@0.1.0` -- this kit's release number wearing
+  # Vibe's name, and a version no mixin could usefully constrain.
+  #
+  # The pattern admits a three-segment release and nothing else. That is the
+  # shape of all 88 releases upstream has published, and it is what refuses
+  # the literal `latest` the recipe's ARG used to default to.
+  version:
+    default: "2.25.5"
+    pattern: '^[0-9]+\.[0-9]+\.[0-9]+$'
+    description: Mistral Vibe release to install
+    buildArg: VIBE_VERSION
+
+provides: ["vibe@${{ kit.args.version }}"]
 
 capabilities:
   # v2 `kind: sandbox`: the host launches the agent rather than running the

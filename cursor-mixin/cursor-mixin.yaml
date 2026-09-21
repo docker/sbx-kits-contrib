@@ -28,18 +28,57 @@ description: >-
   credential (API key or OAuth), scoped egress, and the workspace pre-trust and
   config seeds the agent needs. Layer it onto a shell base and run
   `cursor-agent`.
-# The KIT's version, not Cursor's, and the publish-time fallback for the
-# unversioned provide below. Tracks the cursor kit it is derived from.
-version: "1.0.0"
+# cursor-agent's version, by reference: the `version` arg below, expanded at
+# publish, which SPEC-v3 §4 admits here. Tracking the cursor kit this is derived
+# from is now one value to keep in step rather than two, since the arg drives
+# the download, the provide and this kit's own release together — so the
+# published version is the calendar-and-hash build identifier, not a semver
+# standing in for it. The literal it replaces was the publish-time fallback for
+# an unversioned provide, and leaving it in place would have left a second
+# version for the pinned one to disagree with.
+version: "${{ kit.args.version }}"
 
 kind: mixin
 
-# Same name the cursor workload provides. Unversioned for the same reason: the
-# vendor installer takes no version pin and cursor-agent self-updates.
+# Same arg, same default, same download as the cursor workload, and that is a
+# requirement rather than a coincidence: this kit and `cursor` beside it ship
+# the same agent under the same provide name, so a composition that picked one
+# or the other must get the same build either way. The two move together —
+# bump one, bump the other.
+#
+# NOT SEMVER — calendar-shaped, with the release's build hash as part of the
+# identifier. `2026.09.18-9a7762b` is one atom: the date alone does not name a
+# downloadable release and is not what the agent reports for itself. SPEC-v3
+# §5.2 admits it because only the FIRST segment must be numeric and later
+# segments may carry letters and hyphens — `2026` / `09` / `18-9a7762b`.
+#
+# HOW THE DEFAULT WAS DETERMINED, and how to bump it: Cursor's installer takes
+# no version argument and its endpoint ignores query parameters, so the
+# release identifier is read out of the script body the vendor generates:
+#
+#   curl -fsSL https://cursor.com/install | grep -o 'lab/[^/]*'
+#     # -> lab/2026.09.18-9a7762b
+args:
+  version:
+    default: "2026.09.18-9a7762b"
+    # Deliberately not a semver pattern, and the build hash is required: the
+    # download path needs it, and a bare date names no fetchable release.
+    pattern: '^[0-9]{4}\.[0-9]{2}\.[0-9]{2}-[0-9a-f]{7,40}$'
+    description: Cursor Agent release to install (calendar version plus build hash)
+    buildArg: CURSOR_VERSION
+
+# Same name AND same version the cursor workload provides. The overlay's build
+# stage asserts the staged binary reports this version, so the claim is checked
+# rather than asserted — and a constrained require can now resolve against it,
+# which the old unversioned form could not satisfy.
+#
+# The same caveat the workload states applies: cursor-agent self-updates, so
+# this describes what the overlay SHIPS, which is the only thing a kit can
+# honestly claim.
 #
 # The two kits are alternatives, never composed together: one name has one
 # owner (SPEC-v3 §5.3), so resolution refuses cursor + cursor-mixin.
-provides: ["cursor"]
+provides: ["cursor@${{ kit.args.version }}"]
 
 capabilities:
   # The agent's own egress rides with the kit that ships the agent: the base

@@ -14,7 +14,15 @@ description: Adds a two-line Docker Sandboxes status line to Claude Code (host, 
 # resolving against either shape of the claude kit. Everything this kit writes
 # lands in ~/.claude/settings.json, which only Claude Code reads; on any other
 # base agent the kit is silently inert.
-requires: ["claude"]
+#
+# `deb/jq` is the other half, and v2 could say nothing but an agent name. The
+# install hook merges the statusLine key with jq under `set -e`, so a base
+# without it fails sandbox creation. The name is derived rather than authored:
+# publishing a workload reads its dpkg database and states one entry per
+# installed package (SPEC-v3 §9.6), so a Debian-family base provides it by
+# construction. Unversioned — the hook uses a plain assignment filter that has
+# worked in every jq there has been.
+requires: ["claude", "deb/jq"]
 
 # MIGRATION NOTE: no network-policy entry at all. v2 declared no
 # `permissions.network`, and in v3 an absent phase grants nothing — which is the

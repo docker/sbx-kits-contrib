@@ -12,34 +12,92 @@ sourceUrl: https://github.com/docker/docker-agent
 
 kind: workload
 
-# The KIT's version, not Docker Agent's. It covers this descriptor, the network
-# policy and the lifecycle hooks -- the binary inside the image floats (the
-# build resolves the newest release, and the agent self-updates at runtime), so
-# a newer docker-agent does not bump this and this does not track its releases.
+# Docker Agent's version, by reference. SPEC-v3 §4 admits a build-phase arg
+# reference here and expands it at publish, so this field resolves out of the
+# `version` arg below -- the same release the recipe downloads and the provide
+# publishes under. This descriptor, the network policy and the lifecycle hooks
+# are released as the agent they carry rather than under a number of their own.
 #
-# In v3 it is also the fallback the unversioned provide below publishes under.
-# The provide stays unversioned deliberately even though the arg below can pin
-# the build: DOCKER_AGENT_AUTO_UPDATE is on, so the agent replaces its own
-# binary at runtime and any version baked at build time stops being true the
-# first time it updates. A versioned provide would be a claim the sandbox
-# actively works to falsify.
-version: "1.0.0"
+# The literal that used to sit here is the `1.0.0` the note on the arg argues
+# against at length: §9.2 has an unversioned provide fall back to this field, so
+# `provides: ["docker-agent"]` published `docker-agent@1.0.0`. Pinning the
+# provide answered that; resolving this field from the same arg removes the
+# number it fell back to. The self-update caveat the arg states covers this
+# field too, and for the same reason -- what is published is the release the
+# content was built from, which is the only claim a kit can make before the
+# sandbox exists.
+version: "${{ kit.args.version }}"
 
-provides: ["docker-agent"]
-
+# The docker-agent release the recipe installs, declared once: validated here,
+# handed to the recipe as the release tag to download, and expanded into the
+# provide -- so the kit cannot claim a release it does not ship.
+#
 # MIGRATION NOTE: v2 carried this as a bare `ARG DOCKER_AGENT_VERSION=""` in
 # the Dockerfile, documented in the README as the way to pin a release. v3's
 # args are how an installer supplies build inputs, so declaring it is what
 # keeps that documented pin reachable from a kit install rather than only from
-# a hand-run `docker build`. No pattern, matching v2: the value is a git tag
-# and the build validates it by failing to download a nonexistent asset.
+# a hand-run `docker build`.
+#
+# HOW THE DEFAULT WAS ESTABLISHED, and how to bump it: the tag that
+# https://github.com/docker/docker-agent/releases/latest redirects to, which is
+# the same document the recipe used to resolve when this arg was left empty.
+# `v1.141.0` at the time of writing. Re-read that redirect to bump:
+#
+#   curl -fsSI -o /dev/null -w '%{redirect_url}\n' \
+#     https://github.com/docker/docker-agent/releases/latest
+#
+# HOW THE PIN REACHES THE INSTALL: `buildArg` hands it to the recipe, which
+# downloads
+# https://github.com/docker/docker-agent/releases/download/v<version>/docker-agent-linux-<arch>
+# and then asserts the binary reports this exact version. Note the `v`: SPEC-v3
+# §5.2 versions carry no `v` prefix, so the arg holds `1.141.0` and the recipe
+# re-adds the `v` the tag needs. That is a CHANGE OF MEANING from v2, where
+# this arg held the tag itself -- `--build-arg DOCKER_AGENT_VERSION=v1.2.3` is
+# now `1.2.3`.
+#
+# MIGRATION NOTE: the empty default is gone, and with it the recipe's
+# resolve-the-newest-release branch. An empty value cannot reach a build whose
+# descriptor publishes `docker-agent@<that value>`, so the recipe now fails
+# closed on one instead of floating.
+#
+# WHY A VERSIONED PROVIDE, given that the agent self-updates. This kit sets
+# DOCKER_AGENT_AUTO_UPDATE=1 (see the recipe), so the running agent can replace
+# its own binary and a version baked at build time stops describing the
+# process some minutes later. That is a real objection, and it is still
+# outweighed:
+#
+#   * The alternative is not "no version". §9.2 refuses a published provide
+#     with no version at all, so an unversioned `provides: ["docker-agent"]`
+#     publishes `docker-agent@1.0.0` -- the `version:` field above, this kit's
+#     own release number wearing the agent's name. That claim is false at every
+#     instant, not merely after an update, and it silently satisfies a
+#     `docker-agent >= 1.0` that nothing about the agent justifies.
+#   * A provide describes the CONTENT the kit ships, and resolution happens
+#     before the sandbox exists. At the moment the composed image is resolved
+#     and started, the binary is exactly this release -- which the recipe's
+#     assertion makes true by construction rather than by assumption.
+#   * Self-update only moves forward. Every constraint a consumer realistically
+#     writes against an agent is a lower bound, and an update satisfies a lower
+#     bound more strongly, never less. So the drift this pin cannot track
+#     cannot invalidate a resolution that accepted it.
+#
+# A caller who needs the pin to hold for a whole session has to turn the
+# self-update off as well; that is a behavioral change this kit deliberately
+# does not make, because the v2 kit chose auto-update on purpose.
+#
+# The pattern admits a three-segment release and nothing else -- the shape of
+# every docker-agent tag with the `v` stripped. It refuses the empty string the
+# arg used to default to, and it refuses a `v`-prefixed value, which would
+# otherwise produce the un-referenceable `docker-agent@v1.141.0`.
 args:
   version:
-    default: ""
+    default: "1.141.0"
+    pattern: '^[0-9]+\.[0-9]+\.[0-9]+$'
     description: >-
-      docker-agent release tag to pin. Empty (the default) resolves the newest
-      release at build time.
+      docker-agent release to install, without the tag's `v` prefix.
     buildArg: DOCKER_AGENT_VERSION
+
+provides: ["docker-agent@${{ kit.args.version }}"]
 
 capabilities:
   # This workload is an agent sandbox: the host launches the agent rather than

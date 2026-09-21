@@ -16,7 +16,7 @@ ships around them — so this workload kit is the supported way to run NanoClaw.
 ## Usage
 
 ```console
-sbx run --name nanoclaw --kit "docker.io/sbx/nanoclaw-kit:latest" nanoclaw
+sbx run --name nanoclaw --kit "docker.io/docker/sbx-kit-nanoclaw:latest" nanoclaw
 ```
 
 Or from a git URL targeting this repository:

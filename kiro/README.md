@@ -22,7 +22,7 @@ authenticates only via device flow, which needs a browser on your host.
 ## Usage
 
 ```console
-sbx run --kit "docker.io/sbx/kiro-kit:latest" kiro
+sbx run --kit "docker.io/docker/sbx-kit-kiro:latest" kiro
 ```
 
 Or from a git URL targeting this repo:
@@ -131,7 +131,7 @@ The image is **`docker.io/sbx/kiro-image`**, built on
 requests Docker-in-Docker.
 
 The `-image` suffix distinguishes the base image from the kit itself: the kit
-itself is published as an OCI artifact at `docker.io/sbx/kiro-kit` (see
+itself is published as an OCI artifact at `docker.io/docker/sbx-kit-kiro` (see
 [Usage](#usage) above). The name is derived from the kit directory and enforced repo-wide — see
 [PUBLISHING.md](../PUBLISHING.md#naming).
 
@@ -150,22 +150,65 @@ for the pipeline, the tagging scheme, the coordinates, and the Docker Hub OIDC
 setup. Only the kiro-specific parts are below.
 
 The nightly rebuild earns its keep here in particular: Kiro is installed from its
-`latest` channel, so a rebuild is the only way a new Kiro release reaches users
-of this kit, and nightly picks up every published version rather than a weekly
-sample. It also catches drift in the floating base image.
+`latest` channel — there is no supported way to pin it, see *Building locally*
+below — so a rebuild is the only way a new Kiro release reaches users of this
+kit, and nightly picks up every published version rather than a weekly sample.
+It also catches drift in the floating base image.
 
 ### Building locally
 
 ```console
-docker build -f kiro/kiro.dockerfile -t docker.io/sbx/kiro-image:latest kiro
+cd kiro && docker buildx build . -f kiro.yaml --output type=cacheonly
 ```
 
-`-f` is needed now that the recipe is named for its descriptor's stem rather
-than `Dockerfile`; the kit frontend finds it by that convention without one.
+The descriptor is the build target, not the recipe. Its
+`# syntax=docker/sandbox-kit:3` line dispatches the kit frontend, which
+validates the descriptor, builds `kiro.dockerfile` as the content by the
+filename-stem convention, and attaches the published descriptor to the result —
+so building `kiro.dockerfile` directly would give you an ordinary image and no
+kit.
 
 The build needs egress to `cli.kiro.dev` (install script) **and**
-`prod.download.cli.kiro.dev` (the versioned binary it fetches).
+`prod.download.cli.kiro.dev` (the binary it fetches).
 
-`BASE_IMAGE` is a build arg, so the base can be re-pointed or digest-pinned
-without editing `kiro.dockerfile`: `--build-arg BASE_IMAGE=…` accepts a tag or
-a digest.
+`BASE_IMAGE` is the only build arg, so the base can be re-pointed or
+digest-pinned without editing `kiro.dockerfile`: `--build-arg BASE_IMAGE=…`
+accepts a tag or a digest.
+
+There is deliberately **no version arg**, which makes this kit the exception
+among the agent kits in this repo — the others pin their tool and publish
+`provides: ["<tool>@<version>"]`; kiro's `provides: ["kiro"]` stays
+unversioned. The install cannot be pinned:
+
+- The installer's whole option surface is two flags. Its own `show_help`
+  lists `--help, -h` and `--channel CHANNEL  Specify a release channel
+  (default: stable)`, and `parse_args` ends in `*) error "Unknown option:
+  $1"`, so an unrecognized spelling is refused rather than quietly accepted.
+- It reads no version from the environment. A channel is not a release.
+- The paths it builds spell the release as the literal `latest`:
+
+  ```sh
+  local channel_base_url="${BASE_URL}/${CHANNEL}"
+  MANIFEST_URL="${channel_base_url}/latest/manifest.json"
+  download_url="${channel_base_url}/latest/$filename"
+  ```
+
+Bypassing it does not improve matters. Versioned archives do exist —
+`https://prod.download.cli.kiro.dev/stable/<version>/kirocli-x86_64-linux.zip`
+answers 200 for 2.19.0 through 2.22.1 — but no versioned manifest does:
+`stable/<version>/manifest.json` and `stable/manifest.json` both answer 403,
+and only `stable/latest/manifest.json` is served, describing the current
+release alone. A pinned download would therefore have no published checksum
+once `latest` moved past it, while the installer used today does verify one.
+Abandoning the vendor's install path *and* its integrity check to buy a
+version string is the wrong trade, and pinning the `provides` without pinning
+the install would be worse still — it would assert a release the content may
+not have.
+
+The cost, stated rather than hidden: SPEC-v3 §9.2 gives an unversioned provide
+the descriptor's `version:`, so this kit publishes `kiro@1.0.0` — its own
+release number wearing Kiro's name. That answers a bare `requires: ["kiro"]`,
+which is the only constraint honestly answerable here, and it will wrongly
+satisfy a `kiro >= 1.0`. Re-check the installer when bumping the kit; the day
+it grows a version flag, or a versioned manifest appears, this becomes a
+`version` arg like the siblings'.

@@ -7,7 +7,7 @@ A standalone Docker Sandboxes kit for [Mistral Vibe](https://github.com/mistrala
 Use the published kit:
 
 ```console
-sbx run --kit "docker.io/sbx/vibe-kit:latest" vibe
+sbx run --kit "docker.io/docker/sbx-kit-vibe:latest" vibe
 ```
 
 Or load it directly from this repository:
@@ -37,7 +37,7 @@ Piping the key in keeps it out of your shell history and out of the process tabl
 Then launch:
 
 ```console
-sbx run --kit "docker.io/sbx/vibe-kit:latest" vibe
+sbx run --kit "docker.io/docker/sbx-kit-vibe:latest" vibe
 ```
 
 The container only ever sees `MISTRAL_API_KEY` set to a proxy sentinel. The real key is substituted by the proxy on requests to `api.mistral.ai`, `chat.mistral.ai` and `console.mistral.ai`, and on no other host — so a prompt injection that talks the agent into exfiltrating the variable exfiltrates the sentinel.
@@ -49,7 +49,7 @@ Vibe's [agent profile](https://github.com/mistralai/mistral-vibe#built-in-agents
 Pick another one at install time:
 
 ```console
-sbx run --kit "docker.io/sbx/vibe-kit:latest" --kit-arg agent=plan vibe
+sbx run --kit "docker.io/docker/sbx-kit-vibe:latest" --kit-arg agent=plan vibe
 ```
 
 The value is any builtin (`ask`, `plan`, `accept-edits`, `auto-approve`) or a custom agent declared in `~/.vibe/agents/NAME.toml`.
@@ -79,9 +79,11 @@ Telemetry and Vibe's self-update are both switched off through `VIBE_ENABLE_TELE
 
 The kit's content is its own image: [`vibe.dockerfile`](./vibe.dockerfile)
 builds from `docker/sandbox-templates:shell-docker` and installs
-`mistral-vibe` from PyPI with `uv tool install`. Pin a release at build time
-with `--build-arg VIBE_VERSION=2.25.0`; the default, `latest`, is what CI's
-nightly rebuild tracks.
+`mistral-vibe` from PyPI with `uv tool install`. The release is pinned by the
+descriptor's `version` arg, which reaches the recipe as `VIBE_VERSION` and is
+expanded into `provides: ["vibe@<version>"]`, so the kit advertises the release
+it installs. Move it with `--build-arg version=2.25.0`; CI's nightly rebuild
+refreshes the base image and leaves the agent where the pin puts it.
 
 A v3 workload's layers *are* the root filesystem, so there is no longer a
 separately published companion image for the descriptor to point at — the

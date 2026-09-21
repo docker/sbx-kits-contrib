@@ -6,13 +6,16 @@
 # contributes contentFile alone) and sbx@1 (a mixin's image config never
 # becomes the composed image's, so there is no identity for the host to honor).
 #
-# MIGRATION NOTE: this mixin is deliberately DECLARATION-ONLY -- there is no
-# amp-mixin.dockerfile, and SPEC-v3 §3.5 provides for exactly that. The v2 kit
-# installed Amp with a create-time hook rather than at image build, so there is
-# no build output for an overlay to carry: the lifecycle install hook below is
-# the whole of this kit's content, and it installs Amp onto whatever base it
-# lands on. Baking the install into a layer instead would be a redesign, and
-# doing both would install Amp twice.
+# MIGRATION NOTE: this mixin WAS declaration-only, on the reasoning that a
+# create-time install leaves nothing for an overlay to carry. That reasoning
+# had the dependency backwards: the install was create-time because v2 mixins
+# could carry no content at all, not because Amp needs anything a sandbox has.
+# v3 lets a mixin carry an overlay, so amp-mixin.dockerfile now runs the same
+# installer at build time -- relocated wholesale into /opt/amp, which
+# install.sh's own AMP_HOME variable allows -- and the lifecycle hook and the
+# install phase of the network policy are both gone with it. See the recipe's
+# header for why the relocation works here and not in this repo's other agent
+# mixins.
 schemaVersion: "3"
 displayName: Amp (mixin)
 description: >-
@@ -21,25 +24,67 @@ description: >-
 
 kind: mixin
 
-# Unversioned provide plus a version fallback: install.sh resolves whatever Amp
-# currently publishes, so there is no pin to reference.
-version: "1.0.0"
+# The Amp release this kit's overlay carries, by reference to the `version` arg
+# below -- SPEC-v3 §4 admits a build-phase arg reference here and expands it at
+# publish, so the version is stated in exactly one place and the publish tag
+# names the agent rather than a kit release number of its own.
+version: "${{ kit.args.version }}"
 
-provides: ["amp"]
+# The Amp release the recipe installs, declared once: validated here, handed to
+# install.sh, and expanded into `provides` and `version:` -- so the kit cannot
+# claim a release its overlay does not carry. The recipe asserts the agreement at
+# build time by asking the installed binary.
+#
+# HOW THE DEFAULT WAS DETERMINED, and how to bump it: with AMP_VERSION unset,
+# install.sh fetches its own version pointer,
+# `https://static.ampcode.com/cli/cli-version.txt`, and installs what that
+# names. This default is what the pointer held at the moment of pinning. To bump:
+#
+#     curl -fsSL https://static.ampcode.com/cli/cli-version.txt
+#
+# WHAT THE SHAPE MEANS: Amp publishes continuously and versions its builds
+# `0.0.<unix timestamp>-g<commit>`, so a newer one appears within the hour and
+# this pin falls behind upstream almost immediately. Behind is not broken -- past
+# versions stay on the CDN, so a stale default keeps building and keeps
+# installing the release it names.
+#
+# WHY PINNED rather than left floating: an unversioned provide takes this
+# descriptor's `version:` as its version at resolution, so `provides: ["amp"]`
+# published `amp@1.0.0` -- this kit's release number wearing the agent's name,
+# which a kit writing `requires: ["amp >= 0.0.17"]` would refuse to resolve
+# against. install.sh reads AMP_VERSION from its environment and installs
+# exactly that, so there was a pin to take.
+#
+# THIS MUST STAY EQUAL TO ../amp's `version` default. The two kits run the same
+# installer at the same pin and provide the same name, so a composition that
+# resolved one against the other's requires must see the same release. Nothing
+# enforces it across kit directories -- bump both together.
+args:
+  version:
+    default: "0.0.1789905635-g0f1dca"
+    # Amp's published shape, with the commit suffix optional so a plain `X.Y.Z`
+    # would still pass. Every value this accepts is also a legal provide
+    # version: SPEC-v3 §5.2 admits `[0-9A-Za-z-]` within a dotted segment,
+    # which is what carries the `-g<commit>` tail.
+    pattern: '^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z]+)?$'
+    description: Amp release to install
+    buildArg: AMP_VERSION
+
+provides: ["amp@${{ kit.args.version }}"]
 
 capabilities:
   # The agent's own egress rides with the kit that ships the agent: the base
-  # grants nothing for services it does not carry. Both phases name both
-  # entries, because both phases reach them -- install.sh is served from
-  # ampcode.com and may redirect its payload to a sibling label, and at runtime
-  # ampcode.com is the credential's inject domain while the wildcard covers the
-  # agent's own API traffic.
+  # grants nothing for services it does not carry.
+  #
+  # MIGRATION NOTE: runtime only. The install phase existed for the hook that
+  # ran install.sh at sandbox create; the overlay runs it at image build
+  # instead, where the download is the builder's traffic and not the sandbox's,
+  # so the grant would open egress for an install phase with no installer in
+  # it. Both entries earn the runtime phase on their own: ampcode.com is the
+  # credential's inject domain (v3 validates that it appears in the matching
+  # phase's allow list), and the wildcard covers the agent's own API traffic.
   - type: com.docker.sandbox/network-policy@1
     config:
-      install:
-        allow:
-          - ampcode.com
-          - "*.ampcode.com"
       runtime:
         allow:
           - ampcode.com
@@ -60,16 +105,11 @@ capabilities:
         inject:
           - {domain: ampcode.com, header: Authorization, format: "Bearer %s"}
 
-  - type: com.docker.sandbox/lifecycle@1
-    config:
-      install:
-        # v2's setup.install, verbatim -- including `user: "1000"`. install.sh
-        # is a per-user installer with no --prefix, so it has to run as the
-        # user that will run the agent. It needs nothing beyond the platform
-        # baseline ($HOME to install into, $PATH to find curl).
-        - command: curl -fsSL https://ampcode.com/install.sh | bash
-          user: "1000"
-          description: Install Amp
+  # MIGRATION NOTE: no lifecycle entry. The hook that stood here ran v2's
+  # `curl -fsSL https://ampcode.com/install.sh | bash` at sandbox create;
+  # amp-mixin.dockerfile runs it at build. Nothing else was in the entry, and
+  # a lifecycle entry declaring no hooks, no files and no interactive tail is
+  # invalid, so it is dropped rather than left empty.
 
   # contentFile alone: `filename` is workload-only, the profile belonging to
   # the kit that owns the environment.

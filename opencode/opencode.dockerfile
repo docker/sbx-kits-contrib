@@ -21,13 +21,14 @@ FROM ${BASE_IMAGE}
 # expand to an empty string.
 ARG BASE_IMAGE
 
-# Pin a release by passing --build-arg OPENCODE_VERSION=1.2.3 (npm semver, no
-# leading "v"). Left empty, the build installs the newest published version.
-#
-# This stays a bare build arg rather than becoming the kit's `args.version`:
-# the kit's provide is unversioned precisely because the default floats, and a
-# kit arg defaulting to "" would expand into `opencode@` and claim nothing.
-ARG OPENCODE_VERSION=""
+# The kit's `version` arg arriving as a build arg -- opencode.yaml declares it
+# with `buildArg: OPENCODE_VERSION`, validates its shape, and expands the same
+# value into `provides: ["opencode@..."]`. Deliberately no default here: the
+# descriptor is the single source of the pin, and a second default in this file
+# would be one more thing to keep in sync with it. Move the pin with
+# `--build-arg version=1.2.3` (npm semver, no leading "v"), which moves the
+# install and the provide together.
+ARG OPENCODE_VERSION
 
 # OpenCode is installed from npm rather than through the standalone
 # `curl https://opencode.ai/install | bash` script its README leads with. Both
@@ -63,16 +64,22 @@ ARG OPENCODE_VERSION=""
 #     `omit=optional` — from an .npmrc or from NPM_CONFIG_OMIT — cannot leave
 #     the postinstall with no binary to copy.
 #
+# The version spec is exact -- `opencode-ai@1.18.31`, never a range or a
+# dist-tag -- so what npm resolves is what the descriptor promised. That is
+# what makes the provide's version true of the built image rather than a guess
+# about it.
+#
 # `opencode --version` last, deliberately: the install's exit code says only
-# that npm ran, not that a working binary reached PATH. The npm cache is
-# dropped in the same layer because it holds a second copy of a ~180 MB
-# tarball that nothing reads again.
+# that npm ran, not that a working binary reached PATH. It also prints the bare
+# version string, so a build log is the record of what the pin resolved to. The
+# npm cache is dropped in the same layer because it holds a second copy of a
+# ~180 MB tarball that nothing reads again.
 RUN <<EOF
 set -eux
 
 (corepack disable npm 2>&1 || echo "no corepack npm shim to disable")
 
-npm install -g "opencode-ai@${OPENCODE_VERSION:-latest}" --include=optional
+npm install -g "opencode-ai@${OPENCODE_VERSION}" --include=optional
 
 opencode --version
 

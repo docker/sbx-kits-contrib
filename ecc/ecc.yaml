@@ -4,6 +4,12 @@
 # This is a declaration-only kit: everything it ships, it installs from upstream
 # in a lifecycle hook, and it sets no environment variables — so it has no
 # companion dockerfile. A v3 mixin is allowed to carry no recipe.
+#
+# It stays that way deliberately. v3 lets a mixin carry an overlay, which turns
+# most v2 install hooks into content — but this kit's install selects its module
+# set from a create-time condition (whether the sandbox's skills store is
+# writable) and its skills module targets a path the host mounts over at create.
+# See the note on the install hook below for the full reasoning.
 schemaVersion: "3"
 kind: mixin
 
@@ -105,6 +111,33 @@ capabilities:
         # name them: `git clone` and `npm install` both read
         # HTTP_PROXY/HTTPS_PROXY from the environment, and in v2 those arrived
         # for free with the container env.
+        #
+        # WHY THIS STAYS A HOOK. v3 lets a mixin carry an overlay, so a v2 install
+        # hook is often just a v2 limitation — a mixin had no content mechanism, so
+        # a hook was the only way to install anything. Not here. The clone is
+        # pinned and the install is offline-deterministic, so at first glance it
+        # looks bakeable; two things make it create-time work:
+        #
+        #   - The branch it takes is a create-time condition. Which module set gets
+        #     installed depends on whether /home/agent/.claude/skills is writable
+        #     *in this sandbox*, which is decided by the host's `--skills` setting
+        #     and the agent-skills@1 binding above. A build cannot know it, so
+        #     baking would have to pick one branch for every sandbox — and picking
+        #     the full profile is exactly the partial-install failure the probe
+        #     exists to avoid.
+        #   - The skills module's target is a mount. The kit declares
+        #     /home/agent/.claude/skills as agent-skills@1, so the host mounts its
+        #     store there at create, over whatever the image has. Baking ECC's
+        #     skills into that path would ship content the mount then hides — the
+        #     same reason baking under a declared volume is pointless.
+        #
+        # The rest of the pack (rules, agents, commands, platform-configs) lands
+        # under ~/.claude outside the mount and would survive being baked, but
+        # splitting upstream's installer across a build stage and a hook would mean
+        # running it twice and reconciling its ~/.claude/ecc/install-state.json
+        # manifest by hand — trading a create-time install for a bespoke fork of
+        # upstream's install procedure. Not worth it: the install is a git clone plus
+        # a file copy, and its hosts are reached once at create and never again.
         - command: |
             set -e
             git clone --depth 1 --branch v2.0.0 https://github.com/affaan-m/ECC /tmp/ecc

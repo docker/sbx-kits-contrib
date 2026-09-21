@@ -33,7 +33,7 @@ You only need keys for the providers you intend to use.
 ## Usage
 
 ```console
-sbx run --kit "docker.io/sbx/crush-kit:latest" crush
+sbx run --kit "docker.io/docker/sbx-kit-crush:latest" crush
 ```
 
 Or from a git URL targeting this repo:
@@ -134,14 +134,29 @@ How the kit is named, tagged, verified and pushed is the same for every kit in
 this repo — see **[PUBLISHING.md](../PUBLISHING.md)** for the pipeline. There
 is no kit-specific build script or workflow.
 
-Crush's tagged releases land roughly weekly, so this kit rolls: the recipe's
-`ADD` against the GitHub releases Atom feed forces a fresh apt install
-whenever a new release is published, and the pipeline's nightly scheduled
-rebuild picks one up within a day either way. The installed version always
-comes from Charm's apt repository, not from the feed, so there is no build arg
-to pin a specific release here — which is also why the descriptor declares no
-`args` and publishes an unversioned `provides: ["crush"]` under its `version:`
-fallback.
+Crush is installed from Charm's apt repository at a pinned version. The
+descriptor declares a `version` arg (`buildArg: CRUSH_VERSION`), the recipe
+installs `crush=${CRUSH_VERSION}` and then re-reads the version out of the
+installed binary, and the descriptor publishes `provides:
+["crush@${{ kit.args.version }}"]` — so a kit asking for `crush >= 0.9`
+resolves against what the image actually carries.
+
+Bump the pin by reading Charm's package index, which is the authority here
+rather than the GitHub release feed:
+
+```console
+curl -fsSL 'https://repo.charm.sh/apt/dists/*/*/binary-amd64/Packages.gz' \
+  | gzip -dc \
+  | awk '/^Package: crush$/{p=1} p&&/^Version:/{print $2} p&&/^$/{p=0}' \
+  | sort -V | tail -5
+```
+
+Two properties of that index are what make an apt pin durable here: it records
+plain upstream semver with no epoch or Debian revision, so one string is both
+an exact apt selector and a legal version for the provide; and it serves its
+history rather than only the newest release, which is what
+`apt-get install crush=<version>` depends on. Keep `../crush-mixin` on the same
+pin — nothing enforces that across kit directories.
 
 ### Building locally
 

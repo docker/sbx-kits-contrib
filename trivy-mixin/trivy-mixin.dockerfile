@@ -45,6 +45,10 @@ RUN set -eu; \
     tar -C /out/usr/local/bin -xzf /tmp/trivy.tgz trivy; \
     rm /tmp/trivy.tgz; \
     chmod 0755 /out/usr/local/bin/trivy; \
+    # The release tarball records the publisher's CI uid, and tar preserves it:
+    # as image content on an unknown base that id may be a real account, and a
+    # file's owner can rewrite it whatever its mode says.
+    chown 0:0 /out/usr/local/bin/trivy; \
     /out/usr/local/bin/trivy --version
 
 # The overlay: one binary, landing on any base. No ENTRYPOINT -- the base

@@ -22,12 +22,19 @@ USER root
 RUN mkdir -p /out/home/agent/.local /out/etc/profile.d /out/usr/local/bin \
  && chown -R agent:agent /out/home/agent
 
-# PyPI's JSON API has no literal "latest" segment -- omitting the version
-# entirely returns the newest release, which is why OPENHANDS_VERSION defaults
-# to empty. BuildKit re-fetches the URL on every build to compute its digest,
-# so the install layer re-runs exactly when the resolved release changes.
-ARG OPENHANDS_VERSION=
-ADD --chmod=644 https://pypi.org/pypi/openhands/${OPENHANDS_VERSION:+${OPENHANDS_VERSION}/}json /tmp/openhands-release.json
+# The kit's `version` arg arriving as a build arg -- openhands-mixin.yaml
+# declares it with `buildArg: OPENHANDS_VERSION`, validates its shape, and
+# expands the same value into `provides: ["openhands@..."]`. Deliberately no
+# default here: the descriptor is the single source of the pin.
+ARG OPENHANDS_VERSION
+
+# The pinned release's own PyPI metadata. The URL now always names a version --
+# it used to omit that segment, because PyPI has no literal "latest" and an
+# absent version returns the newest release, which is what the empty default
+# meant. Pinning removes that branch: this fetch 404s the build if the pinned
+# release does not exist, and the `info.version` read out of it below is PyPI's
+# canonical spelling of the pin.
+ADD --chmod=644 https://pypi.org/pypi/openhands/${OPENHANDS_VERSION}/json /tmp/openhands-release.json
 
 USER agent
 WORKDIR /home/agent
@@ -35,8 +42,10 @@ WORKDIR /home/agent
 # The install, unmodified from the workload recipe: `openhands` (the V1
 # terminal CLI, distinct from `openhands-ai` and `openhands-sdk`) pins
 # requires-python to 3.12.x, so `--python 3.12` makes uv download a standalone
-# CPython 3.12. `openhands --version` is the build-time gate -- a broken
-# release fails the build instead of shipping a non-starting agent.
+# CPython 3.12. The requirement is `openhands==<version>`, an exact specifier
+# rather than a range, so what uv resolves is the release the descriptor
+# promised. `openhands --version` is the build-time gate -- a broken release
+# fails the build instead of shipping a non-starting agent.
 RUN set -eu; \
     version="$(grep -oP '"version":\s*"\K[^"]+' /tmp/openhands-release.json)"; \
     [ -n "$version" ]; \

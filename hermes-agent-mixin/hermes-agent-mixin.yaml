@@ -15,22 +15,62 @@ description: >-
 
 kind: mixin
 
-# The fallback version for the unversioned provide below: the install floats
-# (the recipe's HERMES_VERSION defaults to empty, resolving upstream's newest
-# stable), so there is no hermes release this kit could honestly name.
-# Tracks ../hermes-agent.
-version: "1.0.0"
+# The hermes-agent release this kit's overlay carries, by reference to the
+# `version` arg below — SPEC-v3 §4 admits a build-phase arg reference here and
+# expands it at publish, so the version is stated in exactly one place and the
+# publish tag names the agent release rather than a kit release number of its own.
+version: "${{ kit.args.version }}"
 
+# The hermes-agent release the recipe installs, declared once: validated here,
+# handed to the recipe as the git tag it checks out, and expanded into `provides`
+# and `version:` — so the kit cannot claim a release its overlay does not carry.
+# The recipe asserts the agreement at build time by asking the installed CLI.
+#
+# The arg is not new; what is new is that it has a real default and that the
+# provide rests on it. It used to default to the empty string, which the recipe
+# read as "resolve upstream's newest stable at build time" — the rolling behavior
+# a provide cannot stand behind. The pattern below refuses that value now.
+#
+# WHICH NUMBER THIS IS, because Hermes carries two and only one can be selected:
+# upstream's releases are git tags of the form `vYYYY.M.D[.N]`, and that tag is
+# what scripts/install.sh takes as its `--branch`, so it is the only release
+# identity this kit can ask for. The Python package's own version
+# (`hermes_cli.__version__`, 0.21.3 at the tag pinned here) moves independently
+# and no installer input selects it. This arg is therefore the tag, minus the `v`
+# that SPEC-v3 §5.2 does not admit in a version; the recipe puts the `v` back.
+# `hermes --version` opens with `Hermes Agent v<package version> (<release
+# date>)`, where the release date is upstream's `__release_date__` stamp — the tag
+# without its `v` — so the value declared here is one the built overlay reports,
+# and the recipe compares exactly that field.
+#
+# HOW THE DEFAULT WAS DETERMINED, and how to bump it: the newest stable release
+# tag, from the same redirect the recipe used to follow when this was empty:
+#
+#     curl -fsSI -o /dev/null -w '%{redirect_url}\n' \
+#       https://github.com/NousResearch/hermes-agent/releases/latest
+#
+# v2026.9.14 at the moment of pinning. Strip the `v` when you set it.
+#
+# THIS MUST STAY EQUAL TO ../hermes-agent's `version` default. The two kits run
+# the same installer at the same pin and provide the same name, so a composition
+# that resolved one against the other's requires must see the same release.
+# Nothing enforces it across kit directories — bump both together, along with the
+# byte-identical hermes-anthropic-auth.sh the two kits each carry a copy of.
 args:
   version:
-    default: ""
-    description: hermes-agent release tag to install; empty resolves upstream's newest stable
+    default: "2026.9.14"
+    # Upstream's date-tag shape, with the fourth segment that same-day releases
+    # use (v2026.8.16.2) optional. It refuses the empty string this arg used to
+    # default to, and every value it accepts is a legal provide version under
+    # SPEC-v3 §5.2.
+    pattern: '^[0-9]{4}\.[0-9]{1,2}\.[0-9]{1,2}(\.[0-9]+)?$'
+    description: hermes-agent release to install, without the tag's leading "v"
     buildArg: HERMES_VERSION
 
 # Same name the workload provides, so composing this mixin with
 # ../hermes-agent is refused rather than installing the agent twice
 # (SPEC-v3 §5.3).
-provides: ["hermes-agent"]
+provides: ["hermes-agent@${{ kit.args.version }}"]
 
 capabilities:
   # The agent's own egress rides with the kit that ships the agent: the base

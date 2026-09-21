@@ -1,7 +1,7 @@
 # AI-DLC Quick Start
 
 A mixin that makes a sandbox ready for [AWS AI-DLC](https://github.com/awslabs/aidlc-workflows):
-it installs a pinned [Bun](https://bun.sh) version, clones the latest
+it ships a pinned [Bun](https://bun.sh) in its overlay layer, clones the latest
 `awslabs/aidlc-workflows` `main` commit for a fresh project (or the commit an
 existing project already pinned), and copies that repo's Claude harness into the
 workspace.
@@ -20,7 +20,7 @@ Run it with the `claude-bedrock` agent, from its published OCI artifact on
 Docker Hub:
 
 ```console
-sbx run --kit "docker.io/sbx/aidlc-claude-kit:latest" claude-bedrock
+sbx run --kit "docker.io/docker/sbx-kit-aidlc-claude:latest" claude-bedrock
 ```
 
 Or from a git URL targeting this repo:
@@ -69,21 +69,35 @@ profile configured there, store that profile for the agent with
 
 ## How the Bun install works
 
-Upstream's one-liner is `curl -fsSL https://bun.sh/install | bash`, which does
-not work unmodified in a kit. Lifecycle install hooks run as uid 0 and Bun's
-installer targets `${BUN_INSTALL:-$HOME/.bun}`, so the binary lands in
-`/root/.bun/bin` where the agent user cannot reach it. Its only `PATH` wiring is
-an `export` appended to `~/.bashrc`, which non-interactive shells never source —
-so it would not help even if the install ran as the agent.
+Bun is **baked into the kit's overlay layer** by `aidlc-claude.dockerfile`, so it
+is already at `/usr/local/bin/bun` when the sandbox starts. It used to be a
+lifecycle install hook that ran upstream's installer at creation time — the only
+mechanism a v2 mixin had for installing anything — and the move to build time
+costs a pinned download per sandbox nothing and buys a digest-pinned, scannable
+binary, a broken download that fails at publish instead of in your sandbox, and
+the removal of the kit's `bun.sh` and GitHub release-asset network grants.
 
-Setting `BUN_INSTALL=/usr/local` puts `bun` and `bunx` in `/usr/local/bin`,
-already on `PATH` for every user and every shell type, with no rc file involved.
-Upstream documents this same hazard in its own troubleshooting notes.
+The installer itself is run unmodified, with the same two adjustments the hook
+made. Upstream's one-liner is `curl -fsSL https://bun.sh/install | bash`, which
+does not work as-is here: the installer targets `${BUN_INSTALL:-$HOME/.bun}`, so
+under a root install the binary lands in `/root/.bun/bin` where the agent user
+cannot reach it. Its only `PATH` wiring is an `export` appended to `~/.bashrc`,
+which non-interactive shells never source — so it would not help even if the
+install ran as the agent. Setting `BUN_INSTALL=/usr/local` puts `bun` and `bunx`
+in `/usr/local/bin`, already on `PATH` for every user and every shell type, with
+no rc file involved. Upstream documents this same hazard in its own
+troubleshooting notes.
 
 The install is also pinned to a release tag (`bash -s "bun-vX.Y.Z"`, the
 installer's own version argument) rather than plain `| bash`, so every sandbox
 gets the exact Bun version this kit is tested against instead of whatever
-upstream ships on the day it's created.
+upstream ships on the day the kit is built.
+
+The `aidlc-workflows` clone and the harness reconcile stay lifecycle hooks, and
+deliberately so: the clone's commit is chosen per sandbox (a fresh project takes
+whatever `main` is at creation and records it; an existing project takes the SHA
+it already pinned), and the reconcile reads `$WORKSPACE_DIR`, which the runtime
+injects at creation. Neither can be a layer.
 
 ## How the harness copy works
 

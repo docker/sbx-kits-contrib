@@ -16,20 +16,57 @@ ARG BASE_IMAGE
 USER agent
 WORKDIR /home/agent
 
-# update-info.jsonl is what install.sh itself resolves the newest build
-# from; BuildKit re-fetches it on every build to compute its digest, so
-# this layer -- and the RUN below -- re-runs exactly when the stable
-# channel has moved.
-ADD --chmod=644 https://raw.githubusercontent.com/JetBrains/junie/main/update-info.jsonl /tmp/junie-update-info.jsonl
+# Supplied by the descriptor's two args, which own the defaults and the
+# accepted shapes. No defaults here on purpose: an unset value must fail the
+# build rather than fall back to the floating channel, because the descriptor
+# expands JUNIE_MARKETING_VERSION into a versioned provide.
+#
+#   JUNIE_VERSION           -- the JetBrains build number (3294.5). The name is
+#                              install.sh's, not this kit's: the script reads
+#                              exactly this variable.
+#   JUNIE_MARKETING_VERSION -- the release the binary reports (26.9.21). The
+#                              installer knows nothing about it; it is here
+#                              only so the assertion below can check it.
+ARG JUNIE_VERSION
+ARG JUNIE_MARKETING_VERSION
 
-# `set -o pipefail`: without it, a curl failure feeding empty stdin to
-# `bash` still exits 0, masking a network failure as success. JUNIE_VERSION
-# is left unset so this always installs the current stable build.
-RUN set -o pipefail; curl -fsSL https://junie.jetbrains.com/install.sh | bash
+# MIGRATION NOTE: an `ADD` of update-info.jsonl used to sit here, fetched on
+# every build so its digest would invalidate this layer whenever the stable
+# channel moved. A pinned install wants the opposite: the RUN below is keyed
+# on JUNIE_VERSION, so it re-runs exactly when the pin moves and not when
+# JetBrains publishes something this kit did not ask for. install.sh still
+# reads the feed itself, to look up the checksum for the pinned build.
 
-# Runs the installed binary as the build-time gate: a broken release fails
-# the build. Full path because ~/.local/bin isn't on PATH yet in this RUN.
-RUN "$HOME/.local/bin/junie" --version
+# `set -o pipefail`: without it, a curl failure feeding empty stdin to `bash`
+# still exits 0, masking a network failure as success.
+#
+# JUNIE_VERSION is the installer's own documented pin, from its header:
+# `curl -fsSL https://junie.jetbrains.com/install.sh | JUNIE_VERSION=656.1 bash`.
+# Set, the script takes `VERSION="$JUNIE_VERSION"` and downloads that exact
+# release instead of resolving the newest one from the feed -- and still looks
+# the published checksum up for it.
+RUN <<EOF
+set -o pipefail -eux
+test -n "${JUNIE_VERSION}" || { echo "JUNIE_VERSION is empty; pass the kit's build arg" >&2; exit 1; }
+curl -fsSL https://junie.jetbrains.com/install.sh | JUNIE_VERSION="${JUNIE_VERSION}" bash
+EOF
+
+# Runs the installed binary as the build-time gate: a broken release fails the
+# build. Full path because ~/.local/bin isn't on PATH yet in this RUN.
+#
+# It also gates the two pins against each other. The binary answers with both
+# values on one line -- `Junie version: 26.9.21 (3294.5)` -- and the descriptor
+# publishes `junie@${JUNIE_MARKETING_VERSION}` as a provide, so checking for
+# both is what stops a build number quietly carrying a different marketing
+# release than the one this kit claims. -F because a version is dots, not a
+# regexp; -w so a declared 26.9.2 cannot be satisfied by an installed 26.9.21.
+RUN <<EOF
+set -eux
+test -n "${JUNIE_MARKETING_VERSION}" || { echo "JUNIE_MARKETING_VERSION is empty; pass the kit's version arg" >&2; exit 1; }
+"$HOME/.local/bin/junie" --version
+"$HOME/.local/bin/junie" --version | grep -Fw "${JUNIE_MARKETING_VERSION}"
+"$HOME/.local/bin/junie" --version | grep -Fw "${JUNIE_VERSION}"
+EOF
 
 # Seals the shim's own auto-update check (it would otherwise poll
 # update-info.jsonl and stage a new build). `--eap`/`--nightly`/

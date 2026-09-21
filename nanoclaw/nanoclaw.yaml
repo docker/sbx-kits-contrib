@@ -11,14 +11,46 @@ sourceUrl: https://github.com/nanocoai/nanoclaw
 
 kind: workload
 
-# The content is a third-party image this kit does not build, so there is no
-# install for a build arg to pin and no version the provide could honestly
-# claim -- the tag (`sbx-claude-alpha`) is a channel, not a release number.
-#
-# MIGRATION NOTE: v2 declared no `version:`. One is added because an
-# unversioned provide has to publish under something (SPEC-v3 §9.2); it is the
-# kit's own release number, not NanoClaw's.
+# MIGRATION NOTE: v2 declared no `version:`. One is added because a kit
+# publishes under something (SPEC-v3 §9.2); it is the kit's own release
+# number, not NanoClaw's.
 version: "1.0.0"
+
+# DELIBERATELY UNVERSIONED. This kit's content is a published third-party
+# image (docker.io/nanoco/nanoclaw:sbx-claude-alpha, see nanoclaw.dockerfile),
+# so the version is a property of that image rather than of an install this
+# recipe drives. A `buildArg` here would pin nothing -- there is no installer
+# for it to reach -- so the only honest alternatives were to ASSERT a version
+# out of the image at build and fail when it differs, or to leave the provide
+# unversioned. Unversioned wins, because the assertion available is not worth
+# what it would look like. What is actually in the image:
+#
+#  * No version label of NanoClaw's own. `org.opencontainers.image.version` is
+#    `26.04` -- Ubuntu's, inherited from the base it was built on -- and
+#    labelling it NanoClaw's version would be reading the wrong field.
+#  * `org.opencontainers.image.revision`, `io.nanoclaw.channels.revision` and
+#    `io.nanoclaw.providers.revision` are 40-character commit SHAs. §5.2
+#    requires a numeric first segment, so none of them can be a version.
+#  * The one version-shaped string in the image is package.json's `2.3.0`, and
+#    it is stale by an enormous margin: `git describe --tags` in the shipped
+#    checkout answers `v2.3.0-2750-g973bc1af`. Upstream has not cut a tag in
+#    2750 commits, so 2.3.0 is what their manifest still says, not what the
+#    content is. An assertion against it would pass -- and would keep passing
+#    unchanged while the channel moved under it, since package.json is exactly
+#    the file that does not move. A green check that cannot fail is worse than
+#    no check: it would publish `nanoclaw@2.3.0` over arbitrary content and
+#    make a mixin's `requires: ["nanoclaw >= 2.3"]` resolve on nothing.
+#
+# The tag compounds it: `sbx-claude-alpha` is a mutable channel upstream
+# re-pushes, and this kit does not pin it by digest, so the content can change
+# without the kit changing at all.
+#
+# What would change this: an image that labels its own version (a real
+# `org.opencontainers.image.version`, or any label carrying a §5.2 version),
+# or upstream resuming release tags so the checkout's `git describe` is a
+# version. Either one makes the assert-at-build shape work, and then this
+# becomes `args.version` + a recipe step that reads the label and fails on a
+# mismatch.
 provides: ["nanoclaw"]
 
 capabilities:

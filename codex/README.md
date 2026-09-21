@@ -33,7 +33,7 @@ Any one of these works — the kit adapts to what it finds:
 ## Usage
 
 ```console
-sbx run --kit "docker.io/sbx/codex-kit:latest" codex
+sbx run --kit "docker.io/docker/sbx-kit-codex:latest" codex
 ```
 
 Or from a git URL targeting this repo:
@@ -251,7 +251,7 @@ carries a Docker engine and requests Docker-in-Docker.
 
 There is one artifact rather than two. Under v2 this kit named a separately
 published `docker.io/sbx/codex-image` in `sandbox.image` and the kit itself
-shipped as `docker.io/sbx/codex-kit`; a v3 kit is one OCI image carrying both
+shipped as `docker.io/docker/sbx-kit-codex`; a v3 kit is one OCI image carrying both
 the declarations (in a manifest annotation) and the content (in its layers), so
 the published kit *is* the image the sandbox boots. The name is derived from the
 kit directory and enforced repo-wide — see
@@ -275,7 +275,7 @@ are below.
 ### Building locally
 
 ```console
-docker build -f codex/codex.dockerfile -t docker.io/sbx/codex:latest codex
+docker build -f codex/codex.dockerfile -t docker.io/docker/sbx-kit-codex:latest codex
 ```
 
 That builds the content alone. To build the kit — content plus the validated,
@@ -284,7 +284,7 @@ expanded descriptor in its manifest annotation — build
 line dispatches to the kit frontend:
 
 ```console
-docker build -f codex/codex.yaml -t docker.io/sbx/codex:latest codex
+docker build -f codex/codex.yaml -t docker.io/docker/sbx-kit-codex:latest codex
 ```
 
 Codex installs via its standalone installer script, which downloads a

@@ -15,7 +15,7 @@ sbx secret set gitea
 Then create a sandbox with the kit, naming your instance:
 
 ```console
-sbx run --kit "docker.io/sbx/gitea-kit:latest" --kit-arg gitea.host=git.example.com claude
+sbx run --kit "docker.io/docker/sbx-kit-gitea:latest" --kit-arg gitea.host=git.example.com claude
 ```
 
 Or target this repo directly over git, or a local clone:
@@ -43,13 +43,15 @@ The proxy injects that header on **every** request to the host, including one th
 
 ### The `tea` CLI
 
-[`tea`](https://gitea.com/gitea/tea) is installed from a version- and SHA256-pinned release (no `curl | sh`), and its login is seeded at install time pointing at your instance.
+[`tea`](https://gitea.com/gitea/tea) **ships in the kit's image layers**, built from a version- and SHA256-pinned release (no `curl | sh`). Only its login is seeded at sandbox create, pointing at your instance.
+
+That split follows what each half needs. The binary is the same for every sandbox, so it is downloaded once when the kit is published rather than once per `sbx run`: the digest is fixed in a layer you can scan, a withdrawn or re-rolled release fails the kit's build instead of a user's sandbox creation, and `dl.gitea.com` is absent from the kit's permission surface altogether — the old install-phase network grant existed only so that hook could reach it. The login, by contrast, is built from the `gitea.host` you passed and the proxy-managed token sentinel, neither of which exists before the sandbox does.
 
 The stored token is the same sentinel that lives in `GITEA_TOKEN`, so `tea` sends `Authorization: token <sentinel>` — and the proxy replaces that header wholesale before the request leaves the sandbox. The proxy deliberately overrides any client-supplied credential on a managed host rather than trusting it, which is what makes seeding a placeholder login safe.
 
 The login is written directly rather than through `tea login add`, because `tea login add` calls the instance to validate the token and would fail sandbox creation whenever no credential is bound.
 
-To bump the pinned version, change `TEA_VERSION` and both per-arch checksums in `gitea.yaml`, sourced from `https://dl.gitea.com/tea/<version>/tea-<version>-linux-<arch>.sha256`.
+To bump the pinned version, change the `version` argument's default in `gitea.yaml` and both per-arch checksums in `gitea.dockerfile`, sourced from `https://dl.gitea.com/tea/<version>/tea-<version>-linux-<arch>.sha256`. The version is stated in that one place — the recipe, the `tea@<version>` the kit provides and the tag it publishes under all read it — and the build runs the installed binary and fails if what it reports disagrees.
 
 ### Why git over HTTPS works here, but not in the `gitlab` kit
 

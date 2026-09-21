@@ -19,7 +19,7 @@ sbx secret set kernel
 The primary form is the published OCI artifact on Docker Hub:
 
 ```console
-sbx run --kit "docker.io/sbx/kernel-kit:latest" claude
+sbx run --kit "docker.io/docker/sbx-kit-kernel:latest" claude
 ```
 
 Or target this repo directly over git:
@@ -95,8 +95,30 @@ request time. The real key comes from the host secret stored under the
 
 | Component | Location | How |
 | --- | --- | --- |
-| `kernel` CLI | `/usr/local/bin/kernel` (global) | `npm install -g @onkernel/cli`, a lifecycle install hook at creation time |
+| `kernel` CLI | `/usr/local/bin/kernel` (global) | `npm install -g @onkernel/cli` at **build** time, carried in the kit's overlay layer by `kernel.dockerfile` |
 | Quick-reference guide | `/home/agent/.kernel/quickstart.md` | Static file from `files/`, carried in the kit's overlay layer by `kernel.dockerfile` |
+
+Both arrive with the image, so the kit runs no lifecycle hooks at all and does
+nothing at sandbox creation. The CLI install used to be a create-time install
+hook — the only mechanism a v2 mixin had for installing anything — and moving it
+into the overlay removes the per-sandbox npm download, makes the CLI
+digest-pinned and scannable, turns a broken install into a failed publish rather
+than a failed sandbox, and drops the kit's entire install-phase network grant
+(npm plus the two GitHub release-asset hosts).
+
+The version no longer floats either. The descriptor's `version` arg carries the
+release, the recipe installs that exact npm version, and the kit publishes
+`provides: ["kernel@<version>"]` plus a top-level `version:` from the same arg —
+so the publish tag names the CLI release the overlay carries, and a kit asking
+for `kernel >= 0.39` can resolve against it. The build runs `kernel --version`
+and fails if the installed binary reports anything else, which matters here
+because the npm package's postinstall downloads the real binary from a GitHub
+release: the package version and the binary could otherwise disagree unnoticed.
+To bump it, set the arg's default to the current `latest`:
+
+```console
+curl -fsSL https://registry.npmjs.org/@onkernel/cli/latest | jq -r .version
+```
 
 ## Cleanup
 

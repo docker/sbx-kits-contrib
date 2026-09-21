@@ -15,17 +15,30 @@
 ARG BASE_IMAGE=docker/sandbox-templates:shell-docker
 FROM ${BASE_IMAGE} AS build
 
-ARG CLAUDE_CODE_VERSION=""
+# The kit's `version` arg, handed over by the descriptor as the installer's one
+# positional target. No default here, deliberately: an empty fallback would let
+# the install float to the installer's own default while the descriptor went on
+# publishing `claude@${{ kit.args.version }}`, which is the one failure mode
+# worse than floating. A missing value fails the build — see the guard below.
+ARG CLAUDE_CODE_VERSION
 
 # Run as the base's own non-root `agent` user (inherited USER), which is what
 # puts the install in /home/agent/.local rather than /root. `claude --version`
 # last, deliberately: the installer's exit code says only that the script ran,
 # not that a working binary reached PATH — a `curl | bash` whose curl dies after
 # partial output still exits 0.
+#
+# And it is compared, not just run. The descriptor publishes
+# `claude@${{ kit.args.version }}`, so a build that installed something else
+# would stage a provide that lies about its own content. `claude --version`
+# prints "<version> (Claude Code)", so the first field is the number to match.
 RUN <<EOF
 set -eux
+[ -n "${CLAUDE_CODE_VERSION}" ] || { echo "CLAUDE_CODE_VERSION must be set" >&2; exit 1; }
 curl -fsSL https://claude.ai/install.sh | bash -s -- ${CLAUDE_CODE_VERSION}
-claude --version
+installed=$(claude --version | awk '{print $1}')
+[ "$installed" = "${CLAUDE_CODE_VERSION}" ] || {
+  echo "installed claude $installed != pinned ${CLAUDE_CODE_VERSION}" >&2; exit 1; }
 EOF
 
 # Staging needs to write /out, so this half runs as root. `cp -a` preserves the

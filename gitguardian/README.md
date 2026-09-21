@@ -17,7 +17,7 @@ sbx secret set gitguardian
 Then create a Claude sandbox with the kit:
 
 ```console
-sbx run --kit "docker.io/sbx/gitguardian-kit:latest" claude
+sbx run --kit "docker.io/docker/sbx-kit-gitguardian:latest" claude
 ```
 
 Or target this repo directly over git, or a local clone:
@@ -35,8 +35,12 @@ The kit declares a `gitguardian` credential with one inject rule. Inside the con
 
 ## What it installs
 
-1. **`ggshield`** from a pinned, digest-verified GitHub release (version and per-arch SHA256 pinned in `gitguardian.yaml`, no `curl | sh`). To bump, change `GGSHIELD_VERSION` and both checksums.
-2. **The Claude Code AI hook**, via `ggshield machine setup --agent claude-code --no-git-hooks --no-honeytokens`, run as the agent user. This registers `PreToolUse` / `PostToolUse` / `UserPromptSubmit` handlers that run `ggshield secret scan ai-hook` inside the agent's own tool loop.
+1. **`ggshield`**, which **ships in the kit's image layers** rather than being downloaded into your sandbox. `gitguardian.dockerfile` fetches a pinned, digest-verified GitHub release (no `curl | sh`) at build time and stages the PyInstaller bundle under `/opt/ggshield` with a symlink on `PATH`. To bump, change the `version` argument's default in `gitguardian.yaml` and both per-arch checksums in `gitguardian.dockerfile`.
+2. **The Claude Code AI hook**, via `ggshield machine setup --agent claude-code --no-git-hooks --no-honeytokens`, run as the agent user at sandbox create. This registers `PreToolUse` / `PostToolUse` / `UserPromptSubmit` handlers that run `ggshield secret scan ai-hook` inside the agent's own tool loop.
+
+The split is not arbitrary. The scanner is the same ~100 MB bundle for every sandbox, so downloading it once at publish means the digest is fixed in a layer you can scan, a withdrawn or re-rolled release fails the kit's build instead of a user's sandbox creation, every `sbx run` saves the fetch, and — most visibly — **the kit no longer asks for any install-phase network access at all**. The three GitHub hosts it used to need are gone from its permission surface; `api.gitguardian.com` at runtime is all that remains.
+
+The hook registration cannot move, and it is worth knowing why: `machine setup` edits `~/.claude/settings.json`, a file Claude Code owns and writes itself. An image layer *replaces* a file rather than merging into it, so shipping a `settings.json` would register this scanner by discarding the agent's own configuration. Appending to somebody else's file is create-time work by nature. It needs no network to do it (verified with networking disabled).
 
 A blocked action means a real secret was detected: remove and rotate it, don't retry or bypass. Manual scans remain available as an escape hatch:
 

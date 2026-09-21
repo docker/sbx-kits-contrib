@@ -47,10 +47,13 @@ instead of `registry.npmjs.org`.
 ## Build args
 
 - `BASE_IMAGE` — re-point or digest-pin the base.
-- `CLAUDE_CODE_VERSION` — pin a release. The value is passed through as the
-  installer's positional target, the same one `claude install [target]` takes:
-  `stable`, `latest`, or a specific version such as `2.1.267`. Left empty, the
-  installer picks its own default.
+- `CLAUDE_CODE_VERSION` — the release to install; **required**, no default. The
+  value is passed through as the installer's positional target, the same one
+  `claude install [target]` takes, so `stable` and `latest` work for a direct
+  `docker build`. The kit descriptor narrows it to an exact version such as
+  `2.1.267`, because the same value becomes the kit's `claude@<version>`
+  provide. The build asks the installed binary for its version and fails if it
+  does not match.
 
 Runs as the non-root `agent` user, with
 `CMD ["claude", "--dangerously-skip-permissions"]`.

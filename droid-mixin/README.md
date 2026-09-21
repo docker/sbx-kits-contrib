@@ -23,6 +23,16 @@ The same declarations as the workload — the `droid` credential (API key or
 WorkOS OAuth), the egress policy for Factory's hosts, and the install hook
 that prepares `~/.factory`.
 
+The same pin, too. `version` (build arg `DROID_VERSION`) is the Droid release
+the overlay installs, expanded into `provides: ["droid@<version>"]`, and it
+must stay equal to the workload's, since the two shapes provide one name.
+Factory's `curl | sh` installer takes no version — `VER="0.223.0"` is a plain
+literal and the script reads neither `$@` nor the environment — so the overlay
+fetches the pinned artifact from the installer's own versioned URL template
+and verifies its published `.sha256`, then asserts the binary reports the
+declared release. See [`../droid/README.md`](../droid/README.md) for the
+detail and for how to bump it.
+
 ## What it leaves to the base
 
 - **The launch command.** The mixin sets no `ENTRYPOINT`; the base workload's

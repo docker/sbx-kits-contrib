@@ -38,7 +38,7 @@ value never enters the sandbox.
 ## Usage
 
 ```console
-sbx run --kit "docker.io/sbx/open-interpreter-kit:latest" open-interpreter
+sbx run --kit "docker.io/docker/sbx-kit-open-interpreter:latest" open-interpreter
 ```
 
 Or from a git URL targeting this repo:

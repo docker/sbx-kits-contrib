@@ -2,7 +2,18 @@
 # Docker Sandboxes kit for GitGuardian ggshield secret scanning.
 # Usage, prerequisites and design notes: see README.md in this directory.
 schemaVersion: "3"
-version: "0.1.0"
+
+# The ggshield release this kit's overlay carries, by reference to the
+# `version` arg below — SPEC-v3 §4 admits a build-phase arg reference in this
+# field and expands it at publish, so the release is stated in exactly one
+# place and the publish tag and `org.opencontainers.image.version` name the
+# scanner the kit ships.
+#
+# MIGRATION NOTE: this was a standalone "0.1.0" while ggshield arrived from an
+# install hook, because the kit had no content and so nothing to version. Now
+# that the scanner ships in the kit's layers, the kit and the release it
+# carries are the same artifact.
+version: "${{ kit.args.version }}"
 displayName: GitGuardian (ggshield)
 description: Installs the GitGuardian CLI (ggshield) with proxy-injected API-key auth for api.gitguardian.com and wires it as a Claude Code AI hook, so the agent's actions are scanned for hardcoded secrets automatically - the real key never enters the sandbox.
 
@@ -20,25 +31,68 @@ kind: mixin
 # provides `claude`. Unversioned on purpose: an unversioned require is
 # satisfied by any version of the provide (SPEC-v3 §5.2), which is what the
 # v2 affinity meant.
+#
+# MIGRATION NOTE: `deb/dpkg` was the other half of this list, and it went out
+# with the hook that justified it. The ggshield install hook picked its release
+# asset with `dpkg --print-architecture` under `set -euo pipefail`, so a base
+# without dpkg died at that line and sandbox creation failed — that, and only
+# that, is what the requirement recorded. gitguardian.dockerfile makes the same
+# choice at build from buildx's TARGETARCH, and the one hook left reads no
+# distribution package at all. `requires` is a closed-set check (SPEC-v3 §5.3):
+# a name kept past its reason refuses compositions in exchange for nothing.
+#
+# What the overlay does still assume of a base — a glibc userland, since the
+# pinned release is the `-unknown-linux-gnu` PyInstaller build — has no
+# honest name here that is narrower than what `claude` already implies, and
+# gitguardian.dockerfile states it where it can be acted on.
 requires: ["claude"]
 
+# The ggshield release gitguardian.dockerfile downloads, declared once:
+# validated here, handed to the recipe as GGSHIELD_VERSION, and expanded into
+# `provides` and into the top-level `version:` — so the kit cannot publish a
+# release its overlay does not carry. The recipe proves the agreement by
+# running the installed binary and comparing what it reports.
+#
+# `buildArg:`, not `env:` — the two are mutually exclusive and this value
+# resolves at build. Nothing in the container reads a GGSHIELD_VERSION.
+#
+# An installer may override it, but not silently: the per-arch SHA256s in the
+# recipe are pinned to this release, so another version fails the digest check
+# rather than installing under a descriptor that goes on claiming this number.
+# Bumping ggshield is therefore a three-part edit — this default and both
+# digests in gitguardian.dockerfile, together — each digest being the
+# sha256sum of the release tarball.
+args:
+  version:
+    default: "1.53.0"
+    pattern: '^[0-9]+\.[0-9]+\.[0-9]+$'
+    description: ggshield release to install
+    buildArg: GGSHIELD_VERSION
+
+# The scanner the overlay puts on PATH, carrying the version it actually
+# landed. MIGRATION NOTE: this kit declared no provide at all while ggshield
+# came from an install hook — there was no content to describe, and the honest
+# name for "a binary some sandbox may or may not have downloaded" was none.
+provides: ["ggshield@${{ kit.args.version }}"]
+
 capabilities:
-  # Every destination the kit needs. MIGRATION NOTE: v2 declared one flat
-  # allow list and the comments already said which entry served which
-  # purpose, so the phases fall straight out of them. The three GitHub
-  # hosts are the pinned release download and nothing else — they close
-  # before the agent starts. api.gitguardian.com is the runtime scan and
-  # verify traffic. The union of the two phases is the v2 list.
+  # One host, one phase.
+  #
+  # MIGRATION NOTE: v2 declared one flat allow list and its comments already
+  # said which entry served which purpose, so the first v3 cut split it into an
+  # install phase holding three GitHub hosts — the pinned release download and
+  # nothing else — and a runtime phase holding GitGuardian's API.
+  #
+  # MIGRATION NOTE: the install phase is now gone entirely.
+  # gitguardian.dockerfile fetches that tarball at image build, which is the
+  # builder's traffic and not governed by this policy. The one hook that
+  # remains registers ggshield with Claude Code by editing a local file and
+  # makes no request — verified by running `ggshield machine setup` with
+  # networking disabled on the composed overlay. An absent phase grants
+  # nothing, which is the whole point of moving the download: the grant
+  # existed only to let that hook reach the network.
   - type: com.docker.sandbox/network-policy@1
     config:
-      install:
-        allow:
-          # Install-time: pinned release tarball download. github.com 302-redirects
-          # to the githubusercontent object stores for release binaries; both are
-          # listed since the redirect target isn't guaranteed to be the same host.
-          - github.com
-          - objects.githubusercontent.com
-          - release-assets.githubusercontent.com
       runtime:
         allow:
           # Runtime: ggshield's scan/verify calls hit the GitGuardian public API.
@@ -80,52 +134,41 @@ capabilities:
   - type: com.docker.sandbox/lifecycle@1
     config:
       install:
-        # Install ggshield from a pinned, digest-verified GitHub release (same
-        # pattern as the trivy/gitea kits: no curl|sh, version AND SHA256 pinned in
-        # git). The release ships a self-contained PyInstaller bundle (a binary
-        # plus an _internal/ dir), so we extract the whole tree to /opt and symlink
-        # the launcher onto PATH. To bump: change GGSHIELD_VERSION plus the per-arch
-        # SHA256 below (sha256sum of each release tarball).
+        # MIGRATION NOTE: the first hook, "Install ggshield, version+digest
+        # pinned", is gone — gitguardian.dockerfile performs that download at
+        # image build instead, with the same release, the same per-arch slugs
+        # and the same two SHA256s. Nothing in the hook body needed
+        # sandbox-create time: it read no arg, no credential and no
+        # create-time path, and its one environment-shaped input was
+        # `dpkg --print-architecture`, which buildx answers better as
+        # TARGETARCH because it can answer it once per platform.
         #
-        # No `env:` list: every variable is set by the hook itself, and the
-        # closing `ggshield --version` reads no configuration.
-        - command: |
-            set -euo pipefail
-            GGSHIELD_VERSION=1.53.0
-            ARCH=$(dpkg --print-architecture)
-            case "$ARCH" in
-              amd64)
-                SLUG="x86_64-unknown-linux-gnu"
-                SHA256="234d1a62ea7b769695c7e5aee8f29e9d0069cd09b4e5b67493d3b529abb44e4a"
-                ;;
-              arm64)
-                SLUG="aarch64-unknown-linux-gnu"
-                SHA256="097616513fe7a4f25831a464b8968b124af32d274e2ce006e388800605696b20"
-                ;;
-              *)
-                echo "unsupported sandbox arch: $ARCH (expected amd64 or arm64)" >&2
-                exit 1
-                ;;
-            esac
-            DIRNAME="ggshield-${GGSHIELD_VERSION}-${SLUG}"
-            TARBALL="${DIRNAME}.tar.gz"
-            URL="https://github.com/GitGuardian/ggshield/releases/download/v${GGSHIELD_VERSION}/${TARBALL}"
-            curl --proto '=https' --tlsv1.2 -fsSL -o /tmp/ggshield.tgz "$URL"
-            echo "${SHA256}  /tmp/ggshield.tgz" | sha256sum -c -
-            rm -rf /opt/ggshield
-            tar -C /opt -xzf /tmp/ggshield.tgz
-            mv "/opt/${DIRNAME}" /opt/ggshield
-            ln -sf /opt/ggshield/ggshield /usr/local/bin/ggshield
-            rm -f /tmp/ggshield.tgz
-            ggshield --version
-          user: "0"
-          description: "Install ggshield v1.53.0, version+digest pinned"
+        # What that bought, in order of how visible it is: all three GitHub
+        # hosts left the network policy above (no install phase remains),
+        # `deb/dpkg` left `requires`, the tarball's digest is now fixed in a
+        # scannable published layer rather than re-verified in every sandbox,
+        # a withdrawn or re-rolled release fails the build at publish instead
+        # of failing sandbox creation for a user, and every `sbx run` of this
+        # kit saves the fetch of a ~100 MB bundle.
+        #
+        # The one hook that remains is the one that could not move.
 
         # Install ggshield as the Claude Code AI hook. Unlike a git pre-commit hook,
         # this fires inside the agent's own tool loop and scans the content the
         # agent produces - putting the secret scan directly on the agent's
         # authorized output path, which is exactly the surface this sandbox exists
         # to protect.
+        #
+        # WHY THIS STAYS A HOOK, and it is the clearest case of the rule: what
+        # `machine setup` does is edit ~/.claude/settings.json, a file the
+        # composed claude base owns and writes itself. An overlay's file
+        # entries REPLACE the base's rather than merging with them, so
+        # shipping a settings.json in a layer would discard whatever the agent
+        # kit had put there — registering this scanner by throwing away the
+        # agent's own configuration. Merging into somebody else's file is
+        # create-time work by nature. That the file also lives under
+        # /home/agent, which may be a mounted volume on the composed base, is
+        # a second reason pointing the same way.
         #
         # `machine setup` is the current, non-deprecated entrypoint (`ggshield
         # install -t <agent>` still works but prints a deprecation warning). We

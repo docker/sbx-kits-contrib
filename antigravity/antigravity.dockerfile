@@ -22,6 +22,12 @@ ARG BASE_IMAGE
 # that will run the agent owns. `agy --help` is the build-time gate -- it runs
 # the installed binary, so an install that lands nothing executable fails the
 # build instead of shipping a non-starting agent.
+#
+# No version arg reaches this line, and that is not an oversight: install.sh
+# parses only `-d|--dir` and `-h|--help` and resolves what to install from a
+# manifest it fetches itself. That is why the descriptor's provide is
+# unversioned -- see antigravity.yaml for the full argument and for what
+# upstream would have to change to make a pin possible.
 USER agent
 RUN curl -fsSL https://antigravity.google/cli/install.sh -o /tmp/install-antigravity.sh && \
     bash /tmp/install-antigravity.sh --dir /home/agent/.local/bin && \

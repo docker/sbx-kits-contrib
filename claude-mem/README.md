@@ -15,7 +15,7 @@ why). The content is Claude-Code-specific, so the kit declares
 Pair it with the built-in `claude` agent, from its published OCI artifact on Docker Hub:
 
 ```console
-sbx run --kit "docker.io/sbx/claude-mem-kit:latest" claude
+sbx run --kit "docker.io/docker/sbx-kit-claude-mem:latest" claude
 ```
 
 Or from a git URL targeting this repo:

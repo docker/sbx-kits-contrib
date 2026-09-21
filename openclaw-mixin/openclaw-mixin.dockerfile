@@ -118,6 +118,16 @@ for b in npm npx; do
   cp -a "$node_prefix/bin/$b" "/out${node_prefix}/bin/$b"
 done
 
+# npm tarballs preserve whatever uid the publisher's machine had, and `cp -a`
+# carries it into the overlay: this tree arrives with files owned by 501:20 (a
+# macOS developer), 1001:127 (a CI runner) and worse. In a create-time hook
+# those ids were harmless because the install ran against the real base; as
+# image content on an unknown base they may be real accounts, and a file's
+# owner can rewrite it whatever its mode says. Normalized to root, which is
+# how a root-installed global package looks anyway -- the agent needs write
+# access to the prefix directories to add packages, not to openclaw's own tree.
+chown -R 0:0 "/out${root}/openclaw" "/out${node_prefix}/lib/node_modules/npm"
+
 # The base owns the global prefix root as agent:agent, so the agent can
 # `npm install -g` without sudo -- which is exactly what openclaw's runtime
 # plugin installs do. mkdir above created it root-owned, and an overlay's

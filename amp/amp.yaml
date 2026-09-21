@@ -2,21 +2,65 @@
 # Migration of the v2 `amp` sandbox kit. This one shipped no Dockerfile at
 # all: v2's sandbox.image pointed straight at a published template and the
 # install hook did the rest. A v3 workload MUST have content, so the companion
-# recipe states exactly that -- the same template as its base, plus the launch
-# config the image config now owns. Deltas are marked MIGRATION NOTE inline.
+# recipe states exactly that -- the same template as its base, the launch
+# config the image config now owns, and Amp's own installer run at build time
+# rather than at sandbox create. That last part is why this kit declares no
+# lifecycle hook and no install-phase egress. Deltas are marked MIGRATION NOTE
+# inline.
 schemaVersion: "3"
 displayName: Amp
 description: The frontier coding agent.
 
 kind: workload
 
-# MIGRATION NOTE: v2 declared no version, and the install floats -- install.sh
-# resolves whatever Amp currently publishes, with no pin to reference -- so the
-# provide is unversioned and `version:` supplies the fallback that publishing
-# needs it to carry.
-version: "1.0.0"
+# MIGRATION NOTE: v2 declared no version. What stands here now is the Amp
+# release this kit installs, by reference to the `version` arg below -- SPEC-v3
+# §4 admits a build-phase arg reference in this field and expands it at publish.
+# So the kit states its version in exactly one place, and its publish tag and
+# `org.opencontainers.image.version` name the agent the image carries rather
+# than a kit release number of its own.
+version: "${{ kit.args.version }}"
 
-provides: ["amp"]
+# The Amp release the recipe installs, declared once: validated here, handed to
+# install.sh, and expanded into `provides` and `version:` -- so the kit cannot
+# claim a release it does not carry. The recipe asserts the agreement at build
+# time by asking the installed binary.
+#
+# HOW THE DEFAULT WAS DETERMINED, and how to bump it: with AMP_VERSION unset,
+# install.sh fetches its own version pointer,
+# `https://static.ampcode.com/cli/cli-version.txt`, and installs what that
+# names. This default is what the pointer held at the moment of pinning, so it
+# is exactly what the unpinned recipe would have installed then. To bump:
+#
+#     curl -fsSL https://static.ampcode.com/cli/cli-version.txt
+#
+# WHAT THE SHAPE MEANS, because it does not look like a release number: Amp
+# publishes continuously and versions its builds `0.0.<unix timestamp>-g<commit>`,
+# so a newer one appears within the hour and this pin is behind upstream almost
+# immediately. Behind is not broken: past versions stay on the CDN -- both this
+# one and the build before it still serve their binary and checksum for all
+# three Linux targets -- so a stale default keeps building, it just keeps
+# installing the release it names. That is the property a pin is for.
+#
+# WHY PINNED rather than left floating: an unversioned provide takes this
+# descriptor's `version:` as its version at resolution, so `provides: ["amp"]`
+# published `amp@1.0.0` -- the kit's own release number wearing the agent's
+# name, which a mixin writing `requires: ["amp >= 0.0.17"]` would refuse to
+# resolve against. And there was a pin to take: install.sh reads AMP_VERSION
+# from its environment and installs exactly that, building the binary and
+# checksum URLs from it rather than from the pointer above.
+args:
+  version:
+    default: "0.0.1789905635-g0f1dca"
+    # Amp's published shape, with the commit suffix optional so a plain `X.Y.Z`
+    # would still pass. Every value this accepts is also a legal provide
+    # version: SPEC-v3 §5.2 admits `[0-9A-Za-z-]` within a dotted segment,
+    # which is what carries the `-g<commit>` tail.
+    pattern: '^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z]+)?$'
+    description: Amp release to install
+    buildArg: AMP_VERSION
+
+provides: ["amp@${{ kit.args.version }}"]
 
 capabilities:
   # This workload is an agent sandbox: the host launches the agent rather than
@@ -24,30 +68,29 @@ capabilities:
   # config declares instead of assuming one.
   - type: com.docker.sandbox/sbx@1
 
-  # MIGRATION NOTE: v2's one flat allow list becomes phase-scoped, and this is
-  # the one kit in this group with a real install phase to scope -- Amp is
-  # installed by the hook below at sandbox create, not baked into the image.
-  # Both entries appear in both phases, because both phases genuinely reach
-  # them:
-  #   * install -- install.sh is served from ampcode.com, and vendor install
-  #     scripts routinely redirect the payload to a sibling label, which the
-  #     wildcard is what admits. v2's single list covered both for the hook,
-  #     and narrowing install to the apex alone would be a change of behavior
-  #     dressed up as a migration.
-  #   * runtime -- ampcode.com is the credential's inject domain (v3 validates
-  #     that it appears in the matching phase's allow list), and the agent's
-  #     own API traffic is what the wildcard covers.
-  # The union of the two phases is exactly v2's list; no host is lost.
+  # MIGRATION NOTE: v2's one flat allow list becomes phase-scoped, and there
+  # is no `install:` phase here at all.
+  #
+  # The install phase existed for one consumer: the hook that ran install.sh
+  # at sandbox create. amp.dockerfile now runs it at image build -- outside
+  # any sandbox phase, and so outside this policy altogether -- which leaves
+  # an install grant with no installer to serve. It is dropped rather than
+  # left standing: a phase that opens egress nothing uses is permission
+  # surface the kit is asking for and never spending. Both hosts the
+  # installer needed are build-time concerns now (ampcode.com serves
+  # install.sh, static.ampcode.com the binary and its checksum -- the sibling
+  # label the wildcard admitted).
+  #
+  # The runtime phase is unchanged, and both entries earn their place there
+  # independently of the install: ampcode.com is the credential's inject
+  # domain (v3 validates that it appears in the matching phase's allow list),
+  # and the wildcard covers the agent's own API traffic.
   #
   # MIGRATION NOTE: entries are portless, this repo's house style. v2 wrote
   # `ampcode.com:443`; a portless pattern matches any port, so this only
   # widens within a host the list already names.
   - type: com.docker.sandbox/network-policy@1
     config:
-      install:
-        allow:
-          - ampcode.com
-          - "*.ampcode.com"
       runtime:
         allow:
           - ampcode.com
@@ -72,17 +115,14 @@ capabilities:
         inject:
           - {domain: ampcode.com, header: Authorization, format: "Bearer %s"}
 
-  - type: com.docker.sandbox/lifecycle@1
-    config:
-      install:
-        # v2's setup.install, verbatim -- including `user: "1000"`. install.sh
-        # is a per-user installer with no --prefix, so it has to run as the
-        # user that will run the agent or it lands the binary somewhere the
-        # agent cannot reach. It needs nothing beyond the platform baseline
-        # ($HOME to install into, $PATH to find curl), so it declares no env.
-        - command: curl -fsSL https://ampcode.com/install.sh | bash
-          user: "1000"
-          description: Install Amp
+  # MIGRATION NOTE: no lifecycle entry. v2's one hook was `curl -fsSL
+  # https://ampcode.com/install.sh | bash` as user 1000; amp.dockerfile now
+  # runs that same command, as the same user, at build time. install.sh reads
+  # nothing that exists only at create -- no kit arg, no workspace path, no
+  # credential -- so there was nothing holding it there once v3 made content
+  # available to both forms of this kit. Nothing else was ever in this entry,
+  # and a lifecycle entry declaring no hooks, no files and no interactive tail
+  # is invalid, so the entry is dropped rather than left empty.
 
   # v2's agentInstructions, body moved verbatim into the staged context file.
   - type: com.docker.sandbox/agent-context@1

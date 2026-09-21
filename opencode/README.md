@@ -37,7 +37,7 @@ These are the commands the kit is meant to be run with. They do **not** work
 while `opencode` is still a built-in agent — see the note at the top.
 
 ```console
-sbx run --kit "docker.io/sbx/opencode-kit:latest" opencode
+sbx run --kit "docker.io/docker/sbx-kit-opencode:latest" opencode
 ```
 
 Or from a git URL targeting this repo:
@@ -238,7 +238,7 @@ which resolved to the Docker flavour of its template.
 
 There is no longer a separate `-image` artifact: in v3 a kit *is* an ordinary
 OCI image, so what v2 split into `docker.io/sbx/opencode-image` and
-`docker.io/sbx/opencode-kit` is one thing published once. The name is derived
+`docker.io/docker/sbx-kit-opencode` is one thing published once. The name is derived
 from the kit directory and enforced repo-wide — see
 [PUBLISHING.md](../PUBLISHING.md#naming).
 
@@ -259,9 +259,15 @@ coordinates, and the Docker Hub OIDC setup.
 docker build -f opencode/opencode.dockerfile -t opencode-kit:latest opencode
 ```
 
-One build arg beyond `BASE_IMAGE`: `OPENCODE_VERSION` pins a published version,
-`--build-arg OPENCODE_VERSION=1.2.3` (npm semver, no leading `v`). Left empty,
-the build installs the newest published version.
+One build arg beyond `BASE_IMAGE`: `OPENCODE_VERSION`, the OpenCode release to
+install (npm semver, no leading `v`). It has no default in the recipe — the
+descriptor owns the pin, and a build through the kit supplies it. Build through
+the kit instead to keep the install and the published `provides` in step:
+
+```console
+docker buildx build opencode -f opencode/opencode.yaml \
+  --build-arg version=1.18.31 --output type=cacheonly
+```
 
 ## Related
 

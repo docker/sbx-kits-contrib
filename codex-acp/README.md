@@ -49,7 +49,7 @@ kit can refresh its Codex auth files.
 Create a sandbox from its published OCI artifact on Docker Hub:
 
 ```console
-sbx create --kit "docker.io/sbx/codex-acp-kit:latest" --name my-task codex /path/to/task
+sbx create --kit "docker.io/docker/sbx-kit-codex-acp:latest" --name my-task codex /path/to/task
 ```
 
 Or from a git URL targeting this repo:

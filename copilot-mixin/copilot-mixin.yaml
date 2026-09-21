@@ -25,18 +25,81 @@ description: >-
   GitHub's Copilot CLI as a mixin — the CLI in an overlay, with the GitHub and
   Copilot credentials, scoped egress, and the trusted-folder and MCP-gateway
   seeds the agent needs. Layer it onto a shell base and run `copilot`.
-# The KIT's version, not Copilot's, and the publish-time fallback for the
-# unversioned provide below. Tracks the copilot kit it is derived from.
-version: "1.0.0"
+# The Copilot CLI's version, by reference: the `version` arg below, expanded at
+# publish, which SPEC-v3 §4 admits here. Tracking the copilot kit this is
+# derived from used to mean keeping two numbers in step — that kit's release and
+# this one's — and now means keeping one pin in step, since the arg is what the
+# install, the provide and this field all resolve from. The literal it replaces
+# was the publish-time fallback for an unversioned provide, and pinning the
+# provide without removing it would have left the two free to disagree.
+version: "${{ kit.args.version }}"
 
 kind: mixin
 
-# Same name the copilot workload provides. Unversioned for the same reason: the
-# vendor installer takes no version pin.
+# Same arg, same default, same installer knob as the copilot workload, and
+# that is a requirement rather than a coincidence: this kit and `copilot`
+# beside it ship the same CLI under the same provide name, so a composition
+# that picked one or the other must get the same release either way. The two
+# move together — bump one, bump the other.
+#
+# MIGRATION NOTE: this kit used to say "the vendor installer takes no version
+# pin". That was wrong, and it is worth recording why the mistake was easy to
+# make: the installer's usage header advertises only PREFIX (which the overlay
+# recipe already uses to stage the tree), while VERSION is undocumented there
+# and appears further down, where the download URL is chosen:
+#
+#     if [ "${VERSION}" = "latest" ] || [ -z "$VERSION" ]; then
+#       DOWNLOAD_URL=".../releases/latest/download/copilot-${PLATFORM}-${ARCH}.tar.gz"
+#     ...
+#     else
+#       # Prefix version with 'v' if not already present
+#       case "$VERSION" in
+#         v*) ;;
+#         *) VERSION="v$VERSION" ;;
+#       esac
+#       DOWNLOAD_URL=".../releases/download/${VERSION}/copilot-${PLATFORM}-${ARCH}.tar.gz"
+#
+# An EMPTY value is not "no opinion" to that branch, it is `latest` — which is
+# why the recipe refuses to build without one. And the `v` prefix is the
+# installer's job: upstream tags this release `v1.0.86`, SPEC-v3 §5.2 admits
+# no `v` in a version, so the arg carries the bare number.
+#
+# HOW THE DEFAULT WAS DETERMINED, and how to bump it: the installer downloads
+# GitHub release assets of github/copilot-cli. The latest release there was
+# `v1.0.86` when this was pinned:
+#
+#   curl -fsSL https://api.github.com/repos/github/copilot-cli/releases/latest \
+#     | jq -r .tag_name        # -> v1.0.86
+args:
+  version:
+    default: "1.0.86"
+    pattern: '^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$'
+    description: GitHub Copilot CLI release to install
+    buildArg: COPILOT_VERSION
+
+# Same name AND same version the copilot workload provides. The overlay's
+# build stage asserts the staged binary reports this version, so the claim is
+# checked rather than asserted — and a constrained require can now resolve
+# against it, which the old unversioned form could not satisfy.
 #
 # The two kits are alternatives, never composed together: one name has one
 # owner (SPEC-v3 §5.3), so resolution refuses copilot + copilot-mixin.
-provides: ["copilot"]
+provides: ["copilot@${{ kit.args.version }}"]
+
+# What the startup hook below borrows from the base. It runs `flock` on a lock
+# file and merges the MCP config with jq, both under `set -e`, and a startup
+# command that exits non-zero leaves the sandbox unable to start — so neither
+# is a soft dependency. §12's floor covers bash, sh, curl, git and a CA store
+# and stops there.
+#
+# These are derived names, not authored ones: publishing a workload reads its
+# dpkg database and states one entry per installed package (SPEC-v3 §9.6), so
+# a Debian-family base provides them by construction. `flock` is packaged in
+# util-linux, which is why the name is not `deb/flock`.
+#
+# The workload beside this one needs neither entry: it owns its base image, so
+# its own dpkg database states what it carries at publish.
+requires: ["deb/jq", "deb/util-linux"]
 
 capabilities:
   # The agent's own egress rides with the kit that ships the agent: the base

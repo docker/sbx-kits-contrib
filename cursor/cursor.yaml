@@ -12,25 +12,75 @@
 schemaVersion: "3"
 displayName: Cursor
 description: Cursor Agent, the CLI coding agent from Cursor.
-# The KIT's version, not Cursor's. It covers this descriptor, the network
-# policy and the setup hooks — cursor-agent inside the image floats (it
-# installs from the vendor's latest channel and self-updates), so a newer
-# cursor-agent does not bump this and this does not track Cursor releases.
+# cursor-agent's version, by reference. SPEC-v3 §4 admits a build-phase arg
+# reference here and expands it at publish, so this field resolves out of the
+# `version` arg below — the same build the recipe downloads and the provide
+# publishes under. This descriptor, the network policy and the setup hooks are
+# released as the agent they carry rather than under a number of their own, and
+# the kit's published version is the calendar-and-hash identifier the agent
+# reports for itself rather than a semver that resembles one and means
+# something else.
 #
-# MIGRATION NOTE: in v2 this was published as the vnd.docker.sandbox.kit.version
-# annotation. In v3 it is the version *fallback* for unversioned provides
-# (SPEC-v3 §4), which is what gives the bare `cursor` provide below a version at
-# publish time. `scripts/check-release-tag.sh` still reads it.
-version: "1.0.0"
+# MIGRATION NOTE: in v2 this was the kit's own release, published as the
+# vnd.docker.sandbox.kit.version annotation. In v3 it is also the version
+# *fallback* for unversioned provides (SPEC-v3 §4) — which is how bare
+# `provides: ["cursor"]` published `cursor@1.0.0`. Pinning the provide took that
+# job away; resolving this field from the same arg removes the second version
+# the first could have disagreed with.
+#
+# `scripts/check-release-tag.sh` reads this through `scripts/kit-version.sh` —
+# the same resolver `publish-kit.sh` tags with, so a release tag and a published
+# tag cannot disagree — which means a field referencing an arg resolves for it
+# rather than defeating it. Note its vX.Y.Z tag grammar has never been able to
+# name a cursor-agent build in the first place, since these versions are
+# calendar-shaped.
+version: "${{ kit.args.version }}"
 
 kind: workload
 
+# The cursor-agent build this kit installs and publishes.
+#
+# NOT SEMVER — calendar-shaped, with the release's build hash as part of the
+# identifier. `2026.09.18-9a7762b` is one atom: the date alone does not name a
+# downloadable release and is not what the agent reports for itself. SPEC-v3
+# §5.2 admits it as a version because only the FIRST segment must be numeric
+# and later segments may carry letters and hyphens — `2026` / `09` /
+# `18-9a7762b` — so it can be referenced into `provides` unchanged.
+#
+# HOW THE DEFAULT WAS DETERMINED, and how to bump it: Cursor's installer takes
+# no version argument and its endpoint ignores query parameters (`?version=`
+# and `?v=` both return the current script unchanged) — the release identifier
+# is baked into the script body when the vendor generates it. So the current
+# release is read out of the script itself:
+#
+#   curl -fsSL https://cursor.com/install | grep -o 'lab/[^/]*'
+#     # -> lab/2026.09.18-9a7762b
+#
+# and `cursor-agent --version` in a throwaway container confirms the agent
+# reports that same string back.
+args:
+  version:
+    default: "2026.09.18-9a7762b"
+    # Deliberately not a semver pattern: `[0-9]+\.[0-9]+\.[0-9]+` would reject
+    # nothing useful here but would also accept a bare date, which does not
+    # name a fetchable release. The build hash is required because the
+    # download path needs it.
+    pattern: '^[0-9]{4}\.[0-9]{2}\.[0-9]{2}-[0-9a-f]{7,40}$'
+    description: Cursor Agent release to install (calendar version plus build hash)
+    buildArg: CURSOR_VERSION
+
 # MIGRATION NOTE: v2 had no provides — identity was the kit's `name`, which a
 # v2 mixin matched with `requires: {agent: cursor}`. v3 has no implicit
-# identity, so a kit that wants to be requirable states so. Unversioned
-# because the vendor installer takes no version pin and cursor-agent
-# self-updates; the `version:` above is the publish-time fallback.
-provides: ["cursor"]
+# identity, so a kit that wants to be requirable states so.
+#
+# Versioned from the arg above, which is the same value the recipe puts in the
+# download URL — so what is published here is what the image ships. The recipe
+# asserts the agreement at build time by asking the installed binary.
+#
+# One caveat worth stating rather than hiding: cursor-agent self-updates, so
+# this describes what the image SHIPS, which is the only thing a kit can
+# honestly claim. A long-lived sandbox may be running something newer.
+provides: ["cursor@${{ kit.args.version }}"]
 
 capabilities:
   # This workload is an agent sandbox: the host launches the agent rather than

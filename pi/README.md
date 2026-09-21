@@ -15,7 +15,7 @@ on an npm install.
 ## Usage
 
 ```console
-sbx run --kit "docker.io/sbx/pi-kit:latest" pi
+sbx run --kit "docker.io/docker/sbx-kit-pi:latest" pi
 ```
 
 Or from a git URL targeting this repo:
@@ -59,7 +59,7 @@ with `sbx secret set anthropic`.
 **2. Start it.**
 
 ```console
-sbx run --kit "docker.io/sbx/pi-kit:latest" pi
+sbx run --kit "docker.io/docker/sbx-kit-pi:latest" pi
 ```
 
 You land in pi's TUI. `pi` is the entrypoint and there is no gateway or daemon
@@ -97,16 +97,16 @@ Then recreate:
 
 ```console
 sbx rm -f <sandbox-name>
-sbx run --kit "docker.io/sbx/pi-kit:latest" pi
+sbx run --kit "docker.io/docker/sbx-kit-pi:latest" pi
 ```
 
-Recreating also picks up a newer pi, with no action from anyone: this kit
-rolls. It tracks npm's `latest` dist-tag and is rebuilt nightly (see
-[Building and publishing](#building-and-publishing)), so a fresh sandbox boots
-whatever pi release `docker.io/sbx/pi-kit:latest` holds that day. Nothing in
-the kit is bumped deliberately to make that happen. pi's own `pi update --self`
-works inside a running sandbox, but it leaves it diverged from the kit it
-booted from.
+Recreating picks up a newer *kit*, but not a newer pi on its own: the pi
+release is pinned by the descriptor's `version` arg, which is also what the
+kit advertises in `provides`. A fresh sandbox boots the release that pin names,
+and moving it is a deliberate edit (see
+[Building and publishing](#building-and-publishing)). pi's own
+`pi update --self` works inside a running sandbox, but it leaves it diverged
+from the kit it booted from.
 
 ### Pinning a kit revision
 
@@ -115,18 +115,22 @@ booted from.
 sandbox on a known revision of this kit:
 
 ```console
-sbx run --kit "docker.io/sbx/pi-kit:20260828-2121f50cbf929602a6f0305feed51acb3f872980" pi
+sbx run --kit "docker.io/docker/sbx-kit-pi:20260828-2121f50cbf929602a6f0305feed51acb3f872980" pi
 ```
 
-That now pins **pi as well as the kit**, which it did not under v2. A v3
-workload's layers *are* the root filesystem, so the pi binary ships inside the
-kit rather than in a separately rolling `sandbox.image` the descriptor pointed
-at — an immutable kit tag resolves to one digest, and that digest holds one pi
-release forever. What still rolls is the `latest` tag: each nightly rebuild
-resolves `ARG PI_VERSION=latest` afresh and publishes a new digest. The kit's
-`provides` is therefore unversioned (`pi`, with the descriptor's `version:` as
-the fallback), because a floating install has no pin for a provide to quote.
-`--build-arg PI_VERSION=<version>` reproduces a specific release locally
+That pins **pi as well as the kit**, which it did not under v2. A v3 workload's
+layers *are* the root filesystem, so the pi binary ships inside the kit rather
+than in a separately rolling `sandbox.image` the descriptor pointed at — an
+immutable kit tag resolves to one digest, and that digest holds one pi release
+forever.
+
+The `latest` tag moves with the kit, but not with pi: the descriptor pins the
+release in `args.version`, hands it to the recipe as `PI_VERSION`, and expands
+the same value into `provides: ["pi@<version>"]`. A nightly rebuild therefore
+refreshes the base image and leaves the agent where it is, and the kit
+advertises exactly the release it ships — which is what lets a mixin write
+`requires: ["pi >= 0.86"]` and have it mean something.
+`--build-arg version=<version>` reproduces a different release locally
 ([Building locally](#building-locally)); `sbx run` exposes no equivalent.
 
 [PUBLISHING.md](../PUBLISHING.md#tags) has the scheme, and why there is no bare
@@ -258,7 +262,7 @@ agent-owned — so `pi install` and `pi update --self` work inside the sandbox.
 
 There is no longer a separately published `docker.io/sbx/pi-image` for a
 `sandbox.image:` field to point at: a v3 Kit is one OCI image carrying both
-the declarations and the content, published at `docker.io/sbx/pi-kit` (see
+the declarations and the content, published at `docker.io/docker/sbx-kit-pi` (see
 [Usage](#usage) above). [`../pi-mixin`](../pi-mixin) is the same agent as an
 overlay you layer onto a shell base instead.
 
@@ -270,21 +274,32 @@ in this repo that builds its own image — see
 kit-specific build script or workflow; CI builds and publishes this image the
 same way it does for `openclaw`/`kiro`/`copilot`.
 
-Coding agents move fast, so this kit rolls: it tracks the npm `latest`
-dist-tag, and the pipeline's nightly scheduled rebuild picks up new releases
-within a day of publish. On days with no release the install layer is a cache
-hit (the recipe's comments explain the mechanics). To reproduce a specific
-version, build with `--build-arg PI_VERSION=<version>`.
+Coding agents move fast, but the pi release this kit installs is pinned rather
+than rolling: the descriptor's `args.version` names it, the recipe fetches that
+one version's npm document, and `provides` quotes the same value, so the kit
+cannot advertise a release it does not carry. The nightly scheduled rebuild
+refreshes the base image; bumping pi is a deliberate edit to that default,
+checked by the recipe's `pi --version` gate. Build a different release with
+`--build-arg version=<version>`.
 
 ### Building locally
 
 ```console
-docker build -f pi/pi.dockerfile -t pi:local pi
+cd pi && docker buildx build . -f pi.yaml --output type=cacheonly
 ./scripts/test-kit.sh pi
 ```
 
-`scripts/test-kit.sh` builds the kit's own content before running the suite
-(`SBX_KIT_SKIP_IMAGE_BUILD=1` to skip and reuse what's already built).
+The descriptor is the build target: its `# syntax=docker/sandbox-kit:3` line
+dispatches the kit frontend, which validates the descriptor, builds
+`pi.dockerfile` as the content and attaches the published descriptor to the
+result. Building the recipe on its own —
+`docker build -f pi/pi.dockerfile -t pi:local pi` — gives you the content and
+no kit, which is occasionally what you want when iterating on the install but
+never what you want to test.
+
+`scripts/test-kit.sh` builds the kit into a throwaway OCI layout and judges
+the result with `kit-tck`. There is no separate image to build first: the
+descriptor is the build target, and the frontend validates it on the way.
 
 ## Troubleshooting
 

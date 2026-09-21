@@ -16,7 +16,7 @@ CLI agent.
 Pair it with the built-in `claude` agent, from its published OCI artifact on Docker Hub:
 
 ```console
-sbx run claude --kit "docker.io/sbx/code-server-kit:latest" ~/my-project
+sbx run claude --kit "docker.io/docker/sbx-kit-code-server:latest" ~/my-project
 ```
 
 Or from a git URL targeting this repo:
@@ -45,6 +45,46 @@ If the page doesn't load, check the startup log inside the sandbox:
 ```console
 sbx exec -it <sandbox-name> -- cat /tmp/code-server.log
 ```
+
+## What's in the layer, and what happens at create
+
+The editor and the extension are **built into the kit image**.
+`code-server.dockerfile` runs the upstream `code-server.dev/install.sh`
+and `code-server --install-extension anthropic.claude-code` at build
+time and stages the result — `/usr/lib/code-server`,
+`/usr/bin/code-server` and the unpacked extension under
+`~/.local/share/code-server/extensions` — into an overlay. Creating a
+sandbox therefore downloads neither the ~100 MB deb nor the ~235 MB
+extension, and the version you get is fixed and scannable in the
+published kit rather than resolved afresh in every sandbox.
+
+The editor release is pinned, not merely frozen at whatever the last
+publish resolved. The descriptor's `version` arg carries it, the recipe
+passes it to the upstream script as `--version`, and the kit publishes
+`provides: ["code-server@<version>"]` plus a top-level `version:` from
+the same arg — so the publish tag names the editor release the overlay
+carries, and a kit asking for `code-server >= 4.138` can resolve against
+it. The build then runs `code-server --version` and fails unless the
+installed editor reports the pinned number. To bump it, set the arg's
+default to what the install script itself would resolve:
+
+```console
+curl -fsSLI -o /dev/null -w '%{url_effective}\n' \
+  https://github.com/coder/code-server/releases/latest
+```
+
+The preinstalled `anthropic.claude-code` extension is not part of that
+claim — it is resolved from open-vsx at build time, and the provide is
+about the editor.
+
+One consequence worth knowing: the kit's network policy has **no
+`install` phase**. Nothing it does at create time reaches a host. The
+only grant left is the open-vsx marketplace at runtime, so installing
+further extensions from the Extensions view still works.
+
+Two things stay lifecycle hooks, because neither of them is content: the
+wrapper script below, which needs a workspace path that does not exist
+until the sandbox is created, and the background start.
 
 ## How the workspace path gets set
 

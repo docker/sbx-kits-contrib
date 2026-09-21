@@ -17,7 +17,7 @@ layering the same agent onto a shell base instead.
 ## Usage
 
 ```console
-sbx run --kit "docker.io/sbx/openclaw-kit:latest" openclaw
+sbx run --kit "docker.io/docker/sbx-kit-openclaw:latest" openclaw
 ```
 
 Or from a git URL targeting this repo:
@@ -70,7 +70,7 @@ with `sbx secret set anthropic`.
 **2. Start it.**
 
 ```console
-sbx run --kit "docker.io/sbx/openclaw-kit:latest" openclaw
+sbx run --kit "docker.io/docker/sbx-kit-openclaw:latest" openclaw
 ```
 
 You land in `openclaw chat`. A reply there means the provider credential is
@@ -131,7 +131,7 @@ Then recreate:
 
 ```console
 sbx rm -f <sandbox-name>
-sbx run --kit "docker.io/sbx/openclaw-kit:latest" openclaw
+sbx run --kit "docker.io/docker/sbx-kit-openclaw:latest" openclaw
 ```
 
 Recreating discards everything living inside the sandbox — the gateway token
@@ -151,7 +151,7 @@ the kit it booted from.
 sandbox on a known revision of this kit:
 
 ```console
-sbx run --kit "docker.io/sbx/openclaw-kit:20260828-4da0c58e0844b8358e0353c020bf7a438e01f8ca" openclaw
+sbx run --kit "docker.io/docker/sbx-kit-openclaw:20260828-4da0c58e0844b8358e0353c020bf7a438e01f8ca" openclaw
 ```
 
 In v3 that pins **everything**: the descriptor, the egress policy, the startup
@@ -286,7 +286,7 @@ the openclaw kit's content
 
 There is no longer a separate `-image` artifact: in v3 a kit *is* an ordinary
 OCI image, so what v2 split into `docker.io/sbx/openclaw-image` and
-`docker.io/sbx/openclaw-kit` is one thing published once.
+`docker.io/docker/sbx-kit-openclaw` is one thing published once.
 
 One runtime quirk: the sandbox runtime seeds its own
 `~/.openclaw/openclaw.json` at create time, which lacks `gateway.mode`
@@ -320,8 +320,9 @@ docker build -f openclaw/openclaw.dockerfile \
 `OPENCLAW_VERSION` has no default in the recipe — the descriptor's
 `args.version` supplies it — so a plain `docker build` needs it passed.
 
-`scripts/test-kit.sh` builds the kit's own content before running the suite
-(`SBX_KIT_SKIP_IMAGE_BUILD=1` to skip and reuse what's already built).
+`scripts/test-kit.sh` builds the kit into a throwaway OCI layout and judges
+the result with `kit-tck`. There is no separate image to build first: the
+descriptor is the build target, and the frontend validates it on the way.
 
 ## Troubleshooting
 

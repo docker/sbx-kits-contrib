@@ -21,28 +21,55 @@ sourceUrl: https://github.com/sst/opencode
 
 kind: workload
 
-# The KIT's version, not OpenCode's. It covers this descriptor, the network
-# policy and the lifecycle hooks -- the binary inside the content floats (the
-# recipe resolves the newest release), so a newer OpenCode does not bump this
-# and this does not track its releases.
+# The OpenCode release the kit installs, by reference and not by literal:
+# SPEC-v3 §4 allows this field to be a build-phase arg reference expanded at
+# publish, so it names the `version` arg below -- the same one the provide
+# reads and the same one the recipe installs. The kit states a version in
+# exactly one place, and the descriptor cannot disagree with its own content.
 #
-# In v3 it is also load-bearing in a way it was not in v2: `provides` below is
-# unversioned, because there is no pin to claim a version from, and an
-# unversioned provide publishes under this fallback (SPEC-v3 §9.2).
+# A literal here used to be a second, competing version. An unversioned
+# provide takes this field as its version (SPEC-v3 §9.2), so the pair of them
+# was how `provides: ["opencode"]` came to mean `opencode@1.0.0`; the arg
+# below fixed the provide and this reference finishes the job.
 #
 # MIGRATION NOTE: v2 published this as the vnd.docker.sandbox.kit.version OCI
 # annotation; v3 derives `org.opencontainers.image.version` from it instead
-# (§9.3). `scripts/check-release-tag.sh` still reads the v2 `spec.yaml` path
-# and will need pointing at this file -- flagged rather than fixed here,
-# because scripts/ is outside this migration's scope.
-version: "1.0.0"
+# (§9.3), which now names the agent inside rather than a number about the
+# descriptor. `scripts/check-release-tag.sh` reads this through
+# `scripts/kit-version.sh` -- the same resolver `publish-kit.sh` tags with, so
+# a release tag and a published tag cannot disagree -- and that resolver
+# follows an arg reference to the arg's default.
+version: "${{ kit.args.version }}"
 
-# Unversioned deliberately: the recipe installs `opencode-ai@latest` unless a
-# build passes OPENCODE_VERSION, so no version the descriptor could state
-# would be true of every build. Declaring an `args.version` with an empty
-# default -- the shape the example kit uses, where the release IS pinned --
-# would produce `opencode@` and claim nothing.
-provides: ["opencode"]
+# The OpenCode release the recipe installs, declared once: validated here,
+# handed to the recipe as the npm pin, and expanded into the provide -- so the
+# kit cannot claim a release it does not ship.
+#
+# HOW THE DEFAULT WAS ESTABLISHED, and how to bump it: the `latest` dist-tag of
+# the npm package the recipe installs, read from
+# https://registry.npmjs.org/opencode-ai/latest -- the same document
+# `opencode-ai@latest` would have resolved. 1.18.31 at the time of writing.
+#
+# WHY PINNED rather than left floating: an unversioned provide takes the
+# descriptor's `version:` as its version at resolution, so `provides:
+# ["opencode"]` published `opencode@1.0.0` -- this kit's release number wearing
+# OpenCode's name. A mixin asking for `opencode >= 1.18` would refuse to
+# resolve against it. Floating the install and stating a version are not both
+# available; stating one the content may not have is the worse of the two, so
+# the install is pinned to make the claim true.
+#
+# The pattern admits a three-segment release and nothing else. That is the
+# shape of every release on the `latest` line, and it deliberately refuses both
+# the word `latest` and the ~11k `0.0.0-<branch>-<timestamp>` snapshot versions
+# the registry also carries -- neither is a version a provide should claim.
+args:
+  version:
+    default: "1.18.31"
+    pattern: '^[0-9]+\.[0-9]+\.[0-9]+$'
+    description: OpenCode release to install
+    buildArg: OPENCODE_VERSION
+
+provides: ["opencode@${{ kit.args.version }}"]
 
 capabilities:
   # This workload is an agent sandbox: the host launches the agent rather than

@@ -17,25 +17,69 @@ sourceUrl: https://github.com/docker/docker-agent
 
 kind: mixin
 
-# The KIT's version, not Docker Agent's. The binary floats -- the build
-# resolves the newest release and the agent self-updates at runtime -- so the
-# provide stays unversioned even though the arg below can pin the build, and
-# this is the fallback publishing uses for it.
-version: "1.0.0"
+# Docker Agent's version, by reference: the `version` arg below, expanded at
+# publish, which SPEC-v3 §4 admits here. The kit states no release number of its
+# own, so "the same pin as the workload" below now covers the published version
+# as well as the download and the provide -- bumping the two directories
+# together moves everything either kit says about the release, rather than
+# leaving a second number behind in each.
+version: "${{ kit.args.version }}"
 
-provides: ["docker-agent"]
-
-# The same documented pin as the workload, declared so it is reachable from a
-# kit install rather than only from a hand-run `docker build`. No pattern,
-# matching v2: the value is a git tag and the build validates it by failing to
-# download a nonexistent asset.
+# The same pin as the workload, and it must STAY the same: the two shapes
+# provide one name, so a `requires: ["docker-agent >= X"]` that resolved
+# against one must see the same release in the other. Nothing enforces it
+# across kit directories -- bump both together.
+#
+# HOW THE DEFAULT WAS ESTABLISHED, and how to bump it: the tag that
+# https://github.com/docker/docker-agent/releases/latest redirects to, which is
+# the same document the recipe used to resolve when this arg was left empty.
+# `v1.141.0` at the time of writing. Re-read that redirect to bump:
+#
+#   curl -fsSI -o /dev/null -w '%{redirect_url}\n' \
+#     https://github.com/docker/docker-agent/releases/latest
+#
+# HOW THE PIN REACHES THE INSTALL: `buildArg` hands it to the overlay recipe,
+# which downloads
+# https://github.com/docker/docker-agent/releases/download/v<version>/docker-agent-linux-<arch>
+# and then asserts the staged binary reports this exact release. Note the `v`:
+# SPEC-v3 §5.2 versions carry no `v` prefix, so the arg holds `1.141.0` and the
+# recipe re-adds the `v` the tag needs. That is a CHANGE OF MEANING from v2,
+# where this arg held the tag itself -- `--build-arg
+# DOCKER_AGENT_VERSION=v1.2.3` is now `1.2.3`. The empty default is gone with
+# the recipe's resolve-the-newest-release branch: an empty value cannot reach a
+# build whose descriptor publishes `docker-agent@<that value>`.
+#
+# WHY A VERSIONED PROVIDE, given that the agent self-updates. The overlay
+# exports DOCKER_AGENT_AUTO_UPDATE=1, so the running agent can replace its own
+# binary and a version baked at build time stops describing the process some
+# minutes later. Still the better of the two available claims:
+#
+#   * The alternative is not "no version". §9.2 refuses a published provide
+#     with no version, so `provides: ["docker-agent"]` publishes
+#     `docker-agent@1.0.0` -- the `version:` field above, this kit's release
+#     number wearing the agent's name. That is false at every instant, not
+#     merely after an update.
+#   * A provide describes the CONTENT the kit ships, and resolution happens
+#     before the sandbox exists. At the moment the composed image is resolved,
+#     the binary is exactly this release -- which the recipe's assertion makes
+#     true by construction.
+#   * Self-update only moves forward, and every constraint a consumer writes
+#     against an agent is a lower bound, which an update satisfies more
+#     strongly rather than less.
+#
+# The pattern admits a three-segment release and nothing else -- every
+# docker-agent tag with the `v` stripped. It refuses the empty string the arg
+# used to default to, and a `v`-prefixed value, which would otherwise produce
+# the un-referenceable `docker-agent@v1.141.0`.
 args:
   version:
-    default: ""
+    default: "1.141.0"
+    pattern: '^[0-9]+\.[0-9]+\.[0-9]+$'
     description: >-
-      docker-agent release tag to pin. Empty (the default) resolves the newest
-      release at build time.
+      docker-agent release to install, without the tag's `v` prefix.
     buildArg: DOCKER_AGENT_VERSION
+
+provides: ["docker-agent@${{ kit.args.version }}"]
 
 capabilities:
   # The agent's own egress rides with the kit that ships the agent: the base

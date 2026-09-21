@@ -27,6 +27,26 @@ args:
 
 provides: ["openclaw@${{ kit.args.version }}"]
 
+# The in-sandbox Docker daemon. The openclaw.json this overlay ships sets
+# agents.defaults.sandbox to mode "all" on the docker backend, so every tool
+# call runs in a nested container: without a daemon the agent cannot read or
+# write a single file, which is non-function rather than degradation. The
+# bootstrap's `docker pull` of the tool-call image, and the three Docker Hub
+# hosts in the runtime policy below, exist for the same reason.
+#
+# `deb/docker-ce` rather than `deb/docker-ce-cli` because the daemon is the
+# part that matters: the plain `shell` template carries the client alone, where
+# the bootstrap's `command -v docker` guard succeeds and every `docker` call
+# then fails against a socket nothing is listening on. That guard cannot tell
+# the two apart; this entry can.
+#
+# The name is derived, not authored: publishing a workload reads its dpkg
+# database and states one entry per installed package (SPEC-v3 §9.6), so the
+# *-docker templates provide it and the plain ones do not — which is exactly
+# the line this kit needs drawn. The standalone `openclaw` workload declares
+# nothing here because it owns its base.
+requires: ["deb/docker-ce"]
+
 capabilities:
   # The agent's own egress rides with the kit that ships the agent: the base
   # grants nothing for services it does not carry. Runtime-only, like the

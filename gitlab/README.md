@@ -61,8 +61,9 @@ glab api user
 |---|---|---|
 | `host` | `gitlab.com` | The GitLab instance to target. Sets the network allow rule, the credential's injection domain, and `GITLAB_HOST`. |
 | `service` | `gitlab` | The credential service name to bind with `sbx secret set`. Give a self-managed sandbox its own name so it can hold a different PAT from a gitlab.com sandbox. |
+| `version` | `1.118.0` | The `glab` release the kit builds into its layers. Resolves at build, not at create, so it only takes effect when you build the kit yourself — and the recipe's pinned checksums mean any other value fails the digest check rather than installing quietly. |
 
-Both default to today's behaviour, so an existing gitlab.com setup needs no changes.
+All three default to today's behaviour, so an existing gitlab.com setup needs no changes.
 
 > [!NOTE]
 > `--kit-arg` is an experimental sbx flag. Only self-managed users need it; a
@@ -77,11 +78,13 @@ Use a separate sandbox for each, with a separate service name for each PAT. One 
 - The kit declares a credential (named by `service`) with `proxyManaged: true`. Inside the container, `GITLAB_TOKEN` is set to a sentinel value, which is enough for `glab` to consider itself logged in.
 - On any request to `host`, the sandbox proxy replaces the `Authorization` header with `Bearer <your-real-PAT>`. The real token never enters the sandbox filesystem or environment.
 
-### Why gitlab.com is allow-listed but never injected into
+### gitlab.com is not reachable unless you target it
 
-`gitlab.com:443` stays in the network allow list whatever the target, because the pinned glab release tarball is served from there. It is deliberately **not** an injection destination unless it is also the target host.
+A sandbox created from this kit can reach exactly one host: the instance you pointed it at. There is no second entry and no install phase.
 
-This matters more than it looks. The release download redirects to a gitlab.com `/api/v4/projects/…/packages/generic/…` path. A domain-wide inject rule on gitlab.com would attach the bound PAT to that download too — and a PAT minted on a self-managed instance is not valid on gitlab.com, where GitLab rejects a bad token outright rather than falling back to anonymous access. The download returns 401, the install hook fails, and the whole sandbox fails to create. Keeping the two separate is what makes a self-managed target installable at all.
+That is a change, and it closed an awkward corner. `glab` used to be downloaded inside the sandbox at create, and the tarball is served from gitlab.com whatever instance you target — so gitlab.com had to stay in the allow list for every sandbox, while being deliberately excluded as an injection destination. The reason was sharp: the download redirects to a gitlab.com `/api/v4/projects/…/packages/generic/…` path, a domain-wide inject rule would have attached the bound PAT to it, and a PAT minted on a self-managed instance is not valid on gitlab.com, where GitLab rejects a bad token outright rather than falling back to anonymous access. The download returned 401 and the whole sandbox failed to create.
+
+`glab` now ships in the kit's image layers, so that download happens once at publish and never in a sandbox. gitlab.com leaves the allow list unless it is your target, and the hazard goes with it.
 
 ### Why glab's host config is seeded
 
@@ -134,9 +137,13 @@ A bare `name=value` applies to every kit that declares that argument, which is w
 
 You'll also need your SSH key loaded in the host agent (`ssh-add ~/.ssh/id_ed25519`) so it forwards into the sandbox, and that key registered with your GitLab account. Check with `ssh-add -l` — a socket is forwarded even when it holds no identities.
 
-## Why the install is pinned
+## Why the install is pinned, and why it happens at build
 
-The install hook downloads a specific glab release tarball and verifies its SHA256 against a checksum recorded in this spec (same pattern as the `trivy` kit) rather than piping an install script to a shell. To bump the version, update `GLAB_VERSION` and both per-arch checksums from the release's `checksums.txt`.
+`gitlab.dockerfile` downloads a specific glab release tarball and verifies its SHA256 against a checksum recorded in the recipe (same pattern as the `trivy` kit) rather than piping an install script to a shell. The binary lands in the kit's image layers, so a sandbox does no downloading at all: the digest is fixed in a layer you can scan, a withdrawn or re-rolled release fails the kit's build instead of a user's sandbox creation, every `sbx run` saves the fetch, and the install-phase network grant that existed only to let that download out is gone.
+
+Only the config seeding below still runs at create, because only it depends on which instance you chose.
+
+To bump the version, update the `version` argument's default in `gitlab.yaml` and both per-arch checksums in `gitlab.dockerfile`, from the release's `checksums.txt`. The version is stated in that one place — the recipe, the `glab@<version>` the kit provides and the tag it publishes under all read it — and the build runs the installed binary and fails if what it reports disagrees.
 
 ## Cleanup
 

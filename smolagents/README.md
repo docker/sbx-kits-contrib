@@ -10,7 +10,7 @@ and exposes the upstream `smolagent` and `webagent` CLIs on `PATH`.
 Pair it with whichever sandbox agent you want to work from, from its published OCI artifact on Docker Hub:
 
 ```console
-sbx run claude --kit "docker.io/sbx/smolagents-kit:latest" ~/my-project
+sbx run claude --kit "docker.io/docker/sbx-kit-smolagents:latest" ~/my-project
 ```
 
 Or from a git URL targeting this repo:
@@ -50,13 +50,50 @@ Python so project dependencies in the workspace do not collide with the kit.
 Use `smolagents-python` when you want to run Python snippets against the
 kit-managed environment.
 
-`SMOLAGENTS_VENV` and `SMOLAGENTS_PYTHON` point at that venv. This kit is a
-mixin with no recipe of its own, so it has no image config to put `ENV` in — an
-install hook writes both to `/etc/profile.d/smolagents-env.sh`, which the base's
-login shell sources, and a second hook appends them plus the
-`smolagents-python` alias to the agent's `~/.bashrc` for interactive non-login
-shells. Both are fixed paths rather than kit args: they name the venv the install
-hooks create.
+`SMOLAGENTS_VENV` and `SMOLAGENTS_PYTHON` point at that venv. A mixin's image
+config is not the composed image's, so it has no `ENV` to set — instead the
+kit's overlay ships `/etc/profile.d/smolagents-env.sh`, which the base's login
+shell sources, and an install hook appends the same two variables plus the
+`smolagents-python` alias to the agent's `~/.bashrc` for the interactive
+non-login shells `profile.d` never reaches. Both are fixed paths rather than kit
+args: they name the venv the install hooks create.
+
+## Why the venv is still installed at sandbox create
+
+`smolagents.dockerfile` carries only that one `profile.d` file. Everything else
+is still a `lifecycle@1` install hook, and the venv in particular stays one on
+purpose.
+
+A venv is not relocatable content. `python3 -m venv` writes its packages under
+`lib/python3.<minor>/site-packages` and points `bin/python3` at the absolute
+path `/usr/bin/python3`, so it is bound to the exact Python minor version that
+created it. A mixin lands on a base the builder has never seen, and this kit's
+own apt hook installs *that base's* `python3`. Baking the venv was tried and
+composed onto three bases:
+
+| composed base | `python3` | result |
+| --- | --- | --- |
+| `docker/sandbox-templates:shell-docker` | 3.14.4 | `smolagents 1.26.0` |
+| `ubuntu:24.04` + `python3` | 3.12.3 | `ModuleNotFoundError: No module named 'smolagents'` |
+| `ubuntu:24.04`, no `python3` | — | `/opt/smolagents/bin/python: not found` |
+
+The second row is the whole argument. It fails in the worst available way, too:
+apt succeeds, sandbox creation succeeds, the kit goes on advertising
+`smolagents@1.26.0`, and the user's first `import smolagents` raises
+`ModuleNotFoundError`. Creating the venv at sandbox-create time instead costs a
+download per sandbox and keeps the kit working on any base — verified on
+`ubuntu:24.04`, where the hook-created venv runs against the base's own Python
+3.12.3 and reports `smolagents 1.26.0`.
+
+Making the venv travel would mean shipping an interpreter and its standard
+library as well. That is vendoring a Python distribution rather than moving an
+install, and it would swap the Python-minor coupling for a glibc one.
+
+The apt prerequisites stay hooks for the ordinary reason — packages need the
+composed base's dpkg database and shared-library closure, which an overlay
+cannot carry — and the `~/.bashrc` append stays one because a layer *replaces*
+a file rather than merging into it, so shipping `/home/agent/.bashrc` would
+shadow whatever the base workload put there.
 
 ## Network policy
 

@@ -9,7 +9,7 @@ There is also an [`antigravity-mixin`](../antigravity-mixin) variant of the same
 Use the published kit:
 
 ```console
-sbx run --kit "docker.io/sbx/antigravity-kit:latest" antigravity
+sbx run --kit "docker.io/docker/sbx-kit-antigravity:latest" antigravity
 ```
 
 Or load it directly from this repository:
@@ -32,7 +32,7 @@ For API-key mode, provide the key when `sbx` offers to configure the `google` cr
 
 ```console
 sbx secret set google
-sbx run --kit "docker.io/sbx/antigravity-kit:latest" antigravity
+sbx run --kit "docker.io/docker/sbx-kit-antigravity:latest" antigravity
 ```
 
 The kit exposes `GEMINI_API_KEY` as a proxy sentinel and injects the real key only into requests to `generativelanguage.googleapis.com`. It also sets Antigravity's required `modelProvider` setting to `gemini`. Removing the stored credential and recreating the sandbox switches back to OAuth mode.
@@ -43,6 +43,6 @@ When Docker Sandboxes provides an MCP gateway, the kit registers it in Antigravi
 
 ## Content
 
-A `kind: workload` kit's layers *are* the sandbox's root filesystem, so the kit has content rather than a reference to an image built elsewhere. That content is built from [`antigravity.dockerfile`](./antigravity.dockerfile), the companion recipe the descriptor finds by filename stem: `docker/sandbox-templates:shell-docker` as the base, with `agy` installed by Google's official installation script. The installer resolves the current release and verifies its published checksum — which is also why the descriptor declares no version arg and publishes an unversioned `provides: ["antigravity"]` under its `version:` fallback: there is no pin for one to reference.
+A `kind: workload` kit's layers *are* the sandbox's root filesystem, so the kit has content rather than a reference to an image built elsewhere. That content is built from [`antigravity.dockerfile`](./antigravity.dockerfile), the companion recipe the descriptor finds by filename stem: `docker/sandbox-templates:shell-docker` as the base, with `agy` installed by Google's official installation script. The installer resolves the current release and verifies its published checksum — which is also why the descriptor declares no version arg and publishes an unversioned `provides: ["antigravity"]` under its `version:` fallback: there is no pin for one to reference. `install.sh` accepts only `-d|--dir` and `-h|--help` and reads no version variable, the manifest's download URL carries an opaque build id beside the version so it is not constructible from one, and `agy` self-updates in the background at runtime — which the kit's runtime allow list deliberately permits. An unversioned provide matches only unconstrained `requires`, which is the honest claim here; [`antigravity.yaml`](./antigravity.yaml) records the full argument and what upstream would have to change.
 
 Because the install happens at build time, the kit's network policy declares no `install` phase — a build runs before any phase the policy scopes, and the kit's two lifecycle hooks are `startup` hooks that reach nothing off-box.

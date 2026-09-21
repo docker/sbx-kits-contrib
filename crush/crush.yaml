@@ -12,14 +12,55 @@ description: >-
 
 kind: workload
 
-# MIGRATION NOTE: v2 declared no version, and the install floats by design --
-# `apt-get install crush` resolves whatever Charm's apt repo currently serves,
-# and the nightly rebuild is what keeps it current. There is no pin to declare
-# as an arg and nothing for a versioned provide to reference, so the provide is
-# unversioned and `version:` supplies the fallback publishing needs.
-version: "1.0.0"
+# The kit's published version, by reference. SPEC-v3 §4 admits a build-phase
+# arg reference here and expands it at publish, so this resolves out of the
+# `version` arg below rather than stating a release number of the kit's own --
+# and the string that arg holds is now doing three jobs at once, since it is
+# already both the exact apt selector and the version the provide publishes
+# under (see the arg's note on why Charm's plain-semver index makes that
+# identity possible). The kit is released as the Crush it installs.
+version: "${{ kit.args.version }}"
 
-provides: ["crush"]
+# Crush's own version, pinned.
+#
+# HOW THIS VALUE WAS ESTABLISHED, and how to bump it: Crush is installed from
+# Charm's apt repository (see crush.dockerfile), so the authority is that
+# repository's package index, not the GitHub release feed. Read it with
+#
+#   curl -fsSL 'https://repo.charm.sh/apt/dists/*/*/binary-amd64/Packages.gz' \
+#     | gzip -dc \
+#     | awk '/^Package: crush$/{p=1} p&&/^Version:/{print $2} p&&/^$/{p=0}' \
+#     | sort -V | tail -5
+#
+# Two properties of that index are what make an apt-sourced pin worth making
+# here rather than leaving the install floating:
+#
+#  1. The versions are PLAIN UPSTREAM SEMVER. Charm's index records
+#     `Version: 0.95.0` -- no epoch, no Debian revision (`-1`, `~bpo`). So
+#     `crush=0.95.0` is an exact apt selector AND a legal SPEC-v3 §5.2 version
+#     at the same time, and one string can be both the pin and the provide.
+#     A repository that stamped revisions would break that identity and would
+#     be a reason to reconsider.
+#  2. The index SERVES ITS HISTORY. It currently carries 193 crush stanzas,
+#     from 0.1.1 to 0.95.0 -- Gemfury keeps every uploaded version listed
+#     rather than only the newest. That is the property an apt pin actually
+#     depends on: `apt-get install crush=<version>` can only succeed while the
+#     index still offers that version, so on a repository that pruned to
+#     `latest` this pin would rot into a build failure within a release. Check
+#     it with the command above before trusting a bump.
+args:
+  version:
+    default: "0.95.0"
+    # Charm's tags are plain three-part semver.
+    pattern: '^[0-9]+\.[0-9]+\.[0-9]+$'
+    description: Crush release to install from Charm's apt repository
+    buildArg: CRUSH_VERSION
+
+# Versioned, so a mixin asking for `crush >= 0.9` resolves against the version
+# the image actually carries. The recipe installs exactly this version and then
+# re-reads it out of the installed binary, so the claim below and the content
+# cannot drift apart silently.
+provides: ["crush@${{ kit.args.version }}"]
 
 capabilities:
   # This workload is an agent sandbox: the host launches the agent rather than

@@ -13,13 +13,43 @@ description: >-
 
 kind: workload
 
-# The install floats: OPENHANDS_VERSION defaults to empty, which makes the
-# recipe resolve whatever `openhands` is newest on PyPI (the pipeline's
-# nightly rebuild is the update mechanism). So the provide carries no
-# version of its own and `version:` below answers for it. v2 declared no
-# version, hence 1.0.0.
-version: "1.0.0"
-provides: ["openhands"]
+# The OpenHands release the image carries, by reference: SPEC-v3 §4 allows
+# this field to be a build-phase arg reference expanded at publish, so it
+# names the `version` arg below -- the same one the provide reads and the
+# recipe installs. v2 declared none and the migration wrote 1.0.0, a number
+# about the descriptor standing beside the number about the agent; bumping
+# the pin now moves both, because there is only one left.
+version: "${{ kit.args.version }}"
+
+# The OpenHands release the recipe installs, declared once: validated here,
+# handed to the recipe as the PyPI pin, and expanded into the provide -- so the
+# kit cannot claim a release it does not ship.
+#
+# HOW THE DEFAULT WAS ESTABLISHED, and how to bump it: `info.version` of
+# https://pypi.org/pypi/openhands/json, the same PyPI project the recipe
+# installs from and the release an unpinned `uv tool install openhands` would
+# have resolved. 1.16.0 at the time of writing. Note the distribution is
+# `openhands` -- the V1 terminal CLI -- and not `openhands-ai` or
+# `openhands-sdk`, which version independently.
+#
+# WHY PINNED rather than left floating: an unversioned provide takes the
+# descriptor's `version:` as its version at resolution, so `provides:
+# ["openhands"]` published `openhands@1.0.0` -- this kit's release number
+# wearing the agent's name, which no mixin could usefully constrain. The
+# nightly rebuild is no longer the update mechanism for the agent; bumping this
+# default is, and that makes the upgrade a reviewed step.
+#
+# The pattern admits a three-segment release and nothing else, which is the
+# shape of all 34 releases the project has published, and refuses the empty
+# string the recipe previously read as "newest".
+args:
+  version:
+    default: "1.16.0"
+    pattern: '^[0-9]+\.[0-9]+\.[0-9]+$'
+    description: OpenHands release to install
+    buildArg: OPENHANDS_VERSION
+
+provides: ["openhands@${{ kit.args.version }}"]
 
 capabilities:
   # v2 `kind: sandbox`: the host launches the agent rather than running the

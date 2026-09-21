@@ -1,51 +1,79 @@
 # syntax=docker/sandbox-kit:3
 schemaVersion: "3"
 displayName: Neovim
-description: Installs Neovim (latest stable) and injects the bundled ~/.config/nvim into the sandbox.
+description: Installs Neovim at a pinned release and injects the bundled ~/.config/nvim into the sandbox.
 
 kind: mixin
 
-# The install hook follows GitHub's `stable` tag rather than a pin, so the
-# provide floats and `version:` is the fallback a resolver reads for it.
-provides: ["neovim"]
-version: "1.0.0"
+# Versioned, so a kit asking for `neovim >= 0.11` resolves against the release
+# the recipe actually installs. `version:` names that same arg — SPEC-v3 §4
+# allows a build-phase arg reference there, expanded at publish like every
+# other one in this file — so the field and the provide cannot end up naming
+# different Neovims.
+provides: ["neovim@${{ kit.args.version }}"]
+version: "${{ kit.args.version }}"
 
-capabilities:
-  - type: com.docker.sandbox/network-policy@1
-    config:
-      # MIGRATION NOTE: v2's single flat list becomes phase-scoped, and every
-      # host in it belongs to the install hook's download. Nothing here is
-      # reachable once the agent starts: this kit's nvim runs no plugin
-      # manager (see files/home/.config/nvim/init.lua) and needs no egress, so
-      # declaring no runtime phase grants none — the release-download surface
-      # closes before the entrypoint.
-      install:
-        allow:
-          # GitHub release redirect for the stable tag
-          - github.com
-          # Asset CDN — GitHub has used both hosts across releases
-          - objects.githubusercontent.com
-          - release-assets.githubusercontent.com
+# Neovim's own version, pinned.
+#
+# HOW THIS VALUE WAS ESTABLISHED, and how to bump it: the install used to
+# download GitHub's `stable` tag, which is a moving alias — every sandbox
+# created got whatever it pointed at that day, and the provide had nothing
+# honest to claim. Resolve the alias to the release it currently names and pin
+# that:
+#
+#   curl -fsS https://api.github.com/repos/neovim/neovim/releases/latest \
+#     | python3 -c 'import json,sys; print(json.load(sys.stdin)["tag_name"])'
+#
+# (`.../releases/tags/stable` answers the same question from the other side —
+# its body opens with the `NVIM v<version>` banner of the build behind the
+# alias.) Strip the conventional `v`: SPEC-v3 §5.2 versions carry no prefix,
+# and the recipe adds it back when it builds the download URL.
+#
+# MIGRATION NOTE: `buildArg` used to need a long explanation here, because the
+# install was a lifecycle hook and there was no recipe line for
+# `--build-arg NVIM_VERSION` to reach — the value did its work by being
+# expanded into the *hook body's* download URL, and the arg had to be
+# build-phase anyway because a create-phase (`env:`) arg cannot be referenced
+# from `provides` at all. Now that the install is in neovim.dockerfile the arg
+# arrives the ordinary way, through this `buildArg`, and one value still drives
+# the download URL, the provide, this descriptor's `version:` and the published
+# tag, with no second place to drift.
+args:
+  version:
+    default: "0.12.5"
+    pattern: '^[0-9]+\.[0-9]+\.[0-9]+$'
+    description: Neovim release to install from GitHub releases
+    buildArg: NVIM_VERSION
 
-  - type: com.docker.sandbox/lifecycle@1
-    config:
-      install:
-        # No `env:` — the body reads only its own locals (ARCH, TARBALL,
-        # NVIM_DIR), and v3 hooks see nothing they do not declare.
-        - command: |
-            set -euo pipefail
-            ARCH=$(dpkg --print-architecture)
-            case "$ARCH" in
-              amd64) TARBALL="nvim-linux-x86_64.tar.gz"; NVIM_DIR="nvim-linux-x86_64" ;;
-              arm64) TARBALL="nvim-linux-arm64.tar.gz";  NVIM_DIR="nvim-linux-arm64"  ;;
-              *)     echo "unsupported arch: $ARCH" >&2; exit 1 ;;
-            esac
-            curl --proto '=https' --tlsv1.2 -fsSL \
-              "https://github.com/neovim/neovim/releases/download/stable/${TARBALL}" \
-              -o /tmp/nvim.tar.gz
-            tar -C /opt -xzf /tmp/nvim.tar.gz
-            ln -sf "/opt/${NVIM_DIR}/bin/nvim" /usr/local/bin/nvim
-            rm /tmp/nvim.tar.gz
-            nvim --version | head -1
-          user: "0"
-          description: Install Neovim stable from GitHub releases (amd64 + arm64)
+# MIGRATION NOTE: `requires: ["deb/dpkg"]` is gone, and moving the install is
+# what removed it. It was there for one reason — the install hook chose its
+# release tarball by `dpkg --print-architecture` under `set -euo pipefail`, so
+# a base without dpkg failed sandbox creation at that line. The recipe asks
+# buildx for TARGETARCH instead, which is answered at build by the builder, so
+# the kit no longer needs dpkg of the base it composes onto. Leaving the
+# requirement behind would have been the worse kind of stale — `requires` is a
+# closed-set check, so it would refuse to compose on bases the kit now works on
+# perfectly well.
+
+# MIGRATION NOTE: no capabilities at all, and that is the result of the move
+# rather than an omission.
+#
+# v2's single flat allow list became an install phase holding github.com,
+# objects.githubusercontent.com and release-assets.githubusercontent.com. Every
+# host in it belonged to the install hook's download, the builder does that
+# download now, and a policy that governs sandboxes does not govern the
+# builder — so the grant has no installer left to serve and is deleted rather
+# than narrowed.
+#
+# There is still no `runtime` phase, for the reason there never was one: this
+# kit's nvim runs no plugin manager (see files/home/.config/nvim/init.lua) and
+# needs no egress, and an absent phase grants nothing. A config with lazy.nvim
+# or packer would need its plugin-registry hosts added back under `runtime` —
+# a different grant from the one just removed, for a different reason.
+#
+# The lifecycle capability goes with the hook it held. Nothing had to stay:
+# there is no apt step, nothing reads a create-time value, nothing needs the
+# in-sandbox Docker daemon, and nothing merges into a file the composed base
+# also writes. The bundled ~/.config/nvim is a directory the kit owns outright
+# rather than a file it appends to, and no volume@1 or agent-skills@1 mount is
+# declared over it, so it is content like the rest.

@@ -21,7 +21,7 @@ cost-free experimentation, or testing custom local models with Claude Code.
 ## Usage
 
 ```console
-sbx run --kit "docker.io/sbx/claude-model-runner-kit:latest" claude ~/my-project
+sbx run --kit "docker.io/docker/sbx-kit-claude-model-runner:latest" claude ~/my-project
 ```
 
 Or from a git URL or a local clone of this repo:

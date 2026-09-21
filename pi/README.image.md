@@ -10,8 +10,8 @@ chain plus a Docker engine, requesting Docker-in-Docker via
 `com.docker.sandboxes.start-docker=true`. On top of that:
 
 - [`@earendil-works/pi-coding-agent`](https://www.npmjs.com/package/@earendil-works/pi-coding-agent),
-  installed globally at the latest upstream release (rebuilt nightly),
-  plus a `/usr/local/bin/pi` symlink
+  installed globally at the release the kit pins in `PI_VERSION`, plus a
+  `/usr/local/bin/pi` symlink
 - `fd-find` (apt), which backs pi's `find` tool, plus a `/usr/local/bin/fd`
   symlink for the canonical name — without it pi downloads a binary from
   GitHub releases on first use, which a locked-down sandbox blocks

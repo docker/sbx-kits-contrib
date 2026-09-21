@@ -10,6 +10,20 @@ kind: mixin
 # provide at publish. Bump it when this kit's declarations change.
 version: "1.0.0"
 
+# OpenSSH is the whole mechanism here, on both ends of it: the shipped
+# ssh-signing-key-command runs `ssh-add -L` against the forwarded agent, and
+# the `gpg.format ssh` the hook configures makes git sign by shelling out to
+# `ssh-keygen -Y sign`. §12's floor promises git but not ssh, so on a base
+# without it every `git commit` in a repository with a remote fails at signing
+# time -- long after create, with git's own opaque error rather than this
+# kit's.
+#
+# The name is derived rather than authored: publishing a workload reads its
+# dpkg database and states one entry per installed package (SPEC-v3 §9.6), so
+# a Debian-family base provides `deb/openssh-client` by construction.
+# Unversioned -- `ssh-add -L` and `ssh-keygen -Y` are both long-settled.
+requires: ["deb/openssh-client"]
+
 # MIGRATION NOTE: no network-policy@1 entry, faithfully. The v2 kit
 # declared no `permissions.network` block and this kit reaches nothing:
 # the key is resolved from the forwarded SSH agent over a unix socket, and

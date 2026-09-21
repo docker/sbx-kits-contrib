@@ -1,13 +1,13 @@
 # syntax=docker/dockerfile:1
 # The overlay: the Devin CLI and its auth wrapper landing on any base.
 #
-# Cognition's install.sh is a per-user installer with no --prefix and a
-# manifest it resolves itself, so there is nothing to point at a staging
-# directory. This therefore does not try: it takes the workload's own base as a
-# build stage, runs the *unmodified* install -- same `|| true` around the
-# TTY-less `devin setup`, same `devin --version` gate, same devin-cli rename --
-# and copies the resulting tree into a scratch overlay at exactly the path it
-# was built for.
+# Cognition's setup.sh is a per-user installer with no --prefix and a manifest
+# it resolves itself, so there is nothing to point at a staging directory. This
+# therefore does not try: it takes the workload's own base as a build stage,
+# runs the same install the workload runs -- same pinned versioned script, same
+# `|| true` around the TTY-less `devin setup`, same version assertion, same
+# devin-cli rename -- and copies the resulting tree into a scratch overlay at
+# exactly the path it was built for.
 #
 # The copy is the whole of /home/agent/.local: the installer's layout is a
 # version directory plus a "current" symlink plus launchers in bin, and the
@@ -23,22 +23,49 @@
 ARG BASE_IMAGE=docker/sandbox-templates:shell-docker
 FROM ${BASE_IMAGE} AS build
 
+# Supplied by the descriptor's `version` arg, which owns the default and the
+# accepted shape. No default here on purpose: an unset value must fail the
+# build rather than quietly fall back to whatever "current" means today,
+# because the descriptor expands this same value into a versioned provide.
+#
+# Cognition's installer reads no version from its environment or its argv --
+# the top-level script carries a bare `PINNED_VERSION=""` literal, so a
+# DEVIN_VERSION passed *to* it would be ignored. The pin is expressed by WHICH
+# script is fetched instead; see the RUN below.
+ARG DEVIN_VERSION
+
 # Runs as the base image's default user (`agent`, uid 1000), which matters:
-# install.sh is a per-user installer, so everything lands under /home/agent
+# setup.sh is a per-user installer, so everything lands under /home/agent
 # owned by the user that will run it.
 RUN <<EOF
 set -eux
 
-# `|| true` is not laziness. install.sh ends by running `devin setup`, an
+test -n "${DEVIN_VERSION}" || { echo "DEVIN_VERSION is empty; pass the kit's version arg" >&2; exit 1; }
+
+# `|| true` is not laziness. setup.sh ends by running `devin setup`, an
 # interactive wizard that cannot complete without a TTY and exits non-zero
 # ("Login canceled"). Because that is the script's last command it is also the
 # script's exit status, so a clean install reports failure here.
-curl -fsSL https://cli.devin.ai/install.sh | bash || true
+#
+# The versioned script, not the top-level https://cli.devin.ai/install.sh: the
+# two are byte-identical apart from `PINNED_VERSION`, which the top-level one
+# leaves empty so the manifest lookup lands on `current/`. Fetching this path
+# is what makes the install pinned. The host is static.devin.ai, the
+# installer's own BASE_URL -- cli.devin.ai serves only the top-level script and
+# 301s a versioned path to the docs site.
+curl -fsSL "https://static.devin.ai/cli/${DEVIN_VERSION}/setup.sh" | bash || true
 
 # ...so assert the outcome instead of trusting the status that was just
 # discarded. A genuine download, checksum or unpack failure still fails the
 # build here, which is the only thing that makes the `|| true` above safe.
+#
+# `grep -Fw` rather than a bare run, because the descriptor publishes
+# `devin@${DEVIN_VERSION}` as a provide: a pin that silently installed some
+# other release would make that claim false, and this is the line that stops
+# it. -F because a version is dots, not a regexp; -w so a declared 3000.10.3
+# cannot be satisfied by an installed 3000.10.31.
 devin --version
+devin --version | grep -Fw "${DEVIN_VERSION}"
 
 # The installer's `devin` is the only one on PATH, and the auth wrapper has to
 # take that name so a composed sandbox's `devin` is the wrapper. Expose the

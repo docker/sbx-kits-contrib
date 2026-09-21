@@ -30,10 +30,9 @@ capabilities:
   # MIGRATION NOTE: v2 had one flat list; v3 is phase-scoped and an absent phase
   # grants nothing. The split follows who reaches each host:
   #
-  #   install  — bun.sh for the pinned Bun installer, and GitHub plus its two
-  #              release-asset hosts for the aidlc-workflows clone. Both are
-  #              install hooks, which is deliberate: they are the network-heavy
-  #              half and install completes synchronously before Claude launches.
+  #   install  — github.com alone, for the aidlc-workflows clone. That hook is
+  #              deliberately an install hook: it is the network-heavy half and
+  #              install completes synchronously before Claude launches.
   #   runtime  — github.com again, because the startup hook can `git fetch origin
   #              <sha>` when a project's recorded pin is not already in the clone;
   #              plus the apt sources (see below).
@@ -41,14 +40,21 @@ capabilities:
   # github.com is therefore in both phases, which is the union rule working as
   # intended rather than a duplicate: the install clone and the startup fetch are
   # two different reaches at two different times.
+  #
+  # The install phase used to also hold bun.sh, objects.githubusercontent.com and
+  # release-assets.githubusercontent.com. All three existed for one hook — the
+  # pinned Bun install, which fetched the installer from bun.sh and the release
+  # archive from GitHub, whose 302 lands on one of those two asset hosts. That
+  # install is now build-time content in aidlc-claude.dockerfile, so no hook is
+  # left to reach them and they are dropped: Bun's download happens once at
+  # publish instead of once per sandbox, and the kit's create-time egress is the
+  # clone and nothing else. `git clone` over HTTPS talks only to github.com, which
+  # is why that host stays and the asset hosts do not.
   - type: com.docker.sandbox/network-policy@1
     config:
       install:
         allow:
-          - bun.sh
           - github.com
-          - objects.githubusercontent.com
-          - release-assets.githubusercontent.com
       runtime:
         allow:
           # The startup hook's `git fetch origin <pinned-sha>` fallback, for a
@@ -67,29 +73,23 @@ capabilities:
   - type: com.docker.sandbox/lifecycle@1
     config:
       install:
-        # BUN_INSTALL is the whole fix: unset, the installer targets $HOME/.bun, and
-        # since install hooks run as uid 0 that means /root/.bun — invisible to the
-        # agent. /usr/local/bin is already on PATH for every user and shell type.
+        # There is no Bun install hook here any more. It ran upstream's installer
+        # at create with BUN_INSTALL=/usr/local, pinned to a release tag — a pinned
+        # artifact download that read nothing from sandbox-create time, which under
+        # v2 could only be a hook because a mixin had no way to carry content. It is
+        # now baked by aidlc-claude.dockerfile, at the same prefix, from the same
+        # pinned tag, so `bun` is on PATH before the sandbox starts rather than
+        # after a per-create download. The move is what let the install phase's
+        # bun.sh and release-asset grants go; see the network policy above.
         #
-        # Pinned to a tag rather than plain `| bash`: this kit is tested against one
-        # Bun version, and an unpinned install silently picks up whatever upstream
-        # ships on the day a sandbox is created. The installer's version argument is
-        # a release tag (`bun-vX.Y.Z`, per its own usage error), not a bare version.
+        # The clone below stays a hook, and so does the startup reconcile, because
+        # both are genuinely create-time work rather than content:
         #
-        # MIGRATION NOTE: `env:` is new and required — a v3 hook sees only the
-        # names it declares plus the platform baseline. The two proxy variables
-        # are named even though the command line does not mention them: the
-        # sandbox's egress is proxy-mediated and both curl and the installer read
-        # them from the environment, which in v2 arrived for free with the
-        # container env.
-        - command: |
-            set -euo pipefail
-            export BUN_INSTALL=/usr/local
-            curl -fsSL https://bun.sh/install | bash -s "bun-v1.4.0"
-            bun --version
-          user: "0"
-          env: [HTTP_PROXY, HTTPS_PROXY]
-          description: Install Bun v1.4.0 into /usr/local/bin
+        #   - the clone's commit is not a constant. A fresh project takes whatever
+        #     `main` is at create time and records it; an existing project takes the
+        #     SHA it already pinned in its own workspace. Content chosen per sandbox
+        #     cannot be a layer.
+        #   - the reconcile reads $WORKSPACE_DIR, injected by the runtime at create.
 
         # Keep the network-heavy clone in install: install is synchronous and
         # completes before Claude launches. The project-specific pin cannot be read

@@ -23,8 +23,56 @@ sourceUrl: https://docs.docker.com/ai/model-runner/
 
 kind: mixin
 
-version: "1.0.0"
-provides: ["opencode-model-runner"]
+# The OpenCode inside the overlay, by reference: SPEC-v3 §4 allows this field
+# to be a build-phase arg reference expanded at publish, so it names the same
+# `version` arg the provide reads. That arg is an ASSERTED value rather than a
+# selected one -- the recipe copies the agent out of the template and fails
+# the build when `opencode --version` disagrees with it -- so what this field
+# publishes is a version the build verified against the content. See the note
+# on the args.
+version: "${{ kit.args.version }}"
+
+# The OpenCode release this overlay ships, which it does NOT install: the
+# recipe copies the agent out of `docker/sandbox-templates:opencode-docker`,
+# which arrives already built. So this arg cannot select a release, and
+# declaring it as if it could would be a pin in name only.
+#
+# It is an ASSERTION instead. The recipe already ran `opencode --version`
+# before copying, as the gate that the binary works; it now also compares that
+# output with this value and fails the build when they differ, so the version
+# the provide publishes is verified against the content of every artifact
+# rather than asserted over it.
+#
+# WHY ENFORCE rather than leave it unversioned: unversioned, the provide takes
+# the `version:` above and publishes `opencode-model-runner@1.0.0`, which says
+# nothing about the agent a consumer would be constraining. The cost is a
+# tripwire -- `:opencode-docker` is a floating tag Docker rebuilds, so the day
+# it carries a newer OpenCode this kit stops building until someone bumps the
+# default below. For a kit whose whole content is copied out of someone else's
+# moving tag that is a feature: it is the only channel that reports the content
+# changed, and the build log names both versions.
+#
+# HOW THE DEFAULT WAS ESTABLISHED, and how to bump it: ask the base itself --
+#   docker run --rm --entrypoint opencode \
+#     docker/sandbox-templates:opencode-docker --version
+# which printed 1.18.23 at the time of writing. Not npm's `latest` (1.18.31 on
+# the same day): this kit ships whatever the template froze.
+#
+# THIS MUST STAY EQUAL TO ../opencode-model-runner's `version` default. Both
+# read the same template and provide the same name -- bump them together.
+args:
+  version:
+    default: "1.18.23"
+    pattern: '^[0-9]+\.[0-9]+\.[0-9]+$'
+    description: OpenCode release the base template is expected to carry
+    buildArg: EXPECTED_OPENCODE_VERSION
+
+# The kit's own name, as in the workload: both this kit and ../opencode-mixin
+# ship an OpenCode, and a capability name has exactly one owner in a
+# composition (SPEC-v3 §5.3). The version on it is the OpenCode release inside
+# -- the only thing about this capability a consumer could usefully constrain,
+# since the provider config the kit adds on top has no version of its own.
+provides: ["opencode-model-runner@${{ kit.args.version }}"]
 
 capabilities:
   # The agent's own egress rides with the kit that ships the agent: the base

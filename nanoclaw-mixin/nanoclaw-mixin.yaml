@@ -27,8 +27,38 @@ description: >-
 sourceUrl: https://github.com/nanocoai/nanoclaw
 
 kind: mixin
+
+# The KIT's own release number, not NanoClaw's.
 version: "1.0.0"
+
+# DELIBERATELY UNVERSIONED, matching ../nanoclaw -- this overlay copies out of
+# the same published third-party image, so there is no install for a build arg
+# to pin and no version to assert against. The image carries no version label
+# of NanoClaw's own (`org.opencontainers.image.version` is `26.04`, Ubuntu's,
+# inherited from its base); its three revision labels are 40-character commit
+# SHAs, which SPEC-v3 §5.2 cannot carry; and the one version-shaped string in
+# it, package.json's `2.3.0`, is 2750 commits stale (`git describe` answers
+# `v2.3.0-2750-g973bc1af`) and would keep asserting clean while the mutable
+# `sbx-claude-alpha` channel moved underneath it. The full argument, and what
+# upstream would have to change, is in ../nanoclaw/nanoclaw.yaml.
 provides: ["nanoclaw"]
+
+# The one piece of the note above that v3 CAN state. NanoClaw runs each session
+# in a nested agent container against the VM's own Docker daemon, so a base
+# without one carries the host process and can start no session at all.
+#
+# `deb/docker-ce` rather than `deb/docker-ce-cli` because the daemon is the
+# part that matters: the plain `shell` template ships the client alone, and a
+# client with nothing listening fails at the first session rather than at
+# create. Derived rather than authored — publishing a workload reads its dpkg
+# database and states one entry per installed package (SPEC-v3 §9.6) — so the
+# *-docker templates provide it and the plain ones do not, which is the line
+# this kit needs drawn.
+#
+# The Node runtime, the OneCLI and the Postgres clients stay unstatable: they
+# are not distribution packages on the bases that carry them, so there is no
+# derived name to require and nothing else in the grammar names a runtime.
+requires: ["deb/docker-ce"]
 
 capabilities:
   # The agent's own egress rides with the kit that ships the agent: the base

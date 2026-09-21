@@ -25,6 +25,13 @@ FROM docker/sandbox-templates:opencode-docker AS build
 # here to keep unprivileged -- the template already ran it.
 USER root
 
+# The kit's `version` arg arriving as a build arg. There is no install here to
+# pin, so it is an expectation rather than a selector -- hence the name. The
+# gate below holds the template to it, which is what turns
+# `provides: ["opencode-model-runner@<version>"]` from a claim about the
+# content into a fact verified against it.
+ARG EXPECTED_OPENCODE_VERSION
+
 RUN <<'EOF'
 set -eux
 
@@ -36,8 +43,24 @@ root="$(npm root -g)"
 test -d "$root/opencode-ai"
 test -L "$prefix/bin/opencode" || test -f "$prefix/bin/opencode"
 
-# The same binary the workload runs, verified before it is copied.
-opencode --version
+# The same binary the workload runs, verified before it is copied -- and held
+# to the version the descriptor's provide publishes. `opencode --version`
+# prints a bare version string, so the comparison is exact. Without this the
+# declared version would drift silently the next time Docker rebuilds
+# `:opencode-docker`, and the overlay would ship a version the kit does not
+# claim. Failing here is the intended behavior: read the new version out of
+# the message and bump `args.version.default` in
+# opencode-model-runner-mixin.yaml, in lockstep with
+# ../opencode-model-runner, which asserts the same value against the same
+# template.
+actual="$(opencode --version)"
+if [ "${actual}" != "${EXPECTED_OPENCODE_VERSION}" ]; then
+  echo "opencode-model-runner-mixin: base image ships OpenCode ${actual}, but" >&2
+  echo "this kit declares ${EXPECTED_OPENCODE_VERSION} and publishes it as the" >&2
+  echo "version of its provide. Bump args.version.default in" >&2
+  echo "opencode-model-runner-mixin.yaml (and in the workload kit) to ${actual}." >&2
+  exit 1
+fi
 
 mkdir -p "/out${root}" "/out${prefix}/bin" /out/usr/local/bin
 cp -a "$root/opencode-ai" "/out${root}/opencode-ai"

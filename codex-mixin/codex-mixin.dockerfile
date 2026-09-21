@@ -40,17 +40,76 @@ RUN apt-get update \
 # installer asks which shell profile to append PATH to, and a build has no TTY
 # to answer that prompt — the RUN would hang.
 #
-# The install floats: no version pin, which is why the descriptor's
-# `provides: ["codex"]` is unversioned and leans on its `version:` fallback.
+# The install is pinned, via the kit's `version` arg, and to the same release
+# the codex workload pins — the two ship the same CLI under the same provide
+# name, so they have to agree. CODEX_RELEASE is the installer's own documented
+# knob for this (`install.sh --help`: "Version to install; overridden by
+# --release"), so the pin goes through the vendor's supported path rather than
+# around it. No default on the ARG: an empty CODEX_RELEASE means `latest` to
+# the installer, and a float underneath a descriptor publishing
+# `codex@${{ kit.args.version }}` is worse than floating outright.
 #
 # `--version` last, deliberately: the installer's exit code says only that the
-# script ran, not that a usable binary landed.
+# script ran, not that a usable binary landed. And it is COMPARED against the
+# pin rather than merely printed. `codex --version` prints "codex-cli
+# <version>", so the second field is the number to match.
+# CODEX_INSTALL_DIR alone does NOT relocate the install, and this overlay
+# shipped a dangling symlink until that was understood. The installer puts only
+# a launcher symlink in CODEX_INSTALL_DIR; the release tree it points at goes
+# to $CODEX_HOME/packages/standalone/releases/<version>-<target>, and
+# CODEX_HOME defaults to $HOME/.codex — /root/.codex in this root build stage,
+# which is outside /out and so never reached the overlay. `COPY --from=build
+# /out /` then landed /usr/local/bin/codex pointing into a /root that does not
+# exist on the composed base, and `codex` was command-not-found there. The
+# build-stage `--version` check passed the whole time, because in THAT stage
+# /root/.codex was real.
+#
+# So both knobs point into the staging tree. /opt is where an overlay belongs,
+# for the reason above: /home/agent may be a mounted volume on the base this
+# lands on. The runtime CODEX_HOME stays /home/agent/.codex — the profile.d
+# export below, matching the workload — so this path is the install location
+# only, not the agent's config directory.
+ARG CODEX_VERSION
 ENV CODEX_INSTALL_DIR=/out/usr/local/bin
-RUN mkdir -p /out/usr/local/bin \
- && CODEX_NON_INTERACTIVE=true sh -c "$(curl -fsSL https://chatgpt.com/codex/install.sh)" \
- && /out/usr/local/bin/codex --version \
- && mkdir -p /out/usr/local/share/npm-global/bin \
- && ln -sf /usr/local/bin/codex /out/usr/local/share/npm-global/bin/codex
+ENV CODEX_HOME=/out/opt/codex-cli
+RUN <<EOF
+set -eux
+[ -n "${CODEX_VERSION}" ] || { echo "CODEX_VERSION must be set" >&2; exit 1; }
+
+mkdir -p /out/usr/local/bin
+CODEX_NON_INTERACTIVE=true CODEX_RELEASE="${CODEX_VERSION}" \
+  sh -c "$(curl -fsSL https://chatgpt.com/codex/install.sh)"
+
+# Before the symlinks are rewritten, while they still resolve in this stage.
+installed=$(/out/usr/local/bin/codex --version | awk '{print $2}')
+[ "$installed" = "${CODEX_VERSION}" ] || {
+  echo "installed codex $installed != pinned ${CODEX_VERSION}" >&2; exit 1; }
+
+# The installer writes ABSOLUTE symlinks, so both of the ones it created carry
+# the /out staging prefix and would dangle once the overlay is copied onto a
+# base. Strip it. Rewritten by reading each link rather than by spelling the
+# targets out, because the release directory name embeds the Rust target triple
+# (0.155.1-aarch64-unknown-linux-musl) and so differs per architecture:
+#
+#   /out/usr/local/bin/codex  -> /out/opt/.../standalone/current/bin/codex
+#   /out/opt/.../current      -> /out/opt/.../releases/<version>-<target>
+for link in /out/usr/local/bin/codex /out/opt/codex-cli/packages/standalone/current; do
+  ln -sfn "$(readlink "$link" | sed 's#^/out##')" "$link"
+  case "$(readlink "$link")" in /out/*) echo "unrewritten staging path in $link" >&2; exit 1 ;; esac
+done
+
+# The release archive records the publisher's CI uid (1001) and tar preserves
+# it, so the staged tree arrives owned by an account that does not exist here.
+# Harmless in a build stage; as image content on an unknown base that id may be
+# a real account, and a file's owner can rewrite it whatever its mode says.
+chown -R 0:0 /out/opt/codex-cli
+
+# Installer scratch (extracted arg0 helper copies), not part of the install.
+rm -rf /out/opt/codex-cli/tmp
+
+mkdir -p /out/usr/local/share/npm-global/bin
+ln -sf /usr/local/bin/codex /out/usr/local/share/npm-global/bin/codex
+EOF
 
 # v2's environment.variables. A mixin's image config does not become the
 # composed image's, so the exports ride the overlay and the base's login shell
@@ -70,7 +129,9 @@ export CODEX_HOME=/home/agent/.codex
 export GIT_TERMINAL_PROMPT=0
 EOF
 
-# The overlay: the CLI, xdg-open, the npm-global shim codex-app-server's
-# wrapper execs, and the profile.d exports — landing on any base.
+# The overlay: the CLI (its launcher shim plus the standalone release tree
+# under /opt that the shim resolves to), xdg-open, the npm-global shim
+# codex-app-server's wrapper execs, and the profile.d exports — landing on any
+# base.
 FROM scratch
 COPY --from=build /out /

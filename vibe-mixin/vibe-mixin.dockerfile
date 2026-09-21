@@ -14,10 +14,15 @@
 ARG BASE_IMAGE=docker/sandbox-templates:shell-docker
 FROM ${BASE_IMAGE} AS build
 
-# PyPI version of mistral-vibe: "latest", or an exact number such as 2.25.0
-# to pin the overlay to a known release. Not a kit arg: the descriptor's
-# provide is unversioned precisely because the default floats.
-ARG VIBE_VERSION=latest
+# The kit's `version` arg arriving as a build arg -- vibe-mixin.yaml declares
+# it with `buildArg: VIBE_VERSION`, validates its shape, and expands the same
+# value into `provides: ["vibe@..."]`. Deliberately no default here: the
+# descriptor is the single source of the pin.
+#
+# MIGRATION NOTE: this used to default to the literal `latest`. The provide
+# quotes the pin now, so a floating install would make the kit claim a version
+# it might not carry.
+ARG VIBE_VERSION
 
 USER root
 # Ownership starts at /out/home/agent, not /out/home: an overlay's directory
@@ -43,12 +48,13 @@ RUN set -ex; \
 
 # The install, unmodified from the workload recipe. uv ships with the
 # template at /usr/local/bin/uv, and `uv tool install` puts the executables
-# in ~/.local/bin. `vibe --version` is the build-time gate.
+# in ~/.local/bin. The requirement is `mistral-vibe==<version>`, an exact
+# specifier rather than a range, so what uv resolves is the release the
+# descriptor promised. `vibe --version` is the build-time gate.
 USER agent
 WORKDIR /home/agent
 RUN set -ex; \
-    if [ "${VIBE_VERSION}" = "latest" ]; then SPEC="mistral-vibe"; else SPEC="mistral-vibe==${VIBE_VERSION}"; fi; \
-    uv tool install --managed-python --python 3.14 "${SPEC}"; \
+    uv tool install --managed-python --python 3.14 "mistral-vibe==${VIBE_VERSION}"; \
     vibe --version
 
 # The specific resulting paths: the tool venv and any managed interpreter

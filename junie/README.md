@@ -39,7 +39,7 @@ Run the kit. Pass the kit's name (`junie`) as the agent argument. The primary
 form is its published OCI artifact on Docker Hub:
 
 ```console
-sbx run --kit "docker.io/sbx/junie-kit:latest" junie
+sbx run --kit "docker.io/docker/sbx-kit-junie:latest" junie
 ```
 
 Or from a git URL targeting this repo:
@@ -104,7 +104,7 @@ the image the sandbox boots from. This kit builds and publishes its own, from
 [`junie.dockerfile`](./junie.dockerfile) in this directory:
 
 ```
-docker.io/sbx/junie-image
+docker.io/docker/sbx-kit-junie
 └── FROM docker/sandbox-templates:shell
     └── junie (upstream's own install.sh, stable channel)
         ENV JUNIE_SKIP_UPDATE_CHECK=1
@@ -117,7 +117,7 @@ this kit's egress policy allows. Setting it is what makes the trimmed
 allowlist above a closed set rather than an approximation of one.
 
 The `-image` suffix distinguishes the base image from the kit itself: the kit
-is published separately as an OCI artifact at `docker.io/sbx/junie-kit` (see
+is published separately as an OCI artifact at `docker.io/docker/sbx-kit-junie` (see
 [Usage](#usage) above).
 
 ### Building and publishing
@@ -128,27 +128,65 @@ in this repo that builds its own image — see
 kit-specific build script or workflow; CI builds and publishes this image the
 same way it does for `hermes-agent`/`pi`/`openclaw`/`kiro`/`copilot`.
 
-Junie's stable channel publishes a new build every few days, so this image
-rolls: `junie.dockerfile`'s `ADD` against upstream's own version-resolution
-feed forces a fresh install whenever the channel moves, and the pipeline's
-nightly scheduled rebuild picks one up within a day either way. There is no
-supported way to pin a specific build in this image — `install.sh`'s
-`JUNIE_VERSION` override exists, but is not exposed as a kit arg here. The
-descriptor's `version:` is therefore the kit's own release number, standing in
-as the fallback for the unversioned `provides: ["junie"]`, not a claim about
-which Junie build is inside.
+Junie's stable channel publishes a new build every few days, and this image no
+longer rolls with it: the install is pinned, so a rebuild reproduces the same
+release until the pin is bumped.
+
+Two args carry the pin, because JetBrains ships two version numbers and the
+install and the provide need different ones:
+
+| arg | build arg | example | what it is |
+|---|---|---|---|
+| `version` | `JUNIE_MARKETING_VERSION` | `26.9.21` | the marketing release, what the binary reports and what `provides: ["junie@<version>"]` publishes |
+| `build` | `JUNIE_VERSION` | `3294.5` | the JetBrains build number, the only thing `install.sh`'s pin accepts |
+
+`install.sh` documents its own override in its header — `curl -fsSL
+https://junie.jetbrains.com/install.sh | JUNIE_VERSION=656.1 bash` — and with
+it set takes the branch `VERSION="$JUNIE_VERSION"`, downloading that exact
+release and still looking its published checksum up in the feed. The recipe
+then asserts the binary's answer contains both values, so the two cannot drift
+apart: a build number that turns out to carry some other marketing version
+fails the build rather than publishing a false provide.
+
+```console
+$ junie --version
+Junie version: 26.9.21 (3294.5)
+```
+
+To bump, read both from the last `linux-*` entry of the feed `install.sh`
+itself resolves the current stable build from — its `version` field is the
+build number and its `marketing` field is the release:
+
+```console
+$ curl -fsSL https://raw.githubusercontent.com/JetBrains/junie/main/update-info.jsonl \
+    | grep '"platform":"linux-aarch64"' | tail -1
+```
+
+The `ADD` of that feed is gone from `junie.dockerfile` with the pin. It
+existed to invalidate the install layer whenever the channel moved, which a
+pinned install wants the opposite of: the layer is keyed on `JUNIE_VERSION`
+now, so it re-runs when the pin moves and not when JetBrains publishes
+something this kit did not ask for. The nightly scheduled rebuild still picks
+up base-image changes.
 
 ### Building locally
 
 ```console
-docker build -f junie/junie.dockerfile -t docker.io/sbx/junie-image:latest junie
-./scripts/test-kit.sh junie
+cd junie && docker buildx build . -f junie.yaml --output type=oci,dest=/tmp/junie-kit,tar=false
+kit-tck kit --layout /tmp/junie-kit 26.9.21
 ```
 
-`scripts/test-kit.sh` builds the kit's own image before running the suite
-(`SBX_KIT_SKIP_IMAGE_BUILD=1` to skip and reuse what's already built). Until
-the image is first published — pull requests build it but never push it — the
-TCK's `container` subtest can only pull it locally, so build before you test.
+The descriptor is the build target, not the recipe: its
+`# syntax=docker/sandbox-kit:3` line dispatches the kit frontend, which
+validates the descriptor, builds `junie.dockerfile` as the content and attaches
+the published descriptor to the result. Building the recipe directly would give
+you an ordinary image and no kit.
+
+Exporting an OCI layout rather than loading an image is what lets `kit-tck`
+judge the artifact with no registry involved — it reads the annotations, layers
+and image config the way a consumer would. Note it takes the tag alone, not
+`junie-kit:26.9.21`. Install it with
+`go install github.com/docker/sandbox-kit-spec/v3/cmd/kit-tck@latest`.
 
 ## Customization
 

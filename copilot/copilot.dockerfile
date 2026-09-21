@@ -26,11 +26,37 @@ ARG BASE_IMAGE
 # the sandbox proxy per the descriptor's credential entries. So this is just the
 # upstream install script.
 #
-# The install floats: no version pin here, which is why the descriptor's
-# `provides: ["copilot"]` is unversioned and leans on its `version:` fallback.
+# The install is pinned, via the kit's `version` arg. VERSION is the
+# installer's own knob for this, documented in its usage header ("Export
+# PREFIX ..."-style options) and read where it picks the download URL: a
+# specific value selects
+# `.../releases/download/v<version>/copilot-<platform>-<arch>.tar.gz`, and the
+# installer adds the `v` itself, so the arg carries the bare number SPEC-v3
+# §5.2 requires.
+#
+# No default on the ARG, deliberately. An empty VERSION is not "no opinion" to
+# this installer — its first branch is `[ "${VERSION}" = "latest" ] || [ -z
+# "$VERSION" ]`, so empty means latest. A float underneath a descriptor
+# publishing `copilot@${{ kit.args.version }}` is the one failure mode worse
+# than floating outright, so a missing value fails the build.
+#
+# The installed binary is asked for its version and the answer compared
+# against the pin: the installer's exit code says only that the script ran.
+# `copilot --version` prints "GitHub Copilot CLI <version>." on its first line
+# — trailing full stop included, and a second line advertising `copilot
+# update` — so the last field of the first line, minus that period, is the
+# number to match.
+ARG COPILOT_VERSION
 RUN <<EOF
 set -exo pipefail
+[ -n "${COPILOT_VERSION}" ] || { echo "COPILOT_VERSION must be set" >&2; exit 1; }
+
+export VERSION="${COPILOT_VERSION}"
 curl -fsSL https://gh.io/copilot-install | bash
+
+installed=$(copilot --version | head -n1 | awk '{print $NF}' | sed 's/\.$//')
+[ "$installed" = "${COPILOT_VERSION}" ] || {
+  echo "installed copilot $installed != pinned ${COPILOT_VERSION}" >&2; exit 1; }
 EOF
 
 # Inherited from the base image, but re-declared deliberately so the value is

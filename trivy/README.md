@@ -2,9 +2,9 @@
 
 A standalone sandbox kit for the [Trivy](https://trivy.dev/)
 open-source vulnerability scanner from [Aqua Security](https://aquasec.com/).
-The kit installs `trivy` from a pinned, digest-verified GitHub release at
-sandbox creation time and drops you into a bash shell with the binary on
-`PATH` and your workspace mounted as the working directory.
+The kit ships `trivy` in its layers — fetched from a pinned, digest-verified
+GitHub release when the kit is *built* — and drops you into a bash shell with
+the binary on `PATH` and your workspace mounted as the working directory.
 
 ## Why this kit exists
 
@@ -16,14 +16,15 @@ packages downstream. Microsoft's
 prescribes "governed execution pipelines" with "vault isolation and egress
 filtering". This kit puts that prescription one `sbx run` away: scanner
 runs in a microVM, your `~/.aws` / `~/.ssh` / `~/.docker/config.json` are
-not mounted, egress is allowlisted to six hosts (release fetch + vuln DB),
-and the install is digest-pinned against tag-rewrite attacks.
+not mounted, egress is allowlisted to three hosts (the vuln DB, and nothing
+else — the release fetch happens at build), and the install is digest-pinned
+against tag-rewrite attacks.
 
 ## Usage
 
 ```console
 cd ~/work/some-project
-sbx run --kit "docker.io/sbx/trivy-kit:latest" trivy .
+sbx run --kit "docker.io/docker/sbx-kit-trivy:latest" trivy .
 agent@trivy-some-project:/Users/mark/work/some-project$ trivy fs .
 ```
 
@@ -39,8 +40,10 @@ Or with a local clone of this repo:
 sbx run --kit ./trivy/ trivy .
 ```
 
-The first launch downloads, verifies, and installs Trivy. Subsequent
-launches reuse the sandbox; the vuln DB is cached on a persistent volume.
+Trivy is already in the kit's image: the download and its SHA256 check run
+when the kit is built, not when a sandbox is created, so a launch has nothing
+to fetch. Subsequent launches reuse the sandbox; the vuln DB is cached on a
+persistent volume.
 
 ## How auth and egress work
 
@@ -49,16 +52,21 @@ flows (`fs`, `repo`, plain `image`). Aqua's commercial feeds (premium
 indicators, SaaS reporting) are out of scope for this kit; if you need
 them, fork and add the appropriate `serviceDomains` and `credentials`.
 
-The kit's network allowlist covers exactly six hosts:
+The kit's network allowlist covers exactly three hosts, all of them in the
+`runtime` phase:
 
 | Host | Why |
 | --- | --- |
-| `github.com` | Release page entry point for the install tarball (302-redirects) |
-| `objects.githubusercontent.com` | Actual redirect target for this repo's release asset (confirmed by hand) |
-| `release-assets.githubusercontent.com` | Kept alongside it since the redirect target isn't guaranteed to be the same host for every repo/asset |
 | `mirror.gcr.io` | Trivy's default *primary* vuln DB source (`mirror.gcr.io/aquasec/trivy-db`) |
 | `ghcr.io` | Trivy's *fallback* vuln DB source (`ghcr.io/aquasecurity/trivy-db`) |
 | `pkg-containers.githubusercontent.com` | GHCR blob storage backend |
+
+There is no `install` phase at all. The GitHub release hosts the tarball
+comes from (`github.com`, which 302-redirects to
+`objects.githubusercontent.com`, plus `release-assets.githubusercontent.com`)
+are contacted by whoever *builds* the kit, so they are the builder's egress
+and never the sandbox's — a sandbox created from this kit cannot reach them
+in any phase.
 
 Both DB sources are declared in the allowlist rather than redirecting Trivy
 to one specific source via env vars. The reason: env-var-based security
@@ -103,17 +111,22 @@ For routine scanning of *what's in front of you*, prefer
 
 ## Version pinning
 
-The install command pins:
+The install pins:
 
 - `TRIVY_VERSION=0.70.0` (published 2026-04-17, post-TeamPCP)
 - SHA256 per-arch: `Linux-64bit` and `Linux-ARM64`
 
-To bump: edit `trivy.yaml` in three places together — the install hook's
-`TRIVY_VERSION`, the two SHA256s sourced from the release's `checksums.txt`,
-and the `provides: ["trivy@…"]` entry that states what the kit installs. The
-mixin variant carries the same pin in `../trivy-mixin/trivy-mixin.dockerfile`,
-where the download runs at build instead. Sigstore signature verification is a
-worthwhile follow-up but out of scope for v1.
+To bump: edit three places together — `TRIVY_VERSION` in
+[`trivy.dockerfile`](./trivy.dockerfile), the two SHA256s beside it, sourced
+from the release's `checksums.txt`, and the `provides: ["trivy@…"]` entry in
+`trivy.yaml` that states what the kit installs. The mixin variant carries the
+same pin in `../trivy-mixin/trivy-mixin.dockerfile` and has to move with it.
+Sigstore signature verification is a worthwhile follow-up but out of scope for
+v1.
+
+The recipe picks its asset by `TARGETARCH` rather than by asking the running
+machine, so a `--platform linux/amd64,linux/arm64` build verifies each leg
+against its own digest.
 
 ## Cleanup
 

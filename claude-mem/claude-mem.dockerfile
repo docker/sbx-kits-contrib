@@ -2,8 +2,17 @@
 
 # Overlay recipe for the claude-mem mixin.
 #
-# The kit installs itself from npm in a lifecycle hook, so the overlay carries no
-# software at all — only the three environment variables the v2 kit declared.
+# The kit installs itself in a lifecycle hook, so the overlay carries no software
+# at all — only the three environment variables the v2 kit declared.
+#
+# That split was re-examined once v3 made a mixin able to carry an overlay, since
+# a v2 install hook is often just a v2 limitation. This one is not: the hook runs
+# upstream's provisioning flow, which probes the composed base for its runtimes,
+# merges into Claude Code's shared plugin registry (files a layer would replace
+# rather than merge into), and deliberately resolves its version at create so the
+# installed worker stays aligned with the marketplace catalog its own hooks check
+# against. The descriptor's lifecycle@1 carries the full reasoning and the paths
+# that were checked. Nothing about the install is pure content, so nothing moved.
 #
 # MIGRATION NOTE: v3 has no static-env grammar for a mixin. A mixin's image config
 # does not become the composed image's, so `environment.variables` becomes a

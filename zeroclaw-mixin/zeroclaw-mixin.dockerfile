@@ -33,6 +33,10 @@ RUN set -eu; \
     tar -xzf /tmp/zeroclaw.tar.gz -C /out/usr/local/bin zeroclaw; \
     rm /tmp/zeroclaw.tar.gz; \
     chmod 0755 /out/usr/local/bin/zeroclaw; \
+    # The release tarball records the publisher's CI uid, and tar preserves it:
+    # as image content on an unknown base that id may be a real account, and a
+    # file's owner can rewrite it whatever its mode says.
+    chown 0:0 /out/usr/local/bin/zeroclaw; \
     /out/usr/local/bin/zeroclaw --version
 
 # The kit's own scripts and seed config.

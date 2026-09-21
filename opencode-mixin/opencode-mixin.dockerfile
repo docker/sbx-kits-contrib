@@ -11,10 +11,13 @@
 ARG BASE_IMAGE=docker/sandbox-templates:shell-docker
 FROM ${BASE_IMAGE} AS build
 
-# Pin a release by passing --build-arg OPENCODE_VERSION=1.2.3 (npm semver, no
-# leading "v"). Left empty, the build installs the newest published version --
-# which is why the descriptor's provide is unversioned.
-ARG OPENCODE_VERSION=""
+# The kit's `version` arg arriving as a build arg -- opencode-mixin.yaml
+# declares it with `buildArg: OPENCODE_VERSION`, validates its shape, and
+# expands the same value into `provides: ["opencode@..."]`. Deliberately no
+# default here: the descriptor is the single source of the pin. Move it with
+# `--build-arg version=1.2.3` (npm semver, no leading "v"), which moves the
+# install and the provide together.
+ARG OPENCODE_VERSION
 
 # /opt belongs to root and this base runs as the unprivileged `agent` (uid
 # 1000), so npm cannot create the prefix it is pointed at. The prefix is
@@ -51,17 +54,23 @@ USER agent
 #     `omit=optional` — from an .npmrc or from NPM_CONFIG_OMIT — cannot leave
 #     the postinstall with no binary to copy.
 #
+# The version spec is exact -- `opencode-ai@1.18.31`, never a range or a
+# dist-tag -- so what npm resolves is what the descriptor promised, and the
+# provide's version is true of the overlay rather than a guess about it.
+#
 # The `--version` call last, deliberately: the install's exit code says only
 # that npm ran, not that a working binary came out of it. It runs against the
 # real /opt/opencode prefix — the path the overlay will land at — so what is
-# verified is what ships. The npm cache is dropped in the same layer because it
-# holds a second copy of a ~180 MB tarball that nothing reads again.
+# verified is what ships, and it prints the bare version string, so the build
+# log records what the pin resolved to. The npm cache is dropped in the same
+# layer because it holds a second copy of a ~180 MB tarball that nothing reads
+# again.
 RUN <<EOF
 set -eux
 
 (corepack disable npm 2>&1 || echo "no corepack npm shim to disable")
 
-npm install -g --prefix /opt/opencode "opencode-ai@${OPENCODE_VERSION:-latest}" --include=optional
+npm install -g --prefix /opt/opencode "opencode-ai@${OPENCODE_VERSION}" --include=optional
 
 /opt/opencode/bin/opencode --version
 

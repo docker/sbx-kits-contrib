@@ -11,12 +11,17 @@ passthrough `devin` credential and the `credentials.toml` it renders, the
 `*.devin.ai` / Codeium allow list, the `auto_update: false` config seed, and
 the MCP-gateway registration hook.
 
-`install.sh` is a per-user installer with no `--prefix` that resolves its
-target from a manifest it fetches itself, so `devin-mixin.dockerfile` runs the
-unmodified install in a build stage on the workload's own base — same
-`|| true` around the TTY-less `devin setup`, same `devin --version` gate, same
-`devin-cli` rename — and copies `/home/agent/.local` into a `FROM scratch`
-overlay. The copy is the whole per-user prefix rather than `bin` alone because
+`setup.sh` is a per-user installer with no `--prefix` that resolves its target
+from a manifest it fetches itself, so `devin-mixin.dockerfile` runs the same
+install the workload runs, in a build stage on the workload's own base — same
+pinned versioned script, same `|| true` around the TTY-less `devin setup`,
+same version assertion, same `devin-cli` rename — and copies
+`/home/agent/.local` into a `FROM scratch` overlay.
+
+The pin rides along too: `DEVIN_VERSION` is the descriptor's `version` arg and
+is expanded into `provides: ["devin@<version>"]`, and it must stay equal to
+the workload's, since the two shapes provide one name. See `../devin/README.md`
+for how the pin reaches an installer that reads no version. The copy is the whole per-user prefix rather than `bin` alone because
 the installer's layout is a version directory plus a "current" symlink plus
 launchers, and `devin-cli` deliberately points at the symlink *target* so
 `devin update` keeps moving it.

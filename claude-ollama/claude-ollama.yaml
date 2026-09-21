@@ -5,22 +5,62 @@ kind: workload
 displayName: Claude Code (Ollama)
 description: Claude Code wired to Ollama Anthropic-compatible API, with configurable model.
 
-# MIGRATION NOTE: v2 declared no `version:`. v3 needs one here as the fallback
-# for the unversioned `provides` entry below, so the kit publishes a resolvable
-# capability rather than one that only satisfies an unconstrained require.
-version: "1.0.0"
+# MIGRATION NOTE: v2 declared no `version:`. v3 needs one, and rather than
+# invent a release number for this descriptor, the egress rule and the wrapper,
+# it is resolved from the `version` arg below — SPEC-v3 §4 admits a build-phase
+# arg reference here and expands it at publish. So the kit is released as the
+# Claude Code behind the wrapper, which is the same value the provide carries
+# and, for the reasons the arg's own comment sets out, the only version
+# `claude-ollama` can honestly state. A literal here would have been a second
+# number competing with that one — and, as the fallback an unversioned provide
+# takes its version from, the one that used to win.
+version: "${{ kit.args.version }}"
+
+# The Claude Code release this kit installs, and the version it publishes
+# `claude-ollama` at.
+#
+# WHY A CLAUDE VERSION IS THE RIGHT VERSION FOR `claude-ollama`. This kit's own
+# payload is one egress rule, one settings seed and a wrapper script whose last
+# line is `exec claude "$@"`. Everything a caller can observe about
+# `claude-ollama` — its flags, its behaviour, what `claude-ollama --version`
+# prints — is Claude Code's, routed at a local endpoint. So the honest version
+# for the name is the version of the binary behind it.
+#
+# WHY THE RECIPE HAD TO GROW AN INSTALL TO SAY THAT. The base template already
+# carries a `claude`, but a floating one: `docker/sandbox-templates:claude-code-docker`
+# had 2.1.246 when this was pinned, and it is rebuilt nightly. Publishing a
+# version while the content came from a tag that moves underneath it would be
+# exactly the failure this pin exists to prevent. So the recipe re-installs
+# Claude Code at this version on top of the template — the base image itself is
+# unchanged, and the sibling `claude` kit's own installer does the work.
+#
+# HOW THE DEFAULT WAS DETERMINED, and how to bump it: Anthropic's installer
+# resolves an omitted target to the `stable` channel, published as a bare
+# version string at `https://downloads.claude.ai/claude-code-releases/stable` —
+# 2.1.267 when this was pinned. Re-read that URL to bump. This is deliberately
+# the same value the `claude` and `claude-mixin` kits in this repo pin: the
+# three ship the same binary, and a sandbox should not get a different Claude
+# Code because it chose the Ollama wiring.
+args:
+  version:
+    # Channel names (`stable`, `latest`) are rejected even though the installer
+    # accepts them: the value is expanded into `provides` below, and
+    # `claude-ollama@stable` is not a version. The prerelease tail is
+    # constrained to what SPEC-v3 §5.2 admits in a version segment.
+    default: "2.1.267"
+    pattern: '^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$'
+    description: Claude Code release to install behind the Ollama wrapper
+    buildArg: CLAUDE_CODE_VERSION
 
 # MIGRATION NOTE: the name is `claude-ollama`, not `claude`, and that is
 # load-bearing rather than cosmetic. In v2 a mixin's `requires.agent: claude`
 # matched a sandbox kit's `name:`, so the six claude mixins in this repo never
 # composed onto this kit — its agent name was `claude-ollama`. Providing
 # `claude` here would silently make all of them eligible, several of which
-# assume a reachable Anthropic API that this kit deliberately removes.
-#
-# Unversioned, with `version:` above as the fallback: the claude binary comes
-# from the template image, which floats, so there is no release for this kit to
-# pin or claim.
-provides: ["claude-ollama"]
+# assume a reachable Anthropic API that this kit deliberately removes. Pinning
+# the version does not change that: the name stays `claude-ollama`, so a
+# `requires: ["claude"]` still does not resolve against this kit.
+provides: ["claude-ollama@${{ kit.args.version }}"]
 
 capabilities:
   # A v2 `kind: sandbox` kit is an sbx-launched agent: the host launches the
@@ -130,7 +170,8 @@ capabilities:
         # entrypoint first runs, so the ordering holds. The `$CLAUDE_OLLAMA_MODEL`
         # and `"$@"` references are shell expansions at run time and pass
         # through untouched — only kit-arg references are substituted into file
-        # content, and this kit declares no args.
+        # content, and the kit's one arg (the pinned Claude Code version) is
+        # not referenced here.
         - path: /home/agent/.local/bin/claude-ollama
           content: |
             #!/usr/bin/env bash

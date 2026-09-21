@@ -1,15 +1,19 @@
 # syntax=docker/sandbox-kit:3
-# smolagents as a declaration-only MIXIN. The v2 kit shipped no Dockerfile — it
-# built its venv through setup hooks — and v3 lets a mixin have no recipe at
-# all, so the descriptor is the whole kit.
+# smolagents as a MIXIN with a small overlay.
 #
-# MIGRATION NOTE: v2's `environment.variables` has no v3 field here. A mixin's
-# image config is not the composed image's, and a recipe-less mixin has no
-# overlay to drop an /etc/profile.d file into at build time either — so the
-# last install hook below writes that drop. Both variables stayed fixed values
-# rather than becoming args with `env:`: they name the venv the hooks above them
-# create at a hard-coded path, so an installer-supplied value would point at a
-# python that does not exist.
+# MIGRATION NOTE: the v2 kit shipped no Dockerfile because a v2 mixin had no
+# content mechanism — setup hooks were the only way for one to do anything,
+# including write a file — and the first v3 cut carried all four hooks across
+# as written. v3 lets a mixin carry an overlay, so the one hook that was pure
+# static content is smolagents.dockerfile's layer now: the /etc/profile.d drop
+# that stands in for v2's `environment.variables`. A mixin's image config is
+# not the composed image's, so a profile.d file the base's login shell sources
+# is how a mixin sets variables at all — and it is content, not an install.
+#
+# The other three hooks stay, and this kit therefore narrows rather than
+# empties. Why each one stays is on its hook below; the venv is the one worth
+# reading, because the answer came from an experiment rather than from the
+# rule.
 schemaVersion: "3"
 displayName: smolagents
 description: >-
@@ -18,15 +22,31 @@ description: >-
 
 kind: mixin
 
-# The install hook pins 1.26.0, so this version is a fact about what the kit
-# installs. To bump: edit the hook, this entry and the README together.
+# The install hook pins 1.26.0 and now checks what it installed against that
+# pin rather than only printing it. To bump: edit the hook, this entry and the
+# README together.
 provides: ["smolagents@1.26.0"]
 
+# The apt hook is a bare `apt-get update && apt-get install ...` under no
+# guard, so a base without apt fails sandbox creation. v2 had no field for
+# this; v3 does, and the name is real rather than invented — publishing a
+# workload derives one entry per installed distribution package out of its own
+# dpkg database (SPEC-v3 §9.6), so every Debian-family base provides `deb/apt`
+# whether or not its author wrote anything down.
+#
+# `deb/python3` is deliberately absent even though the venv needs one: that
+# hook installs python3 itself, and a kit does not require what it brings.
+requires: ["deb/apt"]
+
 capabilities:
-  # MIGRATION NOTE: v2's one flat allow list, split by the phase that reaches
-  # each host. The v2 comments already separated them — pip and apt are the
-  # install hooks', the Hugging Face and DuckDuckGo hosts are the agent's in
-  # steady state — so the split is a transcription of what was written down.
+  # MIGRATION NOTE: the install phase is UNCHANGED by this pass, and that is
+  # the honest outcome rather than an oversight. Elsewhere in this repo moving
+  # an install into an overlay deletes or shortens the install grant, because
+  # the builder takes over the download. Here nothing that reaches a host
+  # moved: the hook that became content writes a file and contacts nobody. The
+  # pip install still runs at create and still reaches PyPI; apt still runs at
+  # create and still reaches the Ubuntu and Docker mirrors. A shorter list
+  # would be a policy that lies.
   - type: com.docker.sandbox/network-policy@1
     config:
       install:
@@ -55,28 +75,51 @@ capabilities:
 
   - type: com.docker.sandbox/lifecycle@1
     config:
+      # MIGRATION NOTE: v2's first hook — the one that wrote
+      # /etc/profile.d/smolagents-env.sh — is gone from here and is in
+      # smolagents.dockerfile instead. It existed only because a recipe-less
+      # mixin had nowhere to put a file, which is a v2 limitation rather than a
+      # v3 requirement: four static lines naming fixed paths, reading nothing
+      # that exists only at create time. The overlay ships the same bytes.
       install:
-        # Stands in for v2's `environment.variables`, and runs first because that
-        # block was in effect before any v2 hook ran. Nothing below reads these —
-        # every hook uses the absolute venv paths — so the ordering is about
-        # saying the same thing v2 said, not about sequencing.
-        #
-        # No `env:` — the body reads nothing.
-        - command: |
-            set -eu
-            mkdir -p /etc/profile.d
-            cat > /etc/profile.d/smolagents-env.sh <<'EOF'
-            # Installed by sbx-kits-contrib/smolagents. These name the venv the
-            # kit's install hooks create; see smolagents.yaml.
-            export SMOLAGENTS_PYTHON=/opt/smolagents/bin/python
-            export SMOLAGENTS_VENV=/opt/smolagents
-            EOF
-            chmod 0644 /etc/profile.d/smolagents-env.sh
-          user: "0"
-          description: Drop SMOLAGENTS_PYTHON and SMOLAGENTS_VENV into /etc/profile.d
         - command: apt-get update && apt-get install -y --no-install-recommends ca-certificates python3 python3-venv python3-pip && rm -rf /var/lib/apt/lists/*
           user: "0"
           description: Install Python and venv prerequisites for smolagents
+        # THE VENV STAYS A HOOK, and this is the one decision in this kit worth
+        # justifying at length, because it looks like exactly the kind of
+        # pinned language-package install that belongs in a layer.
+        #
+        # It does not, because a venv is not relocatable content. It is a
+        # directory of symlinks and a site-packages tree bound to ONE Python
+        # minor version: `python3 -m venv` writes its packages under
+        # lib/python3.<minor>/site-packages and points bin/python3 at the
+        # absolute path /usr/bin/python3. Composed onto a base whose python3 is
+        # a different minor, that symlink resolves to the wrong interpreter,
+        # which looks for its packages under a directory the overlay does not
+        # contain. Verified by building this venv as an overlay and composing
+        # it three ways:
+        #
+        #   docker/sandbox-templates  python3 3.14.4  smolagents 1.26.0 — works
+        #   ubuntu:24.04 + python3    python3 3.12.3  ModuleNotFoundError:
+        #                                             No module named 'smolagents'
+        #   ubuntu:24.04, no python3  —               bin/python: not found
+        #
+        # A mixin lands on a base the builder has never seen, and the hook
+        # above installs *that base's* python3 — whose minor the builder cannot
+        # know. Baking would trade a hook that works everywhere for content
+        # that works only where the builder's Python matches, and it would fail
+        # in the worst available way: apt succeeds, sandbox creation succeeds,
+        # this descriptor goes on declaring `smolagents@1.26.0`, and the user's
+        # first `import smolagents` raises ModuleNotFoundError. Making the venv
+        # travel would mean shipping an interpreter and its stdlib as well,
+        # which is vendoring a Python distribution rather than moving an
+        # install, and trades the Python-minor coupling for a glibc one.
+        #
+        # The CLI symlinks and the smolagents-python shim stay here with it
+        # rather than joining the overlay: they are static files, but every one
+        # of them names a path inside the tree only this hook creates, so they
+        # belong to the venv and have to move when it does.
+        #
         # MIGRATION NOTE: the body reads no variable, but pip does — it takes the
         # proxy from the environment, and v2's unrestricted hook environment
         # handed it over. Under v3's deny-by-default hook env it has to be
@@ -96,16 +139,30 @@ capabilities:
             chmod 0755 /usr/local/bin/smolagents-python
             smolagent --help >/dev/null
             webagent --help >/dev/null
-            smolagents-python -c 'import smolagents; print("smolagents", smolagents.__version__)'
+            # The pin is a claim about content, so something has to enforce it.
+            # For the already-baked kits in this repo that is a build step; here
+            # the install is still create-time, so this is the only place the
+            # check can live — it fails sandbox creation rather than a publish,
+            # which is weaker, and is one more cost of the venv not travelling.
+            installed=$(/opt/smolagents/bin/python -c 'import smolagents; print(smolagents.__version__)')
+            echo "smolagents ${installed}"
+            [ "${installed}" = "${SMOLAGENTS_VERSION}" ] || {
+              echo "pin mismatch: kit declares ${SMOLAGENTS_VERSION}, venv has ${installed}" >&2
+              exit 1
+            }
           user: "0"
           env: [HTTP_PROXY, HTTPS_PROXY]
           description: Install smolagents v1.26.0 with toolkit and vision extras in /opt/smolagents
-        # v2 declared these exports twice — once in `environment.variables` for
-        # the container and once here, appended to the agent's ~/.bashrc. Both
-        # are kept, because they are not the same reach: the /etc/profile.d drop
-        # above covers login shells, and ~/.bashrc covers the interactive
-        # non-login shells profile.d never gets sourced by — which is also the
-        # only place the alias can live.
+        # THE ~/.bashrc APPEND STAYS A HOOK, for the reason content cannot
+        # express it: an overlay's file entries replace the base's rather than
+        # merging with them, so shipping /home/agent/.bashrc would shadow
+        # whatever the composed workload put there instead of adding these
+        # lines to it. /home/agent may be a mounted volume besides.
+        #
+        # It is not a duplicate of the overlay's profile.d drop, either — the
+        # two have different reach. profile.d covers login shells; ~/.bashrc
+        # covers the interactive non-login shells profile.d never gets sourced
+        # by, which is also the only place the alias can live.
         #
         # No `env:` — `~` expands from HOME, which is platform baseline.
         - command: |
