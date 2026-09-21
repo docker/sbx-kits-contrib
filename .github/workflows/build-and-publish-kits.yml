@@ -30,6 +30,11 @@ name: Build and publish kits
 #     image living in the namespace CI can push to.
 #   * `com.docker.sandboxes.start-docker=true` may only be set on an image that
 #     actually ships a Docker engine; the build asserts this.
+#   * `com.docker.sandboxes.flavor` must be the kit's own name. sbx reads it as
+#     the image's agent, and an image that does not set it inherits whatever
+#     its base sets — today's bases all carry their own flavor, so forgetting
+#     it usually reports the wrong agent rather than none; the build asserts
+#     this too.
 #
 # Shared coordinates (registry, namespace, rolling tag, platforms) come from
 # repository/organisation variables with documented fallbacks, so retargeting is

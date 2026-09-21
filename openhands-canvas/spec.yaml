@@ -1,0 +1,152 @@
+schemaVersion: "2"
+kind: sandbox
+name: openhands-canvas
+version: "1.0.0"
+displayName: OpenHands Agent Canvas
+description: |
+  OpenHands Agent Canvas - the browser UI + agent-server - running as a
+  self-contained Docker sandbox. Multi-provider via LiteLLM (Anthropic / OpenAI /
+  Gemini); API keys stay proxy-managed and never enter the sandbox. Forward port
+  8000 and open http://localhost:8000.
+licenses:
+  - MIT
+
+sandbox:
+  # shell-docker already ships Node.js 22 and uv, so nothing else is baked in.
+  image: docker/sandbox-templates:shell-docker
+  # Boot straight into Agent Canvas: the launcher starts the server on $PORT and
+  # seeds the model into Canvas' settings (Canvas doesn't read the LLM_* env).
+  entrypoint:
+    - /usr/local/bin/openhands-canvas-launch
+
+ports:
+  - container: 8000
+    name: canvas
+
+# Multi-provider in a single spec. As a kind: sandbox there is no base agent to
+# collide with, so the kit declares its own credentials. proxyManaged populates
+# a placeholder in-container; the sbx proxy swaps the real key onto the wire, so
+# no secret ever enters the sandbox. Store keys with `sbx secret set <service>`.
+credentials:
+  - service: anthropic
+    apiKey:
+      name: ANTHROPIC_API_KEY
+      proxyManaged: true
+      inject:
+        - domain: api.anthropic.com
+          header: x-api-key
+          format: "%s"
+  - service: openai
+    apiKey:
+      name: OPENAI_API_KEY
+      proxyManaged: true
+      inject:
+        - domain: api.openai.com
+          scheme: bearer
+  # `google` (not `gemini`) is the canonical service name across sbx kits, so a
+  # binding set for one kit is reused here.
+  - service: google
+    apiKey:
+      name: GEMINI_API_KEY
+      proxyManaged: true
+      inject:
+        - domain: generativelanguage.googleapis.com
+          header: x-goog-api-key
+          format: "%s"
+
+permissions:
+  network:
+    allow:
+      # LLM providers - must be listed here too (deny-all baseline), not just in credentials
+      - api.anthropic.com
+      - api.openai.com
+      - generativelanguage.googleapis.com
+      # Agent Canvas + agent-server (npm package, install/runtime artifacts)
+      - registry.npmjs.org
+      - docker.openhands.dev
+      - "*.openhands.dev"
+      - ghcr.io
+      - pkg-containers.githubusercontent.com
+      # uv / python / node toolchain
+      - pypi.org
+      - files.pythonhosted.org
+      - astral.sh
+      - "*.astral.sh"
+      - nodejs.org
+      # git / gh workflows inside the sandbox
+      - github.com
+      - api.github.com
+      - raw.githubusercontent.com
+      - objects.githubusercontent.com
+
+environment:
+  variables:
+    # Default model; switch providers in the Canvas UI or override on create.
+    LLM_MODEL: "anthropic/claude-opus-4-8"
+    PORT: "8000"
+    OPENHANDS_SUPPRESS_BANNER: "1"
+    # Encrypts Canvas' local settings; the key it protects is only ever a placeholder.
+    OH_SECRET_KEY: "sbx-openhands-dev"
+    # Only localhost bypasses the proxy (Canvas talks to its own backend locally).
+    # HTTP_PROXY/HTTPS_PROXY are deliberately NOT cleared - that is how key
+    # injection and egress control work.
+    NO_PROXY: "localhost,127.0.0.1,host.docker.internal"
+    no_proxy: "localhost,127.0.0.1,host.docker.internal"
+
+setup:
+  install:
+    - command: 'i=0; while [ $i -lt 3 ]; do i=$((i+1)); npm install -g --prefix /usr/local @openhands/agent-canvas --no-audit --no-fund --maxsockets 3 --fetch-retries 5 --fetch-retry-maxtimeout 120000 && exit 0; echo "npm attempt $i failed; retrying in 5s" >&2; sleep 5; done; echo "npm install failed after $i attempts" >&2; exit 1'
+      user: "0"
+      description: "Install OpenHands Agent Canvas (bin: agent-canvas) into /usr/local/bin; retries for the apply-time proxy"
+    - command: |
+        cat > /usr/local/bin/uvx <<'EOF'
+        #!/bin/sh
+        exec uv tool run "$@"
+        EOF
+        chmod +x /usr/local/bin/uvx
+      user: "0"
+      description: "Provide a uvx that supports --from (shell-docker's uv has no working uvx). Agent Canvas runs `uvx --from openhands-agent-server==<ver> agent-server`; uv tool run handles --from"
+    - command: "uv tool install openhands"
+      user: "1000"
+      description: "Install the headless OpenHands runner (for automation / verification)"
+    - command: |
+        cat > /usr/local/bin/openhands-canvas-launch <<'EOF'
+        #!/usr/bin/env bash
+        set -euo pipefail
+        PORT="${PORT:-8000}"; BASE="http://localhost:${PORT}"
+        agent-canvas --port "$PORT" & SRV=$!
+        trap 'kill "$SRV" 2>/dev/null || true' INT TERM EXIT
+        for _ in $(seq 1 60); do
+          [ "$(curl -s -o /dev/null -w '%{http_code}' --max-time 3 "$BASE/health" 2>/dev/null)" = "200" ] && break
+          sleep 2
+        done
+        KEY="$(cat "$HOME/.openhands/agent-canvas/api-key.txt" 2>/dev/null | tr -d '\r\n' || true)"
+        curl -s -X PATCH "$BASE/api/settings" -H "X-Session-API-Key: $KEY" \
+          -H 'Content-Type: application/json' \
+          -d "{\"agent_settings_diff\":{\"llm\":{\"model\":\"${LLM_MODEL}\",\"api_key\":\"sbx-proxy-managed\"}}}" \
+          >/dev/null 2>&1 || echo "note: set the model in Settings > LLM if the UI is not preconfigured" >&2
+        echo "Agent Canvas is running at ${BASE} (forward with 'sbx run -p ${PORT} …')"
+        wait "$SRV"
+        EOF
+        chmod +x /usr/local/bin/openhands-canvas-launch
+      user: "0"
+      description: "Install the Canvas launcher: starts agent-canvas on $PORT and seeds the model"
+
+agentInstructions:
+  filename: AGENTS.md
+  content: |
+    # OpenHands Agent Canvas - Sandbox Context
+
+    This sandbox runs OpenHands Agent Canvas (browser UI + agent-server) on port
+    8000. Open http://localhost:8000 (forward with `sbx run -p 8000 …`). The model
+    is pre-seeded from `LLM_MODEL` (default `anthropic/claude-opus-4-8`).
+
+    ## Switching providers
+    Change the model in **Settings > LLM**, or recreate the sandbox with
+    `LLM_MODEL` overridden and the matching key stored via
+    `sbx secret set <anthropic|openai|google>`. Keys are proxy-injected on the
+    wire and never stored in the sandbox.
+
+    ## Automation
+    A headless runner is also installed (`openhands`) for non-interactive use:
+    `openhands --headless --override-with-envs --exit-without-confirmation -t "…"`.

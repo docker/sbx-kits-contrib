@@ -34,7 +34,7 @@ type Suite struct {
 	// Artifact is the loaded and validated kit artifact.
 	Artifact *spec.Artifact
 
-	// Dir is the kit directory the artifact was loaded from. Assertions that
+	// Dir is the kit directory the suite was built from. Assertions that
 	// need kit-supplied expectations (rather than ones derived from the spec)
 	// read them from <Dir>/testdata/. Empty when the suite was built from an
 	// already-loaded artifact rather than a directory.
@@ -134,6 +134,10 @@ func (s *Suite) RunContainerTests(t *testing.T) {
 		s.assertEnvVars(t, ctx, container)
 		s.assertFiles(t, ctx, container)
 		s.assertTmpfs(t, ctx, container)
+
+		// Last: this one seeds and rewrites the agent's MCP config, so it
+		// runs after every assertion that reads the container as provisioned.
+		s.RunMCPMergeTests(t, ctx, container)
 	})
 }
 
@@ -519,6 +523,9 @@ func (s *Suite) RunOAuthPolicyTests(t *testing.T) {
 			})
 
 			t.Run("sentinels", func(t *testing.T) {
+				if oauth.Passthrough {
+					t.Skip("passthrough OAuth declares no sentinels by design; spec.ValidateOAuth exempts it")
+				}
 				require.NotEmpty(t, oauth.Sentinels.AccessToken, "oauth.sentinels.accessToken is required")
 				require.NotEmpty(t, oauth.Sentinels.RefreshToken, "oauth.sentinels.refreshToken is required")
 			})

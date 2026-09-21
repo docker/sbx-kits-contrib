@@ -5,11 +5,14 @@ name: Kit e2e
 # `./scripts/test-kit-e2e.sh <kit>` across the caller-supplied kit matrix.
 #
 # The whole point of parametrizing `channel` here — instead of hardcoding a
-# version — is that tck.yml calls this twice:
+# version — is that tck.yml calls this three times:
 #   * channel: release  → the last tagged sbx (gates the PR via the `e2e` job)
 #   * channel: nightly  → the rolling nightly build (informational only)
-# so kits are exercised against both what users have today and what they'll
-# get next, without the (currently flaky) nightly ever blocking a merge.
+#   * channel: rc       → the latest sbx-releases prerelease tagged
+#                          "*-rcN" (informational only)
+# so kits are exercised against what users have today, what they'll get next,
+# and what's currently being validated for the next stable cut, without
+# nightly or rc ever blocking a merge.
 
 on:
   workflow_call:
@@ -19,7 +22,7 @@ on:
         required: true
         type: string
       channel:
-        description: sbx build channel to test against — "release" or "nightly".
+        description: sbx build channel to test against — "release", "nightly", or "rc".
         required: true
         type: string
 
@@ -30,7 +33,56 @@ env:
   APP_NAME: sbx-kits-contrib-tck
 
 jobs:
+  prepare-sbx:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      artifact-id: ${{ steps.upload.outputs.artifact-id }}
+    steps:
+      - name: Download sbx (${{ inputs.channel }})
+        env:
+          CHANNEL: ${{ inputs.channel }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          case "$CHANNEL" in
+            nightly) VERSION=nightly ;;
+            rc)
+              VERSION=$(curl -fsSL -H "Authorization: Bearer ${GITHUB_TOKEN}" \
+                https://api.github.com/repos/docker/sbx-releases/releases \
+                | jq -er '[.[] | select(.tag_name | test("-rc[0-9]+$"))][0].tag_name')
+              ;;
+            release)
+              VERSION=$(curl -fsSL -H "Authorization: Bearer ${GITHUB_TOKEN}" \
+                https://api.github.com/repos/docker/sbx-releases/releases/latest \
+                | jq -er .tag_name)
+              ;;
+            *) echo "::error::Unknown sbx channel: ${CHANNEL}"; exit 1 ;;
+          esac
+          if [ -z "$VERSION" ] || [ "$VERSION" = "null" ]; then
+            echo "::error::No sbx version found for ${CHANNEL}"
+            exit 1
+          fi
+          echo "Using sbx ${CHANNEL}: ${VERSION}"
+          mkdir -p "${RUNNER_TEMP}/sbx-package"
+          curl -fsSL -H "Authorization: Bearer ${GITHUB_TOKEN}" \
+            "https://github.com/docker/sbx-releases/releases/download/${VERSION}/DockerSandboxes-linux.tar.gz" \
+            -o "${RUNNER_TEMP}/sbx-package/DockerSandboxes-linux.tar.gz"
+          tar tzf "${RUNNER_TEMP}/sbx-package/DockerSandboxes-linux.tar.gz" > /dev/null
+          printf '%s\n' "$VERSION" > "${RUNNER_TEMP}/sbx-package/version"
+
+      - name: Share sbx with kit matrix
+        id: upload
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: sbx-${{ inputs.channel }}-linux-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/sbx-package/
+          retention-days: 30
+          compression-level: 0
+          if-no-files-found: error
+
   test-kit-e2e:
+    needs: prepare-sbx
     # End-to-end test: install sbx for the requested channel, authenticate
     # against Docker Hub non-interactively, and run the e2e TCK to prove the
     # kit composes with a real CLI. The caller guards this against fork PRs
@@ -56,36 +108,19 @@ jobs:
           ls -la /dev/kvm
           sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
 
-      - name: Download sbx (${{ inputs.channel }})
-        run: |
-          set -euo pipefail
-          if [ "${CHANNEL}" = "nightly" ]; then
-            # Rolling "nightly" build: kits adopting new spec fields are
-            # exercised against the latest sbx instead of the last tag.
-            VERSION=nightly
-            echo "Using rolling nightly sbx build"
-          else
-            VERSION=$(curl -fsSL \
-              -H "Authorization: Bearer ${GITHUB_TOKEN}" \
-              https://api.github.com/repos/docker/sbx-releases/releases/latest \
-              | jq -r .tag_name)
-            echo "Resolved latest sbx release: ${VERSION}"
-          fi
-          echo "SBX_VERSION=${VERSION}" >> "$GITHUB_ENV"
-
-          curl -fsSL \
-            -H "Authorization: Bearer ${GITHUB_TOKEN}" \
-            "https://github.com/docker/sbx-releases/releases/download/${VERSION}/DockerSandboxes-linux.tar.gz" \
-            -o /tmp/DockerSandboxes-linux.tar.gz
-          tar xzf /tmp/DockerSandboxes-linux.tar.gz -C /tmp
-        env:
-          CHANNEL: ${{ inputs.channel }}
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Download prepared sbx
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          artifact-ids: ${{ needs.prepare-sbx.outputs.artifact-id }}
+          path: ${{ runner.temp }}/sbx-package
+          merge-multiple: true
 
       - name: Install sbx
         run: |
           set -euo pipefail
-          sudo PREFIX="${HOME}/.docker/sbx" /tmp/docker-sbx/install.sh
+          tar xzf "${RUNNER_TEMP}/sbx-package/DockerSandboxes-linux.tar.gz" -C "${RUNNER_TEMP}/sbx-package"
+          echo "SBX_VERSION=$(cat "${RUNNER_TEMP}/sbx-package/version")" >> "$GITHUB_ENV"
+          sudo PREFIX="${HOME}/.docker/sbx" "${RUNNER_TEMP}/sbx-package/docker-sbx/install.sh"
           echo "${HOME}/.docker/sbx/bin" >> "$GITHUB_PATH"
 
       - name: Verify sbx installation
@@ -93,19 +128,19 @@ jobs:
 
       - name: Sign in to Docker Hub via sbx
         env:
-          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
-          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+          USERNAME: ${{ vars.DOCKERPUBLICBOT_USERNAME }}
+          TOKEN: ${{ secrets.DOCKERPUBLICBOT_WRITE_PAT }}
         run: |
-          if [ -z "${DOCKERHUB_USERNAME}" ] || [ -z "${DOCKERHUB_TOKEN}" ]; then
-            echo "DOCKERHUB_USERNAME / DOCKERHUB_TOKEN not configured; cannot run e2e."
+          if [ -z "${USERNAME}" ] || [ -z "${TOKEN}" ]; then
+            echo "DOCKERPUBLICBOT_USERNAME / DOCKERPUBLICBOT_WRITE_PAT not configured; cannot run e2e."
             exit 1
           fi
           # Defensive trim: GH preserves any whitespace pasted into the
           # secret editor, and sbx's readPasswordStdin only strips trailing
           # \r\n. Hub usernames and PATs are alphanumeric + hyphens, so
           # stripping all whitespace can't corrupt a legitimate value.
-          USER_CLEAN=$(printf '%s' "$DOCKERHUB_USERNAME" | tr -d '[:space:]')
-          TOKEN_CLEAN=$(printf '%s' "$DOCKERHUB_TOKEN"    | tr -d '[:space:]')
+          USER_CLEAN=$(printf '%s' "$USERNAME" | tr -d '[:space:]')
+          TOKEN_CLEAN=$(printf '%s' "$TOKEN" | tr -d '[:space:]')
           printf '%s' "$TOKEN_CLEAN" | sbx --app-name "$APP_NAME" login --username "$USER_CLEAN" --password-stdin
 
       - name: Run e2e TCK for ${{ matrix.kit }}
@@ -122,6 +157,9 @@ jobs:
         # `ApplyKitNetworkPolicyScoped` in
         # docker/sandboxes:sandboxd/pkg/server/options_governance.go);
         # kit deny-rules win over allow-rules (deny-wins).
+        #
+        # For Dockerfile kits, it also side-loads the freshly built image and
+        # creates with --pull=never, so the branch's Dockerfile is what runs.
         run: ./scripts/test-kit-e2e.sh "${{ matrix.kit }}"
 
       - name: Sign out of Docker Hub
