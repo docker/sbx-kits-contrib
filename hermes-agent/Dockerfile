@@ -25,7 +25,7 @@ ADD --chmod=644 https://api.github.com/repos/NousResearch/hermes-agent/releases/
 # removed: the file lives in the ADD's own layer, so deleting it in a later
 # layer would only add a whiteout on top of the ~1 KB that ships either way.
 USER agent
-WORKDIR /home/agent
+WORKDIR /home/agent/workspace
 
 # scripts/install.sh, not `pip install hermes-agent`: PyPI trails the git
 # tags by weeks, too stale for a nightly-rebuilt image. Fetched from the
