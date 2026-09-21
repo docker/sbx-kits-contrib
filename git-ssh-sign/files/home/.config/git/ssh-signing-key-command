@@ -146,6 +146,10 @@ if [ "$is_github" = "1" ] && command -v gh >/dev/null 2>&1; then
         if [ -n "$matched" ]; then
             key="$matched"
         else
+            # Git discards this: it only echoes the key command's stderr when
+            # the command exits non-zero, and a wrong-but-valid key is not a
+            # signing failure. Kept for whoever runs the script by hand, which
+            # the README's fallback note tells them to do.
             printf '[git-ssh-sign] none of the SSH agent keys are registered on GitHub as a signing key - commits will sign but show Unverified there. Add one at https://github.com/settings/ssh/new?type=signing\n' >&2
         fi
     fi

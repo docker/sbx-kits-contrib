@@ -18,6 +18,11 @@ agentInstructions:
     not only locally. On any other host, or without `gh`, the first key
     the agent offers is used.
 
+    If no agent key is registered there, the commit still signs but shows
+    Unverified on GitHub. Git hides that warning (it only surfaces the key
+    command's stderr when the command fails), so to see it run
+    `/bin/sh ~/.config/git/ssh-signing-key-command` directly.
+
     Automatic signing is scoped to repositories that **have at least one
     remote**. A repository is exempt only for as long as it has no remote:
     a test fixture that runs `git init` and stops there commits unsigned,

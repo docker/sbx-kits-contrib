@@ -214,7 +214,17 @@ authenticated (`gh auth status`), the command instead:
    deliberately not `github.com/{username}.keys`, which only lists
    **authentication** keys and can diverge from the signing-key list.
 3. Uses whichever of the agent's keys matches one of those, falling back
-   to the first agent key (with a stderr warning) if none do.
+   to the first agent key if none do.
+
+The fallback writes a warning to stderr, but git only echoes the key
+command's stderr in the `gpg.ssh.defaultKeyCommand failed:` line, which it
+prints when the command *exits non-zero* — so on the fallback
+path the commit signs and looks entirely normal. Run the command by hand
+to see it:
+
+```console
+/bin/sh ~/.config/git/ssh-signing-key-command
+```
 
 The GitHub response is cached for 5 minutes in
 `/home/agent/.config/git/github-signing-keys.cache`, since this command
@@ -222,9 +232,9 @@ runs on every single commit and signature and unauthenticated GitHub API
 requests are capped at 60/hour per source IP.
 
 On any other remote host, or without `gh`, this step is skipped
-entirely — no network call is made, and behavior is unchanged from
-before: the first key the agent offers. GitHub Enterprise Server and
-other forges aren't cross-checked yet.
+entirely: no network call is made and the command signs with the first
+key the agent offers. GitHub Enterprise Server and other forges aren't
+cross-checked.
 
 **Composing with repo-local hooks**
 
