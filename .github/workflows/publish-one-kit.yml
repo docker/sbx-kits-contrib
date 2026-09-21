@@ -1,44 +1,45 @@
 name: Publish one kit
 
-# Everything one kit needs, end to end: its base image, its artifact, and its
-# Hub pages.
+# Everything one kit needs, end to end: its image, and its Hub page.
 #
-# Exists so kits are ISOLATED. Matrix legs of a job do not chain, so a
-# three-job matrix (image → artifact → overview) makes every kit's artifact wait
-# for every kit's image, and one kit's build failure blocks another kit's
-# publish. Called once per kit from build-and-publish-kits.yml, each invocation is its own job
-# graph: kits run end to end in parallel and fail independently.
+# Exists so kits are ISOLATED. Matrix legs of a job do not chain, so expressing
+# this as a two-job matrix (publish → overview) in the caller would make every
+# kit's overview wait for every kit's build — and because `needs` is evaluated
+# per JOB rather than per leg, a single failing build would skip the overview
+# sync for all 87. Called once per kit from build-and-publish-kits.yml, each
+# invocation is its own job graph: kits run end to end in parallel and fail
+# independently.
+#
+# WHAT IT NO LONGER DOES. Under v2 this file drove three jobs per kit — build
+# and push the base image, pack and push the kit artifact, then sync Hub — plus
+# a verification pass that loaded a single-platform build and asserted things
+# about it (a CMD that resolves on PATH, a non-root user, a
+# `com.docker.sandboxes.flavor` naming this kit, a `start-docker=true` claim
+# backed by an actual engine). All of that was the cost of v2's split between a
+# spec and the image it pointed at: two artifacts to publish and keep in step,
+# and a Dockerfile free to contradict the spec describing it.
+#
+# A v3 kit is one image built from one descriptor, and the frontend named on
+# that descriptor's first line validates it during the build and derives the
+# image's configuration from it. So the three jobs collapse into one buildx
+# invocation, and the assertions are gone because the thing they guarded
+# against — a Dockerfile and a spec disagreeing — no longer has two sides.
 
 on:
   workflow_call:
     inputs:
       kit:
-        description: Kit directory at the repo root, e.g. "kiro".
+        description: Kit directory at the repo root, e.g. "claude".
         required: true
         type: string
-      dated:
+      move-latest:
         description: |
-          The immutable tag for this run, <YYYYMMDD>-<sha>. Passed in rather than
-          computed here so every kit in a run shares one date, and because a job
-          that `uses:` a reusable workflow cannot run steps to call `date`.
-        required: true
-        type: string
-      has-image:
-        description: |
-          Whether this kit has its own Dockerfile. Computed by the caller
-          (build-and-publish-kits.yml's detect-changes), not here — a job's own `if:`
-          can't see repo content a step of that same job would check out, so
-          this can't be a `hashFiles()` check inside this workflow.
+          Also tag the rolling tag. True for the continuous path; a release
+          leaves it alone, because a `<kit>/vX.Y.Z` tag can sit on a commit
+          that is not main's tip and publishing `latest` from one would move
+          it backward. See scripts/publish-kit.sh.
         type: boolean
-        default: false
-      publish-artifact:
-        description: |
-          Whether to publish the kit ARTIFACT and sync its Hub pages. False only
-          on a scheduled (nightly) run — a kit's content is a pure function of
-          the commit, so a nightly re-push would only mint a new digest for
-          identical bytes.
-        type: boolean
-        default: false
+        default: true
 
 permissions:
   contents: read
@@ -47,221 +48,45 @@ permissions:
 
 env:
   # May this run write? ¬pull_request ∧ right repo ∧ OIDC secret present.
-  # Written as the same expression publish-artifact.yml uses, deliberately: the
-  # rule used to live here as a shell if/else, so changing it meant finding and
-  # translating it in two languages. It cannot be threaded in as an input —
-  # event_name and repository are ambient and propagate into called workflows
-  # identically, so an input would only let a caller misreport them.
+  #
+  # It cannot be threaded in as an input — event_name and repository are
+  # ambient and propagate into called workflows identically, so an input would
+  # only let a caller misreport them.
+  #
+  # v2 had two more conditions here, on DOCKERPUBLICBOT_USERNAME and
+  # DOCKERPUBLICBOT_WRITE_PAT. Those were the org bot's static credential,
+  # needed solely because `sbx kit push --sign` authenticated as its own
+  # session and rejected the OIDC-exchanged token that satisfied `docker
+  # login`. v3 publishes with buildx, which signs nothing of its own and
+  # attaches provenance and SBOM as native attestations, so that credential is
+  # no longer part of the publish path at all — one fewer static secret in a
+  # job that pushes.
   DRY_RUN: >-
     ${{ (github.event_name == 'pull_request'
       || github.repository != 'docker/sbx-kits-contrib'
       || secrets.DOCKERHUB_OIDC_CONNECTIONID == '') && '1' || '' }}
   REGISTRY: ${{ vars.REGISTRY || 'docker.io' }}
-  IMAGE_NAMESPACE: ${{ vars.IMAGE_NAMESPACE || 'sbx' }}
+  IMAGE_NAMESPACE: ${{ vars.IMAGE_NAMESPACE || 'docker' }}
+  IMAGE_NAME_PREFIX: ${{ vars.IMAGE_NAME_PREFIX || 'sbx-kit-' }}
   IMAGE_TAG_LATEST: ${{ vars.IMAGE_TAG_LATEST || 'latest' }}
   PLATFORMS: ${{ vars.PLATFORMS || 'linux/amd64,linux/arm64' }}
 
 jobs:
-  # Most kits are mixins layered onto someone else's image and have nothing to
-  # build here — this job runs only for the ones that do.
-  image:
-    if: inputs.has-image
+  publish:
     runs-on: ubuntu-latest
     # Generous because the nightly builds every layer from scratch (see the
-    # `no-cache` note below) and does it twice: once for the amd64 verification
-    # image and once for the multi-arch push. The slowest kit's first-ever
-    # build — cold cache, emulated arm64 leg included — took 19 minutes, so
-    # what the nightly adds on top of that is one more NATIVE amd64 pass, not
-    # another emulated one. 90 is therefore a wide margin rather than a tight
-    # estimate; the failure mode if the cap is hit is a rolling tag that
-    # quietly stops moving, which is worth more headroom than headroom costs.
+    # `no-cache` note on the publish step) across two platforms, one of them
+    # emulated. The slowest kit's first-ever build — cold cache, emulated arm64
+    # leg included — took 19 minutes under v2. The failure mode if the cap is
+    # hit is a kit that quietly stops being rebuilt, which is worth more
+    # headroom than headroom costs.
     timeout-minutes: 90
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - name: Resolve image coordinates
-        id: coords
-        # Resolves names and tags, nothing else. The publish decision used to be
-        # computed here too, which is how it came to be expressed differently
-        # from publish-artifact.yml's; it is now the DRY_RUN expression above.
-        #
-        # Composed once and published via $GITHUB_OUTPUT so the build, the tag
-        # re-point and the summary all consume the same string.
-        run: |
-          set -euo pipefail
-
-          # The Hub org is fixed: the OIDC connection is owned by `sbx` and the
-          # token it mints authenticates as that org, so a namespace pointing
-          # anywhere else could never be pushed to with these credentials.
-          # Failing here beats a login that succeeds and a push that 403s.
-          if [ "${IMAGE_NAMESPACE}" != "sbx" ]; then
-            echo "::error::IMAGE_NAMESPACE is '${IMAGE_NAMESPACE}', but the Docker Hub OIDC connection is owned by 'sbx'. Publishing elsewhere needs a new connection, not a variable change."
-            exit 1
-          fi
-
-          # The kit's spec owns the image name; a spec cannot interpolate env, so
-          # deriving a name here would just be a second source of truth to drift.
-          # verify-spec-refs has already confirmed this lands in our namespace.
-          spec="${{ inputs.kit }}/spec.yaml"
-          [ -f "$spec" ] || spec="${{ inputs.kit }}/spec.yml"
-          declared=$(awk '
-            /^sandbox:/      { in_sandbox = 1; next }
-            /^[^[:space:]#]/ { in_sandbox = 0 }
-            in_sandbox && $1 == "image:" {
-              gsub(/^[[:space:]]*image:[[:space:]]*/, "")
-              gsub(/^["'"'"']|["'"'"']$/, "")
-              print; exit
-            }
-          ' "$spec")
-          if [ -z "$declared" ]; then
-            echo "::error::${{ inputs.kit }}: spec declares no sandbox.image"
-            exit 1
-          fi
-          # Strip tag/digest — this pipeline owns the tags it publishes.
-          image=${declared%%@*}
-          image=${image%:*}
-          echo "image=${image}" >> "$GITHUB_OUTPUT"
-          # The Hub description API addresses repositories as <namespace>/<name>,
-          # without the registry host an OCI reference carries.
-          echo "repository=${image#*/}" >> "$GITHUB_OUTPUT"
-          echo "Declared in spec: ${declared}"
-
-          # The immutable tag carries BOTH the build date and the commit, because
-          # the image content is not a function of the commit alone: agents are
-          # installed from `latest` channels and bases are floating tags, so a
-          # nightly rebuild of an unchanged commit can produce different bits. A
-          # bare :<sha> would therefore be overwritten with new content while
-          # claiming to identify a source revision — exactly what someone pinning
-          # a SHA is trying to avoid. So no bare :<sha> is published.
-          # The tag comes from the caller, not a second `date` call here: this
-          # job runs later than detect-changes, so a run straddling UTC midnight
-          # would otherwise tag the image one day and its artifact the other.
-          echo "Resolved image: ${image}"
-          echo "  immutable tag: ${image}:${{ inputs.dated }}"
-          echo "  rolling tag:   ${image}:${IMAGE_TAG_LATEST}"
-
       - uses: docker/setup-qemu-action@1f40c72289eff860ee54a304f1438e3cff362e0a # v4.3.0
 
       - uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4.3.0
-
-      - name: Build for verification (single platform, loaded locally)
-        # The multi-arch build below produces a manifest list, which cannot be
-        # `docker run`. This extra single-platform build shares the same gha
-        # cache, so it costs little, and gives a concrete image to assert
-        # against. It runs on pull requests too — the point is to catch a broken
-        # image before it is published, not after.
-        #
-        # The nightly run bypasses that cache, here and on the push build below.
-        # These Dockerfiles install their agent from a `latest` channel with a
-        # fixed `RUN ... curl ... | sh` line, so with the cache on, the
-        # instruction text and the build context are identical every night and
-        # the install layer is always a hit — three consecutive nightly builds
-        # of one commit published byte-identical rootfs diff IDs under three
-        # different manifest digests. The only thing that ever busts that layer
-        # is the base image moving, which happens on the BASE's cadence, not the
-        # agent's; until then the nightly just re-tags yesterday's bytes with
-        # today's date. That defeats the reason the schedule exists (see
-        # build-and-publish-kits.yml's `schedule:` comment), so on `schedule`
-        # the cache is written but not read.
-        #
-        # Both builds need it. Busting the cache only here and letting the push
-        # build reuse what this one just wrote looks cheaper but is wrong: this
-        # build is linux/amd64 only and the push build is multi-arch, so arm64
-        # would still be served from the stale cache.
-        #
-        # Two consequences, both deliberate. The nightly's verified image and
-        # its published amd64 image become two independent builds rather than
-        # the same cached layers, so on the one run where upstream content can
-        # move under us, "verified" means "a build of this Dockerfile minutes
-        # earlier passed" — the alternative buys that back by publishing a
-        # stale arm64, which is worse. And `workflow_dispatch` keeps the cache
-        # even though the caller lumps it with `schedule`: a manual run is also
-        # how a publish that failed on something other than the image gets
-        # retried, and that should not cost an uncached multi-arch rebuild.
-        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
-        with:
-          context: ${{ inputs.kit }}
-          file: ${{ inputs.kit }}/Dockerfile
-          platforms: linux/amd64
-          load: true
-          tags: ${{ steps.coords.outputs.image }}:ci-verify
-          no-cache: ${{ github.event_name == 'schedule' }}
-          cache-from: type=gha,scope=${{ inputs.kit }}
-          cache-to: type=gha,mode=max,scope=${{ inputs.kit }}
-
-      - name: Verify the built image
-        # Kit-agnostic assertions, derived from the image itself rather than from
-        # per-kit configuration:
-        #
-        #   1. The command the sandbox will run must exist on PATH. Taken from
-        #      the image's own CMD, which the kit's Dockerfile sets to match its
-        #      spec entrypoint.
-        #   2. `start-docker=true` is a *request* to the runtime, not a
-        #      description of the image. An image that asks for
-        #      Docker-in-Docker without shipping an engine yields a sandbox
-        #      started in Docker mode with nothing to run, so the claim is
-        #      checked against reality.
-        #   3. Sandboxes do not run as root.
-        #   4. `com.docker.sandboxes.flavor` names this kit. sbx reads that
-        #      label as the image's agent, and an image that does not declare
-        #      one inherits whatever its base sets — today's bases all carry
-        #      their own flavor, so a Dockerfile that forgets it does not
-        #      produce a missing agent, it produces a confidently wrong one.
-        #      Nothing derives the label from the kit directory, so this is the
-        #      only thing standing between a new kit and shipping under someone
-        #      else's name.
-        run: |
-          set -euo pipefail
-          img="${{ steps.coords.outputs.image }}:ci-verify"
-
-          # `index` is guarded: on an image with no CMD (or no labels at all) an
-          # unguarded template aborts with "map has no entry for key" — under
-          # `set -e` that fails the step with a parser error instead of the
-          # actionable message below. Guarded, the value is simply empty.
-          cmd=$(docker inspect --format '{{ if .Config.Cmd }}{{ index .Config.Cmd 0 }}{{ end }}' "$img")
-          user=$(docker inspect --format '{{ .Config.User }}' "$img")
-          label=$(docker inspect --format \
-            '{{ if .Config.Labels }}{{ index .Config.Labels "com.docker.sandboxes.start-docker" }}{{ end }}' "$img")
-          flavor=$(docker inspect --format \
-            '{{ if .Config.Labels }}{{ index .Config.Labels "com.docker.sandboxes.flavor" }}{{ end }}' "$img")
-          echo "kit=${{ inputs.kit }} cmd=${cmd} user=${user} start-docker=${label} flavor=${flavor}"
-
-          if [ -z "$cmd" ]; then
-            echo "::error::${{ inputs.kit }}: image sets no CMD, so the sandbox entrypoint cannot be verified"
-            exit 1
-          fi
-          docker run --rm --entrypoint sh "$img" -c \
-            'command -v "$1" >/dev/null || { echo "MISSING on PATH: $1"; exit 1; }' _ "$cmd"
-
-          if [ "$label" = "true" ]; then
-            docker run --rm --entrypoint sh "$img" -c '
-              set -e
-              for bin in dockerd docker containerd; do
-                command -v "$bin" >/dev/null || { echo "MISSING: $bin"; exit 1; }
-              done
-            ' || {
-              echo "::error::${{ inputs.kit }}: start-docker=true but the image ships no Docker engine — check the base image"
-              exit 1
-            }
-          fi
-
-          case "$user" in
-            ""|root|0)
-              echo "::error::${{ inputs.kit }}: image runs as '${user:-root}'; sandbox images must run as a non-root user"
-              exit 1
-              ;;
-          esac
-
-          # One comparison covers both failure modes: a Dockerfile that declares
-          # no flavor reads back as the base image's value (or empty), and one
-          # that declares the wrong name reads back as that. Every kit declaring
-          # the label today uses exactly its own directory name.
-          if [ "$flavor" != "${{ inputs.kit }}" ]; then
-            echo "::error::${{ inputs.kit }}: image reports flavor '${flavor:-(unset)}', expected '${{ inputs.kit }}'. Set LABEL com.docker.sandboxes.flavor=\"${{ inputs.kit }}\" in ${{ inputs.kit }}/Dockerfile — add it if the Dockerfile declares none, correct it if it declares another name. sbx reports this label as the kit's agent, and a Dockerfile that declares none inherits whatever its base image sets."
-            exit 1
-          fi
-
-          echo "${{ inputs.kit }} verified."
 
       # Docker Hub auth follows the same convention as the sandbox-templates
       # pipeline: exchange the GitHub OIDC token for a short-lived Hub token
@@ -285,129 +110,87 @@ jobs:
         uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
         with:
           # An OIDC-exchanged token authenticates as the ORGANISATION that owns
-          # the connection, so the username is that org — not a user account and
-          # not the literal "docker". It is the connection's identity rather than
-          # a coordinate this pipeline gets to choose, which is why it is written
-          # out here instead of derived from IMAGE_NAMESPACE; the coords step
-          # asserts the two agree.
-          username: sbx
+          # the connection, and that organisation is the only namespace it can
+          # push to — which is why the username is IMAGE_NAMESPACE rather than a
+          # separate coordinate. The two are not independent: moving
+          # IMAGE_NAMESPACE means the Hub OIDC connection has to be recreated
+          # under the new org and DOCKERHUB_OIDC_CONNECTIONID updated to match.
+          # Changing the variable alone produces a login that succeeds as the
+          # old org and a push that 403s.
+          #
+          # v2 wrote the org out as the literal `sbx` and asserted
+          # IMAGE_NAMESPACE equalled it. Deriving it says the same thing without
+          # a second place to update, now that the namespace has actually moved.
+          username: ${{ env.IMAGE_NAMESPACE }}
           password: ${{ steps.docker_oidc.outputs.token }}
 
-      - name: Build (and push the immutable tag)
-        id: build
-        # Only the immutable <date>-<sha> tag is built and pushed here; the
-        # rolling tag is re-pointed at this manifest in the next step rather than
-        # built again.
+      - name: Publish
+        id: publish
+        # The buildx invocation lives in scripts/publish-kit.sh so it can be run
+        # — and dry-run — outside CI, which is how the command line gets tested
+        # without pushing a branch and waiting:
         #
-        # `no-cache` on the nightly for the reason spelled out on the
-        # verification build above — and it is repeated here rather than relying
-        # on that build having refreshed the cache, because that one is amd64
-        # only while this one is multi-arch.
-        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
-        with:
-          context: ${{ inputs.kit }}
-          file: ${{ inputs.kit }}/Dockerfile
-          platforms: ${{ env.PLATFORMS }}
-          push: ${{ env.DRY_RUN == '' }}
-          tags: ${{ steps.coords.outputs.image }}:${{ inputs.dated }}
-          no-cache: ${{ github.event_name == 'schedule' }}
-          cache-from: type=gha,scope=${{ inputs.kit }}
-          cache-to: type=gha,mode=max,scope=${{ inputs.kit }}
-
-      - name: Re-point the rolling tag at that manifest
-        if: env.DRY_RUN == ''
-        # `imagetools create` copies an existing manifest list to a new tag
-        # without rebuilding, so both tags are guaranteed to resolve to the SAME
-        # digest. Rebuilding for the rolling tag could produce different bits —
-        # bases float and installers fetch `latest` — which is exactly the
-        # divergence this avoids.
-        run: |
-          set -euo pipefail
-          docker buildx imagetools create \
-            --tag "${IMAGE}:${IMAGE_TAG_LATEST}" \
-            "${IMAGE}:${DATED}"
+        #   DRY_RUN=1 scripts/publish-kit.sh claude
+        #
+        # This step is wiring: credentials above, cache policy below.
+        #
+        # On a pull request DRY_RUN makes the script build with
+        # `--output type=cacheonly` instead of `--push`. It still BUILDS, and
+        # that is the point of the PR run — the frontend validates the
+        # descriptor during the build and the recipe has to actually work, so a
+        # dry run that stopped at "resolved a tag" would let a kit that cannot
+        # build report green and fail on merge.
+        run: ./scripts/publish-kit.sh "${{ inputs.kit }}" >> "$GITHUB_OUTPUT"
         env:
-          IMAGE: ${{ steps.coords.outputs.image }}
-          DATED: ${{ inputs.dated }}
+          # The nightly bypasses the cache. These recipes install their agent
+          # from a floating channel with a fixed `RUN … curl … | sh` line, so
+          # with the cache on, the instruction text and the build context are
+          # identical every night and the install layer is always a hit — under
+          # v2, three consecutive nightly builds of one commit published
+          # byte-identical rootfs diff IDs under three different manifest
+          # digests. The only thing that ever busts that layer is the base image
+          # moving, which happens on the BASE's cadence, not the agent's; until
+          # then the nightly just republishes yesterday's bytes. That defeats
+          # the reason the schedule exists (see build-and-publish-kits.yml's
+          # `schedule:` comment).
+          #
+          # `workflow_dispatch` keeps its cache even though the caller lumps it
+          # with `schedule` for deciding WHICH kits to build: a manual run is
+          # also how a publish that failed on something unrelated gets retried,
+          # and that should not cost an uncached multi-arch rebuild.
+          NO_CACHE: ${{ github.event_name == 'schedule' && '1' || '' }}
+          CACHE_FROM: type=gha,scope=${{ inputs.kit }}
+          CACHE_TO: type=gha,mode=max,scope=${{ inputs.kit }}
+          MOVE_LATEST: ${{ inputs.move-latest }}
 
-      - name: Summarise
+      - name: Explain a dry run
+        if: env.DRY_RUN != ''
+        # The script's own summary says what WOULD have been published; this
+        # says why it wasn't. Silence would read as "published".
         run: |
           {
-            echo "## ${{ inputs.kit }}"
-            echo ""
-            if [ -z "${DRY_RUN}" ]; then
-              echo "Published — both tags resolve to the same digest:"
-              echo ""
-              echo '- `${{ steps.coords.outputs.image }}:${{ inputs.dated }}` — immutable, one per build'
-              echo '- `${{ steps.coords.outputs.image }}:${{ env.IMAGE_TAG_LATEST }}` — rolling'
+            if [ "${{ github.event_name }}" = "pull_request" ]; then
+              echo "_Pull request — push credentials are never exposed to PRs._"
+            elif [ "${{ github.repository }}" != "docker/sbx-kits-contrib" ]; then
+              echo "_Fork — only docker/sbx-kits-contrib publishes._"
             else
-              echo "**Dry run — nothing published.**"
-              echo ""
-              if [ "${{ github.event_name }}" = "pull_request" ]; then
-                echo "Reason: pull request (push credentials are never exposed to PRs)."
-              else
-                echo "Reason: the \`DOCKERHUB_OIDC_CONNECTIONID\` secret is not set."
-                echo "Configure the Docker Hub OIDC connection for this"
-                echo "repository and set that variable to its connection ID."
-              fi
-              echo ""
-              echo 'Would have published `${{ steps.coords.outputs.image }}`.'
+              echo "_The \`DOCKERHUB_OIDC_CONNECTIONID\` secret is not set._"
+              echo "Configure the Docker Hub OIDC connection for this repository"
+              echo "and set that secret to its connection ID."
             fi
-            echo ""
-            echo "Platforms: \`${{ env.PLATFORMS }}\`"
           } >> "$GITHUB_STEP_SUMMARY"
-
-  # Publishes the KIT ARTIFACT — the spec + files packaged as OCI — at
-  # <registry>/<namespace>/<kit>-kit. Distinct from the job above, which
-  # publishes the IMAGE the kit's sandbox boots from; the `-kit` / `-image`
-  # split is why both live in one namespace.
-  #
-  # The steps are shared with release-kit.yml, which publishes the same artifact
-  # under a version tag. This caller supplies the point-in-time coordinates:
-  # a dated tag, and the rolling tag moves.
-  #
-  # Ordered after `build` so a kit is never published pointing at an image that
-  # was not — the push records the declared sandbox image in its provenance.
-
-  artifact:
-    needs: image
-    # `!cancelled()` overrides GitHub's implicit `&& success()` on this if —
-    # needed because `image` is legitimately skipped for a kit with no
-    # Dockerfile (see `has-image` above), and a skipped need does not satisfy
-    # an implicit success check. `always()` would do the same override but
-    # also run this after the workflow run itself was cancelled; `!cancelled()`
-    # doesn't. The explicit result check below is what still refuses to run
-    # this if `image` genuinely failed.
-    if: >-
-      !cancelled() && inputs.publish-artifact &&
-      (needs.image.result == 'success' || needs.image.result == 'skipped')
-    permissions:
-      contents: read
-      id-token: write
-    uses: ./.github/workflows/publish-artifact.yml
-    secrets: inherit
-    with:
-      kit: ${{ inputs.kit }}
-      tag: ${{ inputs.dated }}
-      move-latest: true
 
   # Gives a repository that has just received its first push a Hub page without
   # waiting for the next docs edit. The docs trigger in hub-overview.yml remains
   # the primary one — the page tracks the default branch, not this run.
   overview:
-    needs: artifact
-    # `!cancelled()` overrides GitHub's implicit `&& success()` on this if, for
-    # the same reason as `artifact`'s own if: above — but one level removed.
-    # `success()` (with no args) walks this job's ENTIRE transitive dependency
-    # chain, not just the immediate `needs: artifact` — so it also inspects
-    # `image`, which is legitimately skipped for a kit with no Dockerfile. A
-    # bare `if: inputs.publish-artifact` therefore never ran `overview` for any
-    # kit whose `image` job was skipped, EVEN WHEN `artifact` itself succeeded:
-    # every kit but `kiro`. This is why most kits' Hub overview page was never
-    # synced by this path despite their artifact publish going green — caught
-    # only once a real post-merge run made ALL 27 kits' artifact jobs succeed
-    # at once and their overview pages still didn't update.
-    if: "!cancelled() && needs.artifact.result == 'success'"
+    needs: publish
+    # `!cancelled()` overrides GitHub's implicit `&& success()`, and the
+    # explicit result check is what still refuses to sync a page for a kit whose
+    # build just failed. `always()` would do the same override but would also
+    # run this after the workflow run itself was cancelled; `!cancelled()`
+    # doesn't.
+    if: "!cancelled() && needs.publish.result == 'success'"
     permissions:
       contents: read
     uses: ./.github/workflows/hub-overview.yml

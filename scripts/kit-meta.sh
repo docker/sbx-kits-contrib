@@ -1,28 +1,36 @@
 #!/usr/bin/env bash
-# Read a kit's Hub-facing metadata out of its spec.yaml.
+# Read a kit's Hub-facing metadata out of its v3 descriptor.
 #
 # Usage:
 #   scripts/kit-meta.sh <kit>
 #
-#   scripts/kit-meta.sh kiro
+#   scripts/kit-meta.sh claude
 #
 # Emits, one per line, for redirecting into $GITHUB_OUTPUT:
 #
-#   title=                    displayName, falling back to name
-#   kit-repository=           <namespace>/<kit>-kit — the artifact's Hub repo
-#   image-repository=         sandbox.image with registry and tag stripped
-#   short-description=        description, capped at Hub's 100 characters
-#   image-short-description=  written for the BASE IMAGE repo, which is a
-#                             separate Hub repository and would otherwise carry
-#                             text describing the kit instead
+#   title=              displayName, falling back to the kit directory name
+#   kit-repository=     <namespace>/sbx-kit-<kit> — the kit's Hub repo
+#   short-description=  description, folded to one line and capped at Hub's
+#                       100 characters
 #
-# Why a script rather than two lines of YAML: this is the third place that has
-# had to parse a top-level scalar out of spec.yaml (see check-release-tag.sh),
-# and the parsing has a subtlety worth writing once — a value may be quoted, may
-# carry a trailing comment, and only a TOP-LEVEL key is the kit's own.
+# WHAT IS NO LONGER EMITTED, and why that is safe. v2 gave every publishing kit
+# TWO Hub repositories with two different descriptions: `<kit>-kit` for the
+# artifact and `<kit>-image` for the image its sandbox booted from. This script
+# emitted `image-repository=` and `image-short-description=` for the second one,
+# reading the repository name out of the spec's `sandbox.image` because that
+# name was the spec's to choose and was not derivable.
+#
+# A v3 kit is ONE image. There is no second repository, no `sandbox.image` to
+# read, and nothing for a second description to describe. Both keys are dropped
+# rather than emitted empty, which is exactly the shape hub-overview.yml already
+# handles: its base-image steps are gated on `image-repository != ''`, so they
+# skip on an absent key the same way they used to skip for a kit that built no
+# image of its own. (They are doubly gated — the same workflow also requires a
+# `Dockerfile`, and no kit has one any more.)
 #
 # Environment:
-#   IMAGE_NAMESPACE   default sbx — used to compose the kit artifact's repository
+#   IMAGE_NAMESPACE     default docker      — the Hub org the kit publishes to
+#   IMAGE_NAME_PREFIX   default sbx-kit-    — must match publish-kit.sh's
 #
 # Exit codes: 0 read · 1 no such kit · 2 usage error.
 
@@ -34,7 +42,8 @@ if [ $# -ne 1 ]; then
 fi
 
 kit=$1
-IMAGE_NAMESPACE=${IMAGE_NAMESPACE:-sbx}
+IMAGE_NAMESPACE=${IMAGE_NAMESPACE:-docker}
+IMAGE_NAME_PREFIX=${IMAGE_NAME_PREFIX:-sbx-kit-}
 
 SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 REPO_ROOT=$(cd "$SCRIPT_DIR/.." && pwd)
@@ -43,37 +52,72 @@ REPO_ROOT=$(cd "$SCRIPT_DIR/.." && pwd)
 # can pollute the stream CI reads.
 exec 3>&1 1>&2
 
-spec="$REPO_ROOT/$kit/spec.yaml"
-[ -f "$spec" ] || spec="$REPO_ROOT/$kit/spec.yml"
-[ -f "$spec" ] || { echo "error: no spec.yaml for kit '$kit'"; exit 1; }
+descriptor="$REPO_ROOT/$kit/$kit.yaml"
+[ -f "$descriptor" ] || descriptor="$REPO_ROOT/$kit/$kit.yml"
+[ -f "$descriptor" ] || { echo "error: no kit '${kit}' at the repo root (expected ${kit}/${kit}.yaml)"; exit 1; }
 
-# Top-level scalar only: an indented `description:` belongs to a setup command
-# or a credential, not to the kit. kiro's spec has three of those, so anchoring
-# to column zero is what makes this correct rather than merely working.
+# A top-level scalar, folded to one line.
+#
+# The fold is the part v2 did not need. Most v3 descriptions are written as
+# `description: >-` folded block scalars over two or three indented lines,
+# because the prose is long enough that one line would be unreadable in the
+# file. Reading only the key's own line — which is what the v2 version of this
+# script did — returns the literal string ">-" and publishes that as the Hub
+# short description.
+#
+# Only a TOP-LEVEL key counts: several kits carry an indented `description:`
+# on a build arg or a credential, and those describe a field, not the kit.
 scalar() {
-  awk -v key="$1" '
-    /^[[:space:]]*#/ { next }
-    index($0, key ":") == 1 {
-      sub("^" key ":[[:space:]]*", "")
-      sub(/[[:space:]]+#.*$/, "")
-      gsub(/^["'"'"']|["'"'"']$/, "")
-      print
-      exit
+  awk -v key="$2" '
+    # Column-zero key: either the one being looked for, or the one that ends
+    # a block scalar already being collected.
+    /^[^[:space:]#]/ {
+      if (collecting) exit
+      if (index($0, key ":") == 1) {
+        value = $0
+        sub("^" key ":[[:space:]]*", "", value)
+        # Comment first, THEN quotes: stripping quotes first leaves the closing
+        # one stranded on `displayName: "Claude Code"  # note`.
+        sub(/[[:space:]]+#.*$/, "", value)
+        gsub(/^["'"'"']|["'"'"']$/, "", value)
+        # A block-scalar indicator (>, >-, |, |-, and their explicit-indent
+        # forms) means the value is the indented lines that follow, not this
+        # one. Anything else is the value itself.
+        if (value ~ /^[>|][0-9]*[-+]?$/) { collecting = 1; value = ""; next }
+        print value
+        exit
+      }
+      next
     }
-  ' "$spec"
+    collecting {
+      line = $0
+      sub(/^[[:space:]]+/, "", line)
+      # Folded and literal scalars are both flattened to one line: the only
+      # consumer is Hub SHORT description, which is a single line by
+      # definition. A blank line (a paragraph break in a folded scalar)
+      # becomes the same single space as a line break.
+      if (line == "") next
+      out = (out == "" ? line : out " " line)
+      next
+    }
+    END { if (collecting) print out }
+  ' "$1"
 }
 
-title=$(scalar displayName)
-[ -n "$title" ] || title=$(scalar name)
+title=$(scalar "$descriptor" displayName)
+# v3 has no top-level `name:` — a kit is named by its directory, which is what
+# discovery, the companion recipe's filename and the published reference are all
+# keyed on. So the directory name is the fallback, not another field.
+[ -n "$title" ] || title=$kit
 
-description=$(scalar description)
+description=$(scalar "$descriptor" description)
 
 # Hub caps the short description at 100 characters and rejects longer ones, so
 # cap here rather than discovering it as an API error mid-publish.
 cap() {
   if [ ${#1} -gt 100 ]; then
-    # Announced, not silent: a truncated description is a spec worth shortening
-    # by hand, and the cut is invisible in the emitted value itself.
+    # Announced, not silent: a truncated description is a descriptor worth
+    # shortening by hand, and the cut is invisible in the emitted value itself.
     #
     # `>&2` explicitly, even though the script reroutes stdout to stderr: this
     # function runs inside $(…), where fd 1 is the capture pipe rather than the
@@ -85,67 +129,13 @@ cap() {
   fi
 }
 
-# `<kit>-image` and `<kit>-kit` are two Hub repositories holding different
-# things: the image a sandbox boots from, and the kit artifact that references
-# it. Giving both the kit's description would leave a browser of the image repo
-# with no idea which of the two they are looking at.
-image_description=$(cap "Base image for the ${title} kit for Docker Sandboxes")
 description=$(cap "$description")
 
-# The Hub API addresses repositories as <namespace>/<name>. The kit artifact's
-# is composed (the same rule publish-artifact.sh enforces); the image's is READ from
-# the spec, because that name is the spec's to choose and is not derivable.
-image_repository=$(awk '
-  /^sandbox:/      { in_sandbox = 1; next }
-  /^[^[:space:]#]/ { in_sandbox = 0 }
-  in_sandbox && $1 == "image:" {
-    gsub(/^[[:space:]]*image:[[:space:]]*/, "")
-    gsub(/^["'"'"']|["'"'"']$/, "")
-    print; exit
-  }
-' "$spec")
-image_repository=${image_repository%%@*}
-
-# A tag's colon can only ever appear after the last "/" — a registry's port
-# colon comes before it — so only strip a trailing ":tag" when there's one in
-# that last path segment. Blindly taking the rightmost ":" in the whole string
-# (the previous form of this line) mis-parsed a port-bearing, untagged
-# registry like "myregistry.local:5000/team/image": bash's shortest suffix
-# match for ":*" removed everything from the port colon onward, leaving just
-# "myregistry.local" with no path left for the registry-detection below to
-# even see.
-last_segment=${image_repository##*/}
-if [[ "$last_segment" == *:* ]]; then
-  image_repository=${image_repository%:*}
-fi
-
-# Strip a leading registry-host segment, but only if the first path component
-# actually looks like a registry — matching the same rule the Docker CLI uses
-# to parse image references. A two-segment reference like
-# "docker/sandbox-templates" is already <namespace>/<name> on Docker Hub, not
-# <registry>/<name>: blindly stripping up to the first "/" turned it into the
-# bare name "sandbox-templates", which hub-repo-ready.sh then rejected outright
-# ("is not <namespace>/<name>") for every kit using the shared shell-docker
-# template — this went unnoticed while PUBLISH_KITS only ever listed kiro,
-# whose own image is built (and named) differently. A registry host is only
-# ever distinguished by containing a "." or a ":", or by being "localhost".
-first_segment=${image_repository%%/*}
-case "$first_segment" in
-  *.*|*:*|localhost) image_repository=${image_repository#*/} ;;
-esac
-
-# Only the KEY=VALUE stream is printed. Echoing a prose copy to stderr as well
-# would double every line on a terminal, where both streams land together — and
-# `key=value` reads perfectly well on its own. Diagnostics here are limited to
-# things the values do not say, like the truncation notice above.
+# The Hub API addresses repositories as <namespace>/<name>, without the registry
+# host an OCI reference carries. COMPOSED from the kit directory, matching the
+# rule publish-kit.sh pushes by — in v3 nothing in the descriptor names where
+# the kit is published, so there is no second source of truth to read and
+# nothing that can drift.
 echo "title=${title}" >&3
-echo "kit-repository=${IMAGE_NAMESPACE}/${kit}-kit" >&3
+echo "kit-repository=${IMAGE_NAMESPACE}/${IMAGE_NAME_PREFIX}${kit}" >&3
 echo "short-description=${description}" >&3
-echo "image-short-description=${image_description}" >&3
-
-# Omitted rather than emitted empty for a kit that builds no image, so a caller
-# can branch on its presence. An `if` rather than `[ … ] && echo`, which does not
-# abort under set -e when the test fails and reads as though it might.
-if [ -n "$image_repository" ]; then
-  echo "image-repository=${image_repository}" >&3
-fi

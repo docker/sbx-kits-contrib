@@ -52,42 +52,116 @@ go test ./scripts/...
 
 Golden-file tests live under `scripts/testdata/` — one v1 input fixture and one v2 expected fixture per scenario. To add a new transform: drop the v1 form into the input fixture, the expected output into the expected fixture, and the test compares byte-for-byte. The fixture format preserves comments, blank lines, and block-scalar formatting so the migration's whitespace fidelity is part of the contract.
 
-## `publish-artifact.sh` — push a kit artifact
+## `discover-kits.sh` — what counts as a kit
 
-Publishes one kit as an OCI artifact to `<registry>/<namespace>/<kit>-kit`,
-including the existence probe, the signed push, the digest read-back and the
-optional rolling-tag move. `publish-artifact.yml` is wiring around this; the logic is
-here so it can be exercised without pushing a branch and waiting for CI:
+Prints every kit directory at the repo root, one per line, sorted. A kit is any
+directory holding a descriptor named after itself — `<dir>/<dir>.yaml`.
 
 ```bash
-DRY_RUN=1 scripts/publish-artifact.sh kiro v1.0.0                    # print the plan
-DRY_RUN=1 MOVE_LATEST=true scripts/publish-artifact.sh kiro abc-20260811
+./scripts/discover-kits.sh
 ```
 
-`REGISTRY`, `IMAGE_NAMESPACE` and `IMAGE_TAG_LATEST` default to `docker.io`,
-`sbx` and `latest`. A real run needs `sbx`, `oras` and `jq` on `PATH`, and a
-`docker login` to the namespace — `sbx kit push` and `oras` both read the Docker
-credential store.
+There is no registration list, so adding a kit needs no change here or in any
+caller (`build-and-publish-kits.yml`, `hub-overview.yml`, `tck.yml`). The
+matching-stem rule is also what keeps `spec/`, `tck/`, `scripts/` and `skills/`
+out without an ignore list: they hold no file named after themselves, so they
+are not kits by construction rather than by exception.
 
-An existing tag means different things per caller and the script treats them
-differently: an error when `MOVE_LATEST=false` (a release re-cutting a published
-version) and reuse-without-re-push when true (a re-run of a dated tag), which is
-what makes recovering from a partial publish possible.
+## `kit-version.sh` — the version a kit publishes under
+
+Resolves the version that becomes the kit's image tag. One resolver, so
+`publish-kit.sh` and `check-release-tag.sh` cannot disagree about what a kit's
+version is.
+
+```bash
+./scripts/kit-version.sh claude     # 2.1.267
+./scripts/kit-version.sh --all      # every kit, with where the number came from
+```
+
+Four sources, first match wins: a literal top-level `version:`; a
+`version: "${{ kit.args.<name> }}"` reference resolved to that arg's `default:`;
+an arg named `version` with no `version:` field at all; or a single pinned
+`provides: ["<tool>@<version>"]` entry. The last three are the same statement at
+decreasing levels of indirection — *this kit's version is the version of the
+thing it provides* — which is why they are all accepted. A kit answering to none
+of them cannot be published and fails loudly rather than being tagged with an
+invented number.
+
+`--all` exits non-zero if any kit is unresolvable, which is how
+`build-and-publish-kits.yml` gates the whole matrix on it.
+
+## `publish-kit.sh` — build and push a kit
+
+Publishes one kit as an image to `<registry>/<namespace>/sbx-kit-<kit>`, tagged
+with its resolved version and (unless `MOVE_LATEST=false`) the rolling tag, both
+from one `docker buildx build` so they cannot resolve to different digests.
+`publish-one-kit.yml` is wiring around this; the command line is here so it can
+be exercised without pushing a branch and waiting for CI:
+
+```bash
+DRY_RUN=1 scripts/publish-kit.sh claude     # build it, push nothing
+scripts/publish-kit.sh claude               # build and push
+```
+
+`REGISTRY`, `IMAGE_NAMESPACE`, `IMAGE_NAME_PREFIX` and `IMAGE_TAG_LATEST`
+default to `docker.io`, `docker`, `sbx-kit-` and `latest`. A real run needs a
+`docker login` to the namespace; nothing else has to be installed, because the
+kit frontend is named on the descriptor's first line and BuildKit pulls it.
+
+A dry run still **builds** — with `--output type=cacheonly` instead of `--push`.
+That is the whole value of the pull-request run: the frontend validates the
+descriptor as part of the build, so a dry run that stopped at "resolved the tag"
+would let a kit that cannot build report green and fail on merge.
+
+Note that `<version>` is not an immutable tag. The nightly rebuild re-pushes it
+over fresh upstream content, which is the point of the nightly — pin a digest,
+not a version, if you need the bytes to hold still.
 
 ## `install-sbx.sh` — install the sbx CLI
 
 ```bash
-GITHUB_TOKEN=… scripts/install-sbx.sh            # latest
+GITHUB_TOKEN=… scripts/install-sbx.sh            # rc, the default
+GITHUB_TOKEN=… scripts/install-sbx.sh nightly    # nightly
 GITHUB_TOKEN=… scripts/install-sbx.sh v0.12.3    # pinned
 ```
 
 Prints the directory to add to `PATH` on stdout, so CI can do
 `./scripts/install-sbx.sh >> "$GITHUB_PATH"`. Linux only.
 
+The default is `rc` rather than the stable line, and that is not a preference:
+a stable `sbx` has no v3 kit load path, so it cannot run anything in this
+repository. Pass `release` only to test that assumption on the day it changes.
+
+## `test-kit.sh` — conformance for one kit
+
+```bash
+./scripts/test-kit.sh <kit>                  # build to an OCI layout, judge with kit-tck
+./scripts/test-kit.sh --validate-only <kit>  # build only, no artifact, no kit-tck
+./scripts/test-kit.sh --ref <reference>      # judge an already-published kit
+```
+
+Builds the kit into a throwaway OCI layout and hands it to `kit-tck`, so it
+needs no registry and runs on a pull request. The frontend validates the
+descriptor during that build, which is why `--validate-only` is a meaningful
+check on its own and the only one available without access to `kit-tck`'s
+(currently private) repository.
+
+## `test-kit-e2e.sh` — run one kit under a scoped daemon
+
+```bash
+./scripts/test-kit-e2e.sh <kit>
+```
+
+Drives `sbx run` against a throwaway workspace under a scoped app name with a
+`deny-all` default policy, so a kit's declared egress is tested rather than
+assumed. A mixin is composed onto a resolved base automatically. Needs an `sbx`
+that understands v3 kits — see `install-sbx.sh` above — and Docker Hub
+credentials for the scoped daemon.
+
 ## `hub-repo-ready.sh` — does a Hub repository hold anything?
 
 ```bash
-scripts/hub-repo-ready.sh sbx/kiro-kit
+scripts/hub-repo-ready.sh docker/sbx-kit-claude
 ```
 
 Prints `ready=true` or `ready=false`. The overview sync asks this first: Hub only
@@ -100,70 +174,46 @@ like an absent one. That is the safe direction to be wrong in. A transport
 failure exits non-zero rather than reporting `false`, so a flaky network shows up
 as something to investigate instead of a silently skipped sync.
 
-## `kit-meta.sh` — Hub-facing metadata from a spec
+## `kit-meta.sh` — Hub-facing metadata from a descriptor
 
-Reads a kit's Hub-facing metadata out of its `spec.yaml`: both repository names
-and both short descriptions, for the kit artifact and for its base image.
-`hub-overview.yml` consumes it.
+Reads a kit's Hub-facing metadata out of its `<kit>/<kit>.yaml`: the repository
+name, the title and the short description. `hub-overview.yml` consumes it.
 
 ```bash
-scripts/kit-meta.sh kiro
+scripts/kit-meta.sh claude
 ```
 
-Only a **top-level** `description:` counts. kiro's spec has three more nested
-under setup commands, so anchoring to column zero is what makes this correct
-rather than accidentally right. Values are capped at Hub's 100-character limit
-here, rather than surfacing as an API error mid-publish.
+Only a **top-level** `displayName:`/`description:` counts — several kits carry
+an indented `description:` on a build arg or a credential, and those describe a
+field, not the kit. Most v3 descriptions are `>-` folded block scalars over
+several lines, so the value is folded to one line before being capped at Hub's
+100-character limit here, rather than surfacing as an API error mid-publish.
 
-## `check-release-tag.sh` — release tag ↔ spec version
+A v3 kit is one image, so there is one Hub repository per kit. The
+`image-repository=`/`image-short-description=` keys that described v2's separate
+`<kit>-image` repository are no longer emitted; `hub-overview.yml` already
+treats an absent `image-repository` as "nothing to sync", so its base-image
+steps skip cleanly.
+
+## `check-release-tag.sh` — release tag ↔ published version
 
 Validates a `<kit>/vX.Y.Z` release tag and resolves what it names. Run it
 against a tag **before** pushing it:
 
 ```bash
-./scripts/check-release-tag.sh kiro/v1.0.0
+./scripts/check-release-tag.sh github-ssh/v1.0.0
 ```
 
-It refuses a tag that is malformed, names a kit with no `spec.yaml`, or
-disagrees with that spec's top-level `version:`. The last one is the point: the
-version becomes the `vnd.docker.sandbox.kit.version` OCI annotation at pack
-time, and the field is optional — so without the check a `v1.0.0` tag can
-publish an artifact annotated `0.9.0`, or annotated nothing, with the git tag as
-the only record.
+It refuses a tag that is malformed, names a kit that does not exist, or names a
+version the kit does not publish. The last one is the point: the published tag
+comes from the descriptor, not from the git tag, so without this check a
+`claude/v9.9.9` tag publishes `sbx-kit-claude:2.1.267` — a release announcing a
+version that exists nowhere but in git.
+
+It asks `kit-version.sh` rather than reading a literal `version:` itself, so it
+cannot disagree with what `publish-kit.sh` actually tags. Its diagnostics name
+where the number lives, which for most kits is an arg default rather than the
+`version:` field that references it.
 
 On success it prints `kit=` and `version=` on stdout (diagnostics go to stderr),
 which is why `release-kit.yml` can redirect it straight into `$GITHUB_OUTPUT`.
-
-## `verify-kit-spec` — validate a kit spec, or confirm two are equivalent
-
-```bash
-go run ./scripts/verify-kit-spec ./my-kit
-go run ./scripts/verify-kit-spec ./my-kit ./my-kit-scratch-copy
-```
-
-Loads a kit through the same path `sbx kit validate`/`sbx kit inspect` use
-and fails on a validation error or a non-empty `Artifact.Warnings` — useful
-anywhere `sbx` itself isn't available to run those commands directly. With a
-second directory argument, also confirms both parse to the same spec,
-**ignoring `Artifact.Files`** — the compare directory only needs a
-`spec.yaml`, not the kit's whole `files/`/`Dockerfile`/`icons/` tree.
-
-That two-directory form is what a `migrate-v1-to-v2.go` migration should run
-after hand-restoring comments the mechanical rewrite dropped: regenerate a
-fresh, uncommented migration from the original v1 backup into a scratch
-directory containing just that `spec.yaml`, then confirm the hand-edited file
-still matches it field-for-field — proving the comment restoration didn't
-also change what the spec means.
-
-## `check-image-ref.sh` — spec ↔ publishable image
-
-Asserts that every kit shipping a `Dockerfile` declares a `sandbox.image` this
-repository can actually publish: right namespace, `<kit>-image` name, rolling
-tag.
-
-```bash
-./scripts/check-image-ref.sh docker.io/sbx latest
-```
-
-Kits are found by scanning for Dockerfiles, so there is no per-kit entry to
-leave stale.

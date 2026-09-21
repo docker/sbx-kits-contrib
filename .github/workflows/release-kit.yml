@@ -1,22 +1,35 @@
 name: Release a kit
 
 # Publishes a named version of one kit, triggered by a `<kit>/vX.Y.Z` tag —
-# e.g. `kiro/v1.0.0` publishes docker.io/sbx/kiro-kit:v1.0.0.
+# e.g. `github-ssh/v1.0.0` publishes docker.io/docker/sbx-kit-github-ssh:1.0.0.
 #
-# Separate from build-and-publish-kits.yml on purpose. The two answer different questions,
-# and folding them together would mean one workflow deciding, per event, what to
-# build and which tags may move:
+# Separate from build-and-publish-kits.yml on purpose. The two answer different
+# questions, and folding them together would mean one workflow deciding, per
+# event, what to build and which tags may move:
 #
-#   build-and-publish-kits.yml  which kits changed? → <date>-<sha>, rolling tag moves
-#   release-kit.yml  which kit is named in the ref? → vX.Y.Z, nothing moves
+#   build-and-publish-kits.yml  which kits changed? → <version> + rolling tag
+#   release-kit.yml             which kit is named in the ref? → <version> only
 #
-# The version describes THE KIT — its spec, files, network policy and hooks —
-# not the agent inside the image it references. That image stays on a floating
-# tag by design: the agent CLI changes on its own schedule, and pinning it into
-# the kit's version would either ship stale agents or churn the kit's version
-# for reasons the kit did not cause. So `kiro-kit:v1.0.0` is a stable kit
-# CONTRACT, not a reproducible end-to-end environment; a sandbox created from it
-# next month gets the same kit and a newer agent.
+# WHAT A RELEASE MEANS NOW, WHICH IS NARROWER THAN IT WAS. Under v2 a release
+# published a tag nothing else published: continuous builds wore
+# `<YYYYMMDD>-<sha>` and only a release produced `vX.Y.Z`, so the tag was the
+# sole way that version came to exist. The version also described THE KIT — its
+# spec, files, network policy and hooks — and deliberately not the agent inside
+# the image it referenced, which floated.
+#
+# In v3 the published tag is resolved from the descriptor on EVERY path (see
+# scripts/kit-version.sh), so main already publishes `:<version>`. A release tag
+# does not create that tag; it asserts that the version someone is announcing is
+# the version the kit actually publishes, and republishes it deliberately from
+# the tagged commit. The version now tracks the agent the kit ships rather than
+# the kit's own paperwork — for most kits it IS the agent's version, resolved
+# out of the same arg the recipe installs from.
+#
+# The rolling tag is NOT moved here, which is the one thing that has not
+# changed. `latest` follows main — the branch every kit is tested against on
+# every PR — and a release tag can legitimately sit on an older commit, so
+# publishing `latest` from one would move it backward for everyone who installs
+# the kit without pinning.
 
 on:
   push:
@@ -27,7 +40,7 @@ permissions:
   contents: read
 
 jobs:
-  # Resolves the kit and version from the tag, and refuses a release the spec
+  # Resolves the kit and version from the tag, and refuses a release the kit
   # does not agree with. Kept out of the reusable workflow: it is the one part
   # specific to releasing, and it must fail before anything is published.
   verify:
@@ -35,33 +48,35 @@ jobs:
     timeout-minutes: 5
     outputs:
       kit: ${{ steps.tag.outputs.kit }}
-      version: ${{ steps.tag.outputs.version }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Validate the release tag
         id: tag
         # The rules live in the script so they can be run against a tag before
-        # pushing it — `./scripts/check-release-tag.sh kiro/v1.0.0` — rather
-        # than only being discoverable by tagging and watching CI. It prints
-        # `kit=`/`version=` on stdout and diagnostics on stderr, which is what
-        # makes redirecting into $GITHUB_OUTPUT safe.
+        # pushing it — `./scripts/check-release-tag.sh github-ssh/v1.0.0` —
+        # rather than only being discoverable by tagging and watching CI. It
+        # prints `kit=`/`version=` on stdout and diagnostics on stderr, which is
+        # what makes redirecting into $GITHUB_OUTPUT safe.
+        #
+        # Only `kit` is forwarded to the publish job below. The version is
+        # checked here, but the publisher resolves it from the descriptor
+        # itself rather than being handed it — one resolver, so a released
+        # version and a published one cannot mean different things. Passing it
+        # in would create exactly the second source of truth this check exists
+        # to rule out.
         run: ./scripts/check-release-tag.sh "${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
 
   publish:
     needs: verify
     # This workflow's top-level block is contents-read only, and a called
     # workflow can never hold more than its caller grants — without this the
-    # OIDC exchange and the keyless signature both fail.
+    # OIDC exchange fails.
     permissions:
       contents: read
       id-token: write
-    uses: ./.github/workflows/publish-artifact.yml
+    uses: ./.github/workflows/publish-one-kit.yml
     secrets: inherit
     with:
       kit: ${{ needs.verify.outputs.kit }}
-      tag: ${{ needs.verify.outputs.version }}
-      # The rolling tag follows `main`, not releases: it is the tip of the
-      # branch every kit here is tested against on every PR. A release is a
-      # named point someone chose to pin, which is the opposite of rolling.
       move-latest: false

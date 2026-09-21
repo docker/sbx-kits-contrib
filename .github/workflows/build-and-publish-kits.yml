@@ -1,61 +1,79 @@
 name: Build and publish kits
 
-# Publishes what a kit needs to be consumable: the base image its sandbox boots
-# from (if it builds one), and the kit artifact itself.
+# Publishes every kit that needs publishing, as ONE image each:
 #
-#   image     builds <kit>/Dockerfile and pushes <kit>-image — only for a kit
-#             that ships one; most kits are mixins layered onto someone else's
-#             image and have nothing to build here
-#   artifact  packages the spec plus files/ and pushes <kit>-kit — every kit
-#             being built this run, image or not
+#   docker.io/docker/sbx-kit-<kit>:<version>   the kit's own version
+#   docker.io/docker/sbx-kit-<kit>:latest      rolling
 #
-# The Hub repository pages are NOT set here; see hub-overview.yml.
+# WHAT THIS USED TO DO, AND WHY IT IS SMALLER NOW. Under v2 a kit was a YAML
+# file that POINTED AT an image, so this workflow published two things per kit
+# to two repositories: the base image (`<kit>-image`, from the kit's Dockerfile)
+# and the kit artifact (`<kit>-kit`, packed and pushed with oras). Most of its
+# machinery existed to manage that split — which kits ship a Dockerfile and so
+# need the image job at all, an immutable <YYYYMMDD>-<sha> tag to give the
+# rolling tag something stable to follow, a check that each spec's declared
+# `sandbox.image` sat in a namespace CI could actually push to, and a rule that
+# the nightly rebuild skipped the artifact because a kit's content was a pure
+# function of the commit while its image was not.
 #
-# Kits are DISCOVERED, not listed: any directory with a `spec.yaml` is picked
-# up automatically, so adding a kit needs no change to this workflow. That
-# mirrors tck.yml, and it is the reason there is no top-level `paths:` filter —
-# all filtering happens in detect-changes, which also decides which kits a
-# given event should rebuild. Whether a discovered kit ALSO builds an image is
-# decided per-kit in publish-one-kit.yml, by whether it has a `Dockerfile` —
-# not by anything decided here, so a kit gaining or losing one needs no change
-# to this workflow either.
+# In v3 a kit IS an image: the descriptor rides in the published image's
+# manifest annotation and the layers are its content. One thing to push, one
+# build to push it, and every question above stops being asked — there is no
+# Dockerfile to detect, no second repository to keep names apart in, no spec
+# field naming where to publish (the reference is derived from the kit
+# directory), and nothing that is a pure function of the commit, so the nightly
+# now rebuilds and republishes everything.
+#
+# Kits are DISCOVERED, not listed: any directory holding `<dir>/<dir>.yaml` is
+# picked up automatically, so adding a kit needs no change to this workflow.
+# That mirrors tck.yml, and it is the reason there is no top-level `paths:`
+# filter — all filtering happens in detect-changes, which also decides which
+# kits a given event should rebuild.
 #
 # Conventions a discovered kit must follow:
 #
-#   * The build context is the kit directory, with `Dockerfile` at its root.
-#   * `sandbox.image` in the kit's spec is the source of truth for what gets
-#     published — the image name is NOT derived from the directory name, because
-#     the two legitimately differ (the `kiro` kit publishes `kiro-image`, leaving
-#     `kiro-kit` for the kit artifact). `verify-spec-refs` gates the build on that
-#     image living in the namespace CI can push to.
-#   * `com.docker.sandboxes.start-docker=true` may only be set on an image that
-#     actually ships a Docker engine; the build asserts this.
-#   * `com.docker.sandboxes.flavor` must be the kit's own name. sbx reads it as
-#     the image's agent, and an image that does not set it inherits whatever
-#     its base sets — today's bases all carry their own flavor, so forgetting
-#     it usually reports the wrong agent rather than none; the build asserts
-#     this too.
+#   * The descriptor is named after its directory (`<kit>/<kit>.yaml`), and its
+#     first line is `# syntax=docker/sandbox-kit:3`. That line is what makes
+#     the build a kit build; BuildKit pulls the frontend itself.
+#   * The build context is the kit directory.
+#   * The descriptor declares a version this pipeline can resolve — see
+#     scripts/kit-version.sh for the four ways of doing that. The
+#     `verify-versions` job below refuses to build anything until every kit in
+#     the repo satisfies it.
+#
+# Nothing here asserts anything ABOUT the built image. v2 needed a whole
+# verification pass — load a single-platform build, check its CMD is on PATH,
+# check it does not run as root, check `com.docker.sandboxes.flavor` names the
+# right kit — because a Dockerfile could declare anything and a spec's claims
+# about it were unchecked prose. The v3 frontend validates the descriptor as
+# part of the build and derives the image's configuration from it, so those
+# assertions are either enforced at build time or no longer expressible. A
+# malformed kit fails the build, not a separate step that could drift from what
+# the frontend actually accepts. Conformance of the PUBLISHED artifact is
+# tck.yml's job, not this one's.
 #
 # Shared coordinates (registry, namespace, rolling tag, platforms) come from
 # repository/organisation variables with documented fallbacks, so retargeting is
-# a settings change rather than a workflow edit. Anything per-kit — the base
-# image in particular — belongs in that kit's Dockerfile, not here.
-#
-# A kit's `sandbox.image` cannot be parameterised — specs are consumed literally,
-# with no env interpolation (see spec/types.go). Rather than duplicate the name
-# here and risk drift, this workflow READS it from the spec and publishes exactly
-# that. `verify-spec-refs` is the guard on that trust: it refuses to build a kit
-# whose declared image sits outside the namespace CI authenticates to.
+# a settings change rather than a workflow edit.
 
 on:
   push:
     branches: [main]
   pull_request:
-  # Nightly, because these images track moving upstreams rather than pinned
-  # versions: agents are typically installed from a `latest` channel and bases
-  # are floating tags, so a rebuild is the only way a new agent release reaches
-  # users of the kit — and it surfaces upstream breakage in CI rather than in
-  # someone's sandbox.
+  # Nightly, because these images track moving upstreams rather than frozen
+  # ones: agents are typically installed from a `latest` channel and bases are
+  # floating tags, so a rebuild is the only way a new agent release or a patched
+  # base reaches users of the kit — and it surfaces upstream breakage in CI
+  # rather than in someone's sandbox.
+  #
+  # Under v2 the nightly republished only the IMAGE, because the kit artifact
+  # was a pure function of the commit and re-pushing it would have minted a new
+  # digest for identical bytes. In v3 there is only the image, so the nightly
+  # publishes the whole kit — including re-pushing the SAME `<version>` tag it
+  # pushed yesterday, over new content. That is deliberate, and it is the reason
+  # `<version>` is not an immutable tag here: it names the agent the kit ships,
+  # not the bytes it shipped on a particular day. Pin a digest if you need the
+  # bytes to hold still.
   schedule:
     - cron: "0 5 * * *"
   workflow_dispatch: {}
@@ -69,7 +87,8 @@ permissions:
 
 env:
   REGISTRY: ${{ vars.REGISTRY || 'docker.io' }}
-  IMAGE_NAMESPACE: ${{ vars.IMAGE_NAMESPACE || 'sbx' }}
+  IMAGE_NAMESPACE: ${{ vars.IMAGE_NAMESPACE || 'docker' }}
+  IMAGE_NAME_PREFIX: ${{ vars.IMAGE_NAME_PREFIX || 'sbx-kit-' }}
   IMAGE_TAG_LATEST: ${{ vars.IMAGE_TAG_LATEST || 'latest' }}
   PLATFORMS: ${{ vars.PLATFORMS || 'linux/amd64,linux/arm64' }}
 
@@ -80,16 +99,11 @@ jobs:
     outputs:
       # Kits to rebuild for this event.
       kits: ${{ steps.collect.outputs.kits }}
-      # Every discovered kit, regardless of what changed — the drift check
-      # validates all specs, not just the ones touched.
+      # Every discovered kit, regardless of what changed — the version gate
+      # below checks all of them, not just the ones touched, because an
+      # unresolvable version is a repo-wide problem and finding it only when
+      # that kit happens to change is finding it late.
       all: ${{ steps.collect.outputs.all }}
-      # Which of this run's kits have their own Dockerfile — decides per-kit
-      # whether publish-one-kit.yml's `image` job runs at all.
-      dockerfile-kits: ${{ steps.collect.outputs.dockerfile-kits }}
-      # The immutable tag for kit artifacts. Computed here because a job that
-      # `uses:` a reusable workflow cannot run steps, so it has nowhere to call
-      # `date` — and the tag scheme is documented as <YYYYMMDD>-<sha>.
-      dated: ${{ steps.collect.outputs.dated }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -97,10 +111,6 @@ jobs:
 
       - name: Discover kits
         id: discover
-        # By spec.yaml, not Dockerfile: whether a kit ALSO builds an image is
-        # decided per-kit in publish-one-kit.yml, not here — see the header
-        # comment. A kit's own Dockerfile presence has no bearing on whether
-        # it's a candidate for artifact publishing.
         run: |
           set -euo pipefail
           kits=$(scripts/discover-kits.sh | tr '\n' ' ')
@@ -111,11 +121,14 @@ jobs:
       - name: Generate filters
         id: filter-setup
         # One filter per discovered kit, matching the whole kit directory minus
-        # docs and test fixtures that never affect what gets published. Written
-        # as exclusions rather than an allowlist of sources on purpose: an
-        # allowlist silently stops matching once a Dockerfile starts COPYing a
-        # new file, leaving a published image stale until the next nightly.
-        # spec.yaml is deliberately NOT excluded — the drift check reads it.
+        # docs that never affect what gets published. Written as exclusions
+        # rather than an allowlist of sources on purpose: an allowlist silently
+        # stops matching once a recipe starts COPYing a new file, leaving a
+        # published image stale until the next nightly. Kit directories carry
+        # `<kit>-context.md` files and `files/` trees that ARE build inputs and
+        # look exactly like docs, which is precisely the trap an allowlist walks
+        # into. The descriptor itself is obviously not excluded — it is the
+        # build's entry point.
         #
         # Two separate filter documents, not one, because the two "Filter ...
         # changes" steps below need two DIFFERENT predicate-quantifier settings
@@ -131,9 +144,11 @@ jobs:
           # Writes a $GITHUB_OUTPUT multiline value and echoes it to the log,
           # shared by both filter documents below so they can't drift apart.
           emit_output() {
-            echo "$1<<EOF" >> "$GITHUB_OUTPUT"
-            echo "$2" >> "$GITHUB_OUTPUT"
-            echo "EOF" >> "$GITHUB_OUTPUT"
+            {
+              echo "$1<<EOF"
+              echo "$2"
+              echo "EOF"
+            } >> "$GITHUB_OUTPUT"
             echo "$2"
           }
 
@@ -145,19 +160,17 @@ jobs:
           emit_output "kit-filters" "$kit_filters"
 
           # Shared inputs rebuild everything. The publish path is listed too:
-          # without it, a change to publish-artifact.yml or any of the scripts it
-          # calls produces no artifacts, so the publish job does not run at all
-          # — not even as a dry run — and the PR that changes the publishing
+          # without it, a change to publish-one-kit.yml or any of the scripts it
+          # calls produces no builds, so the publish job does not run at all —
+          # not even as a dry run — and the PR that changes the publishing
           # logic is the one PR that never exercises it.
-          shared_filters=$(printf 'shared:\n%s\n%s\n%s\n%s\n%s\n%s\n%s\n%s' \
+          shared_filters=$(printf 'shared:\n%s\n%s\n%s\n%s\n%s\n%s' \
             '  - ".github/workflows/build-and-publish-kits.yml"' \
-            '  - ".github/workflows/publish-artifact.yml"' \
             '  - ".github/workflows/publish-one-kit.yml"' \
             '  - ".github/workflows/release-kit.yml"' \
-            '  - "scripts/check-image-ref.sh"' \
-            '  - "scripts/check-release-tag.sh"' \
-            '  - "scripts/install-sbx.sh"' \
-            '  - "scripts/publish-artifact.sh"')
+            '  - "scripts/discover-kits.sh"' \
+            '  - "scripts/kit-version.sh"' \
+            '  - "scripts/publish-kit.sh"')
           emit_output "shared-filters" "$shared_filters"
 
       - name: Filter kit changes
@@ -219,7 +232,7 @@ jobs:
               ;;
             *)
               if [ "${{ steps.filter-shared.outputs.shared }}" = "true" ]; then
-                # This workflow or the drift check changed — rebuild everything.
+                # This workflow or the publish path changed — rebuild everything.
                 kits="${all}"
               else
                 kits='${{ steps.filter-kits.outputs.changes }}'
@@ -230,60 +243,52 @@ jobs:
           echo "kits=${kits:-[]}" >> "$GITHUB_OUTPUT"
           echo "Building: ${kits}"
 
-          # Which of this run's kits also build their own image — decides
-          # per-kit, in publish-one-kit.yml, whether its `image` job runs at
-          # all. Computed here (not per-matrix-leg) because it needs the
-          # checkout this job already has; a job's own `if:` can't see repo
-          # content checked out by one of its own later steps.
-          #
-          # `|| continue`, not `&&`: under `set -e`, a while loop's exit status
-          # is its last iteration's — if the LAST kit in the list has no
-          # Dockerfile, `[ -f ... ] && printf` would fail on that iteration,
-          # and pipefail would then fail the whole assignment, killing this
-          # step before it reaches the outputs below. `|| continue` always
-          # exits 0 on a false test, regardless of which iteration it's on.
-          dockerfile_kits=$(echo "${kits:-[]}" | jq -r '.[]' | while read -r k; do
-            [ -f "$k/Dockerfile" ] || continue
-            printf '%s\n' "$k"
-          done | jq -R . | jq -sc .)
-          echo "dockerfile-kits=${dockerfile_kits:-[]}" >> "$GITHUB_OUTPUT"
-          echo "Kits with their own image: ${dockerfile_kits}"
-
-          # Date first so lexicographic order is chronological: tag listings
-          # (`oras repo tags`, Hub's tag page, `docker image ls`) sort as
-          # strings, and a hash-first tag sorts randomly. Date-first also makes
-          # `20260811*` a prefix query for one day's builds — which is why no
-          # bare <date> tag is published: it would be mutable within the day,
-          # the same flaw that rules out a bare <sha>.
-          echo "dated=$(date -u +%Y%m%d)-${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
-
-  # Gates the build. Checks every kit that ships a Dockerfile — not just the ones
-  # being rebuilt — and asserts its declared image is one this pipeline may
-  # publish. Kits are found by scanning for Dockerfiles rather than from a list,
-  # so there is no per-kit entry to leave stale (a stale one would silently skip
-  # the check rather than fail).
-  verify-spec-refs:
+  # Gates the build. Resolves the publish version for EVERY kit in the repo, not
+  # just the ones being rebuilt, and fails if any of them has none.
+  #
+  # This replaces v2's `verify-spec-refs`, which asserted that each kit's
+  # declared `sandbox.image` sat in a namespace CI could push to. That check
+  # existed because the spec NAMED its own image and the pipeline published
+  # whatever it found there — it was the guard on trusting a value out of the
+  # kit. v3 descriptors name nothing: the reference is composed from the kit
+  # directory, so there is nothing to police. What the descriptor does still
+  # own is the version, which is now the thing worth checking early — an
+  # unresolvable version is a kit that cannot be tagged, and finding that out
+  # 40 minutes into a matrix is finding it out late.
+  #
+  # One job over all kits rather than a per-kit step: "these four kits need a
+  # version" is one fix, and four separately-failing matrix legs is the same
+  # fix discovered four times.
+  verify-versions:
     needs: detect-changes
     if: needs.detect-changes.outputs.all != '[]'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - name: Verify kit specs reference published images
+      - name: Resolve every kit's publish version
+        # Formatted with awk rather than `column -t`: this step gates the
+        # entire matrix, and under `pipefail` a formatter that is missing from
+        # some future runner image would fail the gate over whitespace.
         run: |
           set -euo pipefail
-          ./scripts/check-image-ref.sh "${REGISTRY}/${IMAGE_NAMESPACE}" "${IMAGE_TAG_LATEST}"
+          ./scripts/kit-version.sh --all |
+            awk -F'\t' '{ printf "%-32s %-24s %s\n", $1, $2, $3 }'
 
-  # One invocation per kit, each its own job graph: image → artifact → overview.
-  # A matrix of three separate jobs would instead make every kit's artifact wait
-  # for every kit's image, and let one kit's failure block another kit's publish.
+  # One invocation per kit, each its own job graph: publish → overview. A plain
+  # matrix of two jobs would instead make every kit's overview wait for every
+  # kit's build, and — because `needs` is evaluated per JOB, not per matrix leg
+  # — one kit's build failure would skip the overview sync for all of them.
   kit:
-    needs: [detect-changes, verify-spec-refs]
+    needs: [detect-changes, verify-versions]
     if: >-
       needs.detect-changes.outputs.kits != '[]' &&
       needs.detect-changes.outputs.kits != 'null' &&
       needs.detect-changes.outputs.kits != ''
     strategy:
+      # One kit's failure must not stop the others: these builds pull from ~87
+      # independent upstreams, and one vendor's bad release should cost one
+      # stale kit, not a night's worth of rebuilds.
       fail-fast: false
       matrix:
         kit: ${{ fromJson(needs.detect-changes.outputs.kits) }}
@@ -294,10 +299,3 @@ jobs:
     secrets: inherit
     with:
       kit: ${{ matrix.kit }}
-      dated: ${{ needs.detect-changes.outputs.dated }}
-      has-image: ${{ contains(fromJson(needs.detect-changes.outputs.dockerfile-kits), matrix.kit) }}
-      # Every kit being built publishes its artifact — no allow-list, discovery
-      # is by spec.yaml alone (see the header comment). No `schedule` either — a
-      # kit's content is a pure function of the commit, so a nightly re-push
-      # would only mint a new digest for identical bytes.
-      publish-artifact: ${{ github.event_name != 'schedule' }}

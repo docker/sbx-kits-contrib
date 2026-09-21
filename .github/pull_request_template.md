@@ -5,6 +5,11 @@ PRs from forks have CI's `test-kit-e2e` job SKIPPED because GitHub does not
 expose `DOCKERPUBLICBOT_USERNAME` / `DOCKERPUBLICBOT_WRITE_PAT` to fork-triggered workflows.
 The e2e assertions will not run on your PR — your laptop is the only place
 they run before merge. See the checklist below.
+
+A fork's conformance job also degrades to descriptor validation only: `kit-tck`
+comes from a private repository, and a fork's token cannot read it. Your kit is
+still built — the frontend validates the descriptor during the build, which is
+the check that catches most mistakes — but the built artifact is not judged.
 -->
 
 ## Summary

@@ -1,18 +1,30 @@
 name: Kit e2e
 
-# Reusable e2e runner. Installs a real `sbx` CLI for the requested
-# `channel`, authenticates against Docker Hub non-interactively, and runs
+# Reusable e2e runner. Installs a real `sbx` CLI for the requested `channel`,
+# authenticates against Docker Hub non-interactively, and runs
 # `./scripts/test-kit-e2e.sh <kit>` across the caller-supplied kit matrix.
 #
 # The whole point of parametrizing `channel` here — instead of hardcoding a
-# version — is that tck.yml calls this three times:
-#   * channel: release  → the last tagged sbx (gates the PR via the `e2e` job)
+# version — is that tck.yml calls this twice:
+#   * channel: rc       → the latest sbx-releases prerelease tagged "*-rcN"
+#                         (gates the PR via the `e2e` job)
 #   * channel: nightly  → the rolling nightly build (informational only)
-#   * channel: rc       → the latest sbx-releases prerelease tagged
-#                          "*-rcN" (informational only)
-# so kits are exercised against what users have today, what they'll get next,
-# and what's currently being validated for the next stable cut, without
-# nightly or rc ever blocking a merge.
+# so kits are exercised both against the build closest to shipping and against
+# what sbx will ship next, without nightly ever blocking a merge.
+#
+# `channel: release` is still accepted and still resolves, but tck.yml no longer
+# calls it: the stable line predates kit v3 and cannot load these kits at all. See
+# the comment on the e2e legs in tck.yml.
+#
+# WHAT V3 REMOVED FROM THIS WORKFLOW
+#
+# `sbx run ./<kit>` takes a kit in SOURCE form and builds it on demand, so the
+# branch's own descriptor and recipe are what run, by construction. That deleted
+# the entire side-loading dance the v2 version needed — build the kit's image with
+# docker, `docker save` it, `sbx template load` it into the scoped daemon's store,
+# create with `--pull=never` — which existed only to stop a stale published image
+# from being tested instead of the branch. With it went this workflow's need for Go
+# (the e2e harness was a `go test`) and for a builder: sbx does the building now.
 
 on:
   workflow_call:
@@ -22,7 +34,7 @@ on:
         required: true
         type: string
       channel:
-        description: sbx build channel to test against — "release", "nightly", or "rc".
+        description: sbx build channel to test against — "rc", "nightly", or "release".
         required: true
         type: string
 
@@ -39,27 +51,24 @@ jobs:
     outputs:
       artifact-id: ${{ steps.upload.outputs.artifact-id }}
     steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # Downloaded ONCE here and shared with the kit matrix as an artifact, rather
+      # than having every matrix leg fetch the same release asset again.
+      #
+      # The channel → version lookup is scripts/install-sbx.sh's `--resolve`, so
+      # there is exactly one definition of what "rc" means and a developer
+      # installing sbx by hand gets the same build CI tested. This job cannot just
+      # run install-sbx.sh outright: that installs, and what is wanted here is the
+      # tarball itself, to hand to the matrix.
       - name: Download sbx (${{ inputs.channel }})
         env:
           CHANNEL: ${{ inputs.channel }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
-          case "$CHANNEL" in
-            nightly) VERSION=nightly ;;
-            rc)
-              VERSION=$(curl -fsSL -H "Authorization: Bearer ${GITHUB_TOKEN}" \
-                https://api.github.com/repos/docker/sbx-releases/releases \
-                | jq -er '[.[] | select(.tag_name | test("-rc[0-9]+$"))][0].tag_name')
-              ;;
-            release)
-              VERSION=$(curl -fsSL -H "Authorization: Bearer ${GITHUB_TOKEN}" \
-                https://api.github.com/repos/docker/sbx-releases/releases/latest \
-                | jq -er .tag_name)
-              ;;
-            *) echo "::error::Unknown sbx channel: ${CHANNEL}"; exit 1 ;;
-          esac
-          if [ -z "$VERSION" ] || [ "$VERSION" = "null" ]; then
+          VERSION=$(./scripts/install-sbx.sh --resolve "$CHANNEL")
+          if [ -z "$VERSION" ]; then
             echo "::error::No sbx version found for ${CHANNEL}"
             exit 1
           fi
@@ -83,10 +92,10 @@ jobs:
 
   test-kit-e2e:
     needs: prepare-sbx
-    # End-to-end test: install sbx for the requested channel, authenticate
-    # against Docker Hub non-interactively, and run the e2e TCK to prove the
-    # kit composes with a real CLI. The caller guards this against fork PRs
-    # (Docker Hub secrets are not exposed there).
+    # End-to-end test: install sbx for the requested channel, authenticate against
+    # Docker Hub non-interactively, and compose the kit into a real sandbox. The
+    # caller guards this against fork PRs (Docker Hub secrets are not exposed
+    # there).
     strategy:
       fail-fast: false
       matrix:
@@ -97,10 +106,6 @@ jobs:
       contents: read
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-
-      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
-        with:
-          go-version-file: go.mod
 
       - name: Enable KVM access
         run: |
@@ -120,6 +125,12 @@ jobs:
           set -euo pipefail
           tar xzf "${RUNNER_TEMP}/sbx-package/DockerSandboxes-linux.tar.gz" -C "${RUNNER_TEMP}/sbx-package"
           echo "SBX_VERSION=$(cat "${RUNNER_TEMP}/sbx-package/version")" >> "$GITHUB_ENV"
+          # The installer runs under sudo, so create the parent unprivileged
+          # first: if ~/.docker is absent it would be created root-owned, and
+          # anything later wanting to write ~/.docker/config.json then cannot.
+          # Same reasoning as scripts/install-sbx.sh, which does this for the same
+          # reason on a developer machine.
+          mkdir -p "${HOME}/.docker"
           sudo PREFIX="${HOME}/.docker/sbx" "${RUNNER_TEMP}/sbx-package/docker-sbx/install.sh"
           echo "${HOME}/.docker/sbx/bin" >> "$GITHUB_PATH"
 
@@ -143,24 +154,26 @@ jobs:
           TOKEN_CLEAN=$(printf '%s' "$TOKEN" | tr -d '[:space:]')
           printf '%s' "$TOKEN_CLEAN" | sbx --app-name "$APP_NAME" login --username "$USER_CLEAN" --password-stdin
 
-      - name: Run e2e TCK for ${{ matrix.kit }}
-        # Runs TestE2EKit: verifies kit content (env, files, tmpfs, agentContext)
-        # for all kits, then — for kind:sandbox kits with testdata/tck.yaml —
-        # also sends a non-interactive prompt to the agent.
+      # matrix.kit comes from directory names in the PR's own checkout, so it is
+      # passed via env rather than interpolated into the script text: a directory
+      # name containing shell metacharacters must not be able to inject commands.
+      - name: Run e2e for ${{ matrix.kit }}
+        # The script handles `sbx --app-name $APP_NAME policy init deny-all`
+        # internally, so CI and local runs converge on the same baseline: each kit
+        # gets *exactly* the outbound reachability its network-policy@1 capability
+        # declares and nothing more, which is what makes this a contract test
+        # rather than an assumption. Kit allow-rules are scoped per sandbox and
+        # punch through the default deny (see `ApplyKitNetworkPolicyScoped` in
+        # docker/sandboxes:sandboxd/pkg/server/options_governance.go); kit
+        # deny-rules win over allow-rules (deny-wins).
         #
-        # The script handles `sbx --app-name $APP_NAME policy init
-        # deny-all` internally, so CI and local runs converge on the same
-        # baseline: each kit gets *exactly* the outbound reachability it
-        # declares in `network.allowedDomains` and nothing more, making
-        # this a real contract test. Kit allow-rules are scoped per
-        # sandbox and punch through the default deny (see
-        # `ApplyKitNetworkPolicyScoped` in
-        # docker/sandboxes:sandboxd/pkg/server/options_governance.go);
-        # kit deny-rules win over allow-rules (deny-wins).
-        #
-        # For Dockerfile kits, it also side-loads the freshly built image and
-        # creates with --pull=never, so the branch's Dockerfile is what runs.
-        run: ./scripts/test-kit-e2e.sh "${{ matrix.kit }}"
+        # It also reads the policy log on the way out and FAILS on a blocked
+        # request even when everything else passed — a hook that pipes an
+        # unchecked `curl` into a parser succeeds with empty input, so a kit can
+        # end up silently inert with every other check green.
+        env:
+          KIT: ${{ matrix.kit }}
+        run: ./scripts/test-kit-e2e.sh "$KIT"
 
       - name: Sign out of Docker Hub
         if: always()

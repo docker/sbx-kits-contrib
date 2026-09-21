@@ -1,5 +1,32 @@
 name: Kit TCK
 
+# Conformance and end-to-end testing for v3 kits.
+#
+# Two layers, and the split is the whole design:
+#
+#   test-kit    Builds each changed kit into an OCI layout and judges that
+#               artifact with `kit-tck`, the conformance suite that ships with
+#               the specification. Conformance in v3 is a property of the
+#               published artifact — its annotations, layers, staged sources and
+#               image config — so it can only be checked on something built. The
+#               layout form needs no registry and no push, which is what makes it
+#               runnable on a PR.
+#
+#   e2e-*       Composes each changed kit into a real sandbox with a real `sbx`,
+#               under a deny-all default network policy. This is the only layer
+#               that can tell you the kit RUNS: that a lifecycle hook works on the
+#               base it composes onto, and that the hosts the kit declares are the
+#               hosts it actually reaches.
+#
+# There is deliberately NO separate descriptor-validation job. The kit frontend
+# validates the descriptor during the build and fails the build on a bad one, so
+# every build in either layer is already a descriptor check.
+#
+# The repository's own `spec/` and `tck/` Go packages are v2 — the format these
+# kits migrated FROM — and are kept as documentation of it. They are no longer run
+# per kit, because no kit is v2 any more; only their own self-tests still run, in
+# test-tck below.
+
 on:
   push:
     branches: [main]
@@ -7,9 +34,6 @@ on:
 
 permissions:
   contents: read
-
-env:
-  APP_NAME: sbx-kits-contrib-tck
 
 jobs:
   detect-changes:
@@ -30,13 +54,12 @@ jobs:
           filters=""
           # Add a filter for each kit directory. discover-kits.sh is the
           # single source of truth for "what is a kit" — delegate to it here
-          # too instead of re-globbing spec.yaml/spec.yml.
+          # too instead of re-globbing for descriptors.
           while IFS= read -r kit; do
             filters=$(printf '%s\n%s: "%s/**"' "$filters" "$kit" "$kit")
           done < <(./scripts/discover-kits.sh)
-          # Add filters for shared packages that should trigger all kits
+          # Shared packages and scripts get their own filters.
           filters=$(printf '%s\ntck: "tck/**"\nspec: "spec/**"\nscripts: "scripts/**"' "$filters")
-
           filters=$(printf '%s\nworkflows: [".github/workflows/e2e.yml", ".github/workflows/tck.yml"]' "$filters")
 
           {
@@ -57,13 +80,17 @@ jobs:
       - name: Collect kits to test
         id: collect
         run: |
-          # Shared code or workflow changes run all kits
-          tck_changed="${{ steps.filter.outputs.tck }}"
-          spec_changed="${{ steps.filter.outputs.spec }}"
-
+          # A change to the scripts both layers drive, or to the workflows around
+          # them, changes how EVERY kit is judged — so those run the full set.
+          #
+          # `tck` and `spec` deliberately do NOT run the full set any more. In v2
+          # they were the shared test code, so touching them re-tested every kit;
+          # in v3 they are documentation of the format kits migrated from and have
+          # no bearing on any kit's result. They trigger only their own self-tests.
+          scripts_changed="${{ steps.filter.outputs.scripts }}"
           workflows_changed="${{ steps.filter.outputs.workflows }}"
 
-          if [ "$tck_changed" = "true" ] || [ "$spec_changed" = "true" ] || [ "$workflows_changed" = "true" ]; then
+          if [ "$scripts_changed" = "true" ] || [ "$workflows_changed" = "true" ]; then
             kits=$(./scripts/discover-kits.sh | jq -R . | jq -sc .)
           else
             # Only kits that changed. `grep -vE` exits 1 (no output, no
@@ -88,28 +115,113 @@ jobs:
       matrix:
         kit: ${{ fromJson(needs.detect-changes.outputs.kits) }}
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
+      # The OCI exporter (`--output type=oci`) is not available on the default
+      # `docker` driver builder a runner comes with, so the conformance build
+      # needs a real builder instance. Same pinned action the publish workflows
+      # use.
+      - uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v3.11.1
+
+      # kit-tck ships with the specification, not with this repository, so the
+      # checks and the clauses they enforce version together. That also makes it a
+      # private-module install: see the step below.
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        if: >-
+          github.event_name == 'push' ||
+          github.event.pull_request.head.repo.full_name == github.repository
         with:
           go-version-file: go.mod
 
-      - name: Run TCK for ${{ matrix.kit }}
-        # Invoke the same wrapper kit authors use locally so CI and the
-        # local workflow stay 1:1. Pass the matrix kit name as a positional
-        # arg (the script resolves it against the repo root) and forward
-        # `-timeout 30m` to `go test`.
-        #
-        # matrix.kit comes from directory names in the PR's own checkout
-        # (discover-kits.sh); passed via env rather than interpolated into
-        # the script text so a directory name containing shell metacharacters
-        # can't inject commands. Unlike the e2e jobs, this one has no
-        # fork-PR restriction.
+      - name: Install kit-tck
+        if: >-
+          github.event_name == 'push' ||
+          github.event.pull_request.head.repo.full_name == github.repository
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # docker/sandbox-kit-spec is not public, so the module proxy and the
+          # checksum database cannot serve it — both would 404 on a repository
+          # they cannot read. GOPRIVATE routes the fetch straight at git, and the
+          # credential rewrite below is what lets that git fetch authenticate.
+          GOPRIVATE: github.com/docker/*
+        run: |
+          git config --global \
+            url."https://x-access-token:${GITHUB_TOKEN}@github.com/".insteadOf \
+            "https://github.com/"
+          if ! go install github.com/docker/sandbox-kit-spec/v3/cmd/kit-tck@latest; then
+            echo "::error::Could not install kit-tck. The most likely cause is that this" \
+                 "runner's token cannot read the private docker/sandbox-kit-spec repository."
+            exit 1
+          fi
+          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+          # @latest rather than a pin, on purpose: kit-tck gains checks as the
+          # specification does, and a pin here would quietly stop enforcing new
+          # clauses. Recording the version it resolved to makes a check that
+          # appeared between two runs explainable from the log.
+          "$(go env GOPATH)/bin/kit-tck" version
+
+      # matrix.kit comes from directory names in the PR's own checkout
+      # (discover-kits.sh); passed via env rather than interpolated into the
+      # script text so a directory name containing shell metacharacters can't
+      # inject commands.
+      - name: Conformance-check ${{ matrix.kit }}
+        if: >-
+          github.event_name == 'push' ||
+          github.event.pull_request.head.repo.full_name == github.repository
         env:
           KIT: ${{ matrix.kit }}
-        run: ./scripts/test-kit.sh "$KIT" -timeout 30m
+        # Invoke the same wrapper kit authors use locally so CI and the local
+        # workflow stay 1:1. `-v` lists the checks that passed, so the log records
+        # what was actually enforced rather than only a count.
+        #
+        # A WARNED check is not a failure and the script does not treat it as one.
+        # A multi-node builder merges per-node results into a fresh index, which
+        # drops the kit annotations from the index level; SPEC-v3 §9.3 says
+        # consumers fall back to the platform manifest, which still carries them.
+        # Expect that warning here whenever the builder has more than one node.
+        run: ./scripts/test-kit.sh "$KIT" -v
 
+      # A fork PR's token cannot read the private spec repository, so kit-tck
+      # cannot be installed there and full conformance cannot run. Rather than
+      # leave a fork with no feedback at all, build the descriptor and throw the
+      # result away: the frontend validates during the build and fails it, so this
+      # still catches every invalid descriptor — just not the artifact-shape
+      # checks. If docker/sandbox-kit-spec ever becomes public, delete this step
+      # and the three `if:` guards above.
+      - name: Validate descriptor for ${{ matrix.kit }} (fork PR)
+        if: >-
+          github.event_name == 'pull_request' &&
+          github.event.pull_request.head.repo.full_name != github.repository
+        env:
+          KIT: ${{ matrix.kit }}
+        run: |
+          echo "::notice::Fork PR — running descriptor validation only." \
+               "Full conformance needs kit-tck from the private spec repository."
+          ./scripts/test-kit.sh --validate-only "$KIT"
+
+  # Stable gate for branch protection. Configure the repo's required status check
+  # to be `conformance`, not the dynamic `test-kit (<kit>)` matrix legs whose names
+  # change per PR. It always runs so a required check is never left pending, and it
+  # passes when the matrix succeeded or was skipped (no kits changed).
+  conformance:
+    needs: [test-kit]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require the kit conformance matrix
+        run: |
+          result="${{ needs.test-kit.result }}"
+          echo "conformance matrix result: ${result}"
+          case "${result}" in
+            success|skipped) echo "conformance gate passed"; exit 0 ;;
+            *)               echo "conformance gate failed"; exit 1 ;;
+          esac
+
+  # The v2 spec/ and tck/ packages are kept as documentation of the format these
+  # kits migrated from. They are no longer driven per kit, but their own tests must
+  # keep passing so the documentation stays honest and `go build ./...` stays green.
   test-tck:
     needs: detect-changes
     if: >-
@@ -126,6 +238,13 @@ jobs:
       - name: Run TCK self-tests
         run: go test -v -timeout 30m -count=1 ./spec/... ./tck/...
 
+      # tck/e2e*.go sits behind the `e2e` build tag and nothing runs it any more —
+      # the v3 e2e path is scripts/test-kit-e2e.sh driving `sbx` directly. Compile
+      # it anyway, because code no test builds is code that rots into a broken
+      # state nobody notices, and this is the package documenting how v2 e2e worked.
+      - name: Compile the e2e-tagged code
+        run: go build -tags=e2e ./...
+
   test-scripts:
     needs: detect-changes
     if: needs.detect-changes.outputs.scripts-changed == 'true'
@@ -140,21 +259,36 @@ jobs:
       - name: Run scripts tests
         run: go test -v -timeout 10m -count=1 ./scripts/...
 
-  # End-to-end tests run against three sbx channels via the reusable e2e.yml:
+      # Every shell script in scripts/ is a parse check away from a typo that only
+      # shows up in the one CI leg that runs it. `bash -n` is cheap enough to run
+      # on all of them.
+      - name: Parse-check the shell scripts
+        run: |
+          for script in scripts/*.sh; do
+            echo "==> bash -n ${script}"
+            bash -n "$script"
+          done
+
+  # End-to-end tests run against two sbx channels via the reusable e2e.yml:
   #
-  #   * e2e-release — the last tagged sbx release. This is the channel users
-  #     have today, so it GATES the PR: the stable `e2e` job below requires it.
+  #   * e2e-rc      — the latest sbx-releases prerelease ("*-rcN"). This GATES the
+  #     PR: the stable `e2e` job below requires it. It is the gate because it is
+  #     the earliest channel that understands kit v3 while still being a build
+  #     validated for a stable cut.
   #   * e2e-nightly — the rolling nightly build, so kits are exercised against
-  #     what sbx will ship next. Informational only — its result never feeds
-  #     the `e2e` gate, so a broken nightly shows red on the PR but does NOT
-  #     block merge.
-  #   * e2e-rc — the latest sbx-releases prerelease ("*-rcN"), so kits are
-  #     exercised against what's currently being validated for the next
-  #     stable cut. Also informational only, for the same reason as nightly:
-  #     an unreleased build failing shouldn't block a kit PR from merging.
+  #     what sbx will ship next. Informational only — its result never feeds the
+  #     `e2e` gate, so a broken nightly shows red on the PR but does NOT block
+  #     merge.
   #
-  # All three are skipped for fork PRs (Docker Hub secrets are not exposed there).
-  e2e-release:
+  # THE `release` CHANNEL IS GONE, and deliberately so. The stable line predates
+  # kit v3 and cannot load these kits at all, so an e2e leg against it would fail
+  # on every kit on every PR forever — a permanently red check teaches people to
+  # ignore red, which costs more than the leg was ever worth. e2e.yml still accepts
+  # `channel: release`; add the leg back, as the gate, the day a stable sbx ships
+  # kit v3 support.
+  #
+  # Both are skipped for fork PRs (Docker Hub secrets are not exposed there).
+  e2e-rc:
     needs: detect-changes
     if: >-
       (github.event_name == 'push' ||
@@ -165,7 +299,7 @@ jobs:
     uses: ./.github/workflows/e2e.yml
     with:
       kits: ${{ needs.detect-changes.outputs.kits }}
-      channel: release
+      channel: rc
     secrets: inherit
 
   e2e-nightly:
@@ -182,38 +316,24 @@ jobs:
       channel: nightly
     secrets: inherit
 
-  e2e-rc:
-    needs: detect-changes
-    if: >-
-      (github.event_name == 'push' ||
-       github.event.pull_request.head.repo.full_name == github.repository) &&
-      needs.detect-changes.outputs.kits != '[]' &&
-      needs.detect-changes.outputs.kits != 'null' &&
-      needs.detect-changes.outputs.kits != ''
-    uses: ./.github/workflows/e2e.yml
-    with:
-      kits: ${{ needs.detect-changes.outputs.kits }}
-      channel: rc
-    secrets: inherit
-
-  # Stable gate for branch protection. Configure the repo's required status
-  # check to be `e2e` (not the dynamic `e2e-release (<kit>)` matrix legs,
-  # whose names change per PR, and NOT `e2e-nightly`/`e2e-rc`). It reflects
-  # ONLY the release leg: it fails iff release e2e failed or was cancelled,
-  # and passes when release succeeded or was skipped (fork PRs / no kits
-  # changed). It always runs so a required check is never left pending.
+  # Stable gate for branch protection. Configure the repo's required status check
+  # to be `e2e` (not the dynamic `e2e-rc (<kit>)` matrix legs, whose names change
+  # per PR, and NOT `e2e-nightly`). It reflects ONLY the rc leg: it fails iff rc
+  # e2e failed or was cancelled, and passes when rc succeeded or was skipped (fork
+  # PRs / no kits changed). It always runs so a required check is never left
+  # pending.
   e2e:
-    needs: [e2e-release]
+    needs: [e2e-rc]
     if: always()
     runs-on: ubuntu-latest
     steps:
-      - name: Require the release e2e leg
+      - name: Require the rc e2e leg
         run: |
-          result="${{ needs.e2e-release.result }}"
-          echo "release e2e result: ${result}"
+          result="${{ needs.e2e-rc.result }}"
+          echo "rc e2e result: ${result}"
           case "${result}" in
-            success|skipped) echo "release e2e gate passed"; exit 0 ;;
-            *)               echo "release e2e gate failed"; exit 1 ;;
+            success|skipped) echo "rc e2e gate passed"; exit 0 ;;
+            *)               echo "rc e2e gate failed"; exit 1 ;;
           esac
 
   # Surface the nightly leg's outcome loudly without blocking. Because
@@ -240,31 +360,6 @@ jobs:
           echo "${emoji} ${msg}"
           {
             echo "## ${emoji} Nightly e2e (non-blocking)"
-            echo ""
-            echo "${msg}"
-          } >> "$GITHUB_STEP_SUMMARY"
-
-  # Surface the rc leg's outcome the same way as e2e-nightly-report — visible
-  # in the run log and step summary, never affecting mergeability.
-  e2e-rc-report:
-    needs: [e2e-rc]
-    if: always()
-    runs-on: ubuntu-latest
-    steps:
-      - name: Report rc e2e state
-        run: |
-          result="${{ needs.e2e-rc.result }}"
-          echo "rc e2e result: ${result}"
-          case "${result}" in
-            success)   emoji="✅"; msg="sbx **rc** e2e passed — kits compose against the current release candidate." ;;
-            failure)   emoji="🕯️"; msg="sbx **rc** e2e failed — informational only, does **not** block this PR. Track the sbx rc build." ;;
-            cancelled) emoji="⚠️"; msg="sbx **rc** e2e was cancelled." ;;
-            skipped)   emoji="⏭️"; msg="sbx **rc** e2e was skipped (fork PR or no kits changed)." ;;
-            *)         emoji="❔"; msg="sbx **rc** e2e ended in an unexpected state: ${result}." ;;
-          esac
-          echo "${emoji} ${msg}"
-          {
-            echo "## ${emoji} RC e2e (non-blocking)"
             echo ""
             echo "${msg}"
           } >> "$GITHUB_STEP_SUMMARY"
