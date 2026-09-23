@@ -35,16 +35,21 @@ const (
 // Recipe is the resolved, nonsecret launch command of one sandbox.
 //
 // A fresh session runs Binary FixedArgs DefaultArgs "$@" when the first user
-// argument is empty or starts with "-" (or there are none), and
-// Binary FixedArgs "$@" otherwise.
+// argument is empty or starts with "-" (or there are none), and Binary "$@"
+// otherwise. Dropping FixedArgs for a sub-command keeps today's behavior:
+// built-in kits keep permission flags there, and a sub-command such as
+// "claude agents" rejects them. The cost is that a fixed sub-command (for
+// example "docker-agent run") is also dropped; the split is kept here so a
+// later format can change that.
 type Recipe struct {
 	Version int  `json:"version"`
 	Kind    Kind `json:"kind"`
 	// Binary is looked up on the sandbox's PATH unless it contains a "/".
 	Binary string `json:"binary,omitempty"`
-	// FixedArgs are always passed. Empty for Legacy recipes.
+	// FixedArgs come right after Binary unless the user passes a
+	// sub-command. Empty for Legacy recipes.
 	FixedArgs []string `json:"fixedArgs,omitempty"`
-	// DefaultArgs are dropped when the user passes a positional argument.
+	// DefaultArgs follow FixedArgs, with the same rule.
 	DefaultArgs []string `json:"defaultArgs,omitempty"`
 	// Legacy means the source only had a flat argv, so the fixed/default
 	// split is unknown and all of it is in DefaultArgs, as older launchers
@@ -141,10 +146,9 @@ func Render(r Recipe) ([]byte, error) {
 	}
 	var b strings.Builder
 	fmt.Fprintf(&b, header, Version)
-	if len(r.DefaultArgs) > 0 {
-		fmt.Fprintf(&b, "case \"${1-}\" in\n-*|\"\") set -- %s \"$@\" ;;\nesac\n", quoteAll(r.DefaultArgs))
-	}
-	fmt.Fprintf(&b, "set -- %s \"$@\"\n", quoteAll(append([]string{r.Binary}, r.FixedArgs...)))
+	implicit := append(append([]string{r.Binary}, r.FixedArgs...), r.DefaultArgs...)
+	fmt.Fprintf(&b, "case \"${1-}\" in\n-*|\"\") set -- %s \"$@\" ;;\n*) set -- %s \"$@\" ;;\nesac\n",
+		quoteAll(implicit), quote(r.Binary))
 	b.WriteString(footer)
 	return []byte(b.String()), nil
 }
@@ -154,8 +158,8 @@ const header = `#!/bin/sh
 # sandbox's agent with the arguments given to this script.
 #
 # With no arguments, or when the first one is empty or starts with "-", the
-# default arguments come before them. A first argument that is a
-# sub-command replaces the default arguments. Fixed arguments always stay.
+# fixed and default arguments come before them. A first argument that is a
+# sub-command replaces both, as older launchers did.
 #
 # To customize, edit as root. Edits persist across restarts and are saved in
 # templates. Tools do not use this comment to tell whether you edited it.

@@ -174,13 +174,18 @@ func TestRenderedLauncherRuns(t *testing.T) {
 	}{
 		{"no args", structured, nil, []string{"sub", "--fixed", "--model", "son net"}},
 		{"leading flag", structured, []string{"--x", "y"}, []string{"sub", "--fixed", "--model", "son net", "--x", "y"}},
-		{"positional", structured, []string{"run", "--x"}, []string{"sub", "--fixed", "run", "--x"}},
+		{"positional", structured, []string{"run", "--x"}, []string{"run", "--x"}},
 		{"empty first arg", structured, []string{"", "z"}, []string{"sub", "--fixed", "--model", "son net", "", "z"}},
 		{"double dash", structured, []string{"--", "run"}, []string{"sub", "--fixed", "--model", "son net", "--", "run"}},
-		{"positional then double dash", structured, []string{"run", "--", "-x"}, []string{"sub", "--fixed", "run", "--", "-x"}},
+		{"positional then double dash", structured, []string{"run", "--", "-x"}, []string{"run", "--", "-x"}},
+		// A sub-command gets no permission flag from the entrypoint.
+		{"sub-command drops fixed permission flag", Recipe{Version: 1, Kind: KindAgent, Binary: "agent",
+			FixedArgs: []string{"--dangerously-skip-permissions"}, DefaultArgs: []string{"--model", "sonnet"}},
+			[]string{"agents"}, []string{"agents"}},
 		{"legacy sub-command", Recipe{Version: 1, Kind: KindAgent, Binary: "agent", DefaultArgs: []string{"--model", "sonnet"}, Legacy: true},
 			[]string{"agents"}, []string{"agents"}},
 		{"no default tail", Recipe{Version: 1, Kind: KindAgent, Binary: "agent", FixedArgs: []string{"x"}}, []string{"--y"}, []string{"x", "--y"}},
+		{"no default tail, sub-command", Recipe{Version: 1, Kind: KindAgent, Binary: "agent", FixedArgs: []string{"x"}}, []string{"y"}, []string{"y"}},
 		{"quoting in recipe", Recipe{Version: 1, Kind: KindAgent, Binary: "agent", FixedArgs: awkward, DefaultArgs: awkward},
 			nil, append(append([]string{}, awkward...), awkward...)},
 		{"quoting in user args", Recipe{Version: 1, Kind: KindAgent, Binary: "agent"}, awkward, awkward},
@@ -196,8 +201,8 @@ func TestRenderedLauncherRuns(t *testing.T) {
 				})
 			}
 			t.Run("no BASH_ENV", func(t *testing.T) {
-				got, sourced := runLauncher(t, sh, structured, []string{"run"}, false)
-				require.Equal(t, []string{"sub", "--fixed", "run"}, got)
+				got, sourced := runLauncher(t, sh, structured, nil, false)
+				require.Equal(t, []string{"sub", "--fixed", "--model", "son net"}, got)
 				require.Zero(t, sourced)
 			})
 		})
