@@ -1,0 +1,108 @@
+schemaVersion: "2"
+kind: mixin
+name: firecrawl
+version: "1.0.0"
+displayName: Firecrawl (live web access)
+description: "Adds live web search/scrape/crawl to any agent via the firecrawl-py SDK, wired to Firecrawl's cloud API. Needs a key: sbx secret set -g firecrawl (the kit holds no key)."
+sourceURL: https://github.com/firecrawl/firecrawl-docker-sandbox
+licenses:
+  - Apache-2.0
+
+permissions:
+  network:
+    allow:
+      # Install time: the firecrawl-py wheel and its dependencies.
+      - pypi.org
+      - files.pythonhosted.org
+      # Runtime: every Firecrawl API call. Bare hostname, no ":443" suffix, so
+      # the inject domain below matches an allow entry verbatim.
+      - api.firecrawl.dev
+
+credentials:
+  - service: firecrawl
+    description: "Firecrawl API key (fc-...) from https://www.firecrawl.dev/app/api-keys"
+    # Without a binding, fail at sandbox create instead of letting the agent
+    # discover it as a 401 mid-task.
+    required: true
+    apiKey:
+      name: FIRECRAWL_API_KEY
+      # The engine sets FIRECRAWL_API_KEY to the "proxy-managed" sentinel
+      # in-container and the proxy swaps in the real key on the way out, so the
+      # key never lands in the image or the sandbox.
+      proxyManaged: true
+      inject:
+        - domain: api.firecrawl.dev
+          scheme: bearer
+
+setup:
+  install:
+    # To bump the SDK: change SDK_VERSION here and the version in README.md
+    # (tools/kitcheck asserts the two agree). pip verifies the wheel against
+    # PyPI's hashes, so pinning the version pins the content.
+    - command: |
+        set -eu
+        SDK_VERSION=4.44.0
+
+        command -v python3 >/dev/null 2>&1 || {
+          echo "firecrawl kit: python3 not found. Every docker/sandbox-templates image ships python3 and python3-pip; on a custom base image, install them before layering this kit." >&2
+          exit 1
+        }
+        python3 -m pip --version >/dev/null 2>&1 || {
+          echo "firecrawl kit: python3 is present but has no pip module. Install python3-pip on the base image." >&2
+          exit 1
+        }
+
+        # Ubuntu marks its system Python externally managed (PEP 668), so a
+        # --user install needs --break-system-packages there. Retry without it
+        # for images whose pip predates 23.0 and rejects the flag.
+        install_sdk() {
+          python3 -m pip install --user --no-cache-dir --disable-pip-version-check "$@" "firecrawl-py==${SDK_VERSION}"
+        }
+        install_sdk --break-system-packages || install_sdk
+
+        python3 -c "
+        import firecrawl, importlib.metadata as m
+        got = m.version('firecrawl-py')
+        assert got == '${SDK_VERSION}', 'expected ${SDK_VERSION}, got ' + got
+        print('firecrawl-py', got, 'installed at', firecrawl.__file__)
+        "
+      user: "1000"
+      description: "Install the Firecrawl Python SDK (firecrawl-py) as the agent user"
+
+agentInstructions:
+  content: |
+    ## Firecrawl (live web access)
+
+    The firecrawl-py SDK is installed and the FIRECRAWL_API_KEY credential is
+    injected by the sbx proxy on requests to api.firecrawl.dev. Reach for it
+    whenever a task needs facts beyond your knowledge cutoff, the contents of a
+    specific URL, or a sweep across a documentation site.
+
+        from firecrawl import Firecrawl
+        fc = Firecrawl()                                         # key handled by the proxy
+
+        fc.scrape("https://example.com", formats=["markdown"])   # one page -> clean markdown
+        fc.search("docker sandboxes mixin kit", limit=5)         # search the web, get page content
+        fc.crawl("https://docs.example.com", limit=20)           # crawl a site/section
+
+    Alexandria (beta) reaches structured third-party data through the same
+    API host. Discover a provider or tool first, then execute it. Skip this on
+    an API key that has not been enabled for Alexandria; the call returns an
+    authorization error rather than data.
+
+        fc.search("flight prices", sources=["alexandria"])        # discover providers/tools
+        fc.find_tools(capabilities=["search"], limit=10)          # browse the catalogue
+        fc.scrape_alexandria({"provider": "<provider>", "capability": "<capability>", "options": {...}})
+
+    Constraints that come from the sandbox, not from Firecrawl:
+
+    - `api.firecrawl.dev` is the only web host this sandbox can reach. A URL you
+      find in a scrape result is not fetchable with curl or requests; scrape it
+      through Firecrawl instead.
+    - Skip `formats=["screenshot"]` and other media formats. They return links
+      on Firecrawl's storage host, which is outside the allow list, so the file
+      cannot be downloaded from here.
+    - `crawl` spends one credit per page. Prefer `search` plus a targeted
+      `scrape` for a single fact, and keep `limit` low when you do crawl.
+    - `PaymentRequiredError` (HTTP 402) means the account is out of credits, not
+      that the kit is misconfigured. Report it and stop rather than retrying.
