@@ -165,7 +165,8 @@ const header = `#!/bin/sh
 // not in POSIX mode, so a bash running this script already read it unless
 // SHELLOPTS says posix (bash started as sh). Everywhere else, hop through
 // bash -c when there is a BASH_ENV to read and a bash to read it.
-const footer = `if [ -n "${BASH_ENV-}" ]; then
+const footer = `# Read the persistent environment in BASH_ENV once, through bash if needed.
+if [ -n "${BASH_ENV-}" ]; then
   case "${BASH_VERSION-}/${SHELLOPTS-}" in
   /*|*posix*)
     if command -v bash >/dev/null 2>&1; then
