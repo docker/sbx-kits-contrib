@@ -80,6 +80,58 @@ summarise() {
   } >> "$GITHUB_STEP_SUMMARY"
 }
 
+# A kit that declares a required argument with no default cannot be validated
+# without a value for it — `sbx kit validate` refuses before expanding the
+# spec. The values live in the kit's own testdata/tck.yaml, the same file the
+# TCK resolves arguments from (tck/args.go), so validation here agrees with
+# what the TCK tests rather than inventing a second set of fixtures.
+#
+# Scalars only, which is all `args:` holds: the TCK decodes that block into a
+# map[string]string, so a block scalar or an anchor is not a shape any kit can
+# legitimately use, and the guard below refuses one rather than passing a
+# mangled value to validation. Anchored at column zero on purpose — `mcp:`
+# blocks in other kits' tck.yaml nest their own `args:` key, and `promptArgs:`
+# is a sibling this must not mistake for it. The next top-level key ends the
+# block; comments and blank lines inside it do not.
+tck_args=$(
+  awk '
+    /^[[:space:]]*#/ { next }
+    /^[[:space:]]*$/ { next }
+    !inblock && index($0, "args:") == 1 { inblock = 1; next }
+    inblock && /^[^[:space:]]/ { exit }
+    inblock {
+      line = $0
+      sub(/^[[:space:]]+/, "", line)
+      eq = index(line, ":")
+      if (eq == 0) next
+      name = substr(line, 1, eq - 1)
+      value = substr(line, eq + 1)
+      sub(/^[[:space:]]+/, "", value)
+      sub(/[[:space:]]+#.*$/, "", value)
+      # Trailing space before the quotes come off, so a quoted value keeps
+      # any space it deliberately ends with while an unquoted one does not
+      # smuggle invisible padding into a pattern-checked argument.
+      sub(/[[:space:]]+$/, "", value)
+      gsub(/^["'"'"']|["'"'"']$/, "", value)
+      print name "=" value
+    }
+  ' "$REPO_ROOT/$kit/testdata/tck.yaml" 2>/dev/null || true
+)
+
+validate_args=()
+arg_names=""
+while IFS= read -r pair; do
+  [ -n "$pair" ] || continue
+  case ${pair#*=} in
+    '|'*|'>'*|'&'*|'*'*)
+      die "$kit/testdata/tck.yaml: args[${pair%%=*}] is not a plain scalar; \
+the TCK reads this block as name/value strings, so write the value inline"
+      ;;
+  esac
+  validate_args+=(--kit-arg "$pair")
+  arg_names="${arg_names:+$arg_names }${pair%%=*}"
+done <<< "$tck_args"
+
 # Validation runs BEFORE the dry-run exit, deliberately. On a pull request the
 # whole publish is a dry run, and validating only on the way to a real push
 # would mean a PR that breaks the kit's loadability still reports a green
@@ -88,7 +140,11 @@ summarise() {
 log ""
 if command -v sbx >/dev/null; then
   log "==> validating"
-  sbx kit validate "$REPO_ROOT/$kit"
+  # Named, not valued: an argument's value is author-chosen text and this
+  # stream is the one CI shows, so say which arguments were supplied and
+  # leave reading their values to the tck.yaml this names.
+  [ -z "$arg_names" ] || log "    args from $kit/testdata/tck.yaml: $arg_names"
+  sbx kit validate "$REPO_ROOT/$kit" ${validate_args[@]+"${validate_args[@]}"}
 else
   # A developer inspecting the plan should not need sbx installed; CI always
   # has it, so this branch never runs there. Loud rather than silent, because

@@ -214,12 +214,27 @@ setup:
           exit 0
         fi
 
-        # Prefer `gh` when a token is present (real or proxy-managed
-        # sentinel). Without one — the TCK container, or a public clone
-        # with no host binding — fall back to plain `git clone` so the
-        # install still succeeds for public repos. `pr` always needs gh.
+        # Prefer `gh`, but only when a real credential actually backs the
+        # sentinel. GH_TOKEN alone cannot tell us that: the engine sets the
+        # proxy-managed sentinel in every proxy-backed sandbox whether or not
+        # a host credential is bound, and the value it sets has a `gho_`
+        # OAuth-token shape, so `gh` spends it as if it were real and GitHub
+        # answers "HTTP 401: Bad credentials" instead of serving the request
+        # anonymously. SBX_CRED_GITHUB_MODE carries the backing decision and
+        # reads `none` when nothing is bound.
+        #
+        # Both halves of the test earn their place, on different deployments:
+        # a local sandbox always sets GH_TOKEN and reports backing through the
+        # mode var, while a hosted one may omit the mode var and set GH_TOKEN
+        # only when a credential does back it — hence the empty default, which
+        # must compare unequal to `none`. Same two-condition form opencode's
+        # Copilot seed uses.
+        #
+        # With no backing — the TCK container, or a public clone with no host
+        # binding — fall back to plain `git clone` so the install still
+        # succeeds for public repos. `pr` always needs gh.
         use_gh=0
-        if [ -n "${GH_TOKEN:-}" ]; then
+        if [ -n "${GH_TOKEN:-}" ] && [ "${SBX_CRED_GITHUB_MODE:-}" != none ]; then
           use_gh=1
         fi
 
