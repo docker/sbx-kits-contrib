@@ -11,6 +11,7 @@ import (
 	"bytes"
 	"fmt"
 	"io"
+	"slices"
 	"sort"
 
 	"go.yaml.in/yaml/v3"
@@ -112,6 +113,21 @@ type Manifest struct {
 	// attach path fall back to RunOptions when this is empty.
 	InteractiveOptions []string `json:"interactiveOptions,omitempty" yaml:"interactiveOptions,omitempty"`
 
+	// Launch keeps the structure that Binary, RunOptions and
+	// InteractiveOptions flatten: the fixed entrypoint arguments, the
+	// default tail and the interactive tail, with absent and empty kept
+	// apart. The v2 loader sets it when the spec declares
+	// sandbox.entrypoint or sandbox.command; other producers (such as a v3
+	// image projection) may set it too. Nil means the source only had the
+	// flat fields, so the split is unknown.
+	//
+	// It is not serialized (json:"-", yaml:"-"), so it does not change the
+	// kit's JSON content identity or the wire format, and it does not
+	// survive a JSON round trip. Read it through StructuredLaunch, which
+	// drops it when the flat fields no longer match it (for example after
+	// an inheritance merge replaced them).
+	Launch *Launch `json:"-" yaml:"-"`
+
 	// Resources optionally constrains container CPU, memory, and GPU.
 	Resources *Resources `json:"resources,omitempty" yaml:"resources,omitempty"`
 
@@ -138,6 +154,54 @@ type Manifest struct {
 	// latter with a deprecation warning, folded into this slice by
 	// normalize). Manifest stays the canonical Go-level destination.
 	Volumes []MountSpec `json:"volumes,omitempty" yaml:"-"`
+}
+
+// Launch is a sandbox kit's launch command before flattening. For v2,
+// Entrypoint is sandbox.entrypoint, Default is sandbox.command (the list
+// form or command.default) and Interactive is command.interactive.
+//
+// A nil slice means the source did not declare the field; a non-nil empty
+// slice means it declared an empty list. The difference matters for
+// Interactive: nil falls back to Default, empty means no tail at all. The
+// JSON tags omit omitempty so a JSON round trip keeps that difference.
+type Launch struct {
+	// Entrypoint is the binary followed by the arguments always passed.
+	Entrypoint []string `json:"entrypoint"`
+	// Default is the replaceable tail for the default (workload) mode.
+	Default []string `json:"default"`
+	// Interactive is the replaceable tail for an interactive session.
+	Interactive []string `json:"interactive"`
+}
+
+// InteractiveTail returns the tail an interactive session uses: Interactive
+// when declared (even if empty), otherwise Default.
+func (l *Launch) InteractiveTail() []string {
+	if l.Interactive != nil {
+		return l.Interactive
+	}
+	return l.Default
+}
+
+// StructuredLaunch returns m.Launch when it still describes m's flat
+// command: Launch.Entrypoint[0] is Binary, Entrypoint[1:]+Default equals
+// RunOptions and Entrypoint[1:]+InteractiveTail equals InteractiveOptions.
+// Otherwise it returns nil and callers treat the manifest as flat-only.
+//
+// The check exists because consumers merge manifests field by field. A merge
+// that replaces RunOptions but copies the parent's Launch would otherwise
+// bring back arguments the effective command no longer has, such as a
+// parent's permission flag that a child command replaced.
+func (m *Manifest) StructuredLaunch() *Launch {
+	l := m.Launch
+	if l == nil || len(l.Entrypoint) == 0 || l.Entrypoint[0] != m.Binary {
+		return nil
+	}
+	fixed := l.Entrypoint[1:]
+	if !slices.Equal(concat(fixed, l.Default), m.RunOptions) ||
+		!slices.Equal(concat(fixed, l.InteractiveTail()), m.InteractiveOptions) {
+		return nil
+	}
+	return l
 }
 
 // TmpfsVolumes returns the subset of m.Volumes whose Type is

@@ -127,9 +127,10 @@ type V2Setup struct {
 // Manifest.Binary/RunOptions/InteractiveOptions. That recovers the effective
 // argv per mode exactly, but not the author's original
 // entrypoint-vs-command split: the loader folds a v2 entrypoint tail into
-// RunOptions/InteractiveOptions and the split is not retained anywhere. A
-// caller with access to the source YAML can restore the true split with
-// SetSandboxEntrypoint.
+// RunOptions/InteractiveOptions. The loader keeps the split only in
+// Manifest.Launch, which this projection does not read. A caller can restore
+// the true split with SetSandboxEntrypoint, from Manifest.StructuredLaunch or
+// from the source YAML.
 func NewV2View(a *Artifact) *V2View {
 	m := &a.Manifest
 

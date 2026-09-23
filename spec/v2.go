@@ -3,6 +3,7 @@ package spec
 import (
 	"bytes"
 	"fmt"
+	"slices"
 	"sort"
 
 	"github.com/docker/go-units"
@@ -208,6 +209,13 @@ func (s *specFileV2) toArtifact(w *warnings) (*Artifact, error) {
 		}
 		if inter := concat(tail, interactive); len(inter) > 0 {
 			m.InteractiveOptions = inter
+		}
+		if s.Sandbox.Entrypoint != nil || s.Sandbox.Command.Default != nil || s.Sandbox.Command.Interactive != nil {
+			m.Launch = &Launch{
+				Entrypoint:  slices.Clone(s.Sandbox.Entrypoint),
+				Default:     slices.Clone(s.Sandbox.Command.Default),
+				Interactive: slices.Clone(s.Sandbox.Command.Interactive),
+			}
 		}
 
 		if s.Sandbox.Resources != nil {
