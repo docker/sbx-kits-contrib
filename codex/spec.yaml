@@ -123,8 +123,8 @@ permissions:
       - '*.oaiusercontent.com'
       # `codex plugin add` pulls from a marketplace snapshot.
       - registry.npmjs.org
-      # `codex update` re-runs the same standalone installer the image build
-      # uses (see Dockerfile): it curls chatgpt.com — already allowed above —
+      # The install hook and `codex update` run the same standalone installer
+      # the image build uses: it curls chatgpt.com — already allowed above —
       # for the install script, and the script downloads the release package
       # itself from here. Required at runtime, not just at build time.
       - releases.openai.com
@@ -180,6 +180,18 @@ environment:
 
 setup:
   install:
+    # Refresh the image's bundled CLI on create/recreate so a cached image
+    # does not leave new sandboxes running an older Codex release.
+    - command: |
+        set -e
+        installer="$(mktemp)"
+        trap 'rm -f "$installer"' EXIT
+        curl -fsSL https://chatgpt.com/codex/install.sh -o "$installer"
+        CODEX_INSTALL_DIR=/home/agent/.local/bin CODEX_NON_INTERACTIVE=true \
+          sh "$installer" --release latest
+        /home/agent/.local/bin/codex --version
+      user: "agent"
+      description: Install the latest Codex CLI release
     # Seed ~/.codex/config.toml + ~/.codex/auth.json, branching on the auth
     # mode the engine surfaces as SBX_CRED_OPENAI_MODE. Only three values
     # reach a kit — oauth, apikey, none (a host with both collapses to
