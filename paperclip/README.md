@@ -20,13 +20,13 @@ sandbox serves the web UI in seconds.
 ## Usage
 
 ```console
-sbx run --kit "docker.io/docker/sbx-kit-paperclip:latest" paperclip
+sbx run "docker.io/docker/sbx-kit-paperclip:latest"
 ```
 
 Or from a git URL targeting this repo:
 
 ```console
-sbx run --kit "git+https://github.com/docker/sbx-kits-contrib.git#dir=paperclip" paperclip
+sbx run "git+https://github.com/docker/sbx-kits-contrib.git#dir=paperclip"
 ```
 
 ```console

@@ -166,7 +166,7 @@ capabilities:
           # here. Deliberately not added on speculation — confirm or widen
           # from a live run:
           #
-          #   sbx run --kit ./codex codex   # then attempt a prompt
+          #   sbx run ./codex   # then attempt a prompt
           #   sbx policy log                # lists every blocked host + reason
 
   - type: com.docker.sandbox/credential@1

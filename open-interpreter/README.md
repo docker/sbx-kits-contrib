@@ -43,20 +43,20 @@ value never enters the sandbox.
 ## Usage
 
 ```console
-sbx run --kit "docker.io/docker/sbx-kit-open-interpreter:latest" open-interpreter
+sbx run "docker.io/docker/sbx-kit-open-interpreter:latest"
 ```
 
 Or from a git URL targeting this repo:
 
 ```console
 # From this repo (tracks default branch)
-sbx run --kit "git+https://github.com/docker/sbx-kits-contrib.git#dir=open-interpreter" open-interpreter
+sbx run "git+https://github.com/docker/sbx-kits-contrib.git#dir=open-interpreter"
 
 # Pinned to a tag
-sbx run --kit "git+https://github.com/docker/sbx-kits-contrib.git#ref=v1.0.0&dir=open-interpreter" open-interpreter
+sbx run "git+https://github.com/docker/sbx-kits-contrib.git#ref=v1.0.0&dir=open-interpreter"
 
 # Local development
-sbx run --kit ./open-interpreter/ open-interpreter
+sbx run ./open-interpreter/
 ```
 
 You attach directly to the Open Interpreter REPL. Type a natural language request
@@ -77,10 +77,10 @@ below. To use something else, override at launch:
 
 ```console
 # Use a specific Claude model (requires an anthropic credential)
-sbx run --kit ./open-interpreter/ open-interpreter -- --model claude-3-5-sonnet-20241022
+sbx run ./open-interpreter/ -- --model claude-3-5-sonnet-20241022
 
 # Use a local Ollama model (no API key needed)
-sbx run --kit ./open-interpreter/ open-interpreter -- --model ollama/llama3
+sbx run ./open-interpreter/ -- --model ollama/llama3
 
 # Or update ~/.config/open-interpreter/profiles/default.yaml inside the sandbox
 ```

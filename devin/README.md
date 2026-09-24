@@ -40,19 +40,19 @@ sbx secret set devin      # only if you already have a Devin key to paste
 ## Usage
 
 ```console
-sbx run --kit "docker.io/docker/sbx-kit-devin:latest" devin
+sbx run "docker.io/docker/sbx-kit-devin:latest"
 ```
 
 Or from a git URL targeting this repo:
 
 ```console
-sbx run --kit "git+https://github.com/docker/sbx-kits-contrib.git#dir=devin" devin
+sbx run "git+https://github.com/docker/sbx-kits-contrib.git#dir=devin"
 ```
 
 Or with a local clone of this repo:
 
 ```console
-sbx run --kit ./devin/ devin
+sbx run ./devin/
 ```
 
 The trailing `devin` is required, not redundant: `sbx` enforces that the agent

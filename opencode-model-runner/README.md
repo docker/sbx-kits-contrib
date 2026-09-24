@@ -30,18 +30,19 @@ the same agent and configuration onto a shell base instead.
 ## Usage
 
 ```console
-sbx run --kit "docker.io/docker/sbx-kit-opencode-model-runner:latest" opencode-model-runner ~/my-project
+sbx run "docker.io/docker/sbx-kit-opencode-model-runner:latest" ~/my-project
 ```
 
 Or from a git URL or a local clone of this repo:
 
 ```console
-sbx run --kit "git+https://github.com/docker/sbx-kits-contrib.git#dir=opencode-model-runner" opencode-model-runner ~/my-project
-sbx run --kit ./opencode-model-runner/ opencode-model-runner ~/my-project
+sbx run "git+https://github.com/docker/sbx-kits-contrib.git#dir=opencode-model-runner" ~/my-project
+sbx run ./opencode-model-runner/ ~/my-project
 ```
 
-The agent name passed to `sbx run` (`opencode-model-runner`) matches the name
-the kit's descriptor provides ([`opencode-model-runner.yaml`](./opencode-model-runner.yaml)).
+The workload reference passed to `sbx run` identifies the kit. Its descriptor
+provides the matchable name `opencode-model-runner`
+([`opencode-model-runner.yaml`](./opencode-model-runner.yaml)).
 
 All models available via `docker model ls` are automatically discovered and
 selectable in OpenCode via `/models`.

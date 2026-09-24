@@ -27,19 +27,19 @@ authenticates only via device flow, which needs a browser on your host.
 ## Usage
 
 ```console
-sbx run --kit "docker.io/docker/sbx-kit-kiro:latest" kiro
+sbx run "docker.io/docker/sbx-kit-kiro:latest"
 ```
 
 Or from a git URL targeting this repo:
 
 ```console
-sbx run --kit "git+https://github.com/docker/sbx-kits-contrib.git#dir=kiro" kiro
+sbx run "git+https://github.com/docker/sbx-kits-contrib.git#dir=kiro"
 ```
 
 Or with a local clone of this repo:
 
 ```console
-sbx run --kit ./kiro/ kiro
+sbx run ./kiro/
 ```
 
 The trailing `kiro` is required, not redundant: for workload kits, `sbx`
@@ -61,7 +61,7 @@ sandbox, so it survives restarts of the same sandbox but not recreation.
 To re-run the login explicitly:
 
 ```console
-sbx run --kit ./kiro/ kiro --name <sandbox-name> -- login --use-device-flow
+sbx run ./kiro/ --name <sandbox-name> -- login --use-device-flow
 ```
 
 ## Passing arguments

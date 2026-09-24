@@ -134,7 +134,7 @@ capabilities:
           # further hosts (telemetry, self-update, extension registry).
           # Confirm or widen from a live run:
           #
-          #   sbx run --kit ./droid droid   # then attempt a prompt
+          #   sbx run ./droid   # then attempt a prompt
           #   sbx policy log                # lists every blocked host + reason
 
   # Droid cannot authenticate at all without this service — either the apiKey
@@ -157,7 +157,7 @@ capabilities:
         # end-to-end whether Droid's OAuth device/token-exchange flow below
         # still resolves correctly when FACTORY_API_KEY holds the proxy's
         # sentinel value instead of a raw key the CLI reads directly. Needs a
-        # live `sbx run --kit ./droid droid` check; see the PR description.
+        # live `sbx run ./droid` check; see the PR description.
         proxyManaged: true
         inject:
           - {domain: api.factory.ai, header: Authorization, format: "Bearer %s"}

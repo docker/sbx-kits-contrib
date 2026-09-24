@@ -38,19 +38,19 @@ Any one of these works — the kit adapts to what it finds:
 ## Usage
 
 ```console
-sbx run --kit "docker.io/docker/sbx-kit-codex:latest" codex
+sbx run "docker.io/docker/sbx-kit-codex:latest"
 ```
 
 Or from a git URL targeting this repo:
 
 ```console
-sbx run --kit "git+https://github.com/docker/sbx-kits-contrib.git#dir=codex" codex
+sbx run "git+https://github.com/docker/sbx-kits-contrib.git#dir=codex"
 ```
 
 Or with a local clone of this repo:
 
 ```console
-sbx run --kit ./codex/ codex
+sbx run ./codex/
 ```
 
 The trailing `codex` is required, not redundant: `sbx` enforces that the agent
@@ -165,7 +165,7 @@ kit that provides that name and nothing else:
   can drive `codex app-server` in the sandbox over an SSH connection.
 
 ```console
-sbx run --kit ./codex/ --kit ./codex-acp/ codex
+sbx run ./codex/ --kit ./codex-acp/
 ```
 
 Matching is by exact capability name, which is one reason this kit's directory

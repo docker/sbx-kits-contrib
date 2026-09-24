@@ -20,19 +20,19 @@ on an npm install.
 ## Usage
 
 ```console
-sbx run --kit "docker.io/docker/sbx-kit-pi:latest" pi
+sbx run "docker.io/docker/sbx-kit-pi:latest"
 ```
 
 Or from a git URL targeting this repo:
 
 ```console
-sbx run --kit "git+https://github.com/docker/sbx-kits-contrib.git#dir=pi" pi
+sbx run "git+https://github.com/docker/sbx-kits-contrib.git#dir=pi"
 ```
 
 Or with a local clone of this repo:
 
 ```console
-sbx run --kit ./pi/ pi
+sbx run ./pi/
 ```
 
 Attaching drops you straight into pi's TUI; setup downloads and installs
@@ -64,7 +64,7 @@ with `sbx secret set anthropic`.
 **2. Start it.**
 
 ```console
-sbx run --kit "docker.io/docker/sbx-kit-pi:latest" pi
+sbx run "docker.io/docker/sbx-kit-pi:latest"
 ```
 
 You land in pi's TUI. `pi` is the entrypoint and there is no gateway or daemon
@@ -102,7 +102,7 @@ Then recreate:
 
 ```console
 sbx rm -f <sandbox-name>
-sbx run --kit "docker.io/docker/sbx-kit-pi:latest" pi
+sbx run "docker.io/docker/sbx-kit-pi:latest"
 ```
 
 Recreating picks up a newer *kit*, but not a newer pi on its own: the pi
@@ -120,7 +120,7 @@ from the kit it booted from.
 sandbox on a known revision of this kit:
 
 ```console
-sbx run --kit "docker.io/docker/sbx-kit-pi:20260828-2121f50cbf929602a6f0305feed51acb3f872980" pi
+sbx run "docker.io/docker/sbx-kit-pi:20260828-2121f50cbf929602a6f0305feed51acb3f872980"
 ```
 
 That pins **pi as well as the kit**, which it did not under v2. A v3 workload's

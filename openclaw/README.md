@@ -22,13 +22,13 @@ layering the same agent onto a shell base instead.
 ## Usage
 
 ```console
-sbx run --kit "docker.io/docker/sbx-kit-openclaw:latest" openclaw
+sbx run "docker.io/docker/sbx-kit-openclaw:latest"
 ```
 
 Or from a git URL targeting this repo:
 
 ```console
-sbx run --kit "git+https://github.com/docker/sbx-kits-contrib.git#dir=openclaw" openclaw
+sbx run "git+https://github.com/docker/sbx-kits-contrib.git#dir=openclaw"
 ```
 
 The gateway comes up with the container, not on attach: the kit's
@@ -122,7 +122,7 @@ step 2 rather than overwriting it with `sbx secret set anthropic`.
 **2. Start it.**
 
 ```console
-sbx run --kit "docker.io/docker/sbx-kit-openclaw:latest" openclaw
+sbx run "docker.io/docker/sbx-kit-openclaw:latest"
 ```
 
 You land in `openclaw tui`, connected to the gateway. A reply there means the
@@ -184,7 +184,7 @@ Then recreate:
 
 ```console
 sbx rm -f <sandbox-name>
-sbx run --kit "docker.io/docker/sbx-kit-openclaw:latest" openclaw
+sbx run "docker.io/docker/sbx-kit-openclaw:latest"
 ```
 
 Recreating discards everything living inside the sandbox — the gateway token
@@ -203,7 +203,7 @@ the kit it booted from.
 release declared by this kit:
 
 ```console
-sbx run --kit "docker.io/docker/sbx-kit-openclaw:2026.9.3" openclaw
+sbx run "docker.io/docker/sbx-kit-openclaw:2026.9.3"
 ```
 
 A v3 kit is one image, so that reference selects the descriptor, policy,

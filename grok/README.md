@@ -37,13 +37,13 @@ overlay.
 Run the kit. Pass the kit's name (`grok`) as the agent argument:
 
 ```console
-$ sbx run --kit "git+https://github.com/docker/sbx-kits-contrib.git#dir=grok" grok
+$ sbx run "git+https://github.com/docker/sbx-kits-contrib.git#dir=grok"
 ```
 
 Or with a local clone of this repo:
 
 ```console
-$ sbx run --kit ./grok/ grok
+$ sbx run ./grok/
 ```
 
 Grok Build is already installed in the kit's image — its official install

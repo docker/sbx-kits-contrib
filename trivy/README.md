@@ -29,20 +29,20 @@ against tag-rewrite attacks.
 
 ```console
 cd ~/work/some-project
-sbx run --kit "docker.io/docker/sbx-kit-trivy:latest" trivy .
+sbx run "docker.io/docker/sbx-kit-trivy:latest" .
 agent@trivy-some-project:/Users/mark/work/some-project$ trivy fs .
 ```
 
 Or from a git URL targeting this repo:
 
 ```console
-sbx run --kit "git+https://github.com/docker/sbx-kits-contrib.git#dir=trivy" trivy .
+sbx run "git+https://github.com/docker/sbx-kits-contrib.git#dir=trivy" .
 ```
 
 Or with a local clone of this repo:
 
 ```console
-sbx run --kit ./trivy/ trivy .
+sbx run ./trivy/ .
 ```
 
 Trivy is already in the kit's image: the download and its SHA256 check run

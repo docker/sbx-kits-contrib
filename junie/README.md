@@ -44,19 +44,19 @@ Run the kit. Pass the kit's name (`junie`) as the agent argument. The primary
 form is its published OCI artifact on Docker Hub:
 
 ```console
-sbx run --kit "docker.io/docker/sbx-kit-junie:latest" junie
+sbx run "docker.io/docker/sbx-kit-junie:latest"
 ```
 
 Or from a git URL targeting this repo:
 
 ```console
-sbx run --kit "git+https://github.com/docker/sbx-kits-contrib.git#dir=junie" junie
+sbx run "git+https://github.com/docker/sbx-kits-contrib.git#dir=junie"
 ```
 
 Or with a local clone of this repo:
 
 ```console
-sbx run --kit ./junie/ junie
+sbx run ./junie/
 ```
 
 Attaching drops you straight into Junie; sandbox creation installs nothing — Junie ships inside the image. The image

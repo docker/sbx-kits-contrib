@@ -43,19 +43,19 @@ two credential services (`github` and `copilot`) instead of one.
 ## Usage
 
 ```console
-sbx run --kit "docker.io/docker/sbx-kit-copilot:latest" copilot
+sbx run "docker.io/docker/sbx-kit-copilot:latest"
 ```
 
 Or from a git URL targeting this repo:
 
 ```console
-sbx run --kit "git+https://github.com/docker/sbx-kits-contrib.git#dir=copilot" copilot
+sbx run "git+https://github.com/docker/sbx-kits-contrib.git#dir=copilot"
 ```
 
 Or with a local clone of this repo:
 
 ```console
-sbx run --kit ./copilot/ copilot
+sbx run ./copilot/
 ```
 
 The trailing `copilot` is required, not redundant: `sbx` enforces that the agent

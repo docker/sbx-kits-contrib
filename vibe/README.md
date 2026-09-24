@@ -12,19 +12,19 @@ A standalone Docker Sandboxes kit for [Mistral Vibe](https://github.com/mistrala
 Use the published kit:
 
 ```console
-sbx run --kit "docker.io/docker/sbx-kit-vibe:latest" vibe
+sbx run "docker.io/docker/sbx-kit-vibe:latest"
 ```
 
 Or load it directly from this repository:
 
 ```console
-sbx run --kit "git+https://github.com/docker/sbx-kits-contrib.git#dir=vibe" vibe
+sbx run "git+https://github.com/docker/sbx-kits-contrib.git#dir=vibe"
 ```
 
 Or use a local clone:
 
 ```console
-sbx run --kit ./vibe/ vibe
+sbx run ./vibe/
 ```
 
 ## Authentication
@@ -42,7 +42,7 @@ Piping the key in keeps it out of your shell history and out of the process tabl
 Then launch:
 
 ```console
-sbx run --kit "docker.io/docker/sbx-kit-vibe:latest" vibe
+sbx run "docker.io/docker/sbx-kit-vibe:latest"
 ```
 
 The container only ever sees `MISTRAL_API_KEY` set to a proxy sentinel. The real key is substituted by the proxy on requests to `api.mistral.ai`, `chat.mistral.ai` and `console.mistral.ai`, and on no other host — so a prompt injection that talks the agent into exfiltrating the variable exfiltrates the sentinel.
@@ -54,7 +54,7 @@ Vibe's [agent profile](https://github.com/mistralai/mistral-vibe#built-in-agents
 Pick another one at install time:
 
 ```console
-sbx run --kit "docker.io/docker/sbx-kit-vibe:latest" --kit-arg agent=plan vibe
+sbx run --kit-arg agent=plan "docker.io/docker/sbx-kit-vibe:latest"
 ```
 
 The value is any builtin (`ask`, `plan`, `accept-edits`, `auto-approve`) or a custom agent declared in `~/.vibe/agents/NAME.toml`.

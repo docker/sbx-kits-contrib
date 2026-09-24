@@ -42,19 +42,19 @@ These are the commands the kit is meant to be run with. They do **not** work
 while `opencode` is still a built-in agent — see the note at the top.
 
 ```console
-sbx run --kit "docker.io/docker/sbx-kit-opencode:latest" opencode
+sbx run "docker.io/docker/sbx-kit-opencode:latest"
 ```
 
 Or from a git URL targeting this repo:
 
 ```console
-sbx run --kit "git+https://github.com/docker/sbx-kits-contrib.git#dir=opencode" opencode
+sbx run "git+https://github.com/docker/sbx-kits-contrib.git#dir=opencode"
 ```
 
 Or with a local clone of this repo:
 
 ```console
-sbx run --kit ./opencode/ opencode
+sbx run ./opencode/
 ```
 
 The trailing `opencode` is required, not redundant: for workload kits, `sbx`

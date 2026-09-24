@@ -22,13 +22,13 @@ layer onto a shell base instead.
 ## Usage
 
 ```console
-sbx run --kit "docker.io/docker/sbx-kit-picoclaw:latest" picoclaw
+sbx run "docker.io/docker/sbx-kit-picoclaw:latest"
 ```
 
 Or from a git URL targeting this repo:
 
 ```console
-sbx run --kit "git+https://github.com/docker/sbx-kits-contrib.git#dir=picoclaw" picoclaw
+sbx run "git+https://github.com/docker/sbx-kits-contrib.git#dir=picoclaw"
 ```
 
 On attach you land in `picoclaw agent` (interactive chat). The channel

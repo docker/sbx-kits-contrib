@@ -134,7 +134,7 @@ capabilities:
           # further hosts (telemetry, self-update, extension registry). Confirm
           # or widen from a live run:
           #
-          #   sbx run --kit ./copilot copilot   # then attempt a prompt
+          #   sbx run ./copilot   # then attempt a prompt
           #   sbx policy log                    # lists every blocked host + reason
 
   # MIGRATION NOTE on both credential entries: v2 credentials default to

@@ -38,19 +38,19 @@ You only need keys for the providers you intend to use.
 ## Usage
 
 ```console
-sbx run --kit "docker.io/docker/sbx-kit-crush:latest" crush
+sbx run "docker.io/docker/sbx-kit-crush:latest"
 ```
 
 Or from a git URL targeting this repo:
 
 ```console
-sbx run --kit "git+https://github.com/docker/sbx-kits-contrib.git#dir=crush" crush
+sbx run "git+https://github.com/docker/sbx-kits-contrib.git#dir=crush"
 ```
 
 Or with a local clone of this repo:
 
 ```console
-sbx run --kit ./crush/ crush
+sbx run ./crush/
 ```
 
 Attaching drops you straight into Crush; sandbox creation installs nothing —

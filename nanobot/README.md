@@ -21,19 +21,19 @@ the same agent onto a shell base instead.
 ## Usage
 
 ```console
-sbx run --kit "docker.io/docker/sbx-kit-nanobot:latest" nanobot
+sbx run "docker.io/docker/sbx-kit-nanobot:latest"
 ```
 
 Or from a git URL targeting this repo:
 
 ```console
-sbx run --kit "git+https://github.com/docker/sbx-kits-contrib.git#dir=nanobot" nanobot
+sbx run "git+https://github.com/docker/sbx-kits-contrib.git#dir=nanobot"
 ```
 
 Or with a local clone of this repo:
 
 ```console
-sbx run --kit ./nanobot/ nanobot
+sbx run ./nanobot/
 ```
 
 nanobot is already installed in the image, so the first launch runs

@@ -35,19 +35,19 @@ Either of these works — you do not need both:
 ## Usage
 
 ```console
-sbx run --kit "docker.io/docker/sbx-kit-droid:latest" droid
+sbx run "docker.io/docker/sbx-kit-droid:latest"
 ```
 
 Or from a git URL targeting this repo:
 
 ```console
-sbx run --kit "git+https://github.com/docker/sbx-kits-contrib.git#dir=droid" droid
+sbx run "git+https://github.com/docker/sbx-kits-contrib.git#dir=droid"
 ```
 
 Or with a local clone of this repo:
 
 ```console
-sbx run --kit ./droid/ droid
+sbx run ./droid/
 ```
 
 The trailing `droid` is required, not redundant: for workload kits, `sbx`

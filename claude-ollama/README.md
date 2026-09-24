@@ -21,19 +21,19 @@ offline development, cost-free experimentation, or testing with custom local mod
 ## Usage
 
 ```console
-sbx run --kit "docker.io/docker/sbx-kit-claude-ollama:latest" claude-ollama ~/my-project
+sbx run "docker.io/docker/sbx-kit-claude-ollama:latest" ~/my-project
 ```
 
 Or from a git URL or a local clone of this repo:
 
 ```console
-sbx run --kit "git+https://github.com/docker/sbx-kits-contrib.git#dir=claude-ollama" claude-ollama ~/my-project
-sbx run --kit ./claude-ollama/ claude-ollama ~/my-project
+sbx run "git+https://github.com/docker/sbx-kits-contrib.git#dir=claude-ollama" ~/my-project
+sbx run ./claude-ollama/ ~/my-project
 ```
 
-The agent name passed to `sbx run` (`claude-ollama`) matches what the kit
-`provides`. A v3 descriptor carries no `name:` field — identity is the reference
-the kit is consumed by, and the matchable name is the `provides` entry.
+The workload reference passed to `sbx run` identifies the kit. A v3 descriptor
+carries no `name:` field; its matchable name is the `claude-ollama` entry under
+`provides`.
 
 That name is also why the six `requires: ["claude"]` mixins in this repo do not
 compose onto this kit: it provides `claude-ollama`, which is exactly the boundary

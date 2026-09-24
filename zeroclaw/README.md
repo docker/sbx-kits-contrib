@@ -22,13 +22,13 @@ layer onto a shell base instead.
 ## Usage
 
 ```console
-$ sbx run --kit "docker.io/docker/sbx-kit-zeroclaw:latest" zeroclaw
+$ sbx run "docker.io/docker/sbx-kit-zeroclaw:latest"
 ```
 
 Or from a git URL targeting this repo:
 
 ```console
-$ sbx run --kit "git+https://github.com/docker/sbx-kits-contrib.git#dir=zeroclaw" zeroclaw
+$ sbx run "git+https://github.com/docker/sbx-kits-contrib.git#dir=zeroclaw"
 ```
 
 On attach the entrypoint runs `zeroclaw daemon` (gateway, channels,

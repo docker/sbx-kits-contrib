@@ -52,19 +52,19 @@ These are the commands the kit is meant to be run with. They do **not** work
 while `cursor` is still a built-in agent — see the note at the top.
 
 ```console
-sbx run --kit "docker.io/docker/sbx-kit-cursor:latest" cursor
+sbx run "docker.io/docker/sbx-kit-cursor:latest"
 ```
 
 Or from a git URL targeting this repo:
 
 ```console
-sbx run --kit "git+https://github.com/docker/sbx-kits-contrib.git#dir=cursor" cursor
+sbx run "git+https://github.com/docker/sbx-kits-contrib.git#dir=cursor"
 ```
 
 Or with a local clone of this repo:
 
 ```console
-sbx run --kit ./cursor/ cursor
+sbx run ./cursor/
 ```
 
 The trailing `cursor` is required, not redundant: `sbx` enforces that the agent
