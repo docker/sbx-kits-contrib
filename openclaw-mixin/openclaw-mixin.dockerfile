@@ -30,13 +30,25 @@ USER root
 # Ubuntu archives all support HTTPS.
 RUN sed -i 's|http://|https://|g' /etc/apt/sources.list.d/*.sources /etc/apt/sources.list 2>/dev/null || true
 
-# Node 22 (openclaw requires >= 22.19) and the pinned openclaw package.
-# The package's postinstall is offline-safe (local plugin fixups only).
-RUN npm install -g n && n 22 && npm install -g "openclaw@${OPENCLAW_VERSION}"
+# Node 24 and the pinned openclaw package. The major is pinned, not the patch:
+# 2026.9.3 declares `node >=24.16.0 <25 || >=26.1.0`, so 24.x is the supported
+# line and a rebuild picking up a newer 24.x is wanted. The floor moved with
+# this release -- 2026.9.2 still ran on 22 -- so the package bump and runtime
+# bump have to travel together.
+# The package's lifecycle scripts are offline-safe (local plugin fixups only).
+RUN npm install -g n && n 24 && npm install -g "openclaw@${OPENCLAW_VERSION}"
 
-# Chromium + headless deps for openclaw's browser tool. Playwright 1.60 has no
-# dependency map for the template's Ubuntu 26.04 yet — override the host
-# platform to 24.04 (same t64 package naming era) so the install proceeds.
+# Chromium + headless deps for openclaw's browser tool.
+#
+# The platform override is no longer strictly needed: it was added when
+# Playwright 1.60 had no dependency map for the template's Ubuntu 26.04, and
+# 2026.9.3's playwright-core 1.62.1 does carry an ubuntu26.04 entry whose
+# chromium apt list is identical to ubuntu24.04's. It is kept deliberately,
+# because BASE_IMAGE floats: on a platform Playwright has no map for,
+# `install --with-deps` prints "Cannot install dependencies" and exits 0, so a
+# template moving to an unmapped Ubuntu would publish a green image shipping a
+# Chromium with no runtime libraries. Pinning a mapped platform keeps that
+# state unreachable. gstack/Dockerfile pins it for the same reason.
 RUN apt-get update && apt-get install -y --no-install-recommends xvfb && \
     ARCH="${TARGETARCH:-$(dpkg --print-architecture)}" && \
     PW_ARCH=$([ "$ARCH" = "amd64" ] && echo x64 || echo arm64) && \
@@ -104,7 +116,7 @@ test -d "$node_prefix/lib/node_modules/npm"
 
 mkdir -p "/out${prefix}/bin" "/out${root}" \
          "/out${node_prefix}/bin" "/out${node_prefix}/lib/node_modules" \
-         /out/usr/local/bin /out/opt /out/etc/profile.d
+         /out/usr/local/bin /out/opt
 
 cp -a "$root/openclaw" "/out${root}/openclaw"
 cp -a "$prefix/bin/openclaw" "/out${prefix}/bin/openclaw"
@@ -155,15 +167,13 @@ install -m 0755 /out/home/agent/.local/bin/openclaw-start.sh /out/usr/local/bin/
 chown -R 1000:1000 /out/home/agent
 EOF
 
-# v2's environment.variables. A mixin's image config is not the composed
-# image's, so what the workload sets with ENV rides a profile.d snippet the
-# base's login shell sources instead.
-COPY <<'EOF' /out/etc/profile.d/openclaw-env.sh
-export OPENCLAW_STATE_DIR=/home/agent/.openclaw
-export PLAYWRIGHT_BROWSERS_PATH=/opt/ms-playwright
-EOF
-
 # The overlay: node, the agent, the browser and the kit's scripts, landing on
 # any base.
 FROM scratch
 COPY --from=build /out /
+
+# v2's environment.variables. ENV is an additive mixin image-config field, so
+# these values merge into the composed image. They must be declared on this
+# final stage: build-stage config is discarded with the stage.
+ENV OPENCLAW_STATE_DIR=/home/agent/.openclaw
+ENV PLAYWRIGHT_BROWSERS_PATH=/opt/ms-playwright

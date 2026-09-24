@@ -11,7 +11,7 @@ A Grafana instance reachable from the sandbox at `http://host.docker.internal:30
 ## Usage
 
 ```console
-sbx run --kit "docker.io/sbx/grafana-kit:latest" claude
+sbx run --kit "docker.io/docker/sbx-kit-grafana:latest" claude
 ```
 
 Or target this repo directly over git, or a local clone:

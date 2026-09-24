@@ -1,0 +1,173 @@
+# syntax=docker/sandbox-kit:3
+# Migration of this kit's v2 spec.yaml. Deltas are marked MIGRATION NOTE inline.
+schemaVersion: "3"
+kind: mixin
+displayName: PANW SIEM Telemetry Forwarder
+description: >-
+  Ships sandbox observability (process, network, file, and agent-activity logs)
+  to a SIEM HTTP event collector for dashboards, correlation, and automated
+  response. Closes the visibility gap for what runs inside the sandbox.
+sourceUrl: https://github.com/docker/sbx-kits-contrib/tree/main/panw-siem-telemetry
+licenses:
+  - Apache-2.0
+
+# The kit's release version. This kit intentionally declares no `provides`:
+# Fluent Bit is selected at create time and one install path tracks the vendor's
+# current package, so claiming a fixed Fluent Bit version would be inaccurate.
+version: "1.0.0"
+
+args:
+  siemCollectorHost:
+    default: "siem-collector.example.com"
+    description: "SIEM HTTP event collector ingestion host (FQDN, no scheme). Defaults to a placeholder; set it to your collector or telemetry has nowhere to ship."
+    pattern: '^[a-z0-9]([a-z0-9.-]{0,251}[a-z0-9])?$'
+  siemCollectorPath:
+    default: "/logs/v1/event"
+    description: "HTTP path on the collector to POST events to."
+    pattern: '^/[A-Za-z0-9._~/-]*$'
+  siemCollectorAuthId:
+    default: ""
+    description: >-
+      Cortex XSIAM HTTP Collector API key ID (numeric, non-secret), sent as the
+      x-xdr-auth-id header alongside the Authorization token. XSIAM requires both;
+      leave empty for collectors that authenticate with the Authorization header alone.
+    pattern: '^[0-9]*$'
+
+# The collector token is supplied out-of-band with `sbx secret set-custom`
+# (host = siemCollectorHost, env = SIEM_COLLECTOR_TOKEN). The sandbox sees only
+# a placeholder; the proxy swaps it for the real token on requests to the
+# collector, so no kit-declared credential is needed. See README.md.
+capabilities:
+  - type: com.docker.sandbox/network-policy@1
+    config:
+      install:
+        allow:
+          # Prebuilt-package path (4KB-page hosts): installer script + apt repo.
+          - raw.githubusercontent.com
+          - packages.fluentbit.io
+          # Source-build path (16KB-page hosts): release tarball (github.com
+          # redirects archive downloads to codeload.github.com).
+          - github.com
+          - codeload.github.com
+          # apt build dependencies and repository refreshes.
+          - archive.ubuntu.com
+          - security.ubuntu.com
+          - ports.ubuntu.com
+          - download.docker.com
+      runtime:
+        allow:
+          # Collector ingestion endpoint (token injected by the proxy).
+          - "${{ kit.args.siemCollectorHost }}"
+
+  - type: com.docker.sandbox/lifecycle@1
+    config:
+      install:
+        # The tail input reads /var/log/sandbox/*.log; create the directory (as
+        # root, world-readable) so the uid-1000 forwarder can scan it.
+        - command: mkdir -p /var/log/sandbox && chmod 0755 /var/log/sandbox
+          description: Ensure the host-side sandbox log directory exists for the forwarder to tail
+
+        # Fluent Bit's prebuilt package bundles jemalloc for 4KB pages and
+        # aborts on 16KB-page hosts. Install by page size, not architecture.
+        - command: >-
+            if command -v fluent-bit >/dev/null 2>&1 || [ -x /opt/fluent-bit/bin/fluent-bit ]; then exit 0; fi;
+            if [ "$(getconf PAGESIZE)" = "4096" ]; then
+            curl -fsSL https://raw.githubusercontent.com/fluent/fluent-bit/master/install.sh | sh || true;
+            /opt/fluent-bit/bin/fluent-bit --version >/dev/null 2>&1 && exit 0;
+            fi;
+            set -e;
+            apt-get update -qq;
+            DEBIAN_FRONTEND=noninteractive apt-get install -y -qq build-essential cmake flex bison libssl-dev libyaml-dev pkg-config ca-certificates curl;
+            curl -fsSL https://github.com/fluent/fluent-bit/archive/refs/tags/v5.1.2.tar.gz -o /tmp/fluent-bit-src.tar.gz;
+            mkdir -p /tmp/fluent-bit-src;
+            tar xzf /tmp/fluent-bit-src.tar.gz -C /tmp/fluent-bit-src --strip-components=1;
+            cmake -S /tmp/fluent-bit-src -B /tmp/fluent-bit-build -DFLB_JEMALLOC=Off -DFLB_RELEASE=On -DFLB_EXAMPLES=Off -DFLB_TESTS_INTERNAL=Off -DFLB_TESTS_RUNTIME=Off -DCMAKE_INSTALL_PREFIX=/opt/fluent-bit;
+            cmake --build /tmp/fluent-bit-build -j"$(nproc)";
+            cmake --install /tmp/fluent-bit-build;
+            rm -rf /tmp/fluent-bit-src /tmp/fluent-bit-src.tar.gz /tmp/fluent-bit-build
+          env: [HTTP_PROXY, HTTPS_PROXY, NO_PROXY]
+          description: Install Fluent Bit - prebuilt on 4KB-page hosts, source build (jemalloc off) on 16KB-page hosts
+
+      startup:
+        # run-telemetry.sh copies the base conf, appends auth headers only when
+        # non-empty, then execs fluent-bit.
+        - command: ["sh", "/home/agent/.config/fluent-bit/run-telemetry.sh"]
+          user: "1000"
+          env: [SIEM_COLLECTOR_TOKEN, HTTP_PROXY, HTTPS_PROXY, NO_PROXY]
+          background: true
+          description: Forward sandbox telemetry to the SIEM collector
+
+      # MIGRATION NOTE: these two files contain create-phase arg references, so
+      # they remain lifecycle files. Baking them into the overlay would leave
+      # literal placeholders in the running sandbox. The static parser config
+      # is staged by panw-siem-telemetry.dockerfile.
+      files:
+        - path: /home/agent/.config/fluent-bit/run-telemetry.sh
+          mode: "0755"
+          content: |
+            #!/bin/sh
+            # Launch the Fluent Bit telemetry forwarder with auth headers built at runtime.
+            set -eu
+
+            CONF_DIR=/home/agent/.config/fluent-bit
+            BASE="$CONF_DIR/sandbox-telemetry.conf"
+            RT=/home/agent/.sandbox/telemetry-runtime.conf
+
+            mkdir -p /home/agent/.sandbox/logs
+            cp "$BASE" "$RT"
+
+            if [ -n "${SIEM_COLLECTOR_TOKEN:-}" ]; then
+                printf '    Header Authorization ${SIEM_COLLECTOR_TOKEN}\n' >> "$RT"
+            fi
+
+            AUTH_ID='${{ kit.args.siemCollectorAuthId }}'
+            if [ -n "$AUTH_ID" ]; then
+                printf '    Header x-xdr-auth-id %s\n' "$AUTH_ID" >> "$RT"
+            fi
+
+            FLB="$(command -v fluent-bit || echo /opt/fluent-bit/bin/fluent-bit)"
+            exec "$FLB" -c "$RT"
+
+        - path: /home/agent/.config/fluent-bit/sandbox-telemetry.conf
+          mode: "0644"
+          content: |
+            [SERVICE]
+                Flush            5
+                Daemon           Off
+                Log_Level        info
+                Storage.path     /home/agent/.sandbox/telemetry-buffer
+                Storage.max_chunks_up 128
+                Parsers_File     /home/agent/.config/fluent-bit/parsers.conf
+
+            [INPUT]
+                Name             tail
+                Path             /var/log/sandbox/*.log,/home/agent/.sandbox/logs/*.log
+                Tag              sandbox.activity
+                Refresh_Interval 5
+                Skip_Long_Lines  On
+                Storage.type     filesystem
+                Parser           json
+
+            [FILTER]
+                Name             record_modifier
+                Match            *
+                Record           source docker-sandbox
+                Record           sandbox_host ${HOSTNAME}
+
+            [OUTPUT]
+                Name             http
+                Match            *
+                Host             ${{ kit.args.siemCollectorHost }}
+                Port             443
+                URI              ${{ kit.args.siemCollectorPath }}
+                TLS              On
+                Format           json_lines
+                allow_duplicated_headers false
+                Header Content-Type application/json
+                Json_Date_Key    timestamp
+                Json_Date_Format iso8601
+                Retry_Limit      5
+
+  - type: com.docker.sandbox/agent-context@1
+    config:
+      contentFile: ./panw-siem-telemetry-context.md

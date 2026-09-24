@@ -20,7 +20,7 @@ sbx secret set dynatrace
 Pass your environment URL with `--kit-arg dynatrace.environment=...`:
 
 ```console
-sbx run --kit "docker.io/sbx/dynatrace-kit:latest" --kit-arg dynatrace.environment=https://abc12345.apps.dynatrace.com claude
+sbx run --kit "docker.io/docker/sbx-kit-dynatrace:latest" --kit-arg dynatrace.environment=https://abc12345.apps.dynatrace.com claude
 ```
 
 Or target this repo directly over git, or a local clone:
@@ -47,8 +47,10 @@ python3 ~/runbooks/dynatrace_report.py
 
 They read `DT_ENVIRONMENT` (set from the `dynatrace.environment` arg) and default the token to the `inject-me` placeholder the proxy overwrites.
 
+The v3 descriptor is `dynatrace.yaml`, its runbook overlay recipe is `dynatrace.dockerfile`, and agent guidance lives in `dynatrace-context.md`.
+
 ## Cleanup
 
 ```console
-sbx secret rm -g --service dynatrace
+sbx secret rm --service dynatrace
 ```

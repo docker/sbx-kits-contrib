@@ -1,0 +1,47 @@
+# syntax=docker/sandbox-kit:3
+# Migration of this kit's v2 spec.yaml. Deltas are marked MIGRATION NOTE inline.
+schemaVersion: "3"
+kind: mixin
+
+# The vendor download URL is intentionally unversioned, so this is the kit's
+# release version rather than a claim about the Mend CLI version.
+version: "1.0.0"
+displayName: Mend AI Security
+description: >-
+  Adds the Mend CLI with AI-security scanning to the sandbox: discover AI models,
+  frameworks, and system prompts in the workspace and generate an AI-BOM
+  (AI Bill of Materials) via `mend ai scan`.
+sourceUrl: https://github.com/docker/sbx-kits-contrib
+licenses:
+  - Apache-2.0
+
+# No proxy-managed credential is declared on purpose. The Mend CLI performs its
+# own login handshake (email + user key -> token, stored in
+# ~/.mend/config/settings.json). Declaring an apiKey inject on *.mend.io would
+# make the sbx proxy TLS-intercept those hosts to add an Authorization header,
+# which corrupts Mend's login and yields "Unauthorized" inside the sandbox
+# (the same credentials work on the host, where no proxy is in the path).
+# So the kit only opens egress and lets the CLI authenticate itself — see the
+# Authentication section in the agent context (and the README) for details.
+#
+# No MEND_URL default is set. The Mend CLI treats the mere presence of MEND_URL
+# (without MEND_EMAIL + MEND_USER_KEY) as an incomplete env-var auth attempt and
+# refuses to use a stored `mend auth login` session.
+capabilities:
+  - type: com.docker.sandbox/network-policy@1
+    config:
+      runtime:
+        allow:
+          - "*.mend.io" # downloads / saas / api-saas / app / saas-eu (single label)
+          - mend.io     # apex
+
+  # MIGRATION NOTE: v2 installed this unversioned vendor binary in an install
+  # hook because mixins could not carry content. v3 stages it in the companion
+  # overlay recipe, so the per-sandbox hook and its install-phase network grant
+  # are gone. Runtime retains the full v2 allow list for login, scans, uploads,
+  # and CLI auto-update.
+
+  - type: com.docker.sandbox/agent-context@1
+    config:
+      # `filename:` is workload-only; this mixin contributes its guidance body.
+      contentFile: ./mend-ai-security-context.md

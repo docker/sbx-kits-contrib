@@ -22,6 +22,12 @@ Or directly from the repo, without cloning:
 sbx run claude --kit "git+https://github.com/docker/sbx-kits-contrib.git#dir=snyk-evo-ads"
 ```
 
+Or use the published v3 kit:
+
+```bash
+sbx run claude --kit "docker.io/docker/sbx-kit-snyk-evo-ads:latest"
+```
+
 If your network uses TLS interception, [stage your corporate root
 certificate](#staging-the-corporate-ca-certificate) before creating the
 sandbox.
@@ -31,7 +37,9 @@ sandbox.
 ```text
 snyk-evo-ads/
 ├── README.md
-├── spec.yaml
+├── snyk-evo-ads.yaml
+├── snyk-evo-ads.dockerfile
+├── snyk-evo-ads-context.md
 └── files/home/
     ├── .snyk-kit/   # Component selection, auth, and download helpers
     └── corp-ca/     # Optional corporate root certificates
@@ -225,7 +233,7 @@ consent is preserved for interactive scans.
 ## Verification and troubleshooting
 
 ```bash
-sbx kit validate ./snyk-evo-ads/
+sbx kit inspect ./snyk-evo-ads/
 sbx exec "<sandbox-name>" sh -c 'sh "$HOME/.snyk-kit/resolve-components.sh"'
 sbx exec "<sandbox-name>" sh -c 'cat "$HOME/.snyk/agent-scan-startup.log"'
 ```

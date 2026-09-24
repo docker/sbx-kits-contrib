@@ -36,7 +36,7 @@ def _check_environment():
         raise DynatraceError(
             "DT_ENVIRONMENT is not set to your Dynatrace SaaS URL. "
             "Set it, e.g. `export DT_ENVIRONMENT=https://abc12345.apps.dynatrace.com`, "
-            "or run the kit from a clone with the value edited into spec.yaml."
+            "or pass `--kit-arg dynatrace.environment=https://abc12345.apps.dynatrace.com`."
         )
 
 

@@ -10,8 +10,12 @@ answers and `openclaw ...` works from any shell. Wait for
 hook does not block `sbx exec`. To attach the TUI:
 
 ```console
-openclaw-start      # waits for the gateway, then execs `openclaw chat`
+openclaw-start      # waits for the gateway, then execs `openclaw tui`
 ```
+
+Use `tui`, not `chat`: in OpenClaw 2026.9.3, `chat` asks for the in-process
+runtime, which refuses to start while the gateway holds the same state
+directory.
 
 Authentication is proxy-mediated. `ANTHROPIC_API_KEY` in this container is a
 sentinel; the sandbox proxy substitutes the real credential bound on the host

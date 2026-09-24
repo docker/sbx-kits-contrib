@@ -36,4 +36,4 @@ a self-scraping Prometheus. Override the Prometheus endpoint with `PROM_URL` if
 yours isn't at `host.docker.internal:9090`.
 
 To add a runbook, drop a `*.py` in `files/home/runbooks/` - it ships
-automatically, no `spec.yaml` change.
+automatically through `grafana.dockerfile`; no descriptor change is needed.

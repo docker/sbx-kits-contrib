@@ -1,0 +1,49 @@
+# syntax=docker/sandbox-kit:3
+# Docker Sandbox kit: Cloudsmith artifact management via the cloudsmith CLI.
+# Usage and design notes: see README.md in this directory.
+schemaVersion: "3"
+kind: mixin
+version: "1.0.0"
+displayName: Cloudsmith (artifact management)
+description: >-
+  Adds Cloudsmith package/artifact management to any agent via the official
+  cloudsmith CLI, wired to Cloudsmith's cloud API. Push, pull, list and manage
+  packages across 30+ formats. Needs a key: sbx secret set cloudsmith (the kit
+  holds no key).
+sourceUrl: https://github.com/cloudsmith-io/cloudsmith-cli
+licenses:
+  - MIT
+
+capabilities:
+  # MIGRATION NOTE: pypi.org and files.pythonhosted.org were install-only v2
+  # grants. The pinned CLI is now baked into the overlay, so neither host is
+  # reachable from the running sandbox.
+  - type: com.docker.sandbox/network-policy@1
+    config:
+      runtime:
+        allow:
+          - api.cloudsmith.io
+          - dl.cloudsmith.io
+          - docker.cloudsmith.io
+          - npm.cloudsmith.io
+
+  - type: com.docker.sandbox/credential@1
+    optional: true
+    description: Cloudsmith API key (read + write)
+    config:
+      service: cloudsmith
+      phase: runtime
+      apiKey:
+        name: CLOUDSMITH_API_KEY
+        proxyManaged: true
+        inject:
+          # Cloudsmith uses `Authorization: token <key>` -- NOT Bearer, NOT
+          # Basic -- so we spell the header + format by hand rather than using
+          # the `scheme:` sugar (which only covers bearer / basic).
+          - domain: api.cloudsmith.io
+            header: Authorization
+            format: "token %s"
+
+  - type: com.docker.sandbox/agent-context@1
+    config:
+      contentFile: ./cloudsmith-context.md

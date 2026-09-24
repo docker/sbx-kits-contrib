@@ -21,18 +21,31 @@ you. The gateway still comes up with the container, so this works immediately:
 
 ```console
 openclaw agents list
-openclaw-start              # waits for the gateway, then execs `openclaw chat`
+openclaw-start              # waits for the gateway, then execs `openclaw tui`
 ```
+
+Use `tui`, not `chat`: in OpenClaw 2026.9.3, `chat` is an alias for
+`tui --local`, and the in-process runtime refuses to start while the gateway
+holds the same state directory. `openclaw-start` waits for both `/readyz` and
+the tool-call image readiness sentinel before attaching. If the gateway is
+still unavailable after five minutes it opens a shell instead of entering a
+container restart loop.
 
 ## What it carries
 
-- Node 22 (with `npm`/`npx`, which OpenClaw shells out to for
+- Node 24 (with `npm`/`npx`, which OpenClaw shells out to for
   `/plugins install`), the pinned `openclaw` package, and the Chromium
   playwright downloads for the browser tool — all copied out of a build stage
   on the same base the workload uses, because none of `n`, `npm install -g` or
-  playwright's installer takes a relocation flag.
+  playwright's installer takes a relocation flag. OpenClaw 2026.9.3 requires
+  Node `>=24.16.0 <25 || >=26.1.0`; Node 24 is the supported line, pinned by
+  major so rebuilds pick up newer compatible 24.x releases.
 - The proxy-managed `anthropic` credential (API key or claude.ai OAuth), the
   gateway port (18789), and the gateway-bootstrap startup hook.
+
+The descriptor defaults to OpenClaw 2026.9.3. Override its `version` kit arg to
+build another release; the value is validated, published in `provides`, and
+passed to the recipe as `OPENCLAW_VERSION`.
 
 ## Known limitation: Chromium's shared libraries
 

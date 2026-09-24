@@ -1,0 +1,62 @@
+# syntax=docker/sandbox-kit:3
+# Docker Sandboxes kit: the Grafana MCP server (mcp-grafana) wired to a local
+# Grafana on the host. Usage and design notes: see README.md.
+schemaVersion: "3"
+kind: mixin
+version: "1.0.0"
+displayName: Grafana (local)
+description: Adds the official Grafana MCP server (mcp-grafana) plus the grafana-client Python library to an agent, pre-wired to a local Grafana on the host - no cloud account, no API token.
+sourceUrl: https://github.com/grafana/mcp-grafana
+licenses:
+  - Apache-2.0
+
+capabilities:
+  # MIGRATION NOTE: the pinned mcp-grafana release now ships in the overlay,
+  # so its GitHub release hosts are builder traffic and no longer sandbox
+  # grants. The Python client remains a create-time install because it must use
+  # the composed workload's Python interpreter and system package location;
+  # copying those paths from a build image would not be portable across bases.
+  - type: com.docker.sandbox/network-policy@1
+    config:
+      install:
+        allow:
+          - pypi.org
+          - files.pythonhosted.org
+
+  - type: com.docker.sandbox/lifecycle@1
+    config:
+      install:
+        - command: pip install --break-system-packages 'grafana-client==5.1.0'
+          user: "1000"
+          # pip's children consume the sandbox proxy variables even though the
+          # command itself does not spell them.
+          env: [HTTP_PROXY, HTTPS_PROXY]
+          description: Install the grafana-client Python library (used by the runbooks and for shell verification)
+      startup:
+        - command:
+            - sh
+            - -c
+            - command -v claude >/dev/null 2>&1 && claude mcp add grafana -- /home/agent/.local/bin/mcp-grafana >/dev/null 2>&1 || true
+          user: "1000"
+          description: Register mcp-grafana with the Claude agent (best-effort; no-op elsewhere)
+      files:
+        - path: /home/agent/.grafana/mcp.json
+          content: |
+            {
+              "mcpServers": {
+                "grafana": {
+                  "command": "/home/agent/.local/bin/mcp-grafana",
+                  "args": [],
+                  "env": {
+                    "GRAFANA_URL": "http://host.docker.internal:3000"
+                  }
+                }
+              }
+            }
+          mode: "0644"
+          overwrite: false
+          description: Portable MCP server definition - copy into any agent that reads an mcpServers block
+
+  - type: com.docker.sandbox/agent-context@1
+    config:
+      contentFile: ./grafana-context.md

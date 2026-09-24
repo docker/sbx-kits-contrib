@@ -15,7 +15,7 @@ sbx secret set cloudsmith
 Then create a sandbox with the kit:
 
 ```console
-sbx run --kit "docker.io/sbx/cloudsmith-kit:latest" claude
+sbx run --kit "docker.io/docker/sbx-kit-cloudsmith:latest" claude
 ```
 
 Or target this repo directly over git, or a local clone:
@@ -40,10 +40,12 @@ cloudsmith push docker OWNER/REPO image.tar        # upload a Docker image tarba
 
 The kit declares a `cloudsmith` credential with one inject rule for `api.cloudsmith.io`. Cloudsmith uses `Authorization: token <key>` (not Bearer, not Basic), so the header and format are spelled out by hand rather than via the `scheme:` sugar. Inside the container `CLOUDSMITH_API_KEY` is the placeholder `proxy-managed`; the proxy swaps in the real token on outbound requests to `api.cloudsmith.io`, so the key never touches the sandbox filesystem or environment. Run the CLI directly; do not try to read or echo the key.
 
-The egress allowlist also covers the Cloudsmith content hosts (`dl.cloudsmith.io`, `docker.cloudsmith.io`, `npm.cloudsmith.io`) plus PyPI for the CLI install.
+The egress allowlist also covers the Cloudsmith content hosts (`dl.cloudsmith.io`, `docker.cloudsmith.io`, `npm.cloudsmith.io`). The pinned CLI is baked into the v3 kit image, so sandbox creation does not need PyPI access.
+
+The v3 descriptor is `cloudsmith.yaml`, its overlay recipe is `cloudsmith.dockerfile`, and agent guidance lives in `cloudsmith-context.md`.
 
 ## Cleanup
 
 ```console
-sbx secret rm -g --service cloudsmith
+sbx secret rm --service cloudsmith
 ```

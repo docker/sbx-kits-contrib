@@ -22,7 +22,7 @@ sbx secret set jfrog
 Your JFrog host is per-user, so pass it with `--kit-arg jfrog-xray.jfrog_host=...`:
 
 ```console
-sbx run --kit "docker.io/sbx/jfrog-xray-kit:latest" --kit-arg jfrog-xray.jfrog_host=mycompany.jfrog.io claude
+sbx run --kit "docker.io/docker/sbx-kit-jfrog-xray:latest" --kit-arg jfrog-xray.jfrog_host=mycompany.jfrog.io claude
 ```
 
 Or target this repo directly over git, or a local clone:
@@ -47,21 +47,21 @@ jf rt ping                     # verify connectivity
 
 ## How auth and egress work
 
-The kit declares a `jfrog` credential with one inject rule for your host, using the `bearer` scheme (`Authorization: Bearer <token>`). `jf` reads `JF_URL` and `JF_ACCESS_TOKEN` directly, so no `jf config add` is needed. `JF_ACCESS_TOKEN` is the proxy-managed sentinel inside the container; the proxy swaps in the real token on outbound requests to your JFrog host and nowhere else.
+The kit declares a `jfrog` credential with one inject rule for your host, using the `bearer` scheme (`Authorization: Bearer <token>`). The `jf` wrapper derives `JF_URL` from `jfrog_host`, and the CLI reads the proxy-managed `JF_ACCESS_TOKEN` sentinel. The proxy swaps in the real token on outbound requests to your JFrog host and nowhere else, so no `jf config add` is needed.
 
-The network allowlist is limited to:
-- `releases.jfrog.io` and `releases-cdn.jfrog.io` - install-time download of the pinned `jf` binary (the release host 302-redirects the blob to the CDN, so both are needed).
-- your `jfrog_host` - the Xray and Artifactory REST API at runtime.
+The runtime network allowlist is limited to your `jfrog_host` for the Xray
+and Artifactory REST APIs. The pinned CLI is downloaded while building the
+kit, so its JFrog release hosts are not sandbox grants.
 
 If a scan reports "Xray is not entitled", the token lacks Xray scopes or the platform does not have Xray enabled.
 
 ## Self-hosted platforms
 
-Self-hosted Artifactory/Xray works the same way: pass its hostname as `jfrog_host`. If the platform also serves other hosts you need (for example a separate registry domain), add them to `permissions.network.allow`.
+Self-hosted Artifactory/Xray works the same way: pass its hostname as `jfrog_host`. If the platform also serves other hosts you need (for example a separate registry domain), add them to the runtime allowlist in `jfrog-xray.yaml`.
 
 ## Version pinning
 
-`jf` is installed from a version- and SHA256-pinned JFrog release (no `curl | sh`). To bump, change `JF_VERSION` and both per-arch checksums in `spec.yaml`; the checksums are the sha256 of the raw `jf` binary at `https://releases.jfrog.io/artifactory/jfrog-cli/v2-jf/<version>/jfrog-cli-linux-<arch>/jf`.
+`jf` is installed from a version- and SHA256-pinned JFrog release (no `curl | sh`). To bump, change the `version` arg default in `jfrog-xray.yaml` and both per-arch checksums in `jfrog-xray.dockerfile`; the checksums are the sha256 of the raw `jf` binary at `https://releases.jfrog.io/artifactory/jfrog-cli/v2-jf/<version>/jfrog-cli-linux-<arch>/jf`.
 
 ## Cleanup
 

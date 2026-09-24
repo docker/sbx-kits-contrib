@@ -1,0 +1,98 @@
+# syntax=docker/sandbox-kit:3
+# Docker Sandbox kit: wire an agent to a Dynatrace SaaS environment through
+# the hosted Dynatrace Remote MCP server. Usage/design notes: see README.md.
+schemaVersion: "3"
+kind: mixin
+version: "1.0.0"
+displayName: Dynatrace (SaaS, Remote MCP)
+description: >-
+  Wires an agent to a Dynatrace SaaS environment through the official hosted
+  Dynatrace Remote MCP server (no server install): query problems,
+  vulnerabilities, entities, logs, and run DQL against Grail. The kit holds no
+  token; store it once with `sbx secret set dynatrace` and the sbx proxy injects
+  it as a Bearer token on requests to *.apps.dynatrace.com.
+sourceUrl: https://github.com/dynatrace-oss/dynatrace-mcp
+licenses:
+  - Apache-2.0
+
+# Your Dynatrace SaaS (Gen3 "apps") environment URL. The kit cannot know it for
+# you, so set it at run time:
+#   sbx run --kit docker.io/docker/sbx-kit-dynatrace:latest --kit-arg dynatrace.environment=https://abc12345.apps.dynatrace.com claude
+args:
+  environment:
+    default: "https://YOUR-ENV.apps.dynatrace.com"
+    description: >-
+      Your Dynatrace SaaS (Gen3 "apps") environment URL, for example
+      https://abc12345.apps.dynatrace.com. Use the "apps" URL, not the classic
+      *.live.dynatrace.com. Left at the default, the kit installs but the Remote
+      MCP registration and the runbooks stay inert until you set a real URL.
+    pattern: '^https://[A-Za-z0-9-]+\.apps\.dynatrace\.com/?$'
+    env: DT_ENVIRONMENT
+
+capabilities:
+  # The requests install runs against the composed base's Python, so its PyPI
+  # access remains create-time only. Dynatrace SaaS is runtime access.
+  - type: com.docker.sandbox/network-policy@1
+    config:
+      install:
+        allow:
+          - pypi.org
+          - files.pythonhosted.org
+      runtime:
+        allow:
+          - "*.apps.dynatrace.com"
+
+  # Custom (non-registry) service. This is inject-only: omitting `name` keeps
+  # even a sentinel out of the container, preserving v2. The runbooks send
+  # `inject-me` and the boundary replaces the Authorization header.
+  - type: com.docker.sandbox/credential@1
+    description: Dynatrace platform token for Remote MCP and Grail DQL; requires the storage read scopes used by the runbooks
+    config:
+      service: dynatrace
+      phase: runtime
+      apiKey:
+        inject:
+          - domain: "*.apps.dynatrace.com"
+            header: Authorization
+            format: "Bearer %s"
+
+  - type: com.docker.sandbox/lifecycle@1
+    config:
+      install:
+        # MIGRATION NOTE: this stays a create-time hook because the runbooks
+        # intentionally invoke the composed base's `python3`. Baking a venv
+        # against another interpreter would make the overlay non-portable.
+        - command: "pip install --break-system-packages 'requests>=2.31,<3'"
+          user: "1000"
+          env: [HTTP_PROXY, HTTPS_PROXY]
+          description: Install the requests library used by the DQL runbooks
+      startup:
+        # Best-effort: register the hosted Remote MCP server with Claude. The
+        # Authorization value is a placeholder; the proxy overwrites it on the
+        # wire. It is inert while DT_ENVIRONMENT is still the placeholder and
+        # remains a no-op for other agents.
+        - command: ["sh", "-c", "command -v claude >/dev/null 2>&1 || exit 0; case \"$DT_ENVIRONMENT\" in *YOUR-ENV*) exit 0 ;; esac; claude mcp add --transport http dynatrace \"$DT_ENVIRONMENT/platform-reserved/mcp-gateway/v0.1/servers/dynatrace-mcp/mcp\" --header \"Authorization: Bearer inject-me\" >/dev/null 2>&1 || true"]
+          user: "1000"
+          env: [DT_ENVIRONMENT]
+          description: Register the Dynatrace Remote MCP server with the Claude agent (best-effort; no-op elsewhere)
+      files:
+        - path: /home/agent/.dynatrace/mcp.json
+          mode: "0644"
+          overwrite: false
+          description: Portable Remote MCP definition for any agent that reads an mcpServers block; the proxy replaces its placeholder Authorization value
+          content: |
+            {
+              "mcpServers": {
+                "dynatrace": {
+                  "type": "http",
+                  "url": "${{ kit.args.environment }}/platform-reserved/mcp-gateway/v0.1/servers/dynatrace-mcp/mcp",
+                  "headers": {
+                    "Authorization": "Bearer inject-me"
+                  }
+                }
+              }
+            }
+
+  - type: com.docker.sandbox/agent-context@1
+    config:
+      contentFile: ./dynatrace-context.md

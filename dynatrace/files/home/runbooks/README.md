@@ -35,8 +35,8 @@ python3 ~/runbooks/dynatrace_report.py
 
 ---
 
-To add a runbook, drop a `*.py` in `files/home/runbooks/` - it ships
-automatically (the [sbx-kits-contrib][contrib] `files/home/` convention mirrors
-everything under it into `/home/agent/`), no `spec.yaml` change.
+To add a runbook, drop a `*.py` in `files/home/runbooks/`. The v3
+`dynatrace.dockerfile` copies that tree into `/home/agent/`, so no
+`dynatrace.yaml` change is needed.
 
 [contrib]: https://github.com/docker/sbx-kits-contrib

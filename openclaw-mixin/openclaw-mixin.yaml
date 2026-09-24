@@ -2,7 +2,7 @@
 # OpenClaw as a MIXIN: the same declarations as the standalone workload kit
 # (../openclaw), minus what only the kit that owns the environment can carry --
 # the entrypoint (the base workload's launch command stays; run
-# `openclaw-start` or `openclaw chat` from the shell), the context-file profile
+# `openclaw-start` or `openclaw tui` from the shell), the context-file profile
 # (`filename` is workload-only, so this kit contributes `contentFile` alone),
 # agent-sessions (the verbs drive the workload's entrypoint, which here is the
 # base's shell) and sbx@1 (a mixin's image config never becomes the composed
@@ -20,7 +20,7 @@ kind: mixin
 
 args:
   version:
-    default: "2026.6.5"
+    default: "2026.9.3"
     pattern: '^[0-9]+\.[0-9]+\.[0-9]+$'
     description: OpenClaw release to install
     buildArg: OPENCLAW_VERSION
@@ -66,6 +66,10 @@ capabilities:
           # openrouter/...`). Confirmed necessary via a real e2e run under
           # deny-all.
           - openrouter.ai
+          # Deliberately absent: models.opencode.ai. OpenClaw 2026.9.3 added a
+          # warn-only startup model/pricing catalog refresh against it. This
+          # kit does not widen credential-adjacent egress for optional pricing
+          # metadata.
           # Docker Hub, so `docker pull` works inside the sandbox: OpenClaw
           # runs tool calls in a nested container and inspects (never pulls)
           # the image itself, so the bootstrap hook pulls it.
@@ -146,17 +150,18 @@ capabilities:
         # land 0644.
         #
         # Hook environments are deny-by-default in v3, so every variable the
-        # script reads is declared. Note that on a mixin these two OPENCLAW_*
-        # names resolve only if the operator set them: the overlay exports them
-        # from profile.d, which a login shell sources but a hook does not. The
-        # script's own fallbacks are the same values the profile.d snippet
-        # exports, so the declaration exists to honor an override rather than
-        # to supply the default.
+        # script reads is declared. OPENCLAW_STATE_DIR is set by the overlay's
+        # final-stage ENV. OPENCLAW_GATEWAY_PORT is declared because the script
+        # honors an operator override. SBX_CRED_ANTHROPIC_MODE selects API-key
+        # versus no-credential behavior. $HOME and $PATH are platform baseline.
+        # DOCKER_HOST is declared because the script pulls the nested tool-call
+        # image and the composed workload may point Docker at a non-default
+        # socket.
         - command:
             - sh
             - /home/agent/.local/bin/openclaw-gateway-up.sh
           user: "1000"
-          env: [OPENCLAW_STATE_DIR, OPENCLAW_GATEWAY_PORT, SBX_CRED_ANTHROPIC_MODE]
+          env: [OPENCLAW_STATE_DIR, OPENCLAW_GATEWAY_PORT, SBX_CRED_ANTHROPIC_MODE, DOCKER_HOST]
           description: Start the OpenClaw gateway so the published port and CLI work without attaching the TUI
 
   # No agent-skills@1, deliberately -- the same call as the workload. OpenClaw

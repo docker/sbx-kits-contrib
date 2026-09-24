@@ -7,7 +7,7 @@ before the Snyk downloads below run.
 files/home/corp-ca/zscaler-root-ca.crt   →   /home/agent/corp-ca/zscaler-root-ca.crt
 ```
 
-Drop in as many certs as your proxy chain needs. You do not edit `spec.yaml` to add one —
+Drop in as many certs as your proxy chain needs. You do not edit `snyk-evo-ads.yaml` to add one —
 the install step globs `*.crt`.
 
 **Skip this entirely if your network does not intercept TLS.** The CA step is non-fatal by

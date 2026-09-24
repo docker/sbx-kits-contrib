@@ -5,7 +5,7 @@ A [Docker Sandboxes](https://docs.docker.com/ai/sandboxes/) mixin kit that runs
 so OpenAI-compatible traffic is inspected for secrets, PII, and prompt injection
 before it reaches the model.
 
-Works with Codex by default (`requires.agent: codex`).
+Works with Codex by default (`requires: ["codex"]`).
 
 ## Architecture
 
@@ -28,7 +28,9 @@ with `sbx run -e`. Do not put secrets in `--kit-arg`.
 ## Quick start
 
 ```bash
-sbx run codex --kit ./mend-guardrails -e MEND_KEY="<activation-key>" .
+sbx run codex \
+  --kit docker.io/docker/sbx-kit-mend-guardrails:latest \
+  -e MEND_KEY="<activation-key>" .
 ```
 
 First run can take several minutes while packages and models download.
@@ -50,7 +52,7 @@ to **Block** before you expect blocks.
 Local policy example:
 
 ```bash
-sbx run codex --kit ./mend-guardrails \
+sbx run codex --kit docker.io/docker/sbx-kit-mend-guardrails:latest \
   --kit-arg mend-guardrails.policySource=local \
   --kit-arg mend-guardrails.offline=true \
   -e MEND_KEY="<activation-key>" .
@@ -72,7 +74,7 @@ Your model provider API key stays with Docker Sandboxes; Mend does not store it.
 ### Codex TUI intercept
 
 ```bash
-sbx run codex --kit ./mend-guardrails \
+sbx run codex --kit docker.io/docker/sbx-kit-mend-guardrails:latest \
   --kit-arg mend-guardrails.interceptTui=true \
   -e MEND_KEY="<activation-key>" .
 ```
@@ -138,7 +140,8 @@ sbx run codex \
 
 - Local: `--kit ./mend-guardrails/`
 - Git: `git+https://github.com/docker/sbx-kits-contrib.git#ref=<40-hex-sha>&dir=mend-guardrails`
-- OCI: `docker.io/sbx/mend-guardrails-kit` (pin by digest, not `:latest`)
+- OCI: `docker.io/docker/sbx-kit-mend-guardrails:latest` (use a release tag or
+  digest for reproducible runs)
 
 ## License
 

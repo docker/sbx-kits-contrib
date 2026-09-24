@@ -1,0 +1,49 @@
+# syntax=docker/sandbox-kit:3
+# Migration of the v2 `panw-endpoint-enforcement` mixin. Its environment
+# markers live in the companion overlay recipe; the create-time marker file
+# remains a lifecycle declaration because its body contains a create-phase arg.
+schemaVersion: "3"
+displayName: PANW Endpoint Enforcement Marker
+description: >-
+  Marks agent processes as running inside a sandbox so a host-side endpoint
+  security policy engine can permit sandbox-wrapped agents while denying any
+  agent process that spawns outside a sandbox.
+sourceUrl: https://github.com/docker/sbx-kits-contrib/tree/main/panw-endpoint-enforcement
+version: "1.0.0"
+licenses:
+  - Apache-2.0
+
+kind: mixin
+
+args:
+  markerId:
+    default: "sandbox-wrapped"
+    description: "Identity string the host endpoint policy keys on to allow this process."
+    pattern: '^[a-z0-9]([a-z0-9-]{0,62}[a-z0-9])?$'
+    # Resolve at create and export under v2's environment-variable name.
+    env: SANDBOX_ENFORCEMENT_MARKER
+
+capabilities:
+  - type: com.docker.sandbox/lifecycle@1
+    config:
+      files:
+        # A stable on-disk marker the endpoint agent can attest against,
+        # independent of the process environment. Written idempotently so
+        # restarts are safe.
+        - path: /home/agent/.sandbox-enforced
+          content: |
+            marker=${{ kit.args.markerId }}
+            enforced=1
+          mode: "0444"
+          # v2's onlyIfMissing: true.
+          overwrite: false
+          description: Write the sandbox enforcement marker file
+
+  # No `filename:`: this mixin contributes instructions to the workload's
+  # existing agent profile rather than owning one.
+  - type: com.docker.sandbox/agent-context@1
+    config:
+      contentFile: ./panw-endpoint-enforcement-context.md
+
+# This kit intentionally declares no network or credential capability: it
+# reaches no network and holds no secret.

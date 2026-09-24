@@ -1,0 +1,66 @@
+# syntax=docker/sandbox-kit:3
+schemaVersion: "3"
+kind: mixin
+version: "${{ kit.args.version }}"
+displayName: JFrog Xray
+description: >-
+  Installs the JFrog CLI (jf), pre-wired to your JFrog Platform, so agents can run
+  Xray security & license scans (jf audit / jf scan / jf docker scan) against
+  dependencies, binaries, and container images. Xray is a core component of the
+  JFrog Platform and shares package metadata with Artifactory, so a scan reports not
+  just a CVE but its full impact path through your dependency graph.
+sourceUrl: https://github.com/jfrog/jfrog-cli
+licenses:
+  - Apache-2.0
+
+# The JFrog Platform host is per-user (SaaS instances are mycompany.jfrog.io), so
+# it can't be hardcoded. It is substituted into JF_URL, the credential inject
+# domain, and the runtime egress allowlist. It defaults to a placeholder (so the
+# kit still validates and builds); set it with:
+#   --kit-arg jfrog-xray.jfrog_host=mycompany.jfrog.io
+args:
+  jfrog_host:
+    default: "your-company.jfrog.io"
+    description: "Your JFrog Platform host, e.g. mycompany.jfrog.io (SaaS) or artifactory.internal.example.com (self-hosted). Hostname only - no scheme, no path, no port. Defaults to a placeholder; set it or scans have no host to reach."
+    pattern: '^[a-z0-9]([a-z0-9.-]{0,251}[a-z0-9])?$'
+    # v3 can export an arg's exact value but cannot prefix it. The overlay's
+    # `jf` wrapper turns this hostname into the v2 JF_URL=https://<host> value
+    # for the real CLI without baking one user's instance into the image.
+    env: JFROG_HOST
+  version:
+    default: "2.121.0"
+    description: JFrog CLI release carried by the overlay
+    pattern: '^[0-9]+\.[0-9]+\.[0-9]+$'
+    buildArg: JF_VERSION
+
+provides: ["jf@${{ kit.args.version }}"]
+
+capabilities:
+  # MIGRATION NOTE: releases.jfrog.io and releases-cdn.jfrog.io were
+  # install-only in v2. The pinned binary now ships in the overlay, making
+  # those hosts builder traffic; only the user's platform remains at runtime.
+  - type: com.docker.sandbox/network-policy@1
+    config:
+      runtime:
+        allow:
+          - ${{ kit.args.jfrog_host }}
+
+  # v2 explicitly required this credential, so v3's required default is
+  # intentional (no optional: true).
+  - type: com.docker.sandbox/credential@1
+    description: "JFrog Platform access token (needs Xray read + scan scopes). Stored on the host; the sandbox only ever sees a placeholder, and the proxy injects the real value on outbound requests to your JFrog host."
+    config:
+      service: jfrog
+      phase: runtime
+      apiKey:
+        # jf sends `Authorization: Bearer <JF_ACCESS_TOKEN>`. The sentinel is
+        # visible in-container; the real token remains at the proxy boundary.
+        name: JF_ACCESS_TOKEN
+        proxyManaged: true
+        inject:
+          - domain: ${{ kit.args.jfrog_host }}
+            scheme: bearer
+
+  - type: com.docker.sandbox/agent-context@1
+    config:
+      contentFile: ./jfrog-xray-context.md
