@@ -1,3 +1,8 @@
+> [!NOTE]
+> **Experimental: Sandbox Kit v3**
+>
+> This kit uses the experimental [Sandbox Kit specification](https://github.com/docker/sandbox-kit-spec), specifically [v3](https://github.com/docker/sandbox-kit-spec/blob/main/docs/spec/SPEC-v3.md). The format and runtime behavior may change before v3 is stable.
+
 # gitea — Gitea instance auth
 
 A mixin kit that wires a [Gitea](https://about.gitea.com/) access token into the sandbox proxy, so an agent can use **git over HTTPS**, the **Gitea REST API**, and the **`tea` CLI** against your instance — self-hosted or `gitea.com` — without the token ever entering the container. Pairs with any base agent (claude, codex, gemini, …).

@@ -1,3 +1,8 @@
+> [!NOTE]
+> **Experimental: Sandbox Kit v3**
+>
+> This kit uses the experimental [Sandbox Kit specification](https://github.com/docker/sandbox-kit-spec), specifically [v3](https://github.com/docker/sandbox-kit-spec/blob/main/docs/spec/SPEC-v3.md). The format and runtime behavior may change before v3 is stable.
+
 # gitguardian - GitGuardian secret scanning (ggshield)
 
 A mixin kit that installs [GitGuardian](https://www.gitguardian.com/)'s [`ggshield`](https://github.com/GitGuardian/ggshield) secret scanner into a Claude Code sandbox and wires it in as the **agent's own AI hook**, so the agent's actions are scanned for hardcoded secrets automatically, and the GitGuardian API key never enters the container.

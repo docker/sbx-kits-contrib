@@ -1,3 +1,8 @@
+> [!NOTE]
+> **Experimental: Sandbox Kit v3**
+>
+> This kit uses the experimental [Sandbox Kit specification](https://github.com/docker/sandbox-kit-spec), specifically [v3](https://github.com/docker/sandbox-kit-spec/blob/main/docs/spec/SPEC-v3.md). The format and runtime behavior may change before v3 is stable.
+
 # Mistral Vibe
 
 A standalone Docker Sandboxes kit for [Mistral Vibe](https://github.com/mistralai/mistral-vibe), Mistral AI's open source coding agent. It runs the `vibe` CLI inside a sandbox with the workspace pre-trusted, tool approval pre-granted, and the Mistral API key held by the sandbox proxy rather than by the container.

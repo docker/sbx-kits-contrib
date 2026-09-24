@@ -1,3 +1,8 @@
+> [!NOTE]
+> **Experimental: Sandbox Kit v3**
+>
+> This kit uses the experimental [Sandbox Kit specification](https://github.com/docker/sandbox-kit-spec), specifically [v3](https://github.com/docker/sandbox-kit-spec/blob/main/docs/spec/SPEC-v3.md). The format and runtime behavior may change before v3 is stable.
+
 # t3code
 
 A mixin kit that prepares a sandbox for [T3 Code](https://docs.docker.com/ai/sandboxes/integrations/t3-code/)'s SSH integration: it ships the `t3` npm package in an overlay and installs the build toolchain (`g++`, `make`, `python3`) that `node-pty` needs to compile on Linux. Pair it with any agent kit so the first T3 Code connection doesn't have to compile anything or reach the npm registry.

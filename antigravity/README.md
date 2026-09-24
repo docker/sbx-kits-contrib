@@ -1,3 +1,8 @@
+> [!NOTE]
+> **Experimental: Sandbox Kit v3**
+>
+> This kit uses the experimental [Sandbox Kit specification](https://github.com/docker/sandbox-kit-spec), specifically [v3](https://github.com/docker/sandbox-kit-spec/blob/main/docs/spec/SPEC-v3.md). The format and runtime behavior may change before v3 is stable.
+
 # Google Antigravity
 
 A standalone Docker Sandboxes workload kit (`kind: workload`, `schemaVersion: "3"`) for [Google Antigravity](https://antigravity.google/). It runs the `agy` terminal coding agent with sandbox-local permissions pre-approved and supports either Antigravity's Google OAuth login or a Gemini API key.

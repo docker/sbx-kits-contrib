@@ -1,3 +1,8 @@
+> [!NOTE]
+> **Experimental: Sandbox Kit v3**
+>
+> This kit uses the experimental [Sandbox Kit specification](https://github.com/docker/sandbox-kit-spec), specifically [v3](https://github.com/docker/sandbox-kit-spec/blob/main/docs/spec/SPEC-v3.md). The format and runtime behavior may change before v3 is stable.
+
 # qemu
 
 A mixin kit that registers **QEMU user-mode emulators** with the kernel's `binfmt_misc` using Docker ([`tonistiigi/binfmt`](https://github.com/tonistiigi/binfmt)) — the same mechanism `docker buildx` uses for cross-platform builds. Once composed onto a Docker-in-Docker agent, the sandbox can **run and build container images for non-native CPU architectures** (for example `linux/arm64` on an amd64 host, and vice versa).

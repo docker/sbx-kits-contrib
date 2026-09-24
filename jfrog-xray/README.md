@@ -1,3 +1,8 @@
+> [!NOTE]
+> **Experimental: Sandbox Kit v3**
+>
+> This kit uses the experimental [Sandbox Kit specification](https://github.com/docker/sandbox-kit-spec), specifically [v3](https://github.com/docker/sandbox-kit-spec/blob/main/docs/spec/SPEC-v3.md). The format and runtime behavior may change before v3 is stable.
+
 # jfrog-xray - JFrog Xray security and license scanning
 
 A mixin kit that installs the [JFrog CLI](https://jfrog.com/getting-started-with-jfrog-cli/) (`jf`) pre-wired to your JFrog Platform, so an agent can run **Xray** security and license scans (`jf audit`, `jf scan`, `jf docker scan`) against dependencies, binaries, and container images. Because Xray shares package metadata with Artifactory, a scan reports not just a CVE but its full impact path through your dependency graph.

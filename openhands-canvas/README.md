@@ -1,3 +1,8 @@
+> [!NOTE]
+> **Experimental: Sandbox Kit v3**
+>
+> This kit uses the experimental [Sandbox Kit specification](https://github.com/docker/sandbox-kit-spec), specifically [v3](https://github.com/docker/sandbox-kit-spec/blob/main/docs/spec/SPEC-v3.md). The format and runtime behavior may change before v3 is stable.
+
 # openhands-canvas - OpenHands Agent Canvas (web UI)
 
 A `kind: workload` kit that runs [OpenHands](https://github.com/All-Hands-AI/OpenHands) **Agent Canvas** - the browser UI plus agent-server - as a self-contained Docker sandbox on port 8000. Multi-provider (Anthropic / OpenAI / Google); API keys stay proxy-managed and never enter the sandbox. A headless runner is also installed for automation.

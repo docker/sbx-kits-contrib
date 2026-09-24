@@ -1,3 +1,8 @@
+> [!NOTE]
+> **Experimental: Sandbox Kit v3**
+>
+> This kit uses the experimental [Sandbox Kit specification](https://github.com/docker/sandbox-kit-spec), specifically [v3](https://github.com/docker/sandbox-kit-spec/blob/main/docs/spec/SPEC-v3.md). The format and runtime behavior may change before v3 is stable.
+
 # dynatrace - Dynatrace SaaS via the hosted Remote MCP server
 
 A mixin kit that wires an agent to a [Dynatrace](https://www.dynatrace.com/) SaaS environment through the official **hosted Dynatrace Remote MCP server** (nothing is installed in the sandbox): list problems, security vulnerabilities and exceptions, find entities, and run DQL against Grail. The kit holds no token; it is stored on the host and injected by the sbx proxy on the wire.

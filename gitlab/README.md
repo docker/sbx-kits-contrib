@@ -1,3 +1,8 @@
+> [!NOTE]
+> **Experimental: Sandbox Kit v3**
+>
+> This kit uses the experimental [Sandbox Kit specification](https://github.com/docker/sandbox-kit-spec), specifically [v3](https://github.com/docker/sandbox-kit-spec/blob/main/docs/spec/SPEC-v3.md). The format and runtime behavior may change before v3 is stable.
+
 # gitlab — GitLab CLI
 
 A mixin kit that installs the [GitLab CLI (`glab`)](https://gitlab.com/gitlab-org/cli) and wires up personal access token (PAT) authentication through the sandbox proxy. Pairs with any base agent (claude, codex, gemini, …). Targets gitlab.com out of the box and any self-managed instance via the `host` argument.

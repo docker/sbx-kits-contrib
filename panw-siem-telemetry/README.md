@@ -1,3 +1,8 @@
+> [!NOTE]
+> **Experimental: Sandbox Kit v3**
+>
+> This kit uses the experimental [Sandbox Kit specification](https://github.com/docker/sandbox-kit-spec), specifically [v3](https://github.com/docker/sandbox-kit-spec/blob/main/docs/spec/SPEC-v3.md). The format and runtime behavior may change before v3 is stable.
+
 # panw-siem-telemetry - forward sandbox telemetry to a SIEM
 
 A mixin kit that ships sandbox observability (process, network, file, and agent-activity logs) to a **SIEM HTTP event collector** via a background [Fluent Bit](https://fluentbit.io/) forwarder, for dashboards, correlation, and automated response. Part of the Palo Alto Networks (PANW) integration alongside [`panw-endpoint-enforcement`](../panw-endpoint-enforcement/); it targets Cortex XSIAM's HTTP Collector but works with any HTTP event collector.

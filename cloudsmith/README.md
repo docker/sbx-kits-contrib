@@ -1,3 +1,8 @@
+> [!NOTE]
+> **Experimental: Sandbox Kit v3**
+>
+> This kit uses the experimental [Sandbox Kit specification](https://github.com/docker/sandbox-kit-spec), specifically [v3](https://github.com/docker/sandbox-kit-spec/blob/main/docs/spec/SPEC-v3.md). The format and runtime behavior may change before v3 is stable.
+
 # cloudsmith - Cloudsmith artifact management
 
 A mixin kit that installs the official [Cloudsmith](https://cloudsmith.io/) CLI wired to Cloudsmith's cloud API, so an agent can push, pull, list, and manage packages across 30+ formats (Docker, npm, PyPI, Maven, Debian, RPM, Helm, Cargo, Go, NuGet, and more). The API key stays on the host; the sandbox only ever sees a placeholder.
