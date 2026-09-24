@@ -177,12 +177,13 @@ agree and fails early, rather than logging in successfully and 403-ing on
 push. Publishing under a different org needs a new connection, not a
 variable change.
 
-Every published artifact carries the same attestation flags —
-multi-platform, provenance, and an SBOM — because provenance or platform
-coverage differing between two kits, or between two pushes of one kit, is
-the kind of difference nobody notices until an artifact is missing an
-attestation. The flags are defined once in the workflow rather than per
-kit.
+Published artifacts carry the same attestation flags — multi-platform,
+provenance, and an SBOM — with one size-driven exception. Hermes Agent's
+dependency graph produces an SPDX document above BuildKit's hard 40 MiB
+attestation limit with both Scout and Syft, so `publish-kit.sh` omits its SBOM
+in `SBOM=auto` mode while retaining provenance. An explicit `SBOM=true`
+retests that limit. The policy lives in the shared script rather than a
+workflow-only override, so local and CI publishes agree.
 
 A local push, for testing under your own namespace, is the whole
 publishing story in one command:

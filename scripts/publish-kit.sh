@@ -14,6 +14,7 @@
 #   IMAGE_TAG_LATEST  default latest      — the rolling tag's name
 #   MOVE_LATEST       default true        — also tag the rolling tag
 #   PLATFORMS         default linux/amd64,linux/arm64
+#   SBOM              default auto        — true, false, or auto
 #   SBOM_GENERATOR    default dhi.io/scout-sbom-indexer:1
 #   BUILDER           optional            — --builder, for a named buildx builder
 #   CACHE_FROM        optional            — passed to --cache-from
@@ -71,6 +72,7 @@ IMAGE_NAME_PREFIX=${IMAGE_NAME_PREFIX:-sbx-kit-}
 IMAGE_TAG_LATEST=${IMAGE_TAG_LATEST:-latest}
 MOVE_LATEST=${MOVE_LATEST:-true}
 PLATFORMS=${PLATFORMS:-linux/amd64,linux/arm64}
+SBOM=${SBOM:-auto}
 SBOM_GENERATOR=${SBOM_GENERATOR:-dhi.io/scout-sbom-indexer:1}
 BUILDER=${BUILDER:-}
 CACHE_FROM=${CACHE_FROM:-}
@@ -99,6 +101,16 @@ descriptor="$REPO_ROOT/$kit/$kit.yaml"
 [ -f "$descriptor" ] ||
   die "no kit '$kit' at the repo root (expected $kit/$kit.yaml)"
 
+# Hermes' dependency graph produces an SPDX document larger than BuildKit's
+# hard 40 MiB attestation limit with both Scout and Syft. `auto` preserves
+# SBOMs everywhere else while keeping this one publishable. An explicit SBOM
+# value always wins, so the exception can be retested without editing code.
+case "$SBOM" in
+  auto) [ "$kit" = "hermes-agent" ] && sbom_enabled=false || sbom_enabled=true ;;
+  true|false) sbom_enabled=$SBOM ;;
+  *) die "SBOM must be auto, true, or false (got '$SBOM')" ;;
+esac
+
 # The reference is COMPOSED from the kit directory, never read from the
 # descriptor. There is nothing in a v3 descriptor that names where it should be
 # published, and that is the right way round: the name is this pipeline's to
@@ -125,6 +137,7 @@ log "version    : ${version}"
 log "reference  : ${ref}"
 log "tags       : ${tags}"
 log "platforms  : ${PLATFORMS}"
+log "sbom       : ${sbom_enabled}"
 
 # Both tags are arguments to ONE build. Two builds — or one build and a later
 # retag — are how `latest` and `<version>` come to describe different bytes:
@@ -146,9 +159,13 @@ args=(
   -f "$descriptor"
   --platform "$PLATFORMS"
   --provenance=true
-  --sbom="generator=${SBOM_GENERATOR}"
   -t "${ref}:${version}"
 )
+if [ "$sbom_enabled" = "true" ]; then
+  args+=(--sbom="generator=${SBOM_GENERATOR}")
+else
+  args+=(--sbom=false)
+fi
 
 # MOVE_LATEST=false is for the release path, and the reason is a footgun rather
 # than a preference. A `<kit>/vX.Y.Z` tag can sit on a commit that is not main's
@@ -215,7 +232,11 @@ if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
       echo "_The rolling \`${IMAGE_TAG_LATEST}\` tag was not moved — it follows main, not releases._"
     fi
     echo ""
-    echo "Platforms: \`${PLATFORMS}\`. Provenance and SBOM attached."
+    if [ "$sbom_enabled" = "true" ]; then
+      echo "Platforms: \`${PLATFORMS}\`. Provenance and SBOM attached."
+    else
+      echo "Platforms: \`${PLATFORMS}\`. Provenance attached; SBOM omitted because it exceeds BuildKit's attestation-size limit."
+    fi
   } >> "$GITHUB_STEP_SUMMARY"
 fi
 
