@@ -55,14 +55,14 @@ version: "${{ kit.args.version }}"
 # HOW THE DEFAULT WAS ESTABLISHED, and how to bump it: ask the base itself --
 #   docker run --rm --entrypoint opencode \
 #     docker/sandbox-templates:opencode-docker --version
-# which printed 1.18.23 at the time of writing. Not npm's `latest` (1.18.31 on
-# the same day): this kit ships whatever the template froze.
+# which printed 1.18.32 at the time of this bump. This kit ships whatever the
+# template froze, not npm's independently moving `latest`.
 #
 # THIS MUST STAY EQUAL TO ../opencode-model-runner's `version` default. Both
 # read the same template and provide the same name -- bump them together.
 args:
   version:
-    default: "1.18.23"
+    default: "1.18.32"
     pattern: '^[0-9]+\.[0-9]+\.[0-9]+$'
     description: OpenCode release the base template is expected to carry
     buildArg: EXPECTED_OPENCODE_VERSION
