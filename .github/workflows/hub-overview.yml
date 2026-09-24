@@ -154,37 +154,6 @@ jobs:
         id: kit-repo
         run: ./scripts/hub-repo-ready.sh "${{ steps.meta.outputs.kit-repository }}" >> "$GITHUB_OUTPUT"
 
-      # A first push creates a repository with the namespace's default
-      # visibility, which can be private. These kits are public distribution
-      # artifacts, so make that contract explicit instead of depending on an
-      # organization setting that can change independently of this repo.
-      - name: Ensure the kit repository is public
-        if: steps.kit-repo.outputs.ready == 'true' && env.DRY_RUN != 'true'
-        env:
-          HUB_USERNAME: ${{ vars.DOCKERPUBLICBOT_USERNAME }}
-          HUB_TOKEN: ${{ secrets.DOCKERPUBLICBOT_DELETE_PAT }}
-          HUB_REPOSITORY: ${{ steps.meta.outputs.kit-repository }}
-        run: |
-          set -euo pipefail
-          jwt=$(
-            jq -cn --arg username "$HUB_USERNAME" --arg password "$HUB_TOKEN" \
-              '{username: $username, password: $password}' |
-              curl --fail --silent --show-error \
-                --header 'Content-Type: application/json' \
-                --data-binary @- \
-                https://hub.docker.com/v2/users/login/ |
-              jq -er .token
-          )
-          response=$(
-            curl --fail --silent --show-error \
-              --request PATCH \
-              --header "Authorization: JWT $jwt" \
-              --header 'Content-Type: application/json' \
-              --data '{"is_private":false}' \
-              "https://hub.docker.com/v2/repositories/${HUB_REPOSITORY}/"
-          )
-          [ "$(jq -r .is_private <<<"$response")" = false ]
-
       - name: Sync the kit artifact's overview
         if: steps.kit-repo.outputs.ready == 'true' && env.DRY_RUN != 'true'
         uses: peter-evans/dockerhub-description@1b9a80c056b620d92cedb9d9b5a223409c68ddfa # v5.0.0
