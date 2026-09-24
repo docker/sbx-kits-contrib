@@ -146,6 +146,62 @@ jobs:
         env:
           IMAGE_NAMESPACE: ${{ vars.IMAGE_NAMESPACE || 'docker' }}
 
+      # This has to precede the unauthenticated readiness probe below: Hub
+      # reports a private repository as 404 to anonymous callers. The dedicated
+      # privacy endpoint is the only visibility API; PATCHing `is_private` on
+      # the repository resource returns success but leaves the value unchanged.
+      - name: Ensure the kit repository is public
+        if: env.DRY_RUN != 'true'
+        env:
+          HUB_USERNAME: ${{ vars.DOCKERPUBLICBOT_USERNAME }}
+          HUB_TOKEN: ${{ secrets.DOCKERPUBLICBOT_DELETE_PAT }}
+          HUB_REPOSITORY: ${{ steps.meta.outputs.kit-repository }}
+        run: |
+          set -euo pipefail
+          jwt=$(
+            jq -cn --arg username "$HUB_USERNAME" --arg password "$HUB_TOKEN" \
+              '{username: $username, password: $password}' |
+              curl --fail --silent --show-error \
+                --header 'Content-Type: application/json' \
+                --data-binary @- \
+                https://hub.docker.com/v2/users/login/ |
+              jq -er .token
+          )
+          namespace=${HUB_REPOSITORY%%/*}
+          repository=${HUB_REPOSITORY#*/}
+          base="https://hub.docker.com/v2/namespaces/${namespace}/repositories/${repository}"
+          status=$(
+            curl --silent --show-error \
+              --output /dev/null \
+              --write-out '%{http_code}' \
+              --request POST \
+              --header "Authorization: JWT $jwt" \
+              --header 'Content-Type: application/json' \
+              --data '{"is_private":false}' \
+              "${base}/privacy"
+          )
+          case "$status" in
+            200)
+              private=$(
+                curl --fail --silent --show-error \
+                  --header "Authorization: JWT $jwt" \
+                  "$base" |
+                  jq -er .is_private
+              )
+              [ "$private" = false ] || {
+                echo "::error::${HUB_REPOSITORY} remains private"
+                exit 1
+              }
+              ;;
+            404)
+              echo "::notice::${HUB_REPOSITORY} has not been published yet"
+              ;;
+            *)
+              echo "::error::Hub privacy update failed for ${HUB_REPOSITORY} (HTTP ${status})"
+              exit 1
+              ;;
+          esac
+
       # Hub renders an overview only for a repository that has something in it,
       # and PATCHing one that does not exist fails. Both are skips, not errors:
       # a kit can legitimately be waiting on its first publish. A transport
