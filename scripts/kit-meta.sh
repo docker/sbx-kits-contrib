@@ -11,7 +11,7 @@
 #   title=              displayName, falling back to the kit directory name
 #   kit-repository=     <namespace>/sbx-kit-<kit> — the kit's Hub repo
 #   short-description=  description, folded to one line and capped at Hub's
-#                       100 characters
+#                       100 UTF-8 bytes
 #
 # WHAT IS NO LONGER EMITTED, and why that is safe. v2 gave every publishing kit
 # TWO Hub repositories with two different descriptions: `<kit>-kit` for the
@@ -112,20 +112,31 @@ title=$(scalar "$descriptor" displayName)
 
 description=$(scalar "$descriptor" description)
 
-# Hub caps the short description at 100 characters and rejects longer ones, so
-# cap here rather than discovering it as an API error mid-publish.
+# Hub caps the short description at 100 UTF-8 bytes, not characters. Trim one
+# complete character at a time so punctuation such as an em dash or ellipsis
+# cannot make a visually 100-character value fail the API (or be split into
+# invalid UTF-8).
 cap() {
-  if [ ${#1} -gt 100 ]; then
+  local value=$1
+  local bytes
+  bytes=$(printf '%s' "$value" | LC_ALL=C wc -c)
+  bytes=${bytes//[[:space:]]/}
+  if [ "$bytes" -gt 100 ]; then
     # Announced, not silent: a truncated description is a descriptor worth
     # shortening by hand, and the cut is invisible in the emitted value itself.
     #
     # `>&2` explicitly, even though the script reroutes stdout to stderr: this
     # function runs inside $(…), where fd 1 is the capture pipe rather than the
     # rerouted stream, so a bare echo would land in the returned VALUE.
-    echo "notice: description exceeds Hub's 100-character limit and was cut: $1" >&2
-    printf '%s...' "${1:0:97}"
+    echo "notice: description exceeds Hub's 100-byte limit and was cut: $1" >&2
+    while [ "$bytes" -gt 97 ]; do
+      value=${value%?}
+      bytes=$(printf '%s' "$value" | LC_ALL=C wc -c)
+      bytes=${bytes//[[:space:]]/}
+    done
+    printf '%s...' "$value"
   else
-    printf '%s' "$1"
+    printf '%s' "$value"
   fi
 }
 
