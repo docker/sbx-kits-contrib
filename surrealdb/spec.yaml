@@ -1,0 +1,76 @@
+# Docker Sandboxes kit: embedded multi-model SurrealDB (documents, graph, vector
+# search) wired to a local Docker Model Runner embedder. See README.md.
+schemaVersion: "2"
+kind: mixin
+name: surrealdb
+version: "1.0.0"
+displayName: SurrealDB (Docker Model Runner)
+description: Adds an embedded, multi-model SurrealDB (documents, graph, and native vector search) plus the surrealdb Python SDK to any agent. Vector search is pre-wired to a local Docker Model Runner embedder - no cloud credentials, no separate database server.
+agentInstructions:
+  content: |
+    ## SurrealDB (embedded, multi-model)
+
+    The `surrealdb` Python SDK is installed with its embedded storage engines, so a
+    full multi-model database runs in-process - no server to start, no external
+    database. An on-disk store persists at `~/.surrealdb/data` (surrealkv), and the
+    connection + embedder config lives at `~/.surrealdb/config.json`.
+
+        from surrealdb import Surreal
+        db = Surreal("surrealkv:///home/agent/.surrealdb/data")
+        db.connect()
+        db.use("sandbox", "memory")     # embedded needs no signin
+
+    One database gives you documents, graph edges (`RELATE a->edge->b`), and native
+    vector search. For semantic memory, embed text with the local Docker Model Runner
+    and store the vector alongside the text, then query it with SurrealDB's KNN
+    operator:
+
+        DEFINE INDEX mem_vec ON memories FIELDS embedding HNSW DIMENSION 1024 DIST COSINE TYPE F32;
+        SELECT text, vector::distance::knn() AS dist FROM memories
+          WHERE embedding <|3,64|> $vec ORDER BY dist ASC;
+
+    Runnable demos live under `~/runbooks/` (`travel.py` for vector memory,
+    `graph.py` for multi-model graph queries).
+permissions:
+  network:
+    allow:
+      - pypi.org
+      - files.pythonhosted.org
+      - raw.githubusercontent.com
+      - github.com
+      - release-assets.githubusercontent.com
+      - localhost:12434
+environment:
+  variables:
+    NO_PROXY: localhost,127.0.0.1,host.docker.internal
+    OPENAI_API_KEY: dmr
+    OPENAI_BASE_URL: http://host.docker.internal:12434/engines/v1
+    SURREALDB_DB: memory
+    SURREALDB_NS: sandbox
+    SURREALDB_URL: surrealkv:///home/agent/.surrealdb/data
+    no_proxy: localhost,127.0.0.1,host.docker.internal
+setup:
+  install:
+    - command: pip install --break-system-packages 'surrealdb==2.0.0' 'openai>=1.0'
+      user: "1000"
+      description: Install the SurrealDB Python SDK (embedded storage engines bundled) plus the OpenAI client used to call the DMR embedder
+  files:
+    - path: /home/agent/.surrealdb/config.json
+      content: |
+        {
+          "db": {
+            "url": "surrealkv:///home/agent/.surrealdb/data",
+            "namespace": "sandbox",
+            "database": "memory"
+          },
+          "embedder": {
+            "provider": "openai",
+            "model": "ai/mxbai-embed-large",
+            "base_url": "http://host.docker.internal:12434/engines/v1",
+            "api_key": "dmr",
+            "dims": 1024
+          }
+        }
+      mode: "0644"
+      onlyIfMissing: true
+      description: SurrealDB connection + embedder config wired to Docker Model Runner (editable)
