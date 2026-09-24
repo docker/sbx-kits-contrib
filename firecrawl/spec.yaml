@@ -91,14 +91,15 @@ agentInstructions:
     authorization error rather than data.
 
         fc.search("flight prices", sources=["alexandria"])        # discover providers/tools
-        fc.find_tools(capabilities=["search"], limit=10)          # browse the catalogue
+        fc.find_tools(level="tools", capabilities=["search"], limit=10)   # browse the catalogue
         fc.scrape_alexandria({"provider": "<provider>", "capability": "<capability>", "options": {...}})
 
     Constraints that come from the sandbox, not from Firecrawl:
 
-    - `api.firecrawl.dev` is the only web host this sandbox can reach. A URL you
-      find in a scrape result is not fetchable with curl or requests; scrape it
-      through Firecrawl instead.
+    - This kit adds `api.firecrawl.dev` to the sandbox network policy; it does
+      not open the web. Hosts outside the policy return a proxy 403 to curl or
+      requests, so scrape any URL you find in a result through Firecrawl instead.
+      Under a deny-all policy, api.firecrawl.dev is the only web host.
     - Skip `formats=["screenshot"]` and other media formats. They return links
       on Firecrawl's storage host, which is outside the allow list, so the file
       cannot be downloaded from here.
