@@ -1,0 +1,110 @@
+schemaVersion: "2"
+kind: mixin
+name: panw-siem-telemetry
+displayName: PANW SIEM Telemetry Forwarder
+description: >-
+  Ships sandbox observability (process, network, file, and agent-activity logs)
+  to a SIEM HTTP event collector for dashboards, correlation, and automated
+  response. Closes the visibility gap for what runs inside the sandbox.
+licenses:
+  - Apache-2.0
+
+args:
+  siemCollectorHost:
+    default: "siem-collector.example.com"
+    description: "SIEM HTTP event collector ingestion host (FQDN, no scheme). Defaults to a placeholder; set it to your collector or telemetry has nowhere to ship."
+    pattern: '^[a-z0-9]([a-z0-9.-]{0,251}[a-z0-9])?$'
+  siemCollectorPath:
+    default: "/logs/v1/event"
+    description: "HTTP path on the collector to POST events to."
+    pattern: '^/[A-Za-z0-9._~/-]*$'
+  siemCollectorAuthId:
+    default: ""
+    description: >-
+      Cortex XSIAM HTTP Collector API key ID (numeric, non-secret), sent as the
+      x-xdr-auth-id header alongside the Authorization token. XSIAM requires both;
+      leave empty for collectors that authenticate with the Authorization header alone.
+    pattern: '^[0-9]*$'
+
+# The collector token is supplied out-of-band with `sbx secret set-custom`
+# (host = siemCollectorHost, env = SIEM_COLLECTOR_TOKEN). The sandbox sees only
+# a placeholder; the proxy swaps it for the real token on requests to the
+# collector, so no kit-declared credential is needed. See README.md.
+
+permissions:
+  network:
+    allow:
+      # Collector ingestion endpoint (token injected by the proxy).
+      - "${{ kit.args.siemCollectorHost }}"
+      # Prebuilt-package path (4KB-page hosts): installer script + apt repo.
+      - raw.githubusercontent.com
+      - packages.fluentbit.io
+      # Source-build path (16KB-page hosts): release tarball (github.com
+      # redirects archive downloads to codeload.github.com).
+      - github.com
+      - codeload.github.com
+      # apt (build deps on the source path; repo refresh on both). List all
+      # three ubuntu mirrors so the kit works on amd64 CI and arm64 alike;
+      # download.docker.com is on the template's apt sources and is refreshed
+      # by every apt-get update.
+      - archive.ubuntu.com
+      - security.ubuntu.com
+      - ports.ubuntu.com
+      - download.docker.com
+
+setup:
+  install:
+    # The tail input reads /var/log/sandbox/*.log; create the directory (as root,
+    # world-readable) so the forwarder - running as uid 1000 - can scan it even
+    # when this template does not pre-create it. Without this, Fluent Bit logs a
+    # "read error, check permissions" every refresh interval.
+    - command: mkdir -p /var/log/sandbox && chmod 0755 /var/log/sandbox
+      description: Ensure the host-side sandbox log directory exists for the forwarder to tail
+    # Fluent Bit's prebuilt package bundles a jemalloc compiled for 4KB memory
+    # pages; it aborts on 16KB-page hosts (the sandbox microVM on Apple Silicon)
+    # with "Unsupported system page size". So install by page size, not by arch:
+    #   - 4096-byte pages (all amd64, and 4KB-page arm64): use the fast prebuilt
+    #     package, then verify it actually runs - if not, fall through to source.
+    #   - otherwise (16KB-page arm64): build from source with FLB_JEMALLOC=Off so
+    #     the binary uses libc malloc and runs on both 4KB and 16KB pages.
+    # Both paths install to /opt/fluent-bit/bin (not on PATH), so the guard and
+    # the startup command reference that absolute path too - otherwise the
+    # install would re-run on every container start.
+    - command: >-
+        if command -v fluent-bit >/dev/null 2>&1 || [ -x /opt/fluent-bit/bin/fluent-bit ]; then exit 0; fi;
+        if [ "$(getconf PAGESIZE)" = "4096" ]; then
+        curl -fsSL https://raw.githubusercontent.com/fluent/fluent-bit/master/install.sh | sh || true;
+        /opt/fluent-bit/bin/fluent-bit --version >/dev/null 2>&1 && exit 0;
+        fi;
+        set -e;
+        apt-get update -qq;
+        DEBIAN_FRONTEND=noninteractive apt-get install -y -qq build-essential cmake flex bison libssl-dev libyaml-dev pkg-config ca-certificates curl;
+        curl -fsSL https://github.com/fluent/fluent-bit/archive/refs/tags/v5.1.2.tar.gz -o /tmp/fluent-bit-src.tar.gz;
+        mkdir -p /tmp/fluent-bit-src;
+        tar xzf /tmp/fluent-bit-src.tar.gz -C /tmp/fluent-bit-src --strip-components=1;
+        cmake -S /tmp/fluent-bit-src -B /tmp/fluent-bit-build -DFLB_JEMALLOC=Off -DFLB_RELEASE=On -DFLB_EXAMPLES=Off -DFLB_TESTS_INTERNAL=Off -DFLB_TESTS_RUNTIME=Off -DCMAKE_INSTALL_PREFIX=/opt/fluent-bit;
+        cmake --build /tmp/fluent-bit-build -j"$(nproc)";
+        cmake --install /tmp/fluent-bit-build;
+        rm -rf /tmp/fluent-bit-src /tmp/fluent-bit-src.tar.gz /tmp/fluent-bit-build
+      description: Install Fluent Bit - prebuilt on 4KB-page hosts, source build (jemalloc off) on 16KB-page hosts
+  startup:
+    # run-telemetry.sh copies the base conf, appends the Authorization /
+    # x-xdr-auth-id headers only when their values are non-empty (Fluent Bit
+    # renders an empty header value as `Key: Key`), then execs fluent-bit.
+    - command: ["sh", "/home/agent/.config/fluent-bit/run-telemetry.sh"]
+      user: "1000"
+      background: true
+      description: Forward sandbox telemetry to the SIEM collector
+
+agentInstructions:
+  content: |
+    ## SIEM telemetry
+
+    This sandbox forwards its observability data to an external SIEM HTTP event
+    collector via a Fluent Bit forwarder running in the background. Process,
+    network, file, and agent-activity logs written under `/var/log/sandbox/` and
+    `~/.sandbox/logs/` are tailed and shipped continuously.
+
+    To emit a custom event into the pipeline, append a JSON line to a `.log`
+    file under `~/.sandbox/logs/`. The collector token is proxy-managed - the
+    container never holds the real credential.

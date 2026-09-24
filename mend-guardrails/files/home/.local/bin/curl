@@ -1,0 +1,42 @@
+#!/bin/sh
+# Prefer the real curl binary; do not send OpenAI API traffic via the sandbox
+# forward proxy unless the caller already set an explicit proxy flag.
+_real=
+for _c in /usr/bin/curl /bin/curl; do
+  if [ -x "$_c" ]; then
+    _real=$_c
+    break
+  fi
+done
+if [ -z "$_real" ]; then
+  echo "curl: system curl not found" >&2
+  exit 127
+fi
+
+_explicit_proxy=0
+for _a in "$@"; do
+  case "$_a" in
+    -x|--proxy|--proxy=*|-x*) _explicit_proxy=1 ;;
+  esac
+done
+
+if [ "$_explicit_proxy" -eq 1 ]; then
+  exec "$_real" "$@"
+fi
+
+# --noproxy replaces env NO_PROXY. Merge so loopback (guardrails server)
+# is not sent to the sbx HTTP proxy, which 403s 127.0.0.1.
+_noproxy="${NO_PROXY:-${no_proxy:-}}"
+for _h in api.openai.com 127.0.0.1 localhost ::1; do
+  case ",${_noproxy}," in
+    *,${_h},*) ;;
+    *)
+      if [ -n "$_noproxy" ]; then
+        _noproxy="${_noproxy},${_h}"
+      else
+        _noproxy="${_h}"
+      fi
+      ;;
+  esac
+done
+exec "$_real" --noproxy "$_noproxy" "$@"

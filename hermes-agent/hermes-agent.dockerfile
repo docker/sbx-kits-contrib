@@ -38,7 +38,7 @@ ARG HERMES_VERSION
 # sandbox had a use for.
 
 USER agent
-WORKDIR /home/agent
+WORKDIR /home/agent/workspace
 
 # HOW THE PIN REACHES THE INSTALLER: as the git tag. `v` + the arg is the tag
 # name, which is fetched from raw.githubusercontent.com to get that release's own
@@ -149,7 +149,7 @@ LABEL com.docker.sandboxes.flavor="hermes-agent"
 LABEL com.docker.sandboxes.base="${BASE_IMAGE}"
 
 USER agent
-WORKDIR /home/agent
+WORKDIR /home/agent/workspace
 
 # v2's `sandbox.entrypoint`, verbatim. Kit content, not a script written at
 # install time: the entrypoint has to source the Anthropic auth env file the

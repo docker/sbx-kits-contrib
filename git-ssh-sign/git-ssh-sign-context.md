@@ -4,6 +4,18 @@ This sandbox signs git commits with your host's SSH key, forwarded over
 the sandbox's SSH agent relay. Use `git log --show-signature` to verify
 signatures on existing commits.
 
+A host agent often forwards more than one key. When the repository's
+remote is on github.com and the `gh` CLI is authenticated, the agent's
+keys are cross-checked against the signing keys registered on the
+committer's GitHub account, so the commit shows as Verified there and
+not only locally. On any other host, or without `gh`, the first key the
+agent offers is used.
+
+If no agent key is registered there, the commit still signs but shows
+Unverified on GitHub. Git hides that warning because it only surfaces
+the key command's stderr when the command fails; run
+`/bin/sh ~/.config/git/ssh-signing-key-command` directly to see it.
+
 Automatic signing is scoped to repositories that **have at least one
 remote**. A repository is exempt only for as long as it has no remote:
 a test fixture that runs `git init` and stops there commits unsigned,

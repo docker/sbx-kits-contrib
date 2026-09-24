@@ -1,0 +1,48 @@
+schemaVersion: "2"
+kind: mixin
+name: panw-endpoint-enforcement
+displayName: PANW Endpoint Enforcement Marker
+description: >-
+  Marks agent processes as running inside a sandbox so a host-side endpoint
+  security policy engine can permit sandbox-wrapped agents while denying any
+  agent process that spawns outside a sandbox.
+licenses:
+  - Apache-2.0
+
+args:
+  markerId:
+    default: "sandbox-wrapped"
+    description: "Identity string the host endpoint policy keys on to allow this process."
+    pattern: '^[a-z0-9]([a-z0-9-]{0,62}[a-z0-9])?$'
+
+environment:
+  variables:
+    # Host-side endpoint policy allow-lists agent processes carrying this marker.
+    # Any agent process that spawns without it is denied at the endpoint.
+    SANDBOX_ENFORCED: "1"
+    SANDBOX_ENFORCEMENT_MARKER: "${{ kit.args.markerId }}"
+
+setup:
+  files:
+    # A stable on-disk marker the endpoint agent can attest against, independent
+    # of the process environment. Written idempotently so restarts are safe.
+    - path: /home/agent/.sandbox-enforced
+      content: |
+        marker=${{ kit.args.markerId }}
+        enforced=1
+      mode: "0444"
+      onlyIfMissing: true
+      description: Write the sandbox enforcement marker file
+
+agentInstructions:
+  content: |
+    ## Endpoint enforcement
+
+    This sandbox is enrolled with a host-side endpoint security policy. Agent
+    processes are permitted **only** when they run inside a sandbox carrying the
+    enforcement marker (`SANDBOX_ENFORCED=1` and the marker file
+    `~/.sandbox-enforced`). Do not attempt to launch agent binaries outside the
+    sandbox boundary - the endpoint policy engine will block them.
+
+    The sandbox's own allow/deny network policy still applies on top of this;
+    endpoint enforcement governs *where* the agent may run, not *what* it may reach.

@@ -1,1 +1,6 @@
 .claude/settings.local.json
+
+# snyk-evo-ads: real corporate root CA certs a contributor stages locally
+# for testing must never be committed.
+snyk-evo-ads/files/home/corp-ca/*.crt
+!snyk-evo-ads/files/home/corp-ca/*.crt.example

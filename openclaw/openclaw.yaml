@@ -23,7 +23,7 @@ kind: workload
 # deliberate rather than floating.
 args:
   version:
-    default: "2026.6.5"
+    default: "2026.9.3"
     pattern: '^[0-9]+\.[0-9]+\.[0-9]+$'
     description: OpenClaw release to install
     buildArg: OPENCLAW_VERSION
@@ -62,6 +62,10 @@ capabilities:
           # openrouter/...`). Confirmed necessary via a real e2e run under
           # deny-all.
           - openrouter.ai
+          # Deliberately absent: models.opencode.ai. OpenClaw 2026.9.3 added a
+          # warn-only startup model/pricing catalog refresh against it. This
+          # kit does not widen credential-adjacent egress for optional pricing
+          # metadata.
           # Docker Hub, so `docker pull` works inside the sandbox: the kit
           # ships a Docker client and an empty image store. Manifests, token
           # auth, and the blob CDN -- cloudfront, not cloudflare, which 403s on
@@ -165,12 +169,13 @@ capabilities:
         # because the script honors it, so an operator overriding the port in
         # the sandbox environment gets the gateway they asked for rather than
         # one bound somewhere else. SBX_CRED_ANTHROPIC_MODE is the apikey/none
-        # discriminator. $HOME and $PATH are platform baseline.
+        # discriminator. $HOME and $PATH are platform baseline. DOCKER_HOST is
+        # declared because the script pulls the nested tool-call image.
         - command:
             - sh
             - /home/agent/.local/bin/openclaw-gateway-up.sh
           user: "1000"
-          env: [OPENCLAW_STATE_DIR, OPENCLAW_GATEWAY_PORT, SBX_CRED_ANTHROPIC_MODE]
+          env: [OPENCLAW_STATE_DIR, OPENCLAW_GATEWAY_PORT, SBX_CRED_ANTHROPIC_MODE, DOCKER_HOST]
           description: Start the OpenClaw gateway so the published port and CLI work without attaching the TUI
 
   # Recorded working non-interactive invocation, carried over from the v2 TCK

@@ -6,7 +6,7 @@ assistant with multi-platform chat, skills, and a gateway service.
 
 Unlike the previous version of this kit (which npm-installed Node 22 and
 openclaw at sandbox creation, ~3 minutes on first boot), this kit's content
-is **pre-baked**: Node 22, the pinned `openclaw` package, and
+is **pre-baked**: Node 24, the pinned `openclaw` package, and
 Chromium for the browser tool (saves the 60-90s playwright download on
 first browser use) all ship inside it. The descriptor itself only
 applies policy, so a new sandbox is chatting in seconds.
@@ -32,17 +32,66 @@ The gateway comes up with the container, not on attach: the kit's
 `sbx exec <sandbox> -- openclaw ...` works on a
 sandbox nobody has attached to. Startup hooks re-run on
 every container start, so a stop/start is covered too. On attach, the
-entrypoint waits for the readiness sentinel rather than bootstrapping in
-parallel — two concurrent bootstraps would each mint a different gateway
-token — and drops you into `openclaw chat` (the interactive TUI). The
+entrypoint waits rather than bootstrapping in parallel — two concurrent
+bootstraps would each mint a different gateway token — and drops you into
+`openclaw tui`, the TUI connected to that gateway. It waits on both halves of
+readiness: `/readyz`, because the sentinel is a file that outlives a
+stop/start, and the sentinel, because a turn fails outright while the
+tool-call image is missing. On a first boot it says so rather than sitting
+silent, and names the image it is waiting on.
+Not `openclaw chat`: that is an alias for `tui --local`, and openclaw refuses
+the in-process runtime while a gateway holds the same state directory, so the
+alias would exit and take the container with it. The
 gateway token is generated on first boot and stored in
 `~/.openclaw/openclaw.json`, so every later `openclaw` call inside the
 sandbox authenticates itself with no token handoff on your side.
 
 Startup hooks do not block `sbx exec`, so a script that runs `openclaw`
 immediately after the sandbox starts can beat the gateway to it. Wait for
-`~/.openclaw/gateway-ready`, the sentinel the script writes once `/readyz`
-is green.
+`~/.openclaw/gateway-ready`, the sentinel the script writes once the gateway is
+up **and** the tool-call image is local — on a first boot that is a good while
+later, and never at all if the pull fails. A script that drives the agent wants
+it, since a turn fails outright while the image is missing. Two caveats: a
+script that only needs the gateway should poll `/readyz` rather than block on a
+sentinel that may not arrive, and because the detached pull can write it after
+the bootstrap has given up, pair it with `/readyz` if you need proof the
+gateway is live now — which is what the entrypoint does.
+
+## What this kit assumes
+
+**A sandbox that sticks around, with a workspace from the host.** The gateway
+is a long-lived process whose state lives in the sandbox — its token, its
+session store, the credential the bootstrap resolved — and the kit mounts your
+workspace in from the host. Anything that discards the sandbox, or has no host
+workspace to mount, is not what this kit is shaped for.
+
+**Egress is only as narrow as the host policy.** The `network.allow` list in
+`openclaw.yaml` declares what this kit needs, and the runtime turns it into
+sandbox-scoped allow rules. Those are *additive*: they open what the kit needs
+on top of the host's global policy, and take nothing away. So the effective
+surface is the host's allowed set plus this list, minus anything the host
+denies — denies win over allows — and the default presets ship broad wildcards
+(`allow-all` is literally `**`; `balanced` carries zone-wide entries such as
+`**.googleapis.com`). "Egress is limited to a declared allowlist" therefore
+describes a host with a strict policy, not the kit on its own.
+
+The posture this kit is written for is `deny-all`, where the host contributes
+no network allows and the declared list is the whole surface. `sbx policy ls`
+shows where a host stands. Switching an already-initialised policy is not a
+one-liner: `policy init` fails as already-initialised, and `policy reset` opens
+an interactive chooser when its stdin is a terminal, which `--force` does not
+suppress. So it takes
+
+```console
+sbx policy reset --force </dev/null
+sbx policy init deny-all </dev/null
+```
+
+and it is global: the reset terminates every running sandbox, not only this
+kit's, and clears the policy for all of them. This repo's e2e runs every kit
+under `deny-all` in a daemon scoped by `--app-name`, which is why the declared
+list is known sufficient there — and why a domain missing from it is
+unreachable even when a credential block names it.
 
 ## Step by step
 
@@ -57,15 +106,13 @@ sandbox exists. For an Anthropic API key:
 sbx secret set anthropic
 ```
 
-For a Claude subscription token from `claude setup-token`, use the
-`set-custom` form under
-[Barebones sandbox](#barebones-sandbox-no-credential-yet) instead. The two are
-not interchangeable on the wire, and binding both at once puts two auth headers
-on the request.
+On a Claude subscription rather than an API key, the credential has to be an
+OAuth login, signed in once from a `claude` sandbox — see
+[Barebones sandbox](#barebones-sandbox-no-credential-yet). A token from
+`claude setup-token` is not a third option; it cannot authenticate here.
 
-If the host already holds an anthropic OAuth login — signed in from a `claude`
-sandbox — there is nothing to store: skip to step 2 rather than overwriting it
-with `sbx secret set anthropic`.
+If the host already holds that OAuth login there is nothing to store: skip to
+step 2 rather than overwriting it with `sbx secret set anthropic`.
 
 **2. Start it.**
 
@@ -73,9 +120,9 @@ with `sbx secret set anthropic`.
 sbx run --kit "docker.io/docker/sbx-kit-openclaw:latest" openclaw
 ```
 
-You land in `openclaw chat`. A reply there means the provider credential is
-wired — the TUI runs the agent in-process rather than through the gateway, so
-it is steps 3 and 4 that exercise the gateway and its token.
+You land in `openclaw tui`, connected to the gateway. A reply there means the
+whole path is wired: the gateway, its token, and the provider credential the
+gateway resolved at startup.
 
 The remaining steps are host-side `sbx` commands, so run them from a second
 terminal while the TUI holds this one. `<sandbox-name>` below is the name
@@ -114,18 +161,19 @@ Straight after a start, wait for `~/.openclaw/gateway-ready` first — startup
 commands do not block `sbx exec`, as [Usage](#usage) covers.
 
 **5. Change the credential, or move to a newer kit.** What is fixed at create
-time is the *binding*: going from none to bound, switching shape, or re-running
-`set-custom`, whose `{rand}` placeholder is minted afresh so the running sandbox
-holds a stale one. Kit content is fixed at create time too. Rotating the value
+time is the *binding*: going from none to bound, or switching between an API
+key and an OAuth login. Kit content is fixed at create time too. Rotating the value
 behind a binding that already exists is a smaller change, but a running sandbox
 can go on serving what it synced at create — if calls still fail after a
 rotation, recreate rather than debug it.
 
-Switching shape means removing the old binding first, or both stay bound and
-the request carries two auth headers — `sbx secret rm anthropic` for the
-service secret, `sbx secret rm --host api.anthropic.com` for the custom one.
-Check what `anthropic` holds before removing it: if it is the host's OAuth
-login, that entry is shared with every other sandbox, not just this kit.
+Switching shape means clearing the old binding first: `sbx secret rm anthropic`
+covers both supported shapes, since an API key and an OAuth login are the same
+service entry. (A *custom* secret is a different object and needs
+`sbx secret rm -g --host api.anthropic.com` — but it was never authenticating
+anything here, per [Model provider](#model-provider).) Check what it holds
+before removing it — if it is the OAuth login, that entry is shared with every
+other sandbox on the host, not just this kit.
 
 Then recreate:
 
@@ -146,23 +194,18 @@ the kit it booted from.
 
 ### Pinning a kit revision
 
-`latest` follows `main`, so it moves. Every build also publishes an immutable
-`<YYYYMMDD>-<sha>` tag resolving to the same digest — pin that to hold a
-sandbox on a known revision of this kit:
+`latest` follows `main`, so it moves. The version tag selects the OpenClaw
+release declared by this kit:
 
 ```console
-sbx run --kit "docker.io/docker/sbx-kit-openclaw:20260828-4da0c58e0844b8358e0353c020bf7a438e01f8ca" openclaw
+sbx run --kit "docker.io/docker/sbx-kit-openclaw:2026.9.3" openclaw
 ```
 
-In v3 that pins **everything**: the descriptor, the egress policy, the startup
-scripts *and* the filesystem they run in. A v3 kit is one image — there is no
-separate `sandbox.image` left to float out from under a pinned kit, which was
-the caveat this section used to carry. What floated is now resolved at build
-time: the base template the recipe was built on, and the `openclaw` release its
-`args.version` named.
-
-[PUBLISHING.md](../PUBLISHING.md#tags) has the scheme, and why there is no bare
-`<sha>` tag.
+A v3 kit is one image, so that reference selects the descriptor, policy,
+startup scripts, and filesystem together. Scheduled rebuilds may move a
+version tag when its floating base changes; pin the image digest when the exact
+bytes must remain fixed. [PUBLISHING.md](../PUBLISHING.md#tags) describes the
+tagging model.
 
 ## Published ports
 
@@ -189,28 +232,50 @@ OpenClaw picks the wire format from the token it holds — a value containing
 headers, anything else as `x-api-key` — and Anthropic rejects either shape sent
 in the wrong header. So the kit's job is to hand it the shape that matches the
 credential the host actually holds. `openclaw-gateway-up.sh` works that out and
-writes it to an env file that the gateway and the TUI (which runs the agent
-in-process, not through the gateway) both read. A `sbx exec` shell picks it up
-via the `~/.profile` hook, so scripted calls that dispatch in-process need
-`sh -lc`.
+writes it to an env file the gateway reads at startup. The TUI does not need
+it — it runs the agent through the gateway — but anything dispatching
+in-process does, and a `sbx exec` shell picks it up via the `~/.profile` hook,
+so those calls need `sh -lc`.
 
-| host credential | sandbox receives | wire format |
-|---|---|---|
-| API key — `sbx secret set anthropic` | `ANTHROPIC_API_KEY` sentinel | `x-api-key` |
-| OAuth login — sign in from a `claude` sandbox | OAuth credential file | `Bearer` |
-| `claude setup-token` — custom secret ([below](#barebones-sandbox-no-credential-yet)) | `ANTHROPIC_OAUTH_TOKEN` placeholder | `Bearer` |
-| none | placeholder unset | reports itself unconfigured |
+Two host credentials work, and there is no third — see
+[below](#barebones-sandbox-no-credential-yet) for how to arrange either.
+
+| host credential | the token looks like | sandbox receives | wire format |
+|---|---|---|---|
+| API key — `sbx secret set anthropic` | `sk-ant-api…` | `ANTHROPIC_API_KEY=proxy-managed` | `x-api-key` |
+| OAuth login — signed in from a `claude` sandbox | `sk-ant-oat01-…` | a credential file holding `sk-ant-oat01-proxy-managed` | `Bearer` |
+| none | — | placeholder unset | reports itself unconfigured |
+
+Those `proxy-managed` values are **sentinels**: fixed strings the proxy hands
+the sandbox in place of the real credential, and swaps back out on requests to
+`api.anthropic.com`. So the real token never enters the container. An OAuth
+login is really a pair — the access token above and a `sk-ant-ort01-…` refresh
+token, sentinelled the same way — and the proxy refreshes it on your behalf, so
+neither is yours to handle.
+
+**A `claude setup-token` string cannot be used here** — and note it is a
+genuine `sk-ant-oat01-…` token, indistinguishable by eye from the one the OAuth
+login uses, which is what makes this worth spelling out. Storing one as a
+custom secret against `api.anthropic.com` looks like it should work: the
+sandbox receives an OAuth-shaped `ANTHROPIC_OAUTH_TOKEN`, and OpenClaw duly
+sends it as `Bearer`. But the request reaches Anthropic without that header,
+and Anthropic answers `authentication_error: x-api-key header is required`.
+This kit declares credentials for `api.anthropic.com`, so the proxy manages
+auth on that host: it carries the sentinel it issued itself, and drops a bearer
+it did not. What settles it: an obviously invalid bearer token, and no
+`Authorization` header at all, produce byte-identical responses.
 
 `SBX_CRED_ANTHROPIC_MODE` cannot make this decision on its own: it reports
 `none` for an OAuth login as well as for no credential at all, so the OAuth
 case is detected from the materialized credential file instead.
 
-**Only one binding at a time.** A service secret makes the proxy *set*
-`x-api-key` on `api.anthropic.com` — that is what the `credential@1`
-capability's `apiKey.inject` rule asks for. Combined with
-a bearer request that is two auth headers, and Anthropic rejects it outright —
-so `API key is invalid` on the custom-secret path means a stale service secret
-is still bound.
+**One binding, and no leftovers.** A service secret makes the proxy *set*
+`x-api-key` on `api.anthropic.com` through the `credential@1` capability, and the two
+supported shapes are both the `anthropic` service entry, so they cannot be held
+at once. A custom secret left bound to that host from an earlier attempt is
+worth clearing (`sbx secret rm -g --host api.anthropic.com`): it cannot
+authenticate anything here, and it makes `sbx secret ls` read as though a
+credential is configured when the one that counts is not.
 
 ### Barebones sandbox: no credential yet
 
@@ -222,26 +287,43 @@ instead of treating the placeholder as a real key and telling you to re-run an
 `/auth` flow that cannot succeed — it needs a TTY the TUI's subprocess does not
 get.
 
-To give it a Claude subscription credential, run `claude setup-token` on a
-machine with Claude Code, then:
+Pick whichever credential you actually have. Both are the host's `anthropic`
+service entry, so you hold one or the other, not both.
+
+**An API key** is the short path:
 
 ```console
-# Required: a service secret would collide, per the note above. Check what it
-# holds first -- if `anthropic` is the host's OAuth login, this removes it for
-# every sandbox, not just this one.
-sbx secret rm anthropic
-
-# Reads the token from stdin, so it stays out of shell history.
-sbx secret set-custom \
-  --host api.anthropic.com \
-  --env ANTHROPIC_OAUTH_TOKEN \
-  --placeholder 'sk-ant-oat01-{rand}'
+# Prompts and reads from stdin, so the key stays out of shell history.
+sbx secret set anthropic
 ```
 
-`{rand}` is expanded when the secret is stored, so the sandbox receives an
-OAuth-shaped `ANTHROPIC_OAUTH_TOKEN` such as `sk-ant-oat01-c2kjiKGuE9Qcfibj`,
-and the proxy swaps the placeholder for the real token on egress to `--host`.
-For an API key instead, `echo "$ANTHROPIC_API_KEY" | sbx secret set anthropic`.
+**A Claude subscription** has to become an OAuth login in sbx, and that cannot
+be started from the CLI — sbx says so itself:
+
+```
+anthropic OAuth cannot be started from `sbx secret set`; sign in from inside
+the Claude sandbox
+```
+
+So sign in once from a `claude` sandbox, which stores the login for every
+sandbox on that host:
+
+```console
+sbx run claude          # then /login inside, and exit
+sbx secret ls           # anthropic should read "(oauth configured)"
+```
+
+From then on this kit resolves it with no further setup: the proxy materializes
+the credential file the bootstrap keys off, holds the real token host-side, and
+refreshes it when it expires.
+
+Two things worth knowing before you reach for the token from `claude
+setup-token` instead. It cannot work here, for the reason in
+[Model provider](#model-provider) above. And an OAuth login is per credential
+store, so a sandbox created under `--app-name` (or `DOCKER_SANDBOXES_APP_NAME`)
+sees only that store's credentials — signing in on the default daemon does not
+reach an isolated one, and the symptom is a 401 on the first message rather
+than anything at create time.
 
 Either way, **recreate the sandbox** — credential *bindings* and kit content are
 wired at create time, so a running sandbox never picks up a newly bound secret.
@@ -278,7 +360,7 @@ root filesystem — so this kit carries the whole environment. It builds from
 ```
 the openclaw kit's content
 └── FROM ${BASE_IMAGE}  (defaults to docker/sandbox-templates:shell-docker)
-    ├── Node 22 (openclaw requires >= 22.19)
+    ├── Node 24 (openclaw 2026.9.3 requires >= 24.16.0 < 25, or >= 26.1.0)
     ├── openclaw @ args.version     npm global install (+ /usr/local/bin symlink)
     ├── /opt/ms-playwright          Chromium + xvfb for the browser tool
     └── files/home/                 the startup scripts and gateway config
@@ -313,7 +395,7 @@ Upstream versions are date-based and release ~daily; bump the descriptor's
 
 ```console
 docker build -f openclaw/openclaw.dockerfile \
-  --build-arg OPENCLAW_VERSION=2026.6.5 -t openclaw-kit:latest openclaw
+  --build-arg OPENCLAW_VERSION=2026.9.3 -t openclaw-kit:latest openclaw
 ./scripts/test-kit.sh openclaw
 ```
 
@@ -329,11 +411,13 @@ descriptor is the build target, and the frontend validates it on the way.
 | Symptom | Cause |
 |---|---|
 | `No API key found for provider "anthropic"` | No credential bound on the host, or a bound OAuth login whose credential file did not materialize. Check `sbx secret ls` before storing anything. |
-| `authentication_error: API key is invalid` | The credential reached Anthropic in the wrong shape — a subscription token bound as a service secret, a stale service secret still setting `x-api-key`, or a rotated value the running sandbox has not picked up. |
-| `authentication_error: OAuth access token is invalid` | The bearer placeholder went out unswapped: no credential is bound for that host, the host login behind it has expired or been revoked, or `set-custom` was re-run and minted a fresh `{rand}` the running sandbox never saw. |
+| `authentication_error: API key is invalid` | The API key the proxy sent was rejected: wrong key, revoked, or a rotated value this sandbox has not picked up (bindings are wired at create time). |
+| `authentication_error: x-api-key header is required` | A bearer the proxy does not recognise as its own sentinel is not carried to `api.anthropic.com` — it manages auth on that host. Usually a `claude setup-token` string bound as a custom secret; see [Model provider](#model-provider). |
+| `authentication_error: OAuth access token is invalid` | The bearer sentinel went out unswapped: no OAuth login is stored in the credential store this sandbox was created under, or the login behind it has expired or been revoked. |
 | `auth flow failed (exit 1)` after `/auth` | Interactive login needs a TTY the TUI's subprocess does not get. Credentials belong on the host. |
 | `Sandbox image not found: docker/sandbox-templates:shell-docker. Build or pull it first.` | The first-boot pull of the tool-call image has not landed yet. Check `~/.openclaw/sandbox-image-pull.log`. |
 | A newly bound secret changes nothing | Bindings are wired at create time. Create a fresh sandbox. |
+| `remote model catalog refresh failed` on every gateway start | Expected. The catalog host is deliberately outside the runtime network allowlist (see `openclaw.yaml`); the refresh is warn-only and the gateway reports ready regardless. |
 
 ## Debugging
 

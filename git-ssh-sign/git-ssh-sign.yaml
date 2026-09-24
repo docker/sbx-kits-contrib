@@ -25,13 +25,18 @@ version: "1.0.0"
 requires: ["deb/openssh-client"]
 
 # MIGRATION NOTE: no network-policy@1 entry, faithfully. The v2 kit
-# declared no `permissions.network` block and this kit reaches nothing:
-# the key is resolved from the forwarded SSH agent over a unix socket, and
-# the includeIf probe below builds a throwaway repo whose remote is never
-# contacted. An absent capability contributes nothing to the composition's
-# egress union, which is exactly what the v2 absence meant.
+# originally declared no `permissions.network` block. The signing-key command
+# now cross-checks GitHub signing keys when a github.com remote and an
+# authenticated `gh` CLI are both present, so that one API host is required.
 
 capabilities:
+  - type: com.docker.sandbox/network-policy@1
+    config:
+      runtime:
+        allow:
+          # GET /users/{username}/ssh_signing_keys.
+          - api.github.com
+
   - type: com.docker.sandbox/lifecycle@1
     config:
       install:
