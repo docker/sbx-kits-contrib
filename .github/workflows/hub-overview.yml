@@ -151,11 +151,16 @@ jobs:
         env:
           IMAGE_NAMESPACE: ${{ vars.IMAGE_NAMESPACE || 'docker' }}
 
-      # This has to precede the unauthenticated readiness probe below: Hub
-      # deliberately reports a private repository as 404 to anonymous callers,
-      # so gating this PATCH on that probe creates a private-forever loop.
+      # Hub renders an overview only for a repository that has something in it,
+      # and PATCHing one that does not exist fails. Both are skips, not errors:
+      # a kit can legitimately be waiting on its first publish. A transport
+      # failure is NOT a skip — the script exits non-zero for that.
+      - name: Is the kit artifact's repository published?
+        id: kit-repo
+        run: ./scripts/hub-repo-ready.sh "${{ steps.meta.outputs.kit-repository }}" >> "$GITHUB_OUTPUT"
+
       - name: Ensure the kit repository is public
-        if: env.DRY_RUN != 'true'
+        if: steps.kit-repo.outputs.ready == 'true' && env.DRY_RUN != 'true'
         env:
           HUB_USERNAME: ${{ vars.DOCKERPUBLICBOT_USERNAME }}
           HUB_TOKEN: ${{ secrets.DOCKERPUBLICBOT_DELETE_PAT }}
@@ -171,40 +176,18 @@ jobs:
                 https://hub.docker.com/v2/users/login/ |
               jq -er .token
           )
-          response=$(mktemp)
-          status=$(
-            curl --silent --show-error \
-              --output "$response" \
-              --write-out '%{http_code}' \
+          response=$(
+            curl --fail --silent --show-error \
               --request PATCH \
               --header "Authorization: JWT $jwt" \
               --header 'Content-Type: application/json' \
               --data '{"is_private":false}' \
               "https://hub.docker.com/v2/repositories/${HUB_REPOSITORY}/"
           )
-          case "$status" in
-            200)
-              [ "$(jq -r .is_private "$response")" = false ] || {
-                echo "::error::Hub accepted the PATCH but ${HUB_REPOSITORY} remains private"
-                exit 1
-              }
-              ;;
-            404)
-              echo "::notice::${HUB_REPOSITORY} has not been published yet"
-              ;;
-            *)
-              echo "::error::Hub visibility PATCH failed for ${HUB_REPOSITORY} (HTTP ${status})"
-              exit 1
-              ;;
-          esac
-
-      # Hub renders an overview only for a repository that has something in it.
-      # A genuinely absent repository is a skip, not an error: a new kit can
-      # legitimately be waiting on its first publish. A transport failure is
-      # NOT a skip — the script exits non-zero for that.
-      - name: Is the kit artifact's repository published?
-        id: kit-repo
-        run: ./scripts/hub-repo-ready.sh "${{ steps.meta.outputs.kit-repository }}" >> "$GITHUB_OUTPUT"
+          [ "$(jq -r .is_private <<<"$response")" = false ] || {
+            echo "::error::Hub accepted the PATCH but ${HUB_REPOSITORY} remains private"
+            exit 1
+          }
 
       - name: Sync the kit artifact's overview
         if: steps.kit-repo.outputs.ready == 'true' && env.DRY_RUN != 'true'
