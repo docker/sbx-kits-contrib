@@ -1,0 +1,270 @@
+schemaVersion: "2"
+kind: mixin
+name: terraform-ops
+displayName: Terraform Ops Kit
+description: |
+  Multi-cloud Terraform toolkit for AI-assisted infrastructure-as-code management. Pre-installs terraform, terragrunt, tflint, checkov, and infracost for automated IaC validation, security scanning, and cost estimation. Works with any sbx agent (Claude, Gemini, Copilot). Perfect for sandbox-based Terraform development where the AI agent can plan, validate, and audit infrastructure autonomously.
+agentInstructions:
+  content: |
+    ## Terraform Ops Kit
+
+    This sandbox is configured with a complete Terraform infrastructure-as-code toolkit:
+
+    ### Installed Tools
+    - **terraform** — Infrastructure-as-code framework
+    - **terragrunt** — Multi-environment orchestration wrapper
+    - **tflint** — Terraform code linter
+    - **checkov** — Security and compliance scanning for IaC
+    - **infracost** — Cost estimation for Terraform plans
+    - **aws-cli** — AWS cloud provider CLI
+
+    ### AI-Assisted Workflows
+
+    Ask Claude/Gemini to:
+    ```
+    "Plan this Terraform project and scan for security issues"
+    → Runs: terraform init && terraform plan && checkov -d .
+    → AI returns: validated plan + security report
+
+    "Estimate monthly costs for this infrastructure"
+    → Runs: infracost breakdown --path .
+    → AI returns: cost breakdown by resource
+
+    "Lint this Terraform code"
+    → Runs: tflint .
+    → AI returns: linting violations + fixes
+    ```
+
+    ### Quick Reference
+
+    ```bash
+    # Initialize Terraform workspace
+    terraform init
+
+    # Validate and lint
+    terraform validate
+    tflint .
+
+    # Plan infrastructure changes
+    terraform plan -out=tfplan
+
+    # Estimate costs
+    infracost breakdown --path .
+
+    # Security scan
+    checkov -d .
+
+    # Apply with orchestration (if using Terragrunt)
+    terragrunt apply-all
+    ```
+
+    ### Configuration Files
+
+    - **~/.tflint.hcl** — tflint rules and plugin configuration
+    - **~/.checkov.yml** — checkov framework and exclusions
+    - **$WORKDIR/terraform** — Your Terraform code (mounted workspace)
+
+    ### AWS Credentials
+
+    Pass AWS credentials in at sandbox creation with `--env`/`-e` or
+    `--env-file` — e.g. `AWS_PROFILE`, or `AWS_ACCESS_KEY_ID` /
+    `AWS_SECRET_ACCESS_KEY` / `AWS_SESSION_TOKEN`.
+
+    Use `aws sts get-caller-identity` to verify authentication.
+
+    ### Next Steps
+
+    1. Create a sandbox for your Terraform project: `sbx create --kit ./terraform-ops-kit/ claude /path/to/tf-project`
+    2. Ask the AI agent to plan, validate, and audit
+    3. Review outputs and iterate
+permissions:
+  network:
+    allow:
+      - apt.releases.hashicorp.com
+      - github.com
+      - raw.githubusercontent.com
+      - release-assets.githubusercontent.com
+      - pypi.org
+      - files.pythonhosted.org
+      - awscli.amazonaws.com
+      - archive.ubuntu.com
+      - security.ubuntu.com
+      - ports.ubuntu.com
+      - download.docker.com
+      - infracost.io
+      - pricing.api.infracost.io
+environment:
+  variables:
+    CHECKOV_FRAMEWORK: terraform
+    INFRACOST_SKIP_UPDATE_CHECK: "true"
+    TF_IN_AUTOMATION: "1"
+    TF_INPUT: "false"
+setup:
+  install:
+    - command: |
+        set -euo pipefail
+        apt-get update -qq
+        apt-get install -y -qq curl gpg unzip python3-pip ca-certificates
+        rm -rf /var/lib/apt/lists/*
+      user: "0"
+      description: 'Install prerequisite packages: curl, gpg, unzip, python3-pip'
+    - command: |
+        set -euo pipefail
+        curl -fsSL --retry 3 --retry-delay 2 --retry-all-errors https://apt.releases.hashicorp.com/gpg \
+          | gpg --dearmor -o /usr/share/keyrings/hashicorp-archive-keyring.gpg
+        UBUNTU_RELEASE=$(grep UBUNTU_CODENAME /etc/os-release | cut -d= -f2)
+        echo "deb [signed-by=/usr/share/keyrings/hashicorp-archive-keyring.gpg] https://apt.releases.hashicorp.com ${UBUNTU_RELEASE} main" \
+          | tee /etc/apt/sources.list.d/hashicorp.list
+        apt-get update -qq
+        apt-get install -y terraform
+        rm -rf /var/lib/apt/lists/*
+        terraform version
+      user: "0"
+      description: Install Terraform from HashiCorp official APT repository
+    - command: |
+        set -euo pipefail
+        TERRAGRUNT_VERSION=0.59.3
+        ARCH=$(dpkg --print-architecture)
+        case "$ARCH" in
+          amd64)
+            TARBALL="terragrunt_linux_amd64"
+            SHA256="550fda546657e41eed23fc4ca128456a880ce6cf4e25794e2746570811d0614a"
+            ;;
+          arm64)
+            TARBALL="terragrunt_linux_arm64"
+            SHA256="a0a8873597fc56f1edfc1aa8335143b0663dc153ec10a3df010bbacfddd3d550"
+            ;;
+          *)
+            echo "unsupported arch: $ARCH (expected amd64 or arm64)" >&2
+            exit 1
+            ;;
+        esac
+        URL="https://github.com/gruntwork-io/terragrunt/releases/download/v${TERRAGRUNT_VERSION}/${TARBALL}"
+        curl --proto '=https' --tlsv1.2 -fsSL --retry 3 --retry-delay 2 --retry-all-errors -o /tmp/terragrunt "$URL"
+        echo "${SHA256}  /tmp/terragrunt" | sha256sum -c -
+        install -m 0755 /tmp/terragrunt /usr/local/bin/terragrunt
+        rm /tmp/terragrunt
+        terragrunt --version
+      user: "0"
+      description: Install Terragrunt v0.59.3, version+digest pinned
+    - command: |
+        set -euo pipefail
+        TFLINT_VERSION=0.57.0
+        ARCH=$(dpkg --print-architecture)
+        case "$ARCH" in
+          amd64)
+            ZIP="tflint_linux_amd64.zip"
+            SHA256="8551b2363fefe1eecdca611d7a6f6e596348c30a45cc65e5d044bf5103ba1aea"
+            ;;
+          arm64)
+            ZIP="tflint_linux_arm64.zip"
+            SHA256="095705da7a40c1673505b1c789250f288f616c24632e05660d96bacebedcfbd5"
+            ;;
+          *)
+            echo "unsupported arch: $ARCH (expected amd64 or arm64)" >&2
+            exit 1
+            ;;
+        esac
+        URL="https://github.com/terraform-linters/tflint/releases/download/v${TFLINT_VERSION}/${ZIP}"
+        curl --proto '=https' --tlsv1.2 -fsSL --retry 3 --retry-delay 2 --retry-all-errors -o /tmp/tflint.zip "$URL"
+        echo "${SHA256}  /tmp/tflint.zip" | sha256sum -c -
+        unzip -o /tmp/tflint.zip -d /usr/local/bin/
+        rm /tmp/tflint.zip
+        tflint --version
+      user: "0"
+      description: Install tflint v0.57.0, version+digest pinned
+    - command: |
+        set -euo pipefail
+        # --break-system-packages: the template uses PEP 668 externally-managed
+        # Python. --ignore-installed: Debian-packaged deps (e.g. python3-packaging)
+        # ship without RECORD files so pip can't uninstall them.
+        pip install --break-system-packages --ignore-installed checkov
+        checkov --version
+      user: "0"
+      description: Install checkov (security scanner for IaC) via pip
+    - command: |
+        set -euo pipefail
+        INFRACOST_VERSION=0.10.31
+        ARCH=$(dpkg --print-architecture)
+        case "$ARCH" in
+          amd64)
+            TARBALL="infracost-linux-amd64.tar.gz"
+            SHA256="73c6422a043b66ed511ccbfd87dc515547a907a6db2cca8afd2d70c98cc670dc"
+            ;;
+          arm64)
+            TARBALL="infracost-linux-arm64.tar.gz"
+            SHA256="0c1901c27b96a29efdb6623aa0c65f9f0fe95c7fa086006548ff473a1a9289f1"
+            ;;
+          *)
+            echo "unsupported arch: $ARCH (expected amd64 or arm64)" >&2
+            exit 1
+            ;;
+        esac
+        URL="https://github.com/infracost/infracost/releases/download/v${INFRACOST_VERSION}/${TARBALL}"
+        curl --proto '=https' --tlsv1.2 -fsSL --retry 3 --retry-delay 2 --retry-all-errors -o /tmp/infracost.tar.gz "$URL"
+        echo "${SHA256}  /tmp/infracost.tar.gz" | sha256sum -c -
+        tar -xzf /tmp/infracost.tar.gz -C /tmp/
+        mv /tmp/infracost-linux-${ARCH} /usr/local/bin/infracost
+        chmod +x /usr/local/bin/infracost
+        rm /tmp/infracost.tar.gz
+        infracost --version
+      user: "0"
+      description: Install infracost v0.10.31, version+digest pinned
+    - command: |
+        set -euo pipefail
+        ARCH=$(dpkg --print-architecture)
+        case "$ARCH" in
+          amd64) AWS_ZIP="awscli-exe-linux-x86_64.zip";;
+          arm64) AWS_ZIP="awscli-exe-linux-aarch64.zip";;
+          *)
+            echo "unsupported arch: $ARCH (expected amd64 or arm64)" >&2
+            exit 1
+            ;;
+        esac
+        cd /tmp
+        curl --proto '=https' --tlsv1.2 -fsSL --retry 3 --retry-delay 2 --retry-all-errors -o awscliv2.zip \
+          "https://awscli.amazonaws.com/${AWS_ZIP}"
+        unzip -q awscliv2.zip
+        ./aws/install --update
+        rm -rf awscliv2.zip aws
+        aws --version
+      user: "0"
+      description: Install AWS CLI v2 (arch-aware, from AWS CDN)
+  files:
+    - path: /home/agent/.tflint.hcl
+      content: |
+        config {
+          module = true
+          force  = false
+        }
+
+        plugin "terraform" {
+          enabled = true
+          version = "0.9.0"
+          source  = "github.com/terraform-linters/tflint-ruleset-terraform"
+
+          rules = [
+            "terraform_comment_syntax",
+            "terraform_documented_outputs",
+            "terraform_documented_variables",
+            "terraform_required_version",
+            "terraform_required_providers",
+            "terraform_typed_variables",
+            "terraform_unused_declarations",
+            "terraform_unused_required_providers",
+            "terraform_workspace_remote",
+          ]
+        }
+      mode: "0644"
+      description: Default tflint configuration
+    - path: /home/agent/.checkov.yml
+      content: |
+        framework:
+          - terraform
+        compact: true
+        skip-check:
+          # Skip noisy checks (customize as needed for your organization)
+          - CKV_AWS_1
+          - CKV_AWS_158
+      mode: "0644"
+      description: Default checkov configuration
