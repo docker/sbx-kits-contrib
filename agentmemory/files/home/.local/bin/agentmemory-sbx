@@ -1,0 +1,31 @@
+#!/bin/sh
+set -eu
+
+root=$(CDPATH= cd -- "$(dirname -- "$0")/../share/agentmemory-sbx" && pwd)
+export HOME="$root/home"
+export PATH="$HOME/.agentmemory/bin:$PATH"
+export CI=1
+export AGENTMEMORY_DATA_DIR="$HOME/.agentmemory/data"
+export AGENTMEMORY_URL=http://127.0.0.1:3111
+export AGENTMEMORY_VIEWER_HOST=127.0.0.1
+export NO_PROXY="${NO_PROXY:+$NO_PROXY,}127.0.0.1,localhost"
+export no_proxy="$NO_PROXY"
+export AGENTMEMORY_III_VERSION=0.11.2
+export AGENTMEMORY_USE_DOCKER=0
+export III_REST_PORT=3111 III_STREAM_PORT=3112 III_ENGINE_PORT=49134
+export III_ENGINE_URL=ws://127.0.0.1:49134
+export AGENTMEMORY_SECRET=
+export ANTHROPIC_API_KEY= OPENAI_API_KEY= GEMINI_API_KEY= GOOGLE_API_KEY=
+export OPENROUTER_API_KEY= MINIMAX_API_KEY= VOYAGE_API_KEY= COHERE_API_KEY=
+export OPENAI_BASE_URL= FALLBACK_PROVIDERS=
+export EMBEDDING_PROVIDER=none AGENTMEMORY_ALLOW_AGENT_SDK=false
+export AGENTMEMORY_AUTO_COMPRESS=false CONSOLIDATION_ENABLED=false
+export GRAPH_EXTRACTION_ENABLED=false AGENTMEMORY_IMAGE_EMBEDDINGS=false
+
+package="$root/runtime/node_modules/@agentmemory/agentmemory/dist"
+if [ "${1:-}" = mcp ]; then
+  shift
+  exec node "$root/mcp.mjs" "$@"
+fi
+cd "$root"
+exec node "$package/cli.mjs" "$@"
