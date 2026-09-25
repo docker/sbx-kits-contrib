@@ -58,6 +58,18 @@ try {
     const { tools } = await request("tools/list");
     assert(tools.some(tool => tool.name === "memory_save"));
     assert(tools.some(tool => tool.name === "memory_recall"));
+    const tables = await Promise.all(
+      ["/proc/net/tcp", "/proc/net/tcp6"].map(path => readFile(path, "utf8")),
+    );
+    const sockets = tables.flatMap(table => table.trim().split("\n").slice(1))
+      .map(line => line.trim().split(/\s+/))
+      .filter(columns => columns[3] === "0A");
+    for (const port of [3111, 3112, 3113, 49134]) {
+      const addresses = sockets
+        .filter(columns => parseInt(columns[1].split(":")[1], 16) === port)
+        .map(columns => columns[1].split(":")[0]);
+      assert.deepEqual(addresses, ["0100007F"], `Port ${port} must listen only on 127.0.0.1`);
+    }
   }
 
   const result = await request("tools/call", mode === "recall" ? {

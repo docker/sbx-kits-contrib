@@ -6,6 +6,7 @@ export HOME="$root/home"
 export PATH="$HOME/.agentmemory/bin:$PATH"
 export CI=1
 export AGENTMEMORY_DATA_DIR="$HOME/.agentmemory/data"
+export AGENTMEMORY_III_CONFIG="$root/iii-config.yaml"
 export AGENTMEMORY_URL=http://127.0.0.1:3111
 export AGENTMEMORY_VIEWER_HOST=127.0.0.1
 export NO_PROXY="${NO_PROXY:+$NO_PROXY,}127.0.0.1,localhost"
