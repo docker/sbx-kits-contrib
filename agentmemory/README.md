@@ -53,6 +53,12 @@ For another MCP client, use:
 }
 ```
 
+## Version compatibility
+
+This kit targets the published `@agentmemory/agentmemory@0.9.29` package, which depends on `iii-sdk@0.11.2`. agentmemory's [0.22.1 migration](https://github.com/rohitg00/agentmemory/pull/1397) is merged on `main` but is not included in that npm release. It pins the engine, `iii-sdk`, and `@iii-dev/helpers` to `0.22.1` together.
+
+When a package containing that migration is published, update the agentmemory package and engine pins in this kit together, then rerun the compatibility, deny-all, and persistence checks. Changing only the engine pin would leave the published worker on the older SDK and omit the new runtime configuration handling.
+
 ## Verify
 
 ```console
