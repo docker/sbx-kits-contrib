@@ -11,8 +11,10 @@ permissions:
     allow:
       # CDP WebSocket proxy URLs take the form:
       #   wss://proxy.<region>.onkernel.com:8443/browser/cdp?jwt=...
-      # The wildcard covers all regional proxy hosts without auth injection.
-      - '*.onkernel.com'
+      # The recursive wildcard covers all regional proxy hosts without auth injection.
+      - '**.onkernel.com'
+      # Direct CDP endpoints are served from hosts under kernel.sh.
+      - '*.kernel.sh'
       # npm — for agents that install @onkernel/sdk or playwright-core
       - registry.npmjs.org
       - '*.npmjs.org'
@@ -30,6 +32,9 @@ permissions:
       - github.com
       - objects.githubusercontent.com
       - release-assets.githubusercontent.com
+environment:
+  variables:
+    KERNEL_NO_UPDATE_CHECK: "1"
 credentials:
   # Narrow inject domain: only the REST API host gets auth injection.
   # A wildcard here would put the proxy into TLS-intercept mode for all
