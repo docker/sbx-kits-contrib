@@ -13,6 +13,11 @@
 #   IMAGE_TAG_LATEST  default latest        — the rolling tag MOVE_LATEST moves
 #   MOVE_LATEST       default false         — also re-point the rolling tag
 #   DRY_RUN           set to any value      — resolve and report, publish nothing
+#   SKIP_VALIDATE     set to any value      — skip `sbx kit validate`. CI sets this
+#                                             only for fork pull requests, which have no
+#                                             Hub credentials and so no sbx session to
+#                                             validate under. Do not set it by hand to
+#                                             dodge a validation failure.
 #
 # Emits `ref=`, `digest=`, `pushed=` and `reused=` on stdout, one per line, so CI
 # can redirect into $GITHUB_OUTPUT. Everything human goes to stderr, which keeps
@@ -36,6 +41,7 @@ IMAGE_NAMESPACE=${IMAGE_NAMESPACE:-sbx}
 IMAGE_TAG_LATEST=${IMAGE_TAG_LATEST:-latest}
 MOVE_LATEST=${MOVE_LATEST:-false}
 DRY_RUN=${DRY_RUN:-}
+SKIP_VALIDATE=${SKIP_VALIDATE:-}
 
 SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 REPO_ROOT=$(cd "$SCRIPT_DIR/.." && pwd)
@@ -138,7 +144,13 @@ done <<< "$tck_args"
 # publish job — the failure would surface on merge instead, which is exactly
 # what this job exists to prevent.
 log ""
-if command -v sbx >/dev/null; then
+if [ -n "$SKIP_VALIDATE" ]; then
+  # Not a silent skip: the guarantee this block exists to provide is gone for
+  # this run, and the log is the only place that is visible.
+  log "!!! no Docker credentials available — SKIPPING validation"
+  log '    A fork pull request cannot reach them, and sbx kit validate needs'
+  log '    an sbx session. The kit is validated on every same-repo run.'
+elif command -v sbx >/dev/null; then
   log "==> validating"
   # Named, not valued: an argument's value is author-chosen text and this
   # stream is the one CI shows, so say which arguments were supplied and
