@@ -237,7 +237,7 @@ setup:
     # config.json, which this kit writes separately below and never mixes
     # server entries into.
     #
-    # Note `transport`, not `type` (Codex's and opencode's spelling), not
+    # Note `transport`, not `type` (Claude Code's and opencode's spelling), not
     # `httpUrl` (Gemini's), and not `http_headers` (Codex's spelling of
     # `headers`): all three are wrong answers nearest to hand when editing
     # this, and all three are asserted against in testdata/tck.yaml.

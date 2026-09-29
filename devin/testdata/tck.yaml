@@ -53,7 +53,7 @@ extractedFromBuiltin: true
 # The forbidden keys are the wrong answers nearest to hand when transliterating
 # an MCP config from a neighbouring agent:
 #
-#   * `type` — how Codex and opencode name the transport. Devin spells it
+#   * `type` — how Claude Code and opencode name the transport. Devin spells it
 #     `transport`, and the two are one character of muscle memory apart.
 #   * `httpUrl` — Gemini's spelling of `url`.
 #   * `http_headers` — Codex's spelling of `headers`, one kit directory away.

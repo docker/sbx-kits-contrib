@@ -36,19 +36,22 @@ extractedFromBuiltin: true
 # accordingly. Kits that omit the field get JSON, which is what every kit
 # written before it expected.
 #
-# `forbiddenKeys` are the plausible-but-wrong spellings, and the first one is
-# not hypothetical:
+# `forbiddenKeys` are the plausible-but-wrong spellings; `headers` and `type`
+# both shipped in a real kit:
 #
 #   * `headers` — the spelling every JSON-configured agent in this repo uses
 #     for the same concept, and the one this kit was originally ported with.
-#     Codex spells it `http_headers` and ignores unknown keys without
-#     complaining, so a `headers` table registers a gateway that looks healthy
-#     in `codex mcp get` and sends no Authorization header at all. That is a
-#     silent auth failure, which is exactly the class of bug this subtest is
-#     for. Note the check is segment-anchored, so the correct
+#     Codex spells it `http_headers` and ignores unknown keys (it only warns
+#     at startup), so a `headers` table registers a gateway that looks healthy
+#     in `codex mcp get` and sends no Authorization header at all. The auth
+#     failure itself is silent, which is exactly the class of bug this subtest
+#     is for. Note the check is segment-anchored, so the correct
 #     `[mcp_servers.mcp-gateway.http_headers]` does not read as the wrong one.
 #   * `httpUrl` — Gemini's spelling of `url`, the wrong answer nearest to hand
 #     when transliterating an MCP config from another agent.
+#   * `type` — Claude Code's `.mcp.json` transport selector. Codex has no such
+#     key; a `url` alone selects HTTP, and Codex warns at startup that `type`
+#     is ignored.
 mcp:
   configPath: $HOME/.codex/config.toml
   configFormat: toml
@@ -56,3 +59,4 @@ mcp:
   forbiddenKeys:
     - headers
     - httpUrl
+    - type
