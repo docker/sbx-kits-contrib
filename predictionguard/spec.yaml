@@ -1,0 +1,20 @@
+schemaVersion: "2"
+kind: sandbox
+name: predictionguard
+displayName: Prediction Guard
+description: Run AI coding agents inside Docker Sandbox with Prediction Guard as the model provider — network-isolated, credential-proxied, with prompt injection and PII protection built in
+sandbox:
+  image: docker/sandbox-templates:opencode-docker
+  entrypoint:
+    - opencode
+permissions:
+  network:
+    allow:
+      - pg.yourcompany.com
+credentials:
+  - service: predictionguard
+    apiKey:
+      name: PREDICTIONGUARD_TOKEN
+      inject:
+        - domain: pg.yourcompany.com
+          scheme: bearer
