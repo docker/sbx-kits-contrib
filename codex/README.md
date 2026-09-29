@@ -12,6 +12,10 @@ replaces that, and is backed by a base image built from the
 [`Dockerfile`](./Dockerfile) in this directory rather than by the
 `docker/sandbox-templates` release train.
 
+On creation or recreation, the kit installs the latest Codex CLI release using
+OpenAI's standalone installer, even when the base image is cached. This requires
+network access to download the release.
+
 ## Prerequisites
 
 Any one of these works — the kit adapts to what it finds:
