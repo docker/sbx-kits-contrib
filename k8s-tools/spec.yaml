@@ -1,0 +1,174 @@
+schemaVersion: "2"
+kind: mixin
+name: k8s-tools
+displayName: Kubernetes Tools
+description: "Kubernetes toolchain for sandbox agents — kubectl, helm, kind, k9s, and kustomize, all version+digest pinned. kind clusters run on the sandbox's Docker daemon, so the whole cluster lives (and dies) inside the sandbox."
+
+caps:
+  network:
+    allow:
+      # kubectl release binary (install time). Serves the binary directly —
+      # no CDN redirect observed (`sbx policy log`, July 2026).
+      - "dl.k8s.io:443"
+      # helm release tarballs (install time, official Helm CDN).
+      - "get.helm.sh:443"
+      # kind / k9s / kustomize release downloads (install time): github.com
+      # 302-redirects binary assets to release-assets.githubusercontent.com.
+      - "github.com:443"
+      - "release-assets.githubusercontent.com:443"
+      # Runtime: `kind create cluster` pulls the kindest/node image from
+      # Docker Hub — auth token from auth.docker.io, manifests from
+      # registry-1.docker.io, blobs from the Docker CDN. The CDN host
+      # observed via `sbx policy log` today is production.cloudfront.docker.com;
+      # the cloudflare host is Docker Hub's other blob CDN, kept so the kit
+      # survives Docker routing between the two.
+      - "auth.docker.io:443"
+      - "registry-1.docker.io:443"
+      - "production.cloudfront.docker.com:443"
+      - "production.cloudflare.docker.com:443"
+      # Runtime: Kubernetes system images (pause, coredns, metrics-server,
+      # ingress-nginx, …) referenced by common manifests and charts resolve
+      # from registry.k8s.io, which serves manifests itself and redirects
+      # blobs to per-region backends — Google Artifact Registry
+      # (<region>-docker.pkg.dev, covered by the wildcard) or Amazon S3
+      # dualstack hosts, which are multi-label and NOT expressible in the
+      # current allowlist grammar (`**.` is pending). S3-routed blobs will
+      # be blocked under deny-all; see the README for the workaround.
+      - "registry.k8s.io:443"
+      - "*.pkg.dev:443"
+
+commands:
+  install:
+    # Each tool is installed from a pinned release with its SHA256 verified
+    # against the checksum the upstream publishes for that release. To bump a
+    # tool: change its *_VERSION and the per-arch SHA256 pair below.
+    - command: |
+        set -euo pipefail
+        KUBECTL_VERSION=1.36.2
+        ARCH=$(dpkg --print-architecture)
+        case "$ARCH" in
+          amd64) SHA256="1e9045ec32bea85da43de85f0065358529ea7c7a152eca78154fba5b58c27d82" ;;
+          arm64) SHA256="c957eb8c4bea27a3bb35b269edd9082e27f027f7b76b20b5bf4afebc726c6d3e" ;;
+          *)
+            echo "unsupported sandbox arch: $ARCH (expected amd64 or arm64)" >&2
+            exit 1
+            ;;
+        esac
+        URL="https://dl.k8s.io/release/v${KUBECTL_VERSION}/bin/linux/${ARCH}/kubectl"
+        curl --proto '=https' --tlsv1.2 -fsSL -o /tmp/kubectl "$URL"
+        echo "${SHA256}  /tmp/kubectl" | sha256sum -c -
+        install -m 0755 /tmp/kubectl /usr/local/bin/kubectl
+        rm /tmp/kubectl
+        kubectl version --client
+      user: "0"
+      description: "Install kubectl v1.36.2 from dl.k8s.io, version+digest pinned"
+    - command: |
+        set -euo pipefail
+        HELM_VERSION=4.2.2
+        ARCH=$(dpkg --print-architecture)
+        case "$ARCH" in
+          amd64) SHA256="9adafecab4d406853bba163a70e9f104f47dbbf65ce24b7653bae7e36150bcb6" ;;
+          arm64) SHA256="78803142087a0069fa4b50d3f32a84d3ef25c14d1ee8a40fbccf86a6216d2f36" ;;
+          *)
+            echo "unsupported sandbox arch: $ARCH (expected amd64 or arm64)" >&2
+            exit 1
+            ;;
+        esac
+        URL="https://get.helm.sh/helm-v${HELM_VERSION}-linux-${ARCH}.tar.gz"
+        curl --proto '=https' --tlsv1.2 -fsSL -o /tmp/helm.tgz "$URL"
+        echo "${SHA256}  /tmp/helm.tgz" | sha256sum -c -
+        tar -C /tmp -xzf /tmp/helm.tgz "linux-${ARCH}/helm"
+        install -m 0755 "/tmp/linux-${ARCH}/helm" /usr/local/bin/helm
+        rm -rf /tmp/helm.tgz "/tmp/linux-${ARCH}"
+        helm version
+      user: "0"
+      description: "Install helm v4.2.2 from get.helm.sh, version+digest pinned"
+    - command: |
+        set -euo pipefail
+        KIND_VERSION=0.32.0
+        ARCH=$(dpkg --print-architecture)
+        case "$ARCH" in
+          amd64) SHA256="50030de23cf40a18505f20426f6a8506bedf13c6e509244bd1fa9463721b0f54" ;;
+          arm64) SHA256="b92cd615e97585de8ddade28ed5cd7feb4248d717c233eea5b03c37298900f5d" ;;
+          *)
+            echo "unsupported sandbox arch: $ARCH (expected amd64 or arm64)" >&2
+            exit 1
+            ;;
+        esac
+        URL="https://github.com/kubernetes-sigs/kind/releases/download/v${KIND_VERSION}/kind-linux-${ARCH}"
+        curl --proto '=https' --tlsv1.2 -fsSL -o /tmp/kind "$URL"
+        echo "${SHA256}  /tmp/kind" | sha256sum -c -
+        install -m 0755 /tmp/kind /usr/local/bin/kind
+        rm /tmp/kind
+        kind version
+      user: "0"
+      description: "Install kind v0.32.0 from GitHub releases, version+digest pinned"
+    - command: |
+        set -euo pipefail
+        K9S_VERSION=0.51.0
+        ARCH=$(dpkg --print-architecture)
+        case "$ARCH" in
+          amd64) SHA256="c3752ad51a5a4015a113819c4eeb6e55a4d0e4b8e652494797532f6fc8161dd7" ;;
+          arm64) SHA256="3ee05c82e5f9198928a4e86133608ba6a2c10a2244d6a7789e820f78319d640c" ;;
+          *)
+            echo "unsupported sandbox arch: $ARCH (expected amd64 or arm64)" >&2
+            exit 1
+            ;;
+        esac
+        URL="https://github.com/derailed/k9s/releases/download/v${K9S_VERSION}/k9s_Linux_${ARCH}.tar.gz"
+        curl --proto '=https' --tlsv1.2 -fsSL -o /tmp/k9s.tgz "$URL"
+        echo "${SHA256}  /tmp/k9s.tgz" | sha256sum -c -
+        tar -C /tmp -xzf /tmp/k9s.tgz k9s
+        install -m 0755 /tmp/k9s /usr/local/bin/k9s
+        rm /tmp/k9s.tgz /tmp/k9s
+        k9s version
+      user: "0"
+      description: "Install k9s v0.51.0 from GitHub releases, version+digest pinned"
+    - command: |
+        set -euo pipefail
+        KUSTOMIZE_VERSION=5.8.1
+        ARCH=$(dpkg --print-architecture)
+        case "$ARCH" in
+          amd64) SHA256="029a7f0f4e1932c52a0476cf02a0fd855c0bb85694b82c338fc648dcb53a819d" ;;
+          arm64) SHA256="0953ea3e476f66d6ddfcd911d750f5167b9365aa9491b2326398e289fef2c142" ;;
+          *)
+            echo "unsupported sandbox arch: $ARCH (expected amd64 or arm64)" >&2
+            exit 1
+            ;;
+        esac
+        URL="https://github.com/kubernetes-sigs/kustomize/releases/download/kustomize%2Fv${KUSTOMIZE_VERSION}/kustomize_v${KUSTOMIZE_VERSION}_linux_${ARCH}.tar.gz"
+        curl --proto '=https' --tlsv1.2 -fsSL -o /tmp/kustomize.tgz "$URL"
+        echo "${SHA256}  /tmp/kustomize.tgz" | sha256sum -c -
+        tar -C /tmp -xzf /tmp/kustomize.tgz kustomize
+        install -m 0755 /tmp/kustomize /usr/local/bin/kustomize
+        rm /tmp/kustomize.tgz /tmp/kustomize
+        kustomize version
+      user: "0"
+      description: "Install kustomize v5.8.1 from GitHub releases, version+digest pinned"
+  startup:
+    # The sandbox microVM does not populate /dev/kmsg, and kubelet inside a
+    # kind node hard-fails without it ("open /dev/kmsg: no such file or
+    # directory"). /dev is rebuilt on every container start, so this must be
+    # a startup command, kept idempotent.
+    - command: ["sh", "-c", "[ -e /dev/kmsg ] || mknod /dev/kmsg c 1 11"]
+      user: "0"
+      description: "Create /dev/kmsg if missing (required by kubelet inside kind nodes)"
+
+agentContext: |
+  ## Kubernetes tools
+
+  Installed and on PATH: kubectl v1.36.2, helm v4.2.2, kind v0.32.0,
+  k9s v0.51.0, kustomize v5.8.1.
+
+  - Create a local cluster with `kind create cluster`. It runs on the
+    sandbox's Docker daemon and automatically points the kubectl context at
+    the new cluster (`kind-kind`). Verify with `kubectl get nodes`.
+  - Deploy with `kubectl apply -f <manifest>`, `helm install <name> <chart>`,
+    or `kubectl apply -k <kustomization-dir>`.
+  - Use `k9s` for interactive TUI debugging of a running cluster.
+  - Tear down with `kind delete cluster`. Clusters exist only inside the
+    sandbox and vanish with it.
+  - Image pulls are limited by sandbox network policy: Docker Hub and
+    registry.k8s.io are allowed; pulls from other registries will fail with
+    a proxy error unless their domains are added to the kit's
+    `caps.network.allow`.
