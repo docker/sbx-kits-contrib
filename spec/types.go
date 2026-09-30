@@ -284,7 +284,11 @@ type PublishedPort struct {
 	// Required. Must be in 1..65535.
 	Container int `json:"container" yaml:"container"`
 
-	// Protocol is "tcp" or "udp". Optional; defaults to "tcp" if empty.
+	// Protocol is "tcp" or "udp". Optional, and best left empty unless the
+	// service listens on both address families: naming a protocol asks for
+	// IPv4 and IPv6, so a client reaching the sandbox over IPv6 is accepted
+	// and then reset when nothing inside is listening there. An empty value
+	// defers to the consumer, which decides how many families to publish.
 	Protocol string `json:"protocol,omitempty" yaml:"protocol,omitempty"`
 
 	// Name is an optional human-readable label for the port, surfaced by
