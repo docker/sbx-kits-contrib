@@ -1,0 +1,69 @@
+schemaVersion: "1"
+kind: mixin
+name: go
+displayName: Go
+description: Installs the Go toolchain so sandbox agents can build, test, and run Go code.
+
+network:
+  allowedDomains:
+    # Install-time toolchain download. go.dev/dl 302-redirects to dl.google.com.
+    - go.dev
+    - dl.google.com
+    # Runtime `go` module fetches: the default module proxy and checksum database.
+    # Modules for public packages are served through the proxy, so the VCS hosts
+    # themselves (github.com, etc.) don't need allowing unless you use GOPROXY=direct.
+    - proxy.golang.org
+    - sum.golang.org
+
+commands:
+  install:
+    # Install Go from the official, SHA256-verified release tarball. Version and
+    # per-arch digest are pinned in git rather than fetched at create time. To bump:
+    # change GO_VERSION and the two SHA256 values (from https://go.dev/dl/?mode=json).
+    - command: |
+        set -euo pipefail
+        GO_VERSION=1.26.4
+        ARCH=$(dpkg --print-architecture)
+        case "$ARCH" in
+          amd64)
+            TARBALL="go${GO_VERSION}.linux-amd64.tar.gz"
+            SHA256="1153d3d50e0ac764b447adfe05c2bcf08e889d42a02e0fe0259bd47f6733ad7f"
+            ;;
+          arm64)
+            TARBALL="go${GO_VERSION}.linux-arm64.tar.gz"
+            SHA256="ef758ae7c6cf9267c9c0ef080b8965f453d89ab2d25d9eb22de4405925238768"
+            ;;
+          *)
+            echo "unsupported sandbox arch: $ARCH (expected amd64 or arm64)" >&2
+            exit 1
+            ;;
+        esac
+        URL="https://go.dev/dl/${TARBALL}"
+        curl --proto '=https' --tlsv1.2 -fsSL -o /tmp/go.tgz "$URL"
+        echo "${SHA256}  /tmp/go.tgz" | sha256sum -c -
+        rm -rf /usr/local/go
+        tar -C /usr/local -xzf /tmp/go.tgz
+        rm /tmp/go.tgz
+        ln -sf /usr/local/go/bin/go /usr/local/bin/go
+        ln -sf /usr/local/go/bin/gofmt /usr/local/bin/gofmt
+        go version
+      user: "0"
+      description: "Install Go 1.26.4 toolchain, version+digest pinned"
+    # Put go-installed binaries (`go install` → ~/go/bin) on PATH for interactive
+    # shells. Append rather than overwrite so we don't clobber the template's bashrc.
+    - command: |
+        set -euo pipefail
+        grep -qF '$HOME/go/bin' ~/.bashrc 2>/dev/null || \
+          printf '\n# go (added by sbx-kits-contrib/go)\nexport PATH="/usr/local/go/bin:$HOME/go/bin:$PATH"\n' >> ~/.bashrc
+      user: "1000"
+      description: "Add /usr/local/go/bin and ~/go/bin to PATH in ~/.bashrc"
+
+memory: |
+  ## Go toolchain
+
+  The Go toolchain (`go`, `gofmt`) is installed at `/usr/local/go` and on `PATH`.
+  Run `go version` to confirm. Module downloads go through the default proxy
+  (`proxy.golang.org`) with checksum verification (`sum.golang.org`), and
+  `go install` places binaries in `~/go/bin`. To pull modules directly from a
+  VCS host (private repos or `GOPROXY=direct`), add that host to the kit's
+  allowed domains.
