@@ -43,7 +43,7 @@ permissions:
       # The anthropic credential's OAuth token endpoint, for the refresh the
       # proxy performs once the access token expires.
       - platform.claude.com:443
-      # model.provider: "auto" in config.yaml (see hermes-anthropic-auth.sh)
+      # model.provider: "auto" in config.yaml (see hermes-credential-auth.sh)
       # makes hermes_cli/auth.py's resolve_provider() run on every launch, and
       # part of that resolution -- and the startup banner's own update/model
       # checks -- depend on these, confirmed against a real sandbox run under
@@ -73,17 +73,19 @@ permissions:
       # update/skills-metadata machinery reading a file out of the repo
       # rather than cloning it.
       - raw.githubusercontent.com
-      # api.githubcopilot.com: not confirmed from source. Hypothesis, stated
-      # as such: this kit declares no GitHub Copilot credential, but the
-      # sandbox's own base template unconditionally exports GH_TOKEN for git
-      # operations, and hermes_cli/auth.py's provider registry lists GH_TOKEN
-      # as a Copilot credential candidate. Copilot is excluded from
-      # auto-*selection* (_NO_AUTO_DETECT_PROVIDERS), but that exclusion does
-      # not obviously cover *discovery* (populating `hermes model`'s
-      # provider-availability list), which would explain an attempt to
-      # validate the ambient GH_TOKEN against Copilot's API. Flagged rather
-      # than asserted -- verify against a real sandbox run before trusting it.
+      # GitHub Copilot -- every host the copilot credential below injects
+      # into. Hermes itself only calls api.githubcopilot.com (its registry
+      # default); the plan-specific hosts are reached when
+      # COPILOT_API_BASE_URL points at them (Business/Enterprise, see README).
+      # Matches the full host set the sibling copilot/ kit declares, rather
+      # than only the subset confirmed against Hermes' own source, so a
+      # future Hermes release that follows GitHub's own redirects doesn't
+      # silently 403 under deny-all.
       - api.githubcopilot.com
+      - api.individual.githubcopilot.com # Copilot Pro and Pro+
+      - api.business.githubcopilot.com # Copilot Business
+      - api.enterprise.githubcopilot.com # Copilot Enterprise
+      - copilot.github.com
       # The project's own domain, confirmed contacted on a real sandbox run.
       # Exact call site not pinned, but hermes_cli/subcommands/egress.py
       # links docs here -- evidence this is the CLI's own front door, not
@@ -109,7 +111,7 @@ credentials:
     # natively and refreshes it in place (agent/anthropic_credentials.py), so
     # no bootstrap has to translate the credential -- only to drop the
     # ANTHROPIC_API_KEY sentinel that would otherwise shadow it, which
-    # hermes-anthropic-auth.sh does. The file holds sentinels, not real tokens.
+    # hermes-credential-auth.sh does. The file holds sentinels, not real tokens.
     oauth:
       tokenEndpoint:
         host: platform.claude.com
@@ -143,6 +145,39 @@ credentials:
         - domain: openrouter.ai
           header: Authorization
           format: Bearer %s
+  - service: copilot
+    apiKey:
+      # Deliberately not proxyManaged: Hermes' validate_copilot_token()
+      # (hermes_cli/copilot_auth.py) rejects any token not prefixed gho_,
+      # github_pat_ or ghu_, so the literal "proxy-managed" sentinel would read
+      # as no token at all. hermes-credential-auth.sh exports a prefix-valid
+      # placeholder instead, and only when the host actually bound this
+      # credential. COPILOT_GITHUB_TOKEN is the first of the variables Hermes
+      # checks, ahead of the GH_TOKEN the base template exports for git.
+      name: COPILOT_GITHUB_TOKEN
+      # No api.github.com here, on purpose. Hermes exchanges the GitHub token
+      # at api.github.com/copilot_internal/v2/token, and a successful exchange
+      # returns a real (~30 min) Copilot API token into the container, where
+      # Hermes also caches it on disk. Left to fail, the exchange degrades to
+      # the raw token against the Copilot API -- the placeholder, which the
+      # proxy replaces on the hosts below -- so the credential stays host-side.
+      # https://github.blog/changelog/2026-02-13-network-configuration-changes-for-copilot-coding-agent/
+      inject:
+        - domain: api.githubcopilot.com
+          header: Authorization
+          format: Bearer %s
+        - domain: api.individual.githubcopilot.com # Copilot Pro and Pro+
+          header: Authorization
+          format: Bearer %s
+        - domain: api.business.githubcopilot.com # Copilot Business
+          header: Authorization
+          format: Bearer %s
+        - domain: api.enterprise.githubcopilot.com # Copilot Enterprise
+          header: Authorization
+          format: Bearer %s
+        - domain: copilot.github.com
+          header: Authorization
+          format: Bearer %s
 environment:
   variables:
     HERMES_HOME: /home/agent/.hermes
@@ -153,6 +188,6 @@ setup:
     # credential, so the env file is recomputed rather than cached.
     - command:
         - sh
-        - /home/agent/.local/bin/hermes-anthropic-auth.sh
+        - /home/agent/.local/bin/hermes-credential-auth.sh
       user: "1000"
-      description: Resolve which of the anthropic/openai/openrouter credentials are genuinely bound, record the result for the entrypoint and `sbx exec` shells, and pin the active provider in config.yaml when only an Anthropic OAuth login is bound
+      description: Resolve which of the anthropic/openai/openrouter/copilot credentials are genuinely bound, record the result for the entrypoint and `sbx exec` shells, and pin the active provider in config.yaml when only Anthropic or only Copilot is bound

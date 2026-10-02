@@ -134,11 +134,11 @@ What the kit does have to do is get out of the way. `ANTHROPIC_API_KEY` is set
 to the proxy-managed sentinel unconditionally — the injection is declared by
 the kit, not by whether a credential exists — and a non-empty value there
 deliberately shadows any discovered OAuth credential upstream. So
-`hermes-anthropic-auth.sh` runs at every container start and drops the sentinel
+`hermes-credential-auth.sh` runs at every container start and drops the sentinel
 in the two cases where it is wrong: an OAuth login (Hermes should read the
 credential file instead) and no credential at all (otherwise Hermes reports an
 invalid key for a credential that never existed). It writes the decision to
-`~/.hermes/anthropic-auth.env`, which the entrypoint sources; a `~/.profile`
+`~/.hermes/credential-auth.env`, which the entrypoint sources; a `~/.profile`
 hook carries it into `sbx exec -- sh -lc '…'` shells too.
 
 Two things worth knowing: the discriminator is the materialized credential
