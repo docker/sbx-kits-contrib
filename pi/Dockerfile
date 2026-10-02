@@ -63,9 +63,9 @@ ARG PI_VERSION=latest
 USER root
 ADD --chmod=644 https://registry.npmjs.org/@earendil-works%2Fpi-coding-agent/${PI_VERSION} /tmp/pi-latest.json
 # No Node install step: the template already ships Node 22.22.1, which
-# satisfies pi's `engines.node >= 22.19.0`. (openclaw's image has to run
-# `n 22` because openclaw needs a newer minor than the template had at the
-# time -- pi does not.)
+# satisfies pi's `engines.node >= 22.19.0`. (openclaw's image installs its own
+# Node because openclaw's engine floor has moved past the template's major --
+# pi's has not.)
 #
 # The version installed is read out of the document ADDed above rather than
 # re-resolved from the registry at RUN time, so what lands in the image is a

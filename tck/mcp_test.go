@@ -74,7 +74,6 @@ grep -q "^\[mcp_servers.mcp-gateway\]" "$cfg" && exit 0
 cat >> "$cfg" <<EOF
 
   [mcp_servers.mcp-gateway]
-  type = "http"
   url = "$MCP_GATEWAY_URL"
   [mcp_servers.mcp-gateway.http_headers]
   Authorization = "Bearer $MCP_SENTINEL_TOKEN_NAME"
@@ -226,7 +225,7 @@ func TestAssertMCPRegistration(t *testing.T) {
 			ConfigPath:    "$HOME/.codex/config.toml",
 			ConfigFormat:  "toml",
 			TransportKey:  "url",
-			ForbiddenKeys: []string{"headers", "httpUrl"},
+			ForbiddenKeys: []string{"headers", "httpUrl", "type"},
 		})
 	})
 
@@ -290,7 +289,7 @@ func TestAssertMCPRegistration(t *testing.T) {
 		{
 			name:   "toml_forbidden_key_as_assignment",
 			kit:    "codex",
-			script: strings.Replace(tomlScript, "type = \"http\"", "httpUrl = \"x\"", 1),
+			script: strings.Replace(tomlScript, "url = ", "httpUrl = \"x\"\n  url = ", 1),
 			user:   "agent",
 			want: &mcpExpectations{
 				ConfigPath:    "$HOME/.codex/config.toml",
@@ -299,6 +298,19 @@ func TestAssertMCPRegistration(t *testing.T) {
 				ForbiddenKeys: []string{"httpUrl"},
 			},
 			errText: `must not use a toml key "httpUrl"`,
+		},
+		{
+			name:   "toml_forbidden_key_type",
+			kit:    "codex",
+			script: strings.Replace(tomlScript, "url = ", "type = \"http\"\n  url = ", 1),
+			user:   "agent",
+			want: &mcpExpectations{
+				ConfigPath:    "$HOME/.codex/config.toml",
+				ConfigFormat:  "toml",
+				TransportKey:  "url",
+				ForbiddenKeys: []string{"type"},
+			},
+			errText: `must not use a toml key "type"`,
 		},
 		{
 			name:   "json_wrong_transport_key",

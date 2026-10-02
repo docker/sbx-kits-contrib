@@ -90,6 +90,71 @@ config_dir=${GIT_SSH_SIGN_CONFIG_DIR:-/home/agent/.config/git}
 mkdir -p "$config_dir" || fail "cannot create $config_dir" \
     "Check the ownership and permissions of that directory inside the sandbox."
 
+# ssh-add -L's ordering says nothing about which key is registered where, and
+# a host agent commonly forwards several (a password manager's own key next to
+# the one actually on the GitHub account). Signing with the wrong one still
+# produces a valid signature that verifies locally against the allowed_signers
+# written just below -- and shows Unverified on GitHub, because that key was
+# never added to the committer's account. So when the remote is GitHub, prefer
+# a key GitHub itself confirms is a signing key for this user.
+is_github=0
+for remote_url in $(git config --get-regexp '^remote\..*\.url$' 2>/dev/null | cut -d' ' -f2- || true); do
+    case "$remote_url" in
+        *github.com*) is_github=1 ;;
+    esac
+done
+
+if [ "$is_github" = "1" ] && command -v gh >/dev/null 2>&1; then
+    # GitHub's signing keys are a separate list from the authentication keys
+    # behind github.com/<user>.keys, which can diverge from it, and there is no
+    # unauthenticated bulk lookup by key -- only by username. Cache the answer:
+    # git runs this command for every commit and tag it signs, and
+    # unauthenticated API calls are capped at 60/hour per source IP.
+    cache_file="$config_dir/github-signing-keys.cache"
+    cache_ttl=300
+    now=$(date +%s 2>/dev/null || echo 0)
+    cache_age=$cache_ttl
+    if [ -f "$cache_file" ]; then
+        cache_ts=$(head -n 1 "$cache_file" 2>/dev/null || echo 0)
+        case "$cache_ts" in
+            ''|*[!0-9]*) cache_ts=0 ;;
+        esac
+        cache_age=$((now - cache_ts))
+    fi
+
+    if [ -f "$cache_file" ] && [ "$cache_age" -lt "$cache_ttl" ]; then
+        github_keys=$(tail -n +2 "$cache_file")
+    else
+        login=$(gh api user --jq .login 2>/dev/null) || login=""
+        github_keys=""
+        if [ -n "$login" ]; then
+            github_keys=$(gh api "users/$login/ssh_signing_keys" --jq '.[].key' 2>/dev/null) || github_keys=""
+        fi
+        {
+            printf '%s\n' "$now"
+            printf '%s\n' "$github_keys"
+        } > "$cache_file"
+    fi
+
+    if [ -n "$github_keys" ]; then
+        # Compare type+base64 only: ssh-add -L appends the agent's comment
+        # field, the API's .key does not.
+        matched=$(printf '%s\n' "$out" | awk -v gh="$github_keys" '
+            BEGIN { n = split(gh, ghlines, "\n"); for (i = 1; i <= n; i++) seen[ghlines[i]] = 1 }
+            { if (($1 " " $2) in seen) { print; exit } }
+        ')
+        if [ -n "$matched" ]; then
+            key="$matched"
+        else
+            # Git discards this: it only echoes the key command's stderr when
+            # the command exits non-zero, and a wrong-but-valid key is not a
+            # signing failure. Kept for whoever runs the script by hand, which
+            # the README's fallback note tells them to do.
+            printf '[git-ssh-sign] none of the SSH agent keys are registered on GitHub as a signing key - commits will sign but show Unverified there. Add one at https://github.com/settings/ssh/new?type=signing\n' >&2
+        fi
+    fi
+fi
+
 email=$(git config user.email 2>/dev/null || printf '%s' "agent@sandbox.local")
 printf '%s %s\n' "$email" "$key" > "$config_dir/allowed_signers" || \
     fail "cannot write $config_dir/allowed_signers" \

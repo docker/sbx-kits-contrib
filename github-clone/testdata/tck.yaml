@@ -1,0 +1,5 @@
+# Values substituted into ${{ kit.args.* }} for TCK and e2e.
+# Public, tiny repo — safe in CI; no real credentials needed for the clone.
+args:
+  repo: "octocat/Hello-World"
+  dir: "/project"

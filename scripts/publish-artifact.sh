@@ -13,6 +13,11 @@
 #   IMAGE_TAG_LATEST  default latest        — the rolling tag MOVE_LATEST moves
 #   MOVE_LATEST       default false         — also re-point the rolling tag
 #   DRY_RUN           set to any value      — resolve and report, publish nothing
+#   SKIP_VALIDATE     set to any value      — skip `sbx kit validate`. CI sets this
+#                                             only for fork pull requests, which have no
+#                                             Hub credentials and so no sbx session to
+#                                             validate under. Do not set it by hand to
+#                                             dodge a validation failure.
 #
 # Emits `ref=`, `digest=`, `pushed=` and `reused=` on stdout, one per line, so CI
 # can redirect into $GITHUB_OUTPUT. Everything human goes to stderr, which keeps
@@ -36,6 +41,7 @@ IMAGE_NAMESPACE=${IMAGE_NAMESPACE:-sbx}
 IMAGE_TAG_LATEST=${IMAGE_TAG_LATEST:-latest}
 MOVE_LATEST=${MOVE_LATEST:-false}
 DRY_RUN=${DRY_RUN:-}
+SKIP_VALIDATE=${SKIP_VALIDATE:-}
 
 SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 REPO_ROOT=$(cd "$SCRIPT_DIR/.." && pwd)
@@ -80,15 +86,77 @@ summarise() {
   } >> "$GITHUB_STEP_SUMMARY"
 }
 
+# A kit that declares a required argument with no default cannot be validated
+# without a value for it — `sbx kit validate` refuses before expanding the
+# spec. The values live in the kit's own testdata/tck.yaml, the same file the
+# TCK resolves arguments from (tck/args.go), so validation here agrees with
+# what the TCK tests rather than inventing a second set of fixtures.
+#
+# Scalars only, which is all `args:` holds: the TCK decodes that block into a
+# map[string]string, so a block scalar or an anchor is not a shape any kit can
+# legitimately use, and the guard below refuses one rather than passing a
+# mangled value to validation. Anchored at column zero on purpose — `mcp:`
+# blocks in other kits' tck.yaml nest their own `args:` key, and `promptArgs:`
+# is a sibling this must not mistake for it. The next top-level key ends the
+# block; comments and blank lines inside it do not.
+tck_args=$(
+  awk '
+    /^[[:space:]]*#/ { next }
+    /^[[:space:]]*$/ { next }
+    !inblock && index($0, "args:") == 1 { inblock = 1; next }
+    inblock && /^[^[:space:]]/ { exit }
+    inblock {
+      line = $0
+      sub(/^[[:space:]]+/, "", line)
+      eq = index(line, ":")
+      if (eq == 0) next
+      name = substr(line, 1, eq - 1)
+      value = substr(line, eq + 1)
+      sub(/^[[:space:]]+/, "", value)
+      sub(/[[:space:]]+#.*$/, "", value)
+      # Trailing space before the quotes come off, so a quoted value keeps
+      # any space it deliberately ends with while an unquoted one does not
+      # smuggle invisible padding into a pattern-checked argument.
+      sub(/[[:space:]]+$/, "", value)
+      gsub(/^["'"'"']|["'"'"']$/, "", value)
+      print name "=" value
+    }
+  ' "$REPO_ROOT/$kit/testdata/tck.yaml" 2>/dev/null || true
+)
+
+validate_args=()
+arg_names=""
+while IFS= read -r pair; do
+  [ -n "$pair" ] || continue
+  case ${pair#*=} in
+    '|'*|'>'*|'&'*|'*'*)
+      die "$kit/testdata/tck.yaml: args[${pair%%=*}] is not a plain scalar; \
+the TCK reads this block as name/value strings, so write the value inline"
+      ;;
+  esac
+  validate_args+=(--kit-arg "$pair")
+  arg_names="${arg_names:+$arg_names }${pair%%=*}"
+done <<< "$tck_args"
+
 # Validation runs BEFORE the dry-run exit, deliberately. On a pull request the
 # whole publish is a dry run, and validating only on the way to a real push
 # would mean a PR that breaks the kit's loadability still reports a green
 # publish job — the failure would surface on merge instead, which is exactly
 # what this job exists to prevent.
 log ""
-if command -v sbx >/dev/null; then
+if [ -n "$SKIP_VALIDATE" ]; then
+  # Not a silent skip: the guarantee this block exists to provide is gone for
+  # this run, and the log is the only place that is visible.
+  log "!!! no Docker credentials available — SKIPPING validation"
+  log '    A fork pull request cannot reach them, and sbx kit validate needs'
+  log '    an sbx session. The kit is validated on every same-repo run.'
+elif command -v sbx >/dev/null; then
   log "==> validating"
-  sbx kit validate "$REPO_ROOT/$kit"
+  # Named, not valued: an argument's value is author-chosen text and this
+  # stream is the one CI shows, so say which arguments were supplied and
+  # leave reading their values to the tck.yaml this names.
+  [ -z "$arg_names" ] || log "    args from $kit/testdata/tck.yaml: $arg_names"
+  sbx kit validate "$REPO_ROOT/$kit" ${validate_args[@]+"${validate_args[@]}"}
 else
   # A developer inspecting the plan should not need sbx installed; CI always
   # has it, so this branch never runs there. Loud rather than silent, because

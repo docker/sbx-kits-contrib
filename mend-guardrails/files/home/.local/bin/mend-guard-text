@@ -1,0 +1,106 @@
+#!/usr/bin/env python3
+"""POST text to the in-sandbox Mend Guardrails Guard API.
+
+Usage:
+  mend-guard-text input [text...]
+  mend-guard-text output [text...]
+  echo '...' | mend-guard-text input
+
+Exit codes:
+  0  allowed
+  2  blocked by a guardrail
+  1  server/usage error
+"""
+
+from __future__ import annotations
+
+import json
+import os
+import sys
+import time
+import urllib.error
+import urllib.request
+
+HOST = "http://127.0.0.1:8787"
+HEALTH = f"{HOST}/health"
+
+
+def _ensure_loopback_noproxy() -> None:
+    """urllib honors HTTP_PROXY; the sbx proxy 403s 127.0.0.1."""
+    extra = ("127.0.0.1", "localhost", "::1")
+    for key in ("NO_PROXY", "no_proxy"):
+        cur = os.environ.get(key, "")
+        parts = [p.strip() for p in cur.split(",") if p.strip()]
+        for host in extra:
+            if host not in parts:
+                parts.append(host)
+        os.environ[key] = ",".join(parts)
+
+
+def _wait_healthy(timeout_s: float = 30.0) -> None:
+    deadline = time.time() + timeout_s
+    last_err = "timeout"
+    while time.time() < deadline:
+        try:
+            with urllib.request.urlopen(HEALTH, timeout=2) as resp:
+                if resp.status == 200:
+                    return
+        except OSError as exc:
+            last_err = str(exc)
+        time.sleep(0.4)
+    raise SystemExit(f"mend-guardrails-server not healthy at {HEALTH}: {last_err}")
+
+
+def _read_text(argv: list[str]) -> str:
+    if argv:
+        return " ".join(argv)
+    return sys.stdin.read()
+
+
+def main(argv: list[str]) -> int:
+    if not argv or argv[0] not in {"input", "output"}:
+        print(__doc__.strip(), file=sys.stderr)
+        return 1
+    stage = argv[0]
+    text = _read_text(argv[1:])
+    if text == "":
+        print("mend-guard-text: empty text", file=sys.stderr)
+        return 1
+
+    _ensure_loopback_noproxy()
+    _wait_healthy()
+
+    payload: dict[str, str] = {"text": text}
+    # Local files are only valid when the server is offline (policySource=local).
+    # In api mode, config_id is ignored; sending a local id can 422 online.
+    if os.environ.get("MEND_GUARDRAILS_POLICY_SOURCE", "api") == "local":
+        payload["config_id"] = os.environ.get(
+            "MEND_GUARDRAILS_DEFAULT_CONFIG_ID", "sandbox"
+        )
+    body = json.dumps(payload).encode("utf-8")
+    req = urllib.request.Request(
+        f"{HOST}/v1/guard/{stage}",
+        data=body,
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=120) as resp:
+            payload = json.loads(resp.read().decode("utf-8"))
+    except urllib.error.HTTPError as exc:
+        err_body = exc.read().decode("utf-8", errors="replace")
+        print(err_body, file=sys.stderr)
+        return 1
+    except OSError as exc:
+        print(f"mend-guard-text: request failed: {exc}", file=sys.stderr)
+        return 1
+
+    json.dump(payload, sys.stdout, indent=2)
+    sys.stdout.write("\n")
+    if payload.get("allowed") is True:
+        return 0
+    return 2
+
+
+if __name__ == "__main__":
+    raise SystemExit(main(sys.argv[1:]))

@@ -280,8 +280,8 @@ setup:
     #
     # The header table is `http_headers`, NOT `headers`. This is the one place
     # the port diverges from the built-in spec for correctness rather than
-    # policy: Codex spells the key `http_headers`, ignores unknown keys without
-    # complaint, and so accepts a `headers` table while sending no
+    # policy: Codex spells the key `http_headers`, ignores unknown keys (it only
+    # warns at startup), and so accepts a `headers` table while sending no
     # Authorization at all. That fails open — the gateway registers, looks
     # healthy in `codex mcp get`, and every tool call through it is
     # unauthenticated. Confirmed against 0.151.0: with `headers`,
@@ -302,7 +302,6 @@ setup:
           cat >> "$cfg" <<EOF
 
           [mcp_servers.mcp-gateway]
-          type = "http"
           url = "$MCP_GATEWAY_URL"
           [mcp_servers.mcp-gateway.http_headers]
           Authorization = "Bearer $MCP_SENTINEL_TOKEN_NAME"

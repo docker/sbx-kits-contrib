@@ -160,6 +160,45 @@ jobs:
             '  - "scripts/publish-artifact.sh"')
           emit_output "shared-filters" "$shared_filters"
 
+      - name: Resolve filter base
+        id: filter-base
+        # What the path filters below compare against.
+        #
+        # On `pull_request`, actions/checkout checks out refs/pull/N/merge,
+        # whose FIRST parent is the base commit GitHub computed that merge
+        # against (main's tip) and whose second is the PR head. Diffing against
+        # that parent is exactly "what this PR changes", and nothing else.
+        #
+        # The action's own default for this event is
+        # `github.event.pull_request.base.sha`, which GitHub PINS when the PR is
+        # opened and never advances. A PR left open across someone else's merge
+        # then reports every file main gained since as its own — #328 touched
+        # three files, inherited `scripts/publish-artifact.sh` from #327, matched
+        # the `shared` filter, and rebuilt all 69 kits across 274 jobs. It
+        # re-fires on every push for the life of the PR, and only for PRs opened
+        # before the change, so two identical PRs get different blast radii
+        # purely by opening date.
+        #
+        # `origin/main` would be closer but still races: `getChanges` does a
+        # two-dot diff, so if main advances between GitHub computing the merge
+        # ref and this checkout fetching it, main's newer commits show up
+        # inverted, as changes belonging to the PR. The merge ref's own first
+        # parent cannot drift that way.
+        #
+        # Left EMPTY on push, where the action's default (compare against the
+        # previously pushed commit) is already what we want. Also empty if HEAD
+        # is not a merge commit, which degrades to that pinned default rather
+        # than failing the run.
+        run: |
+          set -euo pipefail
+          base=""
+          if [ "${{ github.event_name }}" = "pull_request" ] \
+             && git rev-parse --verify --quiet HEAD^2 >/dev/null; then
+            base=$(git rev-parse HEAD^1)
+          fi
+          echo "Filter base: ${base:-(action default)}"
+          echo "sha=${base}" >> "$GITHUB_OUTPUT"
+
       - name: Filter kit changes
         id: filter-kits
         if: github.event_name == 'push' || github.event_name == 'pull_request'
@@ -169,6 +208,14 @@ jobs:
           # Local git diff rather than the API, so fork PRs work with a
           # restricted GITHUB_TOKEN.
           token: ""
+          # Anchors the diff to the merge ref's first parent; see "Resolve
+          # filter base" above for why the action's pinned default is wrong
+          # here. The action logs "'base' input parameter is ignored when action
+          # is triggered by pull request event" at this point. That warning does
+          # not apply to this configuration: with `token: ""` it takes the
+          # local-git path, which uses `base || pull_request.base.sha`
+          # (src/main.ts:117 at the pinned commit), so this value IS the one used.
+          base: ${{ steps.filter-base.outputs.sha }}
           # Every per-kit filter mixes a positive pattern with negations
           # (kit/**, !kit/README.md, ...). Under the default predicate-quantifier
           # ("some" — a file matches the filter if ANY listed pattern's own
@@ -203,6 +250,14 @@ jobs:
           # Local git diff rather than the API, so fork PRs work with a
           # restricted GITHUB_TOKEN.
           token: ""
+          # Anchors the diff to the merge ref's first parent; see "Resolve
+          # filter base" above for why the action's pinned default is wrong
+          # here. The action logs "'base' input parameter is ignored when action
+          # is triggered by pull request event" at this point. That warning does
+          # not apply to this configuration: with `token: ""` it takes the
+          # local-git path, which uses `base || pull_request.base.sha`
+          # (src/main.ts:117 at the pinned commit), so this value IS the one used.
+          base: ${{ steps.filter-base.outputs.sha }}
 
       - name: Collect kits to build
         id: collect

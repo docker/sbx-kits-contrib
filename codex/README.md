@@ -123,15 +123,19 @@ When a sandbox has an MCP gateway reserved, a startup hook appends an
 a token — the proxy substitutes the real value per request, so nothing
 credential-shaped is ever written to disk.
 
-Three details worth knowing if you edit that hook:
+Four details worth knowing if you edit that hook:
 
 - The header table is **`http_headers`**, not `headers`. Codex ignores unknown
-  config keys silently, so a `headers` table is accepted, the server shows up
+  config keys (it only warns at startup), so a `headers` table is accepted, the
+  server shows up
   as registered and healthy, and every request through it goes out with no
   `Authorization` at all. `headers` is the right spelling for the
   JSON-configured agents in this repo (`copilot`, `kiro`); it does not carry
   over to Codex's TOML. `codex mcp get mcp-gateway` is the quick check —
   `http_headers: Authorization=*****` means it took.
+- There is no `type` key. A `url` alone selects Codex's HTTP transport;
+  `type = "http"` is Claude Code's `.mcp.json` spelling, and Codex warns at
+  startup that it is ignored.
 - It **appends**. `config.toml` is shared territory: the install hook writes the
   yolo-mode and provider keys before launch, and Codex itself appends
   per-project and TUI state during a session. Rewriting the file would clobber
