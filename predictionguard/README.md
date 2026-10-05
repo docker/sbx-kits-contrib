@@ -80,16 +80,29 @@ Architecturally, this provides a pathway to run autonomous agents at scale witho
 Register your Prediction Guard API token once:
 
 ```bash
-echo "$PREDICTIONGUARD_TOKEN" | sbx secret set-custom -g \
-  --host pg.yourcompany.com \
-  --env PREDICTIONGUARD_TOKEN \
-  --placeholder sk-pg-placeholder
+sbx secret set predictionguard
 ```
 
-Then run:
+Then compose the kit onto any agent workload:
 
 ```bash
-sbx run --kit docker.io/predictionguard/sbx-predictionguard:latest predictionguard
+# Claude Code
+sbx run docker/claude-code \
+  --kit docker.io/predictionguard/sbx-predictionguard:latest \
+  --kit-arg pgHost=pg.yourcompany.com \
+  .
+
+# Hermes
+sbx run docker/hermes-agent \
+  --kit docker.io/predictionguard/sbx-predictionguard:latest \
+  --kit-arg pgHost=pg.yourcompany.com \
+  .
+
+# OpenCode
+sbx run docker/opencode \
+  --kit docker.io/predictionguard/sbx-predictionguard:latest \
+  --kit-arg pgHost=pg.yourcompany.com \
+  .
 ```
 
 Replace `pg.yourcompany.com` with your Prediction Guard deployment URL.
