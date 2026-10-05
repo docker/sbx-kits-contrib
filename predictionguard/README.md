@@ -117,12 +117,8 @@ Need a Prediction Guard deployment? [Get your evaluation license →](https://pr
 - **Compatible API surface:** OpenAI, Anthropic, MCP, and agent SDK compatible endpoints, so existing agent implementations (such as LangGraph, Pydantic AI, CrewAI, OpenCode and Claude Code) operate with zero refactoring
 - **Verified provenance:** signed images, Docker Scout vulnerability scanning, and the Docker Verified Publisher badge
 
-## Meet us at WeAreDevelopers World Congress
+## Learn more
 
-We will be at the Docker Pavilion, Sep 23-25, San Jose. Come see a live demo of both gates in action — Docker Sandbox + Prediction Guard running together.
-
-[Book time with us at the conference →](https://meetings.hubspot.com/steve1863/we-are-developers-conference)
-
-## Source
-
-[github.com/predictionguard/docker-pg-experiment](https://github.com/predictionguard/docker-pg-experiment)
+- [Two Gates of Defense — predictionguard.com/blog](https://predictionguard.com/blog/two-gates-of-defense-running-ai-agents-safely-with-docker-sandbox-and-prediction-guard)
+- [Prediction Guard joins Docker Verified Publisher Program](https://predictionguard.com/news/prediction-guard-joins-docker-verified-publisher-program-and-releases-governed-agent-kit-on-docker-hub)
+- [Source — github.com/predictionguard/docker-pg-experiment](https://github.com/predictionguard/docker-pg-experiment)
