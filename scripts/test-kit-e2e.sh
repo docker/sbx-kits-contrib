@@ -510,7 +510,8 @@ trap on_exit EXIT
 # by switching to validate.
 stage=inspect
 echo "==> sbx kit inspect ${kit_abs}"
-sbx --app-name "$APP_NAME" kit inspect "$kit_abs" </dev/null
+# Inspect builds the kit, so a kit with a required argument needs KIT_ARGS here too.
+sbx --app-name "$APP_NAME" kit inspect "$kit_abs" $kit_arg_flags </dev/null
 
 # The run itself. `-d` starts the sandbox and prints its ID without opening an
 # agent session, which is the supported non-interactive path — a plain `sbx run`
