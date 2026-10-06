@@ -13,13 +13,21 @@ agentInstructions:
       to `npx --package t3@latest`, so the first connection does not reach
       the npm registry.
     - `t3` installs a platform package that carries prebuilt native modules,
-      `node-pty` among them, so nothing compiles here. Those binaries link
-      against `libatomic1` from the base image.
+      `node-pty` among them, so nothing compiles here. Those binaries need
+      `libatomic1`, which this kit installs when the base image lacks it.
 permissions:
   network:
     allow:
       # Install time: the t3 tarball and its platform package.
       - registry.npmjs.org:443
+      # libatomic1, on a base image that does not already have it. apt-get
+      # update refreshes every configured source, so all of them must be
+      # reachable: amd64 uses archive/security, arm64 uses ports.ubuntu.com,
+      # and download.docker.com is pre-added on the *-docker templates.
+      - archive.ubuntu.com:80
+      - security.ubuntu.com:80
+      - ports.ubuntu.com:80
+      - download.docker.com:443
 setup:
   install:
     - command: |
@@ -31,8 +39,17 @@ setup:
         if [ -n "${HTTPS_PROXY:-${HTTP_PROXY:-}}" ]; then
           npm config set https-proxy "${HTTPS_PROXY:-$HTTP_PROXY}"
         fi
+        # t3's prebuilt binaries link against libatomic1. Install it when the
+        # base image has not already, rather than inheriting it by accident
+        # from some other package's dependencies.
+        if ! ldconfig -p 2>/dev/null | grep -q 'libatomic\.so\.1'; then
+          export DEBIAN_FRONTEND=noninteractive
+          apt-get update
+          apt-get install -y --no-install-recommends libatomic1
+          rm -rf /var/lib/apt/lists/*
+        fi
         npm install -g t3@latest
         ln -sf "$(command -v t3)" /usr/local/bin/t3
-        t3 --version || { echo "t3 installed but will not start, see the error above. A base image without libatomic1 fails here: install it (apt-get install -y libatomic1), or use a standard agent template." >&2; exit 1; }
+        t3 --version || { echo "t3 installed but will not start, see the error above. On a base image without apt-get, install libatomic1 with its own package manager first." >&2; exit 1; }
       user: "0"
       description: Install the t3 npm package globally
