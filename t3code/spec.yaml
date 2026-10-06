@@ -33,6 +33,6 @@ setup:
         fi
         npm install -g t3@latest
         ln -sf "$(command -v t3)" /usr/local/bin/t3
-        t3 --version
+        t3 --version || { echo "t3 installed but will not start, see the error above. A base image without libatomic1 fails here: install it (apt-get install -y libatomic1), or use a standard agent template." >&2; exit 1; }
       user: "0"
       description: Install the t3 npm package globally
