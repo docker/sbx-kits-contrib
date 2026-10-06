@@ -190,8 +190,9 @@ setup:
     # Pre-trust the workspace so the interactive TUI skips its "Workspace Trust
     # Required" prompt on every single run. cursor-agent records trust in
     # ~/.cursor/projects/<slug>/.workspace-trusted, where <slug> is the
-    # workspace path with the leading slash dropped and the remaining "/"
-    # turned into "-". The slug is per-workspace, so this cannot be a static
+    # workspace path with every run of characters outside [A-Za-z0-9] turned
+    # into a single "-" and leading/trailing "-" trimmed; a mismatched slug
+    # brings the prompt back. The slug is per-workspace, so this cannot be a static
     # file — it is computed from the in-container workspace path the runtime
     # provides.
     #
@@ -205,7 +206,7 @@ setup:
     - command: |
         [ -n "$WORKSPACE_DIR" ] || { echo "WORKSPACE_DIR unset; skipping Cursor workspace pre-trust" >&2; exit 0; }
         ws="$WORKSPACE_DIR"
-        slug=$(printf '%s' "$ws" | sed 's#^/##; s#/#-#g')
+        slug=$(printf '%s' "$ws" | LC_ALL=C tr -c 'A-Za-z0-9' '-' | tr -s '-' | sed 's/^-//; s/-$//')
         dir="/home/agent/.cursor/projects/$slug"
         mkdir -p "$dir"
         esc=$(printf '%s' "$ws" | sed 's/\\/\\\\/g; s/"/\\"/g')
