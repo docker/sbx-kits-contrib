@@ -1,11 +1,9 @@
 ---
 name: kit-author
 description: Author Docker Sandboxes kits (agents and mixins) — spec.yaml schema, full lifecycle from sourcing through composition, injection, and runtime, plus distribution and TCK testing.
-globs:
+paths:
   - "**/spec.yaml"
   - "**/spec.yml"
-  - "spec/**"
-  - "tck/**"
 ---
 
 # Kit Author Skill
