@@ -182,9 +182,12 @@ capabilities:
         # inside the case arms: an unquoted terminator has to start at column 0.
         - command: |
             set -e
-            # ~/.codex is CODEX_HOME; ~/.agents is where Codex looks for the
-            # cross-agent skills tree (~/.agents/skills). Both are created up
-            # front so nothing later has to create them as root.
+            # ~/.codex is CODEX_HOME, and this hook is what creates it.
+            # ~/.agents is carried by the overlay instead, because the skills
+            # bind lands on it before any hook runs: by now a missing
+            # ~/.agents is already root's, and this `mkdir -p` would find it
+            # there and succeed without changing the ownership. Kept in the
+            # list anyway so a base that somehow has neither still gets both.
             mkdir -p /home/agent/.codex /home/agent/.agents
             MODE="${SBX_CRED_OPENAI_MODE:-none}"
             cat > /home/agent/.codex/config.toml << 'EOF'

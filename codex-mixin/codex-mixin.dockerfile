@@ -129,6 +129,23 @@ export CODEX_HOME=/home/agent/.codex
 export GIT_TERMINAL_PROMPT=0
 EOF
 
+# ~/.agents, carried as an empty directory. codex-mixin.yaml declares
+# ~/.agents/skills as agent-skills@1 and the host binds its skills store
+# there; a bind target that does not exist gets its whole path created by the
+# runtime as root, when the container starts and so before any install hook
+# runs. That is why the hook's own `mkdir -p` cannot stand in for this, and
+# why ~/.codex -- which no mount lands on -- is left to the hook.
+#
+# Ownership is mirrored from the build stage with `chown --reference` rather
+# than left as root, including the /home and /home/agent prefix: an overlay
+# stamps every directory entry it carries onto the composed image, so shipping
+# the leaf without its parents would land a root-owned /home/agent on the base
+# and take the agent's own home with it.
+RUN set -eu; \
+    mkdir -p /out/home/agent/.agents; \
+    for d in /home /home/agent; do chown --reference="$d" "/out${d}"; done; \
+    chown --reference=/home/agent /out/home/agent/.agents
+
 # The overlay: the CLI (its launcher shim plus the standalone release tree
 # under /opt that the shim resolves to), xdg-open, the npm-global shim
 # codex-app-server's wrapper execs, and the profile.d exports — landing on any
