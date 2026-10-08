@@ -1,26 +1,13 @@
 # syntax=docker/sandbox-kit:3
-# T3 Code's sandbox prerequisites as a MIXIN. The v2 kit shipped no Dockerfile
-# — it apt-installed a toolchain and npm-installed `t3` through setup hooks,
-# because a v2 mixin could carry no content at all — and the first v3 cut kept
-# both hooks and stayed declaration-only.
-#
-# v3 lets a mixin carry an overlay, and the two hooks do not belong on the
-# same side of that line:
-#
-#   * `t3` is pure content and moved into t3code.dockerfile, which is why
-#     registry.npmjs.org is gone from the allow list below.
-#   * The toolchain is apt and stays a hook. An overlay carries files, not
-#     dpkg state, so packages baked here would arrive on the composed base
-#     with no entry in its package database and without the shared-library
-#     closure apt would have pulled in — and this kit's agent context promises
-#     the toolchain is present *in the sandbox*, for any later `npm install`
-#     or `npm rebuild` that touches node-pty.
+# T3 Code's sandbox prerequisite as a MIXIN: the `t3` CLI, carried as an
+# overlay built by t3code.dockerfile, plus one install hook for the shared
+# library its prebuilt binaries link against. apt cannot travel in an overlay
+# (a layer carries files, not dpkg state), so libatomic1 stays a hook.
 schemaVersion: "3"
 displayName: T3 Code
 description: >-
-  Build toolchain and the t3 npm package that T3 Code's SSH integration needs
-  to run inside a sandbox — node-pty, a t3 dependency, has no Linux prebuilt
-  binaries and must compile from source.
+  Installs the t3 npm package that T3 Code's SSH integration runs inside a
+  sandbox, so the first connection starts a pre-installed server.
 
 kind: mixin
 
@@ -40,10 +27,10 @@ version: "${{ kit.args.version }}"
 # the npm package the recipe installs, read from
 # `https://registry.npmjs.org/t3/latest` — the same document `t3@latest` was
 # resolving before the pin, so this default is what the unpinned build installed
-# the day it was pinned. 0.0.42 then; re-read that URL to bump.
+# the day it was pinned. 0.0.45 then; re-read that URL to bump.
 args:
   version:
-    default: "0.0.42"
+    default: "0.0.45"
     # The shape `t3` publishes. Narrow on purpose: it refuses the dist-tags npm
     # would also accept in the install spec (`latest` is not a version and cannot
     # stand in a provide), and everything it accepts is a legal provide version
@@ -72,9 +59,8 @@ capabilities:
   # MIGRATION NOTE: registry.npmjs.org is gone from this list. It was here for
   # the `npm install -g t3@latest` hook, which t3code.dockerfile now performs
   # at image-build time — the tarball is the builder's traffic, not the
-  # sandbox's. The apt hosts stay, because the toolchain hook stays. Unlike
-  # the other kits in this pass, then, the install phase does not disappear:
-  # it narrows to the one hook that still runs.
+  # sandbox's. The apt hosts stay for the libatomic1 hook, so the install
+  # phase narrows to the one hook that still runs rather than disappearing.
   - type: com.docker.sandbox/network-policy@1
     config:
       install:
@@ -92,25 +78,22 @@ capabilities:
   - type: com.docker.sandbox/lifecycle@1
     config:
       install:
-        # No `env:` — the body reads nothing. DEBIAN_FRONTEND is exported, not
-        # consumed from the environment.
-        #
-        # This hook stays a hook. apt in a mixin has nowhere else to go: an
-        # overlay carries files, and a package's value here is its dpkg state
-        # and its dependency closure on the base that ends up composing this
-        # kit. It is also what the agent context promises — that the sandbox
-        # itself can compile node-pty — so it has to exist in the sandbox and
-        # not only in a builder. t3code.dockerfile installs the same three
-        # packages in its build stage, where they compile the CLI's native
-        # dependency and then stay behind.
+        # t3's prebuilt binaries link against libatomic1, which no sandbox
+        # template ships. Installed here, and only when the base lacks it,
+        # because apt cannot travel in an overlay. No `env:`: the body reads
+        # nothing from the environment.
         - command: |
             set -euo pipefail
+            if ldconfig -p 2>/dev/null | grep -q 'libatomic\.so\.1'; then
+              echo "libatomic1 already present on the base image"
+              exit 0
+            fi
             export DEBIAN_FRONTEND=noninteractive
             apt-get update
-            apt-get install -y g++ make python3
+            apt-get install -y --no-install-recommends libatomic1
             rm -rf /var/lib/apt/lists/*
           user: "0"
-          description: Install the build toolchain node-pty needs to compile from source on Linux
+          description: Install libatomic1 when the base image lacks it; t3's prebuilt binaries link against it
 
         # MIGRATION NOTE: the second hook, "Install the t3 npm package
         # globally", is gone — t3code.dockerfile runs that install at image
