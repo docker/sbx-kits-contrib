@@ -29,9 +29,21 @@ ARG BASE_IMAGE
 # unversioned -- see antigravity.yaml for the full argument and for what
 # upstream would have to change to make a pin possible.
 USER agent
-RUN curl -fsSL https://antigravity.google/cli/install.sh -o /tmp/install-antigravity.sh && \
-    bash /tmp/install-antigravity.sh --dir /home/agent/.local/bin && \
-    rm -f /tmp/install-antigravity.sh && \
+# The CDN sometimes answers with a body that is not the script (two runs in one
+# morning, minutes apart from a good one), so the fetch checks for a shebang
+# and retries before running what it got.
+RUN set -eu; \
+    url=https://antigravity.google/cli/install.sh; \
+    n=0; \
+    until curl -fsSL --compressed "$url" -o /tmp/install-antigravity.sh \
+          && [ "$(head -c 2 /tmp/install-antigravity.sh)" = '#!' ]; do \
+      n=$((n + 1)); \
+      [ "$n" -lt 5 ] || { echo "giving up on $url after $n attempts: the response is not a shell script" >&2; exit 1; }; \
+      echo "install.sh fetch unusable (attempt $n), retrying in $((n * 10))s" >&2; \
+      sleep $((n * 10)); \
+    done; \
+    bash /tmp/install-antigravity.sh --dir /home/agent/.local/bin; \
+    rm -f /tmp/install-antigravity.sh; \
     agy --help >/dev/null
 
 # v2's environment.variables, in the slot OCI already owns for static env.
