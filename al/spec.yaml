@@ -1,0 +1,30 @@
+schemaVersion: "1"
+kind: mixin
+name: al
+displayName: AL (Business Central)
+description: altool installation
+
+network:
+  allowedDomains:
+    - dot.net
+    - ci.dot.net
+    - builds.dotnet.microsoft.com
+    - dotnetcli.azureedge.net
+    - api.nuget.org
+    - globalcdn.nuget.org
+
+commands:
+  install:
+    - command: |
+        set -euo pipefail
+        installer="$(mktemp)"
+        curl -fsSL https://dot.net/v1/dotnet-install.sh -o "$installer"
+        bash "$installer" --channel 8.0
+        rm -f "$installer"
+        tool="Microsoft.Dynamics.BusinessCentral.Development.Tools"
+        # dotnet tool update installs when absent and upgrades otherwise, so
+        # reruns stay idempotent; fall back to install for older SDKs.
+        "$HOME/.dotnet/dotnet" tool update --global "$tool" \
+          || "$HOME/.dotnet/dotnet" tool install --global "$tool"
+      user: "1000"
+      description: Install altool
