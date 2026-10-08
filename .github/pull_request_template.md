@@ -38,6 +38,8 @@ required from your side before requesting review.
       (`--app-name sbx-kits-contrib-tck`), so my main sbx state is untouched.
       Every entry I added to `permissions.network.allow` came from
       `sbx --app-name sbx-kits-contrib-tck policy log <tck-e2e-…>`, not a guess.
+- [ ] `DRY_RUN=true ./scripts/hub-logo.sh <kit>` resolves the descriptor's
+      `iconUrl` to a PNG or SVG, or the kit deliberately declares none.
 - [ ] Manual smoke: `sbx run --kit ./<kit>/ <agent>` and verified the kit's
       binary / files / env are inside the running container.
 
