@@ -40,7 +40,12 @@ on:
       - ".github/workflows/hub-overview.yml"
       - "scripts/hub-repo-ready.sh"
       - "scripts/kit-meta.sh"
-  workflow_dispatch: {}
+  workflow_dispatch:
+    inputs:
+      force-logos:
+        description: Re-upload every logo even when Hub already serves the same bytes.
+        type: boolean
+        default: false
   workflow_call:
     inputs:
       kit:
@@ -233,6 +238,19 @@ jobs:
           HUB_USERNAME: ${{ vars.DOCKERPUBLICBOT_USERNAME }}
           HUB_TOKEN: ${{ secrets.DOCKERPUBLICBOT_DELETE_PAT }}
 
+      # The logo, from the descriptor's iconUrl, mirrored to the Hub
+      # repository; idempotent against what Hub already serves. Logo files are
+      # not kept in this repository (third-party trademarks). See scripts/hub-logo.sh.
+      - name: Sync the kit's logo
+        id: logo
+        if: steps.kit-repo.outputs.ready == 'true' && env.DRY_RUN != 'true'
+        run: ./scripts/hub-logo.sh "${{ matrix.kit }}" >> "$GITHUB_OUTPUT"
+        env:
+          HUB_USERNAME: ${{ vars.DOCKERPUBLICBOT_USERNAME }}
+          HUB_TOKEN: ${{ secrets.DOCKERPUBLICBOT_DELETE_PAT }}
+          IMAGE_NAMESPACE: ${{ vars.IMAGE_NAMESPACE || 'sbx' }}
+          FORCE: ${{ github.event_name == 'workflow_dispatch' && inputs.force-logos && 'true' || 'false' }}
+
       # v2 synced a SECOND Hub page here, for the base image a kit built and
       # owned: `<kit>-image` took `<kit>/README.image.md`, gated on the kit
       # having both a Dockerfile and that README, because most kits boot from a
@@ -251,3 +269,8 @@ jobs:
           fi
           [ "${{ steps.kit-repo.outputs.ready }}" = "true" ] ||
             echo "::notice::${{ steps.meta.outputs.kit-repository }} has nothing published — overview not synced."
+          case "${{ steps.logo.outputs.action }}" in
+            uploaded)  echo "::notice::${{ steps.meta.outputs.kit-repository }} logo uploaded from ${{ steps.logo.outputs.detail }}" ;;
+            unchanged) echo "logo unchanged (${{ steps.logo.outputs.detail }})" ;;
+            skipped)   echo "::notice::${{ steps.meta.outputs.kit-repository }} logo not synced: ${{ steps.logo.outputs.detail }}" ;;
+          esac
