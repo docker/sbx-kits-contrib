@@ -12,7 +12,7 @@ own. The workload form is [`../kiro`](../kiro).
 ## Compose it
 
 ```bash
-sbx create --kit docker.io/dockerdev/sbx-kit-shell --kit ./kiro-mixin
+sbx create --kit <shell-workload> --kit ./kiro-mixin
 sbx exec <sandbox> -- kiro chat --trust-all-tools
 ```
 

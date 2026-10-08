@@ -45,7 +45,7 @@ resolve against it exactly as they do against the workload kit.
 ## Usage
 
 ```console
-sbx create --kit ./shell --kit ./codex-mixin --name my-task /path/to/task
+sbx create --kit <shell-workload> --kit ./codex-mixin --name my-task /path/to/task
 ```
 
 Then run `codex` inside the sandbox.

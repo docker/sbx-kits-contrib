@@ -44,7 +44,7 @@ kit; a base carrying the platform floor and coreutils has both.
 ## Usage
 
 ```console
-sbx create --kit ./shell --kit ./copilot-mixin --name my-task /path/to/task
+sbx create --kit <shell-workload> --kit ./copilot-mixin --name my-task /path/to/task
 ```
 
 Then run `copilot` inside the sandbox.

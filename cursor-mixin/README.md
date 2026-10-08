@@ -40,7 +40,7 @@ goes through the forward proxy.
 ## Usage
 
 ```console
-sbx create --kit ./shell --kit ./cursor-mixin --name my-task /path/to/task
+sbx create --kit <shell-workload> --kit ./cursor-mixin --name my-task /path/to/task
 ```
 
 Then run `cursor-agent` inside the sandbox.
