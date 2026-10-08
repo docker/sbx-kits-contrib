@@ -1,0 +1,13 @@
+# Dapr component manifest schema v1alpha1 for the kit's pinned Dapr Runtime v1.18.2.
+apiVersion: dapr.io/v1alpha1
+kind: Component
+metadata:
+  name: llm-provider
+spec:
+  type: conversation.deepseek
+  version: v1
+  metadata:
+    - name: key
+      envRef: DEEPSEEK_API_KEY
+    - name: model
+      envRef: SANDBOX_DAPR_AGENTS_MODEL
