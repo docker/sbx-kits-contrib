@@ -182,11 +182,13 @@ jobs:
           )
           case "$status" in
             200)
+              # No -e: jq -e exits 1 when the value is false, which is the
+              # answer we want here.
               private=$(
                 curl --fail --silent --show-error \
                   --header "Authorization: JWT $jwt" \
                   "$base" |
-                  jq -er .is_private
+                  jq -r .is_private
               )
               [ "$private" = false ] || {
                 echo "::error::${HUB_REPOSITORY} remains private"
