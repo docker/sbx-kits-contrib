@@ -39,14 +39,14 @@ To use OpenAI or Gemini instead of the default (Anthropic), pass Aider's own
 `ENV` at run time, so this goes through Aider's native CLI flag instead):
 
 ```console
-sbx run "docker.io/docker/sbx-kit-aider:latest" -- --model gpt-4o
-sbx run "docker.io/docker/sbx-kit-aider:latest" -- --model gemini/gemini-2.5-pro
+sbx run "docker.io/sbx/aider:latest" -- --model gpt-4o
+sbx run "docker.io/sbx/aider:latest" -- --model gemini/gemini-2.5-pro
 ```
 
 ## Usage
 
 ```console
-sbx run "docker.io/docker/sbx-kit-aider:latest"
+sbx run "docker.io/sbx/aider:latest"
 ```
 
 Or from a git URL targeting this repo:

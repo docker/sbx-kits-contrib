@@ -1,0 +1,5 @@
+# OpenClaw's warn-only startup model/pricing catalog refresh. The gateway reports
+# ready without it; see the runtime allow list in the descriptor.
+catalog.openclaw.ai
+# OpenClaw's telemetry sink. The user decides whether to open it.
+telemetry.openclaw.ai

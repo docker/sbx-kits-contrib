@@ -66,8 +66,7 @@ env:
       || github.repository != 'docker/sbx-kits-contrib'
       || secrets.DOCKERHUB_OIDC_CONNECTIONID == '') && '1' || '' }}
   REGISTRY: ${{ vars.REGISTRY || 'docker.io' }}
-  IMAGE_NAMESPACE: ${{ vars.IMAGE_NAMESPACE || 'docker' }}
-  IMAGE_NAME_PREFIX: ${{ vars.IMAGE_NAME_PREFIX || 'sbx-kit-' }}
+  IMAGE_NAMESPACE: ${{ vars.IMAGE_NAMESPACE || 'sbx' }}
   IMAGE_TAG_LATEST: ${{ vars.IMAGE_TAG_LATEST || 'latest' }}
   PLATFORMS: ${{ vars.PLATFORMS || 'linux/amd64,linux/arm64' }}
 
@@ -119,8 +118,11 @@ jobs:
           # old org and a push that 403s.
           #
           # v2 wrote the org out as the literal `sbx` and asserted
-          # IMAGE_NAMESPACE equalled it. Deriving it says the same thing without
-          # a second place to update, now that the namespace has actually moved.
+          # IMAGE_NAMESPACE equalled it. The org is still `sbx` and the same
+          # connection still mints these tokens, so nothing here had to change
+          # when kits moved to the v3 publishing model; deriving the username
+          # rather than repeating the literal just removes the second place that
+          # would have to be updated if it ever did move.
           username: ${{ env.IMAGE_NAMESPACE }}
           password: ${{ steps.docker_oidc.outputs.token }}
 

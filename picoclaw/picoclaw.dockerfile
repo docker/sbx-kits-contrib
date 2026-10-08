@@ -66,6 +66,12 @@ COPY --chmod=0755 files/home/.local/bin/picoclaw-start.sh /usr/local/bin/picocla
 # keeping v2's sandbox.entrypoint spelling exactly. config.json carries the
 # `__ANTHROPIC_API_KEY__` placeholder the startup hook substitutes, and comes
 # back fresh from this layer on every create, exactly as the v2 copy did.
+# COPY --chmod applies to the directories it creates as well as the files, so
+# without this the two directories land 0644 and the agent cannot traverse
+# them: the startup hook dies with exit 2 before the agent starts.
+RUN mkdir -p /home/agent/.local/bin /home/agent/.picoclaw \
+ && chown agent:agent /home/agent/.local/bin /home/agent/.picoclaw \
+ && chmod 0755 /home/agent/.local/bin /home/agent/.picoclaw
 COPY --chown=agent:agent --chmod=0644 \
      files/home/.local/bin/picoclaw-start.sh \
      files/home/.local/bin/picoclaw-anthropic-auth.sh \

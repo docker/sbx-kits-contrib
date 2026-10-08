@@ -1,7 +1,7 @@
 name: Release a kit
 
 # Publishes a named version of one kit, triggered by a `<kit>/vX.Y.Z` tag —
-# e.g. `github-ssh/v1.0.0` publishes docker.io/docker/sbx-kit-github-ssh:1.0.0.
+# e.g. `github-ssh/v1.0.0` publishes docker.io/sbx/github-ssh:1.0.0.
 #
 # Separate from build-and-publish-kits.yml on purpose. The two answer different
 # questions, and folding them together would mean one workflow deciding, per

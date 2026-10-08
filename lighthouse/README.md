@@ -14,7 +14,7 @@ sandbox — headless, sandbox-local.
 ## Usage
 
 ```console
-sbx run claude --kit "docker.io/docker/sbx-kit-lighthouse:latest" .
+sbx run claude --kit "docker.io/sbx/lighthouse:latest" .
 ```
 
 Or straight from this repository over git:
@@ -50,7 +50,7 @@ lighthouse http://localhost:3000 --output json --output-path ./lh-report.json --
 Compose with `playwright` when the agent also needs to drive the browser:
 
 ```console
-sbx run claude --kit "docker.io/docker/sbx-kit-playwright:latest" --kit "docker.io/docker/sbx-kit-lighthouse:latest" .
+sbx run claude --kit "docker.io/sbx/playwright:latest" --kit "docker.io/sbx/lighthouse:latest" .
 ```
 
 Both kits set `PLAYWRIGHT_BROWSERS_PATH=/opt/ms-playwright` and both ship

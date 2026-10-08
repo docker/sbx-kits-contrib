@@ -1,0 +1,6 @@
+# claude-mem's PostHog telemetry. The overlay sets CLAUDE_MEM_TELEMETRY=0 and the
+# descriptor does not allow the sink; the DNS lookup still shows up as blocked.
+us.i.posthog.com
+# claude-mem Pro: cloud sync and the plan upsell. A paid feature the kit does not
+# enable; opening it is the user's call.
+cmem.ai

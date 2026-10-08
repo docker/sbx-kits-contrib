@@ -42,7 +42,7 @@ These are the commands the kit is meant to be run with. They do **not** work
 while `opencode` is still a built-in agent — see the note at the top.
 
 ```console
-sbx run "docker.io/docker/sbx-kit-opencode:latest"
+sbx run "docker.io/sbx/opencode:latest"
 ```
 
 Or from a git URL targeting this repo:
@@ -243,7 +243,7 @@ which resolved to the Docker flavour of its template.
 
 There is no longer a separate `-image` artifact: in v3 a kit *is* an ordinary
 OCI image, so what v2 split into `docker.io/sbx/opencode-image` and
-`docker.io/docker/sbx-kit-opencode` is one thing published once. The name is derived
+`docker.io/sbx/opencode` is one thing published once. The name is derived
 from the kit directory and enforced repo-wide — see
 [PUBLISHING.md](../PUBLISHING.md#naming).
 

@@ -17,7 +17,7 @@ licenses:
 
 # Your Dynatrace SaaS (Gen3 "apps") environment URL. The kit cannot know it for
 # you, so set it at run time:
-#   sbx run --kit docker.io/docker/sbx-kit-dynatrace:latest --kit-arg dynatrace.environment=https://abc12345.apps.dynatrace.com claude
+#   sbx run --kit docker.io/sbx/dynatrace:latest --kit-arg dynatrace.environment=https://abc12345.apps.dynatrace.com claude
 args:
   environment:
     default: "https://YOUR-ENV.apps.dynatrace.com"

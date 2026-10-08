@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Publish one kit as an OCI image to <registry>/<namespace>/sbx-kit-<kit>.
+# Publish one kit as an OCI image to <registry>/<namespace>/<kit>.
 #
 # Usage:
 #   scripts/publish-kit.sh <kit>
@@ -9,8 +9,7 @@
 #
 # Environment:
 #   REGISTRY          default docker.io
-#   IMAGE_NAMESPACE   default docker
-#   IMAGE_NAME_PREFIX default sbx-kit-
+#   IMAGE_NAMESPACE   default sbx
 #   IMAGE_TAG_LATEST  default latest      — the rolling tag's name
 #   MOVE_LATEST       default true        — also tag the rolling tag
 #   PLATFORMS         default linux/amd64,linux/arm64
@@ -67,8 +66,7 @@ fi
 kit=$1
 
 REGISTRY=${REGISTRY:-docker.io}
-IMAGE_NAMESPACE=${IMAGE_NAMESPACE:-docker}
-IMAGE_NAME_PREFIX=${IMAGE_NAME_PREFIX:-sbx-kit-}
+IMAGE_NAMESPACE=${IMAGE_NAMESPACE:-sbx}
 IMAGE_TAG_LATEST=${IMAGE_TAG_LATEST:-latest}
 MOVE_LATEST=${MOVE_LATEST:-true}
 PLATFORMS=${PLATFORMS:-linux/amd64,linux/arm64}
@@ -117,7 +115,11 @@ esac
 # choose, so a kit cannot aim the push at a repository this repository does not
 # own. (v2 had to read `sandbox.image` out of the spec, which is why it also
 # needed a check-image-ref.sh to police what it read.)
-ref="${REGISTRY}/${IMAGE_NAMESPACE}/${IMAGE_NAME_PREFIX}${kit}"
+# Checked HERE, not only in discovery: this script takes its kit from $1, so a
+# hand-run `publish-kit.sh claude-kit` never passes discover-kits.sh at all.
+"$SCRIPT_DIR/check-kit-name.sh" "$kit" || exit 1
+
+ref="${REGISTRY}/${IMAGE_NAMESPACE}/${kit}"
 
 # One resolver for the publish tag and for the release-tag check, so a released
 # version and a published one cannot mean different things. See kit-version.sh

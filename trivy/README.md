@@ -29,7 +29,7 @@ against tag-rewrite attacks.
 
 ```console
 cd ~/work/some-project
-sbx run "docker.io/docker/sbx-kit-trivy:latest" .
+sbx run "docker.io/sbx/trivy:latest" .
 agent@trivy-some-project:/Users/mark/work/some-project$ trivy fs .
 ```
 

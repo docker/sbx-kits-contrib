@@ -56,12 +56,12 @@ curl -fsSI -o /dev/null -w '%{redirect_url}\n' \
 ```
 
 [`../hermes-agent`](../hermes-agent) must move in the same change — both kits
-provide `hermes-agent`, and their copies of `hermes-anthropic-auth.sh` are
+provide `hermes-agent`, and their copies of `hermes-credential-auth.sh` are
 byte-identical by hand.
 
 ## Run it from a login shell
 
-The startup hook writes `~/.hermes/anthropic-auth.env` and appends a source
+The startup hook writes `~/.hermes/credential-auth.env` and appends a source
 line to `~/.profile`. Only a login shell reads it. Without it, sentinel API
 keys for services the host never bound stay in the environment, and Hermes'
 own provider auto-detection routes to one of them with no real key behind it.
@@ -80,7 +80,7 @@ has no entrypoint, so `~/.profile` is the path.
 
 ## A note on `files/`
 
-[`files/home/.local/bin/hermes-anthropic-auth.sh`](./files/home/.local/bin/hermes-anthropic-auth.sh)
+[`files/home/.local/bin/hermes-credential-auth.sh`](./files/home/.local/bin/hermes-credential-auth.sh)
 is a **copy** of the same file in `../hermes-agent/files/`, not a reference to
 it: a kit's build context is rooted at its own descriptor's directory and may
 not escape it, so a sibling kit's assets are unreachable from this recipe. The

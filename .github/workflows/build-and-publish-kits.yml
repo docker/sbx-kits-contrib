@@ -2,8 +2,8 @@ name: Build and publish kits
 
 # Publishes every kit that needs publishing, as ONE image each:
 #
-#   docker.io/docker/sbx-kit-<kit>:<version>   the kit's own version
-#   docker.io/docker/sbx-kit-<kit>:latest      rolling
+#   docker.io/sbx/<kit>:<version>   the kit's own version
+#   docker.io/sbx/<kit>:latest      rolling
 #
 # WHAT THIS USED TO DO, AND WHY IT IS SMALLER NOW. Under v2 a kit was a YAML
 # file that POINTED AT an image, so this workflow published two things per kit
@@ -87,8 +87,7 @@ permissions:
 
 env:
   REGISTRY: ${{ vars.REGISTRY || 'docker.io' }}
-  IMAGE_NAMESPACE: ${{ vars.IMAGE_NAMESPACE || 'docker' }}
-  IMAGE_NAME_PREFIX: ${{ vars.IMAGE_NAME_PREFIX || 'sbx-kit-' }}
+  IMAGE_NAMESPACE: ${{ vars.IMAGE_NAMESPACE || 'sbx' }}
   IMAGE_TAG_LATEST: ${{ vars.IMAGE_TAG_LATEST || 'latest' }}
   PLATFORMS: ${{ vars.PLATFORMS || 'linux/amd64,linux/arm64' }}
 
@@ -117,6 +116,44 @@ jobs:
           kits="${kits% }"
           echo "Discovered kits:${kits:+ }${kits:-(none)}"
           echo "kits=${kits}" >> "$GITHUB_OUTPUT"
+
+      - name: Resolve filter base
+        id: filter-base
+        # What the path filters below compare against.
+        #
+        # On `pull_request`, actions/checkout checks out refs/pull/N/merge,
+        # whose FIRST parent is the base commit GitHub computed that merge
+        # against (the base branch tip) and whose second is the PR head. Diffing
+        # against that parent is exactly "what this PR changes", and nothing
+        # else.
+        #
+        # The action's own default for this event is
+        # `github.event.pull_request.base.sha`, which GitHub PINS when the PR is
+        # opened and never advances. A PR left open across someone else's merge
+        # then reports every file the base gained since as its own, matches the
+        # shared filters, and rebuilds every kit. It re-fires on every push for
+        # the life of the PR, and only for PRs opened before the change, so two
+        # identical PRs get different blast radii purely by opening date.
+        #
+        # The base branch ref would be closer but still races: `getChanges` does
+        # a two-dot diff, so if the base advances between GitHub computing the
+        # merge ref and this checkout fetching it, the base's newer commits show
+        # up inverted, as changes belonging to the PR. The merge ref's own first
+        # parent cannot drift that way.
+        #
+        # Left EMPTY on push, where the action's default (compare against the
+        # previously pushed commit) is already what we want. Also empty if HEAD
+        # is not a merge commit, which degrades to that pinned default rather
+        # than failing the run.
+        run: |
+          set -euo pipefail
+          base=""
+          if [ "${{ github.event_name }}" = "pull_request" ] \
+             && git rev-parse --verify --quiet HEAD^2 >/dev/null; then
+            base=$(git rev-parse HEAD^1)
+          fi
+          echo "Filter base: ${base:-(action default)}"
+          echo "sha=${base}" >> "$GITHUB_OUTPUT"
 
       - name: Generate filters
         id: filter-setup
@@ -182,6 +219,14 @@ jobs:
           # Local git diff rather than the API, so fork PRs work with a
           # restricted GITHUB_TOKEN.
           token: ""
+          # Anchors the diff to the merge ref's first parent; see "Resolve
+          # filter base" above for why the action's pinned default is wrong
+          # here. The action logs "'base' input parameter is ignored when action
+          # is triggered by pull request event" at this point. That warning does
+          # not apply to this configuration: with `token: ""` it takes the
+          # local-git path, which uses `base || pull_request.base.sha`
+          # (src/main.ts:117 at the pinned commit), so this value IS the one used.
+          base: ${{ steps.filter-base.outputs.sha }}
           # Every per-kit filter mixes a positive pattern with negations
           # (kit/**, !kit/README.md, ...). Under the default predicate-quantifier
           # ("some" — a file matches the filter if ANY listed pattern's own
@@ -216,6 +261,14 @@ jobs:
           # Local git diff rather than the API, so fork PRs work with a
           # restricted GITHUB_TOKEN.
           token: ""
+          # Anchors the diff to the merge ref's first parent; see "Resolve
+          # filter base" above for why the action's pinned default is wrong
+          # here. The action logs "'base' input parameter is ignored when action
+          # is triggered by pull request event" at this point. That warning does
+          # not apply to this configuration: with `token: ""` it takes the
+          # local-git path, which uses `base || pull_request.base.sha`
+          # (src/main.ts:117 at the pinned commit), so this value IS the one used.
+          base: ${{ steps.filter-base.outputs.sha }}
 
       - name: Collect kits to build
         id: collect

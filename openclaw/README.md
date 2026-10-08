@@ -22,7 +22,7 @@ layering the same agent onto a shell base instead.
 ## Usage
 
 ```console
-sbx run "docker.io/docker/sbx-kit-openclaw:latest"
+sbx run "docker.io/sbx/openclaw:latest"
 ```
 
 Or from a git URL targeting this repo:
@@ -122,7 +122,7 @@ step 2 rather than overwriting it with `sbx secret set anthropic`.
 **2. Start it.**
 
 ```console
-sbx run "docker.io/docker/sbx-kit-openclaw:latest"
+sbx run "docker.io/sbx/openclaw:latest"
 ```
 
 You land in `openclaw tui`, connected to the gateway. A reply there means the
@@ -184,7 +184,7 @@ Then recreate:
 
 ```console
 sbx rm -f <sandbox-name>
-sbx run "docker.io/docker/sbx-kit-openclaw:latest"
+sbx run "docker.io/sbx/openclaw:latest"
 ```
 
 Recreating discards everything living inside the sandbox — the gateway token
@@ -203,7 +203,7 @@ the kit it booted from.
 release declared by this kit:
 
 ```console
-sbx run "docker.io/docker/sbx-kit-openclaw:2026.9.3"
+sbx run "docker.io/sbx/openclaw:2026.9.3"
 ```
 
 A v3 kit is one image, so that reference selects the descriptor, policy,
@@ -373,7 +373,7 @@ the openclaw kit's content
 
 There is no longer a separate `-image` artifact: in v3 a kit *is* an ordinary
 OCI image, so what v2 split into `docker.io/sbx/openclaw-image` and
-`docker.io/docker/sbx-kit-openclaw` is one thing published once.
+`docker.io/sbx/openclaw` is one thing published once.
 
 One runtime quirk: the sandbox runtime seeds its own
 `~/.openclaw/openclaw.json` at create time, which lacks `gateway.mode`

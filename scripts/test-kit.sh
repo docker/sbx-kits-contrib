@@ -64,9 +64,9 @@ REPO_ROOT=$(cd "$SCRIPT_DIR/.." && pwd)
 # which is exactly the fork-PR leg in CI, since installing kit-tck needs read
 # access to a private repository a fork's token does not have.
 #
-# Deliberately not installed on the caller's behalf: `go install` mutates the
-# machine's GOPATH, which a test script has no business doing silently. CI runs the
-# same line as its own step, so the install is visible in the job log.
+# Deliberately not installed on the caller's behalf: a test script has no business
+# silently putting a binary on the machine. CI installs it as its own step, so the
+# install is visible in the job log.
 kit_tck=""
 resolve_kit_tck() {
   kit_tck=${KIT_TCK:-}
@@ -74,21 +74,23 @@ resolve_kit_tck() {
   if command -v kit-tck >/dev/null 2>&1; then
     kit_tck=kit-tck
   elif command -v go >/dev/null 2>&1 && [ -x "$(go env GOPATH)/bin/kit-tck" ]; then
-    # `go install` lands the binary here whether or not GOPATH/bin is on PATH,
-    # which it often is not on a fresh machine.
+    # Where a pre-m.7 `go install` landed it, whether or not GOPATH/bin is on
+    # PATH. Kept as a fallback for machines that still have one from then; the
+    # documented install is the release binary, which lands on PATH above.
     kit_tck="$(go env GOPATH)/bin/kit-tck"
   else
     cat >&2 <<'EOF'
-ERROR: kit-tck not found. Install the conformance suite:
+ERROR: kit-tck not found. Install the conformance suite by downloading the
+binary for your platform from the specification's releases:
 
-  go install github.com/docker/sandbox-kit-spec/v3/cmd/kit-tck@latest
+  https://github.com/docker/sandbox-kit-spec/releases
 
 It ships with the specification rather than with this repository on purpose: the
 checks and the clauses they enforce version together.
 
-docker/sandbox-kit-spec is not a public repository, so that install needs a git
-credential for github.com that can read it, and GOPRIVATE=github.com/docker/* so
-the fetch goes to git rather than to the public module proxy.
+Not `go install …/cmd/kit-tck@latest`: the specification's go.mod carries a
+replace directive from v3.0.0-m.7 onward, and `go install pkg@version` refuses
+any module that has one. CI installs the release binary for the same reason.
 
 To check only that a descriptor is valid, which needs no kit-tck at all:
 
@@ -109,8 +111,8 @@ if [ "${1:-}" = "--ref" ]; then
   ref=$1
   shift
   resolve_kit_tck
-  echo "==> kit-tck kit ${ref}"
-  exec "$kit_tck" kit "$ref" "$@"
+  echo "==> kit-tck validate ${ref}"
+  exec "$kit_tck" validate "$ref" "$@"
 fi
 
 validate_only=
@@ -228,5 +230,5 @@ kit_build \
 # level; SPEC-v3 §9.3 says consumers fall back to the platform manifest, which
 # still carries them, so kit-tck reports `index-annotations` as warned and still
 # concludes "conforms" with exit 0. Do not add a grep for "warned" here.
-echo "==> kit-tck kit --layout ${layout} ${LAYOUT_TAG}"
-"$kit_tck" kit --layout "$layout" "$LAYOUT_TAG" "$@"
+echo "==> kit-tck validate --layout ${layout} ${LAYOUT_TAG}"
+"$kit_tck" validate --layout "$layout" "$LAYOUT_TAG" "$@"

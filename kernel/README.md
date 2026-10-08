@@ -24,7 +24,7 @@ sbx secret set kernel
 The primary form is the published OCI artifact on Docker Hub:
 
 ```console
-sbx run --kit "docker.io/docker/sbx-kit-kernel:latest" claude
+sbx run --kit "docker.io/sbx/kernel:latest" claude
 ```
 
 Or target this repo directly over git:

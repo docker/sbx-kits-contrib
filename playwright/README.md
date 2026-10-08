@@ -10,7 +10,7 @@ A mixin kit that installs the **Playwright** browser-automation toolchain inside
 ## Usage
 
 ```console
-sbx run claude --kit "docker.io/docker/sbx-kit-playwright:latest" .
+sbx run claude --kit "docker.io/sbx/playwright:latest" .
 ```
 
 Or straight from this repository over git:

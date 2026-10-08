@@ -21,7 +21,7 @@ offline development, cost-free experimentation, or testing with custom local mod
 ## Usage
 
 ```console
-sbx run "docker.io/docker/sbx-kit-claude-ollama:latest" ~/my-project
+sbx run "docker.io/sbx/claude-ollama:latest" ~/my-project
 ```
 
 Or from a git URL or a local clone of this repo:

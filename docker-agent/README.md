@@ -43,7 +43,7 @@ These are the commands the kit is meant to be run with. They do **not** work
 while `docker-agent` is still a built-in agent — see the note at the top.
 
 ```console
-sbx run "docker.io/docker/sbx-kit-docker-agent:latest"
+sbx run "docker.io/sbx/docker-agent:latest"
 ```
 
 Or from a git URL targeting this repo:

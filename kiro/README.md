@@ -27,7 +27,7 @@ authenticates only via device flow, which needs a browser on your host.
 ## Usage
 
 ```console
-sbx run "docker.io/docker/sbx-kit-kiro:latest"
+sbx run "docker.io/sbx/kiro:latest"
 ```
 
 Or from a git URL targeting this repo:
@@ -136,7 +136,7 @@ The image is **`docker.io/sbx/kiro-image`**, built on
 requests Docker-in-Docker.
 
 The `-image` suffix distinguishes the base image from the kit itself: the kit
-itself is published as an OCI artifact at `docker.io/docker/sbx-kit-kiro` (see
+itself is published as an OCI artifact at `docker.io/sbx/kiro` (see
 [Usage](#usage) above). The name is derived from the kit directory and enforced repo-wide — see
 [PUBLISHING.md](../PUBLISHING.md#naming).
 

@@ -244,9 +244,16 @@ capabilities:
         # on every boot a no-op.
         #
         # The header table is `http_headers`, NOT `headers`: Codex ignores
-        # unknown keys without complaint, so a `headers` table registers a
-        # gateway that looks healthy in `codex mcp get` and sends no
-        # Authorization at all.
+        # unknown keys (it only warns at startup), so a `headers` table
+        # registers a gateway that looks healthy in `codex mcp get` and sends
+        # no Authorization at all.
+        #
+        # And there is NO `type` key. Codex infers the transport from `url`;
+        # `type = "http"` is Claude Code's `.mcp.json` spelling, which Codex
+        # warns at startup that it is ignoring. Stated here as well as in the
+        # workload's descriptor because both carry their own copy of this hook,
+        # and an absent line is not self-explaining -- the next person diffing
+        # against Claude Code's config has nothing to read but this.
         - command:
             - sh
             - -c
@@ -260,7 +267,6 @@ capabilities:
               cat >> "$cfg" <<EOF
 
               [mcp_servers.mcp-gateway]
-              type = "http"
               url = "$MCP_GATEWAY_URL"
               [mcp_servers.mcp-gateway.http_headers]
               Authorization = "Bearer $MCP_SENTINEL_TOKEN_NAME"

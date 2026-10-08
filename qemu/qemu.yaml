@@ -92,7 +92,8 @@ capabilities:
         allow:
           # Docker Hub: the in-sandbox docker daemon pulls tonistiigi/binfmt for the
           # startup step. registry-1.docker.io serves the manifest, auth.docker.io
-          # issues the pull token, and layer blobs come from Cloudflare. index.docker.io
+          # issues the pull token, and layer blobs redirect to either CDN host
+          # depending on the client's region, so both are listed. index.docker.io
           # is the legacy index some client flows still touch. These stay open past
           # install on purpose: the agent context documents re-running the
           # registration by hand, and the foreign-arch `docker run` examples pull
@@ -100,6 +101,7 @@ capabilities:
           - registry-1.docker.io
           - auth.docker.io
           - production.cloudflare.docker.com
+          - production.cloudfront.docker.com
           - index.docker.io
 
   - type: com.docker.sandbox/lifecycle@1

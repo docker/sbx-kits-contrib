@@ -30,7 +30,7 @@ the same agent and configuration onto a shell base instead.
 ## Usage
 
 ```console
-sbx run "docker.io/docker/sbx-kit-opencode-model-runner:latest" ~/my-project
+sbx run "docker.io/sbx/opencode-model-runner:latest" ~/my-project
 ```
 
 Or from a git URL or a local clone of this repo:

@@ -55,7 +55,7 @@ version: "${{ kit.args.version }}"
 # the same installer at the same pin and provide the same name, so a composition
 # that resolved one against the other's requires must see the same release.
 # Nothing enforces it across kit directories — bump both together, along with the
-# byte-identical hermes-anthropic-auth.sh the two kits each carry a copy of.
+# byte-identical hermes-credential-auth.sh the two kits each carry a copy of.
 args:
   version:
     default: "2026.9.14"
@@ -122,15 +122,21 @@ capabilities:
           # raw.githubusercontent.com: observed contacted on the same real
           # run, consistent with the same update/skills-metadata machinery.
           - raw.githubusercontent.com
-          # api.githubcopilot.com: hypothesis, stated as such -- the base
-          # template exports GH_TOKEN and hermes_cli/auth.py lists it as a
-          # Copilot credential candidate, which would explain a discovery
-          # probe. Flagged rather than asserted; see ../hermes-agent.
+          # GitHub Copilot: every host the copilot credential below injects
+          # into. Hermes itself only calls api.githubcopilot.com; the
+          # plan-specific hosts are reached when COPILOT_API_BASE_URL points at
+          # them. The full set the sibling copilot kit declares, so a Hermes
+          # release that follows GitHub's own redirects does not 403 under
+          # deny-all.
           - api.githubcopilot.com
+          - api.individual.githubcopilot.com # Copilot Pro and Pro+
+          - api.business.githubcopilot.com # Copilot Business
+          - api.enterprise.githubcopilot.com # Copilot Enterprise
+          - copilot.github.com
           # The project's own front door, confirmed contacted on a real run.
           - hermes-agent.nousresearch.com
 
-  # All three are `optional: true`, faithfully: v2 credentials default to
+  # All four are `optional: true`, faithfully: v2 credentials default to
   # not-required and the v3 default inverts. Hermes runs with any one of the
   # three, or with none, so making any required would refuse creates v2
   # accepted.
@@ -189,6 +195,27 @@ capabilities:
         inject:
           - {domain: openrouter.ai, header: Authorization, format: "Bearer %s"}
 
+  - type: com.docker.sandbox/credential@1
+    optional: true
+    description: GitHub Copilot model access
+    config:
+      service: copilot
+      phase: runtime
+      apiKey:
+        # Not proxyManaged: Hermes' validate_copilot_token() rejects any token
+        # not prefixed gho_/github_pat_/ghu_, the literal "proxy-managed"
+        # included, so hermes-credential-auth.sh exports a prefix-valid
+        # placeholder instead, and only when the host bound this credential.
+        # No api.github.com inject on purpose: a successful token exchange
+        # there would return a real Copilot token into the container.
+        name: COPILOT_GITHUB_TOKEN
+        inject:
+          - {domain: api.githubcopilot.com, header: Authorization, format: "Bearer %s"}
+          - {domain: api.individual.githubcopilot.com, header: Authorization, format: "Bearer %s"}
+          - {domain: api.business.githubcopilot.com, header: Authorization, format: "Bearer %s"}
+          - {domain: api.enterprise.githubcopilot.com, header: Authorization, format: "Bearer %s"}
+          - {domain: copilot.github.com, header: Authorization, format: "Bearer %s"}
+
   - type: com.docker.sandbox/lifecycle@1
     config:
       startup:
@@ -207,14 +234,15 @@ capabilities:
         # identically. $HOME is the platform baseline and needs no entry.
         - command:
             - sh
-            - /home/agent/.local/bin/hermes-anthropic-auth.sh
+            - /home/agent/.local/bin/hermes-credential-auth.sh
           user: "1000"
           env:
             - HERMES_HOME
             - SBX_CRED_ANTHROPIC_MODE
             - SBX_CRED_OPENAI_MODE
             - SBX_CRED_OPENROUTER_MODE
-          description: Resolve which of the anthropic/openai/openrouter credentials are genuinely bound, record the result for `sbx exec` login shells, and pin the active provider in config.yaml when only an Anthropic OAuth login is bound
+            - SBX_CRED_COPILOT_MODE
+          description: Resolve which of the anthropic/openai/openrouter/copilot credentials are genuinely bound, record the result for `sbx exec` login shells, and pin the active provider in config.yaml when only an Anthropic OAuth login or only Copilot is bound
 
   # MIGRATION NOTE: no `agent-skills@1` — neither the v2 spec nor the recipe
   # nor the README ever names the directory Hermes reads skills from, and the

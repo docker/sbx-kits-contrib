@@ -67,6 +67,31 @@ matching-stem rule is also what keeps `spec/`, `tck/`, `scripts/` and `skills/`
 out without an ignore list: they hold no file named after themselves, so they
 are not kits by construction rather than by exception.
 
+A name is also checked against `check-kit-name.sh` below; a refusal fails the
+listing rather than silently dropping the directory.
+
+## `check-kit-name.sh` — names that would publish over something else
+
+Refuses a kit name ending in `-kit` or `-image`. Exit 0 usable, 1 reserved,
+2 usage.
+
+```bash
+./scripts/check-kit-name.sh claude        # ok
+./scripts/check-kit-name.sh claude-kit    # refused
+```
+
+A v3 kit publishes as `<registry>/<namespace>/<name>`, and `-kit` / `-image`
+are the v2 scheme's two names for one kit, still published from the frozen v2
+branch into the same `sbx` namespace. So `foo-kit` would resolve to
+`sbx/foo-kit` and overwrite the v2 artifact belonging to `foo`.
+
+The rule lives in one file because it has to hold at four moments:
+`discover-kits.sh` lists kits, `publish-kit.sh` and `kit-meta.sh` compose a
+reference from an argument, and `check-release-tag.sh` takes a name out of a
+git tag a human pushed. The last three are not fed by discovery, so a guard in
+the lister alone would not cover a hand-run `publish-kit.sh claude-kit` or a
+`claude-kit/v1.0.0` tag.
+
 ## `kit-version.sh` — the version a kit publishes under
 
 Resolves the version that becomes the kit's image tag. One resolver, so
@@ -92,7 +117,7 @@ invented number.
 
 ## `publish-kit.sh` — build and push a kit
 
-Publishes one kit as an image to `<registry>/<namespace>/sbx-kit-<kit>`, tagged
+Publishes one kit as an image to `<registry>/<namespace>/<kit>`, tagged
 with its resolved version and (unless `MOVE_LATEST=false`) the rolling tag, both
 from one `docker buildx build` so they cannot resolve to different digests.
 `publish-one-kit.yml` is wiring around this; the command line is here so it can
@@ -103,8 +128,8 @@ DRY_RUN=1 scripts/publish-kit.sh claude     # build it, push nothing
 scripts/publish-kit.sh claude               # build and push
 ```
 
-`REGISTRY`, `IMAGE_NAMESPACE`, `IMAGE_NAME_PREFIX` and `IMAGE_TAG_LATEST`
-default to `docker.io`, `docker`, `sbx-kit-` and `latest`. A real run needs a
+`REGISTRY`, `IMAGE_NAMESPACE` and `IMAGE_TAG_LATEST` default to
+`docker.io`, `sbx` and `latest`. A real run needs a
 `docker login` to the namespace; nothing else has to be installed, because the
 kit frontend is named on the descriptor's first line and BuildKit pulls it.
 
@@ -154,14 +179,16 @@ check on its own and the only one available without access to `kit-tck`'s
 
 Drives `sbx run` against a throwaway workspace under a scoped app name with a
 `deny-all` default policy, so a kit's declared egress is tested rather than
-assumed. A mixin is composed onto a resolved base automatically. Needs an `sbx`
+assumed. A blocked request fails the run unless the host is listed in the kit's
+`testdata/e2e-expected-blocked` (telemetry, update checks: the user's call to
+open). A mixin is composed onto a resolved base automatically. Needs an `sbx`
 that understands v3 kits — see `install-sbx.sh` above — and Docker Hub
 credentials for the scoped daemon.
 
 ## `hub-repo-ready.sh` — does a Hub repository hold anything?
 
 ```bash
-scripts/hub-repo-ready.sh docker/sbx-kit-claude
+scripts/hub-repo-ready.sh sbx/claude
 ```
 
 Prints `ready=true` or `ready=false`. The overview sync asks this first: Hub only
@@ -207,7 +234,7 @@ against a tag **before** pushing it:
 It refuses a tag that is malformed, names a kit that does not exist, or names a
 version the kit does not publish. The last one is the point: the published tag
 comes from the descriptor, not from the git tag, so without this check a
-`claude/v9.9.9` tag publishes `sbx-kit-claude:2.1.267` — a release announcing a
+`claude/v9.9.9` tag publishes `claude:2.1.267` — a release announcing a
 version that exists nowhere but in git.
 
 It asks `kit-version.sh` rather than reading a literal `version:` itself, so it

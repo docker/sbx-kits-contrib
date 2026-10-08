@@ -48,6 +48,45 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Resolve filter base
+        id: filter-base
+        # What the path filters below compare against.
+        #
+        # On `pull_request`, actions/checkout checks out refs/pull/N/merge,
+        # whose FIRST parent is the base commit GitHub computed that merge
+        # against (the base branch tip) and whose second is the PR head. Diffing
+        # against that parent is exactly "what this PR changes", and nothing
+        # else.
+        #
+        # The action's own default for this event is
+        # `github.event.pull_request.base.sha`, which GitHub PINS when the PR is
+        # opened and never advances. A PR left open across someone else's merge
+        # then reports every file the base gained since as its own, matches the
+        # shared filters, and fans out across every kit. It re-fires on every
+        # push for the life of the PR, and only for PRs opened before the
+        # change, so two identical PRs get different blast radii purely by
+        # opening date.
+        #
+        # The base branch ref would be closer but still races: `getChanges` does
+        # a two-dot diff, so if the base advances between GitHub computing the
+        # merge ref and this checkout fetching it, the base's newer commits show
+        # up inverted, as changes belonging to the PR. The merge ref's own first
+        # parent cannot drift that way.
+        #
+        # Left EMPTY on push, where the action's default (compare against the
+        # previously pushed commit) is already what we want. Also empty if HEAD
+        # is not a merge commit, which degrades to that pinned default rather
+        # than failing the run.
+        run: |
+          set -euo pipefail
+          base=""
+          if [ "${{ github.event_name }}" = "pull_request" ] \
+             && git rev-parse --verify --quiet HEAD^2 >/dev/null; then
+            base=$(git rev-parse HEAD^1)
+          fi
+          echo "Filter base: ${base:-(action default)}"
+          echo "sha=${base}" >> "$GITHUB_OUTPUT"
+
       - name: Generate filters
         id: filter-setup
         run: |
@@ -55,9 +94,20 @@ jobs:
           # Add a filter for each kit directory. discover-kits.sh is the
           # single source of truth for "what is a kit" — delegate to it here
           # too instead of re-globbing for descriptors.
+          #
+          # Captured first, rather than read straight from `< <(…)`: process
+          # substitution DISCARDS the exit status, so discover-kits.sh refusing
+          # the layout (a reserved `*-kit`/`*-image` directory) would read here
+          # as "no kits", generate no filters, and report a green run having
+          # tested nothing.
+          if ! discovered=$(./scripts/discover-kits.sh); then
+            echo "::error::discover-kits.sh refused the kit layout; see its output above."
+            exit 1
+          fi
           while IFS= read -r kit; do
+            [ -n "$kit" ] || continue
             filters=$(printf '%s\n%s: "%s/**"' "$filters" "$kit" "$kit")
-          done < <(./scripts/discover-kits.sh)
+          done <<< "$discovered"
           # Shared packages and scripts get their own filters.
           filters=$(printf '%s\ntck: "tck/**"\nspec: "spec/**"\nscripts: "scripts/**"' "$filters")
           filters=$(printf '%s\nworkflows: [".github/workflows/e2e.yml", ".github/workflows/tck.yml"]' "$filters")
@@ -76,6 +126,14 @@ jobs:
           # Use local git diff instead of GitHub API — works for fork PRs
           # which have restricted GITHUB_TOKEN permissions.
           token: ""
+          # Anchors the diff to the merge ref's first parent; see "Resolve
+          # filter base" above for why the action's pinned default is wrong
+          # here. The action logs "'base' input parameter is ignored when action
+          # is triggered by pull request event" at this point. That warning does
+          # not apply to this configuration: with `token: ""` it takes the
+          # local-git path, which uses `base || pull_request.base.sha`
+          # (src/main.ts:117 at the pinned commit), so this value IS the one used.
+          base: ${{ steps.filter-base.outputs.sha }}
 
       - name: Collect kits to test
         id: collect
@@ -91,7 +149,14 @@ jobs:
           workflows_changed="${{ steps.filter.outputs.workflows }}"
 
           if [ "$scripts_changed" = "true" ] || [ "$workflows_changed" = "true" ]; then
-            kits=$(./scripts/discover-kits.sh | jq -R . | jq -sc .)
+            # Status checked before the pipe: GitHub runs `run:` under
+            # `bash -e` with NO pipefail, so jq succeeding would mask
+            # discover-kits.sh refusing the layout and yield `[]`.
+            if ! discovered=$(./scripts/discover-kits.sh); then
+              echo "::error::discover-kits.sh refused the kit layout; see its output above."
+              exit 1
+            fi
+            kits=$(printf '%s' "$discovered" | jq -R . | jq -sc .)
           else
             # Only kits that changed. `grep -vE` exits 1 (no output, no
             # match) when $changes is `[]` — e.g. a doc-only PR — which
@@ -126,42 +191,112 @@ jobs:
       - uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v3.11.1
 
       # kit-tck ships with the specification, not with this repository, so the
-      # checks and the clauses they enforce version together. That also makes it a
-      # private-module install: see the step below.
-      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
-        if: >-
-          github.event_name == 'push' ||
-          github.event.pull_request.head.repo.full_name == github.repository
-        with:
-          go-version-file: go.mod
-
+      # checks and the clauses they enforce version together.
+      #
+      # INSTALLED FROM THE RELEASE ASSET, not `go install`. The spec publishes a
+      # kit-tck binary per platform on every tag, and reaching for `go install
+      # <pkg>@latest` instead walked into two unrelated walls at once:
+      #
+      #   1. A toolchain floor. setup-go installs the version from OUR go.mod
+      #      and pins GOTOOLCHAIN=local, so the install died the moment the
+      #      spec's own floor moved past ours:
+      #        sandbox-kit-spec/v3@v3.0.0-m.8 requires go >= 1.26.8
+      #        (running go 1.26.2; GOTOOLCHAIN=local)
+      #      kit-tck is a TOOL, so the toolchain it needs is the spec's, not
+      #      this module's -- raising our own floor to satisfy it would move it
+      #      for everyone who imports us.
+      #   2. `go install pkg@version` REFUSES any module whose go.mod carries a
+      #      replace directive, and the spec gained one at v3.0.0-m.7
+      #      (cilium/ebpf). No toolchain setting gets past that, so the Go path
+      #      was a dead end from m.7 onward however it was configured.
+      #
+      # The published binary has neither problem, needs no Go at all (which is
+      # why the setup-go step that stood here is gone -- nothing else in this
+      # job uses Go), and is checksum-verified below.
       - name: Install kit-tck
         if: >-
           github.event_name == 'push' ||
           github.event.pull_request.head.repo.full_name == github.repository
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # docker/sandbox-kit-spec is not public, so the module proxy and the
-          # checksum database cannot serve it — both would 404 on a repository
-          # they cannot read. GOPRIVATE routes the fetch straight at git, and the
-          # credential rewrite below is what lets that git fetch authenticate.
-          GOPRIVATE: github.com/docker/*
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          git config --global \
-            url."https://x-access-token:${GITHUB_TOKEN}@github.com/".insteadOf \
-            "https://github.com/"
-          if ! go install github.com/docker/sandbox-kit-spec/v3/cmd/kit-tck@latest; then
-            echo "::error::Could not install kit-tck. The most likely cause is that this" \
-                 "runner's token cannot read the private docker/sandbox-kit-spec repository."
+          set -euo pipefail
+          repo=docker/sandbox-kit-spec
+
+          # Newest v3 release, PRERELEASES INCLUDED. The v3 line is a milestone
+          # series and nothing in it is flagged "latest", so `gh release
+          # download` with no tag (which implies --latest) resolves to nothing.
+          # Taking the newest entry keeps the "track the spec" intent the
+          # `@latest` install had: kit-tck gains checks as the specification
+          # does, and pinning here would quietly stop enforcing new clauses.
+          #
+          # --exclude-drafts, and the v3 filter rather than a bare --limit 1:
+          # the newest release overall is not necessarily one this consumes. A
+          # draft, or a tag from another series, would resolve here and then
+          # match no asset below.
+          #
+          # The listing is run on its own line rather than inside the
+          # assignment because `tag=$(gh …)` under `set -e` aborts the step on
+          # a non-zero exit, so an auth failure would die with no diagnostic at
+          # all -- which is the one thing the `go install` block this replaced
+          # did tell you. Empty output and a failed call are different
+          # answers and are reported as such.
+          # The listing is retried for the same reason as the download below:
+          # the GitHub API fails transiently often enough across the matrix.
+          n=0
+          until releases=$(gh release list --repo "$repo" --exclude-drafts \
+                             --limit 20 --json tagName 2>&1); do
+            n=$((n + 1))
+            if [ "$n" -ge 4 ]; then
+              echo "::error::Could not list releases in ${repo} after ${n} attempts." \
+                   "Either the API is failing or this runner's token cannot read it." \
+                   "gh said: ${releases}"
+              exit 1
+            fi
+            echo "release listing failed (attempt $n), retrying in $((n * 15))s" >&2
+            sleep $((n * 15))
+          done
+          tag=$(printf '%s' "$releases" | jq -r '[.[].tagName | select(startswith("v3."))][0] // ""')
+          if [ -z "$tag" ]; then
+            echo "::error::${repo} is readable but publishes no v3.* release," \
+                 "so there is no kit-tck build to install."
             exit 1
           fi
-          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
-          # @latest rather than a pin, on purpose: kit-tck gains checks as the
-          # specification does, and a pin here would quietly stop enforcing new
-          # clauses. Recording the version it resolved to makes a check that
-          # appeared between two runs explainable from the log.
-          "$(go env GOPATH)/bin/kit-tck" version
 
+          case "$(uname -m)" in
+            x86_64)        arch=amd64 ;;
+            aarch64|arm64) arch=arm64 ;;
+            *) echo "::error::unsupported runner arch $(uname -m)"; exit 1 ;;
+          esac
+          asset="kit-tck_${tag#v}_linux_${arch}.tar.gz"
+
+          dir="${RUNNER_TEMP}/kit-tck"
+          mkdir -p "$dir"
+          # The GitHub API answers 5xx often enough across a 98-job matrix to
+          # red a run on its own, so the download retries before giving up.
+          n=0
+          until gh release download "$tag" --repo "$repo" \
+                  --pattern "$asset" --pattern checksums.txt --dir "$dir" --clobber; do
+            n=$((n + 1))
+            if [ "$n" -ge 4 ]; then
+              echo "::error::could not download ${asset} from ${tag} after ${n} attempts." \
+                   "Either the API is failing (see above) or the release was just cut" \
+                   "and its archives are still uploading; re-run shortly."
+              exit 1
+            fi
+            echo "download failed (attempt $n), retrying in $((n * 15))s" >&2
+            sleep $((n * 15))
+          done
+
+          # --ignore-missing: checksums.txt covers every platform's asset and we
+          # downloaded one. Without it sha256sum fails on the absent entries.
+          ( cd "$dir" && sha256sum --ignore-missing --check checksums.txt )
+
+          tar xzf "${dir}/${asset}" -C "$dir" kit-tck
+          echo "$dir" >> "$GITHUB_PATH"
+          # Recording the version it resolved to makes a check that appeared
+          # between two runs explainable from the log.
+          "${dir}/kit-tck" version
       # matrix.kit comes from directory names in the PR's own checkout
       # (discover-kits.sh); passed via env rather than interpolated into the
       # script text so a directory name containing shell metacharacters can't

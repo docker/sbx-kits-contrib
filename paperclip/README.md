@@ -20,7 +20,7 @@ sandbox serves the web UI in seconds.
 ## Usage
 
 ```console
-sbx run "docker.io/docker/sbx-kit-paperclip:latest"
+sbx run "docker.io/sbx/paperclip:latest"
 ```
 
 Or from a git URL targeting this repo:
@@ -140,7 +140,7 @@ paperclip (the kit's own layers)
 
 There is no longer a separately published `docker.io/sbx/paperclip-image` for
 a `sandbox.image:` field to point at: a v3 Kit is one OCI image carrying both
-the declarations and the content, published at `docker.io/docker/sbx-kit-paperclip`
+the declarations and the content, published at `docker.io/sbx/paperclip`
 (see [Usage](#usage) above). [`../paperclip-mixin`](../paperclip-mixin) is the
 same app as an overlay you layer onto a shell base instead — read its README
 first, because an overlay cannot carry PostgreSQL or the Claude Code CLI.

@@ -34,7 +34,7 @@ with `sbx run -e`. Do not put secrets in `--kit-arg`.
 
 ```bash
 sbx run codex \
-  --kit docker.io/docker/sbx-kit-mend-guardrails:latest \
+  --kit docker.io/sbx/mend-guardrails:latest \
   -e MEND_KEY="<activation-key>" .
 ```
 
@@ -57,7 +57,7 @@ to **Block** before you expect blocks.
 Local policy example:
 
 ```bash
-sbx run codex --kit docker.io/docker/sbx-kit-mend-guardrails:latest \
+sbx run codex --kit docker.io/sbx/mend-guardrails:latest \
   --kit-arg mend-guardrails.policySource=local \
   --kit-arg mend-guardrails.offline=true \
   -e MEND_KEY="<activation-key>" .
@@ -79,7 +79,7 @@ Your model provider API key stays with Docker Sandboxes; Mend does not store it.
 ### Codex TUI intercept
 
 ```bash
-sbx run codex --kit docker.io/docker/sbx-kit-mend-guardrails:latest \
+sbx run codex --kit docker.io/sbx/mend-guardrails:latest \
   --kit-arg mend-guardrails.interceptTui=true \
   -e MEND_KEY="<activation-key>" .
 ```
@@ -145,7 +145,7 @@ sbx run codex \
 
 - Local: `--kit ./mend-guardrails/`
 - Git: `git+https://github.com/docker/sbx-kits-contrib.git#ref=<40-hex-sha>&dir=mend-guardrails`
-- OCI: `docker.io/docker/sbx-kit-mend-guardrails:latest` (use a release tag or
+- OCI: `docker.io/sbx/mend-guardrails:latest` (use a release tag or
   digest for reproducible runs)
 
 ## License

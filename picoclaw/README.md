@@ -22,7 +22,7 @@ layer onto a shell base instead.
 ## Usage
 
 ```console
-sbx run "docker.io/docker/sbx-kit-picoclaw:latest"
+sbx run "docker.io/sbx/picoclaw:latest"
 ```
 
 Or from a git URL targeting this repo:

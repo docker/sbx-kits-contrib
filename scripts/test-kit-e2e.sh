@@ -38,7 +38,9 @@
 #   - Picks the base a mixin composes onto, from the mixin's own `requires:`.
 #   - Fails the run when the policy log recorded a blocked request, even if
 #     nothing else complained. See the policy-log check below for why that is not
-#     redundant with the run succeeding.
+#     redundant with the run succeeding. Hosts a kit leaves unreachable on
+#     purpose (telemetry, update checks) are listed one per line in the kit's
+#     testdata/e2e-expected-blocked; blocks on those hosts pass.
 #   - On failure, prints the policy log itself rather than telling you to go read
 #     it — in CI the runner and its daemon are destroyed the moment the job ends.
 #
@@ -202,11 +204,12 @@ fi
 #     after `requires:`, and treating `#` as "still inside" would scan English
 #     prose for requirement names — which silently picks a base out of a comment
 #     that happens to mention an agent.
-requirement_names() {
-  awk '
-    /^requires:/ {
+# $2 is the field: `requires` or `provides`. Same grammar, same traps.
+declared_names() {
+  awk -v field="$2" '
+    $0 ~ "^" field ":" {
       rest = $0
-      sub(/^requires:[[:space:]]*/, "", rest)
+      sub("^" field ":[[:space:]]*", "", rest)
       in_req = 1
       if (rest != "") print rest
       next
@@ -217,7 +220,7 @@ requirement_names() {
       sub(/#.*/, "", line)
       if (line ~ /[^[:space:]]/) print line
     }
-  ' "$1" | tr -d '[]",' | tr ' ' '\n' | while IFS= read -r token; do
+  ' "$1" | sed 's/\${{[^}]*}}//g; s/\${{.*//' | tr -d '[]",' | tr ' ' '\n' | while IFS= read -r token; do
     # Cut a version constraint in either spelling: `claude@2.1` or `claude>=2.1`.
     token=${token%%@*}
     token=${token%%[<>=]*}
@@ -227,9 +230,54 @@ requirement_names() {
       # `deb/jq` and friends name a distribution package, satisfied by whatever
       # base is used rather than by a kit in this repo.
       */*) continue ;;
+      # Debris from an unexpanded `${{ kit.args.x }}`, which `provides:` entries
+      # carry and the sed above does not catch when it spans lines. Left in, two
+      # kits "overlap" on `}}` and every composition looks incoherent.
+      *'{'*|*'}'*|*'$'*|kit.args.*) continue ;;
     esac
     printf '%s\n' "$token"
   done
+}
+
+requirement_names() { declared_names "$1" requires; }
+
+# The credential services a descriptor declares. `service:` appears only under
+# credential@1 in this repo (checked), so the indent-anchored match is enough
+# without tracking which capability block we are inside.
+credential_services() {
+  awk '{ line = $0; sub(/#.*/, "", line)
+         if (line ~ /^[[:space:]]+service:[[:space:]]*[^[:space:]]/) {
+           sub(/^[[:space:]]+service:[[:space:]]*/, "", line)
+           sub(/[[:space:]]+$/, "", line)
+           gsub(/^["'"'"']|["'"'"']$/, "", line)
+           print line } }' "$1" | sort -u
+}
+
+# True when composing the mixin at $1 onto the kit directory $2 is refused
+# outright. Two ways, both fatal at create and neither visible until then:
+#
+#   provides   "capability X is provided by more than one kit"
+#   credential "credential (X, runtime) is declared by more than one kit"
+#
+# The second is why `claude` cannot be every mixin's base: 16 agent mixins
+# declare the `anthropic` credential it also declares.
+base_conflicts() {
+  _desc="$2/$(basename "$2").yaml"
+  [ -f "$_desc" ] || _desc="$2/$(basename "$2").yml"
+  [ -f "$_desc" ] || return 0
+  for _field in provides credential; do
+    if [ "$_field" = provides ]; then
+      _mix=$(declared_names "$1" provides); _base=$(declared_names "$_desc" provides)
+    else
+      _mix=$(credential_services "$1"); _base=$(credential_services "$_desc")
+    fi
+    for _a in $_mix; do
+      for _b in $_base; do
+        [ "$_a" = "$_b" ] && return 0
+      done
+    done
+  done
+  return 1
 }
 
 # WHAT A MIXIN COMPOSES ONTO
@@ -250,15 +298,31 @@ requirement_names() {
 #      against a hardcoded list of built-ins: such a list goes stale silently,
 #      whereas sbx rejects an unknown agent by name, which is a better error than
 #      composing onto the wrong base and failing somewhere inside the build.
-#   4. The `<base>-mixin` naming convention, for a mixin that requires nothing.
-#   5. The built-in `shell` agent — the cheapest, most neutral base there is, with
-#      no agent credentials in play.
+#   4. (removed) The `<base>-mixin` naming convention sent `foo-mixin` to `foo`.
+#      That is refused by construction: the two are the same agent in two
+#      shapes and both declare `provides: [foo]`, so the set is incoherent --
+#      "capability is provided by more than one kit". True of all 30 pairs here.
+#   5. The `claude` WORKLOAD KIT in this repo.
 #
-# v2 defaulted to `claude` for every mixin without an explicit affinity, because a
-# v2 mixin had no way to state what it needed. A v3 mixin does, so the default no
-# longer has to guess a heavyweight agent.
+# Step 5 was the built-in `shell` agent, on the reasoning that it is the cheapest
+# and most neutral base with no agent credentials in play. That does not work in
+# v3: a built-in agent name contributes no WORKLOAD KIT to the composed set, and
+# v3 requires exactly one, so every mixin falling through to it failed create with
+#
+#   resolve: the kit set is not coherent:
+#     - no workload kit in the set; every composition needs exactly one
+#
+# before the mixin was exercised at all. The base has to be a kit, and `claude` is
+# the one workload here that every mixin can sit on. It is heavier than `shell`
+# was, which is the price of the base being a real kit; a mixin that wants
+# something cheaper should say so in `requires:` (step 2) or pass E2E_HOST.
+#
+# A repo with a `shell` WORKLOAD kit should make that the default instead. There
+# is none today.
 host=""
 host_source=""
+host_is_kit=yes
+host_conflict=""
 if [ "$kind" = "mixin" ]; then
   if [ -n "${E2E_HOST:-}" ]; then
     host=$E2E_HOST
@@ -268,34 +332,138 @@ if [ "$kind" = "mixin" ]; then
       dep_descriptor="$REPO_ROOT/$dep/$dep.yaml"
       if [ -f "$dep_descriptor" ]; then
         if [ "$(descriptor_field "$dep_descriptor" kind)" = "workload" ]; then
+          # Even a base the kit asked for is unusable if the two contend for
+          # the same capability or credential. gstack-mixin is the case: it
+          # requires `claude` and declares `anthropic`, which claude owns.
+          if base_conflicts "$descriptor" "$REPO_ROOT/$dep"; then
+            host_conflict=$dep
+            continue
+          fi
           host="./$dep"
           host_source="the kit's requires:, which names a workload kit in this repo"
           break
         fi
         continue
       fi
+      # Step 3, and in v3 it can no longer produce a RUNNABLE base. A built-in
+      # agent name contributes no workload kit, and v3 needs exactly one, so
+      # composing onto it fails create with "no workload kit in the set". The
+      # name is recorded so the skip below can say which requirement is
+      # unsatisfiable here rather than failing with a resolution error that
+      # looks like a kit bug.
       host=$dep
-      host_source="the kit's requires:, assumed to name a built-in sbx agent"
+      host_source="the kit's requires:, which names no kit in this repo"
+      host_is_kit=no
       break
     done
-    if [ -z "$host" ]; then
-      case "$kit_name" in
-        *-mixin)
-          base=${kit_name%-mixin}
-          if [ -f "$REPO_ROOT/$base/$base.yaml" ]; then
-            host="./$base"
-            host_source="the <base>-mixin naming convention (the kit declares no base requirement)"
-          fi
-          ;;
-      esac
-    fi
-    if [ -z "$host" ]; then
-      host=shell
-      host_source="the default (the kit requires no particular base)"
+    # Only when the kit asked for nothing. A kit that DID ask, and whose answer
+    # conflicts, must not be quietly rehomed onto a base that cannot satisfy the
+    # requirement anyway — it skips below instead.
+    if [ -z "$host" ] && [ -z "$host_conflict" ]; then
+      host="./claude"
+      host_source="the default workload kit (the kit requires no particular base)"
+      # A base providing what the mixin provides is refused as incoherent, so
+      # fall to the first workload that does not. This is what `claude-mixin`
+      # needs: it provides `claude`, same as the default base.
+      if base_conflicts "$descriptor" "$REPO_ROOT/claude"; then
+        host=""
+        for cand in $("$SCRIPT_DIR/discover-kits.sh"); do
+          [ "$(descriptor_field "$REPO_ROOT/$cand/$cand.yaml" kind)" = "workload" ] || continue
+          base_conflicts "$descriptor" "$REPO_ROOT/$cand" && continue
+          host="./$cand"
+          host_source="the first workload kit that does not contend with this mixin"
+          break
+        done
+      fi
     fi
   fi
-  echo "==> $kit_name is a mixin; composing onto ${host}"
+  if [ -z "$host" ] && [ -n "$host_conflict" ]; then
+    cat >&2 <<EOF
+SKIP: $kit_name requires "$host_conflict", and composing with it is refused.
+
+Both declare the same capability or credential, and v3 gives each one owner, so
+the kit this mixin asks for is the one kit it cannot sit on. No other workload
+here satisfies the requirement. It needs a base that carries the requirement
+without owning the credential — a shell workload — which this repo does not have.
+
+EOF
+    exit 0
+  fi
+  if [ "$host_is_kit" = "no" ]; then
+    cat >&2 <<EOF
+SKIP: $kit_name requires "$host", which is not a workload kit in this repo.
+
+A v3 composition needs exactly one workload KIT, and a built-in agent name does
+not supply one, so there is nothing here to compose this mixin onto. Substituting
+the default base would exercise a composition the kit says is wrong.
+
+Re-run against a real base when one exists:
+
+  E2E_HOST=./<workload-kit> $0 $kit_name
+
+EOF
+    exit 0
+  fi
+  echo "==> $kit_name is a mixin; composing onto ${host} (${host_source})"
 fi
+
+# RUNNING A KIT WHOSE NAME A BUILT-IN AGENT ALREADY HOLDS
+#
+# sbx refuses to register a kit under a name a built-in agent owns:
+#
+#   error: agent "claude" is already registered
+#          (built-in agents cannot be overridden by a kit)
+#
+# Eleven workloads here are in that position (claude, codex, cursor, devin,
+# docker-agent, nanobot, openclaw, opencode, opencode-model-runner, picoclaw,
+# zeroclaw), and so is the `claude` base every mixin now composes onto, so
+# without this the collision would take out both halves of the matrix.
+#
+# A v3 kit's NAME IS ITS DIRECTORY STEM — the descriptor carries no `name:`
+# field, and the frontend pairs `<stem>.yaml` with `<stem>.dockerfile` by stem.
+# So renaming a kit is renaming a directory and the two files named after it,
+# with no document to rewrite. (The v2 harness needed copyKitRenamed in
+# tck/e2e_rename.go to re-encode spec.yaml's `name:`; that function is v2-only
+# and is not what runs here.)
+#
+# Everything else the kit depends on travels: `contentFile:` and the recipe's
+# COPY paths are relative to the kit directory, which is copied whole.
+# `provides:` is declared, not derived from the stem, so the mixin requirements
+# that resolve against a renamed base resolve identically.
+#
+# NOT gated on a hardcoded list of built-in names — the existing rule in this
+# script is that such a list goes stale silently. It is also not gated on
+# testdata the way v2's was (`ExtractedFromBuiltin`); v3 deleted those files.
+# It fires only when sbx itself has refused, which keeps it self-limiting: a
+# kit whose name is fine never takes this path.
+e2e_rename_suffix=-e2e
+builtin_collision_marker="built-in agents cannot be overridden by a kit"
+
+# Copies $1 (a kit directory) into a temp parent as "<stem>${e2e_rename_suffix}",
+# renaming the descriptor and recipe to match, and prints the new directory.
+copy_kit_renamed() {
+  src=$1
+  stem=$(basename "$src")
+  new_stem="${stem}${e2e_rename_suffix}"
+
+  parent=$(mktemp -d "${TMPDIR:-/tmp}/sbx-e2e-rename-XXXXXX") || return 1
+  rename_dirs="${rename_dirs}${rename_dirs:+ }${parent}"
+  dst="$parent/$new_stem"
+
+  cp -a "$src" "$dst" || return 1
+  for ext in yaml yml dockerfile; do
+    if [ -f "$dst/$stem.$ext" ]; then
+      mv "$dst/$stem.$ext" "$dst/$new_stem.$ext" || return 1
+    fi
+  done
+  # The descriptor is the one file that must exist under the new stem; a kit
+  # that somehow has neither would otherwise fail later as "not a kit".
+  if [ ! -f "$dst/$new_stem.yaml" ] && [ ! -f "$dst/$new_stem.yml" ]; then
+    echo "ERROR: $src has no $stem.yaml to rename" >&2
+    return 1
+  fi
+  printf '%s\n' "$dst"
+}
 
 # Sandbox name prefix and name. sbx accepts letters, numbers, hyphens, periods
 # and plus signs — no underscores, so a kit directory carrying one is folded to
@@ -426,6 +594,7 @@ workspace=$(mktemp -d "${TMPDIR:-/tmp}/sbx-e2e-workspace-XXXXXX") || {
 # diagnostics that can still be relevant. It is set here so the trap can never
 # read it unset, and updated in step with the run below.
 stage=startup
+rename_dirs=""
 on_exit() {
   rc=$?
   if [ "$rc" -ne 0 ]; then
@@ -468,6 +637,31 @@ EOF
       fi
     fi
 
+    # The daemon's own log. The daemon does not log the cause behind its
+    # `failed to run sandbox container` catch-all, so this rarely names the
+    # fault, but it does show what the daemon was doing. The scoped daemon
+    # publishes a short alias to its state dir; resolve that rather than guess
+    # the nested storage layout.
+    daemon_log=""
+    for alias in "/tmp/sboxd-$(id -u)-${APP_NAME}" "${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"/*/"${APP_NAME}"/d; do
+      [ -e "$alias" ] || continue
+      state_dir=$(readlink -f "$alias" 2>/dev/null) || continue
+      [ -f "$state_dir/daemon.log" ] && { daemon_log="$state_dir/daemon.log"; break; }
+    done
+    [ -n "$daemon_log" ] || daemon_log=$(find "${XDG_STATE_HOME:-$HOME/.local/state}" -path "*/${APP_NAME}/*" -name daemon.log 2>/dev/null | head -1)
+    if [ -n "$daemon_log" ]; then
+      echo "" >&2
+      echo "Daemon log ($daemon_log), lines mentioning $sandbox_name or the last 60:" >&2
+      if grep -F -- "$sandbox_name" "$daemon_log" 2>/dev/null | tail -60 | grep -q .; then
+        grep -F -- "$sandbox_name" "$daemon_log" 2>/dev/null | tail -60 >&2
+      else
+        tail -60 "$daemon_log" >&2 || true
+      fi
+    else
+      echo "" >&2
+      echo "(no daemon.log found for app-name $APP_NAME)" >&2
+    fi
+
     # Only worth raising while the kit was still being resolved or composed: past
     # that point the base demonstrably worked.
     if [ "$kind" = "mixin" ] && { [ "$stage" = "inspect" ] || [ "$stage" = "run" ]; }; then
@@ -496,6 +690,9 @@ If you haven't logged in to the scoped daemon yet:
 EOF
   fi
   rm -rf "$workspace"
+  # Each rename retry makes its own temp parent; there is at most one of the
+  # kit and one of the base, but the loop costs nothing and does not assume.
+  for d in ${rename_dirs:-}; do rm -rf "$d"; done
   exit "$rc"
 }
 trap on_exit EXIT
@@ -522,12 +719,86 @@ sbx --app-name "$APP_NAME" kit inspect "$kit_abs" $kit_arg_flags </dev/null
 # are flag lists assembled above, not single values.
 stage=run
 echo "==> sbx run -d --name ${sandbox_name} (workspace ${workspace})"
+
+# staged_name is the stem the composed sandbox stages this kit's sources under.
+# It follows a rename, which is why the agent-context check below reads it
+# rather than $kit_name.
+staged_name=$kit_name
+
+# Output is captured, not streamed, because the retry decision is made on it.
+# It is echoed either way, so a passing run reads as it did before and a failing
+# one still shows sbx's own message before this script's diagnosis.
+# run_kit <kit-path> <base|""> [forwarded args...]
+# The first two are positional because they are what a retry swaps; everything
+# after them is the caller's forwarded "$@" and is passed through untouched.
+run_kit() {
+  rk_kit=$1
+  rk_host=$2
+  shift 2
+  if [ "$kind" = "workload" ]; then
+    sbx --app-name "$APP_NAME" run -d --name "$sandbox_name" \
+      $kit_arg_flags "$@" "$rk_kit" "$workspace" </dev/null 2>&1
+  else
+    sbx --app-name "$APP_NAME" run -d --name "$sandbox_name" \
+      --kit "$rk_kit" $kit_arg_flags "$@" "$rk_host" "$workspace" </dev/null 2>&1
+  fi
+}
+
 if [ "$kind" = "workload" ]; then
-  sbx --app-name "$APP_NAME" run -d --name "$sandbox_name" \
-    $kit_arg_flags "$@" "$kit_abs" "$workspace" </dev/null
+  if run_out=$(run_kit "$kit_abs" "" "$@"); then
+    printf '%s\n' "$run_out"
+  else
+    printf '%s\n' "$run_out"
+    case "$run_out" in
+      *"$builtin_collision_marker"*)
+        renamed=$(copy_kit_renamed "$kit_abs") || exit 1
+        staged_name=$(basename "$renamed")
+        # --kit-arg is scoped `<kit>.<arg>=<value>`, so the scope has to follow
+        # the rename or this kit's own arguments stop reaching it.
+        if [ -n "${KIT_ARGS:-}" ]; then
+          kit_arg_flags=""
+          for pair in $KIT_ARGS; do
+            kit_arg_flags="$kit_arg_flags --kit-arg ${staged_name}.${pair}"
+          done
+        fi
+        echo "==> NOTICE: a built-in agent already holds the name '${kit_name}';" \
+             "retrying from a copy renamed '${staged_name}'"
+        run_out=$(run_kit "$renamed" "" "$@") || { printf '%s\n' "$run_out"; exit 1; }
+        printf '%s\n' "$run_out"
+        ;;
+      *) exit 1 ;;
+    esac
+  fi
 else
-  sbx --app-name "$APP_NAME" run -d --name "$sandbox_name" \
-    --kit "$kit_abs" $kit_arg_flags "$@" "$host" "$workspace" </dev/null
+  # The BASE can collide too: every mixin without its own affinity now composes
+  # onto ./claude, and `claude` is one of the names a built-in holds. Only a
+  # local-path base can be renamed — a built-in agent name or a registry
+  # reference is not this repo's directory to copy.
+  if run_out=$(run_kit "$kit_abs" "$host" "$@"); then
+    printf '%s\n' "$run_out"
+  else
+    printf '%s\n' "$run_out"
+    case "$run_out" in
+      *"$builtin_collision_marker"*)
+        case "$host" in
+          ./*)
+            renamed_host=$(copy_kit_renamed "$REPO_ROOT/${host#./}") || exit 1
+            echo "==> NOTICE: a built-in agent already holds the base's name" \
+                 "('${host}'); retrying with a copy renamed '$(basename "$renamed_host")'"
+            run_out=$(run_kit "$kit_abs" "$renamed_host" "$@") || { printf '%s\n' "$run_out"; exit 1; }
+            printf '%s\n' "$run_out"
+            ;;
+          *)
+            echo "ERROR: the base '${host}' collides with a built-in agent name and is" >&2
+            echo "       not a local path, so it cannot be renamed. Set E2E_HOST to a" >&2
+            echo "       ./<workload-kit> in this repo." >&2
+            exit 1
+            ;;
+        esac
+        ;;
+      *) exit 1 ;;
+    esac
+  fi
 fi
 
 # The sandbox exists; prove it is usable. `sbx run` returning is not quite the
@@ -544,17 +815,25 @@ sbx --app-name "$APP_NAME" exec "$sandbox_name" -- true </dev/null
 # ARTIFACT stages it; this checks that composing the kit actually landed it, which
 # is the half a conformance run cannot see. `test -s` and not `test -f`: an empty
 # context file is a kit whose guidance silently says nothing.
+# Comments are stripped BEFORE matching: eight descriptors here carry a prose
+# comment mentioning `contentFile:`, and matching one yields a staged path made
+# of English, which the check below then fails on.
 context_file=$(awk '
-  /contentFile:/ {
-    sub(/^.*contentFile:[[:space:]]*/, "")
-    gsub(/^["'"'"']|["'"'"']$/, "")
-    print
-    exit
+  {
+    line = $0
+    sub(/#.*/, "", line)
+    if (line ~ /^[[:space:]]*contentFile:[[:space:]]*[^[:space:]]/) {
+      sub(/^[[:space:]]*contentFile:[[:space:]]*/, "", line)
+      sub(/[[:space:]]+$/, "", line)
+      gsub(/^["'"'"']|["'"'"']$/, "", line)
+      print line
+      exit
+    }
   }
 ' "$descriptor")
 if [ -n "$context_file" ]; then
   stage="agent-context check"
-  staged="/usr/share/sandbox/kit/${kit_name}/$(basename "$context_file")"
+  staged="/usr/share/sandbox/kit/${staged_name}/$(basename "$context_file")"
   echo "==> checking agent context landed at ${staged}"
   sbx --app-name "$APP_NAME" exec "$sandbox_name" -- test -s "$staged" </dev/null
 fi
@@ -575,6 +854,12 @@ fi
 #
 # Skipped when POLICY was cleared, because without a default deny there is nothing
 # to block. ALLOW_BLOCKED=1 downgrades it to a warning while iterating on a kit.
+#
+# Hosts a kit leaves unreachable on purpose (telemetry, update checks) are the
+# user's call to open, so the kit lists them in testdata/e2e-expected-blocked
+# and only a block outside that list fails. Ports and the resolver's search
+# suffix (`<host>.<sandbox>.docker.internal` on DNS blocks) are stripped first.
+expected_blocked_file="$kit_abs/testdata/e2e-expected-blocked"
 if [ -n "$POLICY" ]; then
   stage="egress check"
   echo "==> checking the policy log for blocked requests"
@@ -586,19 +871,44 @@ if [ -n "$POLICY" ]; then
   case "$policy_log" in
     *"Blocked requests"*)
       printf '%s\n' "$policy_log"
-      if [ -n "${ALLOW_BLOCKED:-}" ]; then
+      blocked_hosts=$(printf '%s\n' "$policy_log" | awk -v sb="$sandbox_name" '
+          /^Blocked requests:/ { in_blocked = 1; next }
+          /^Allowed requests:/ { in_blocked = 0 }
+          in_blocked && $1 == sb {
+            host = $3
+            sub(/:[0-9]+$/, "", host)
+            sub("\\." sb "\\.docker\\.internal$", "", host)
+            print host
+          }' | sort -u)
+      expected_blocked=""
+      if [ -f "$expected_blocked_file" ]; then
+        expected_blocked=$(sed -e 's/#.*//' -e 's/[[:space:]]//g' "$expected_blocked_file" | grep -v '^$' | sort -u)
+      fi
+      # An empty pattern file would make grep -F match every line, so an empty
+      # expected list is handled without grep.
+      if [ -n "$expected_blocked" ]; then
+        unexpected_blocked=$(printf '%s\n' "$blocked_hosts" | grep -vxF -f <(printf '%s\n' "$expected_blocked") || true)
+      else
+        unexpected_blocked=$blocked_hosts
+      fi
+      if [ -z "$unexpected_blocked" ]; then
+        echo "Every blocked host is listed in ${expected_blocked_file#"$kit_abs/"}; the kit leaves them unreachable on purpose."
+      elif [ -n "${ALLOW_BLOCKED:-}" ]; then
         echo "WARNING: blocked requests above; ALLOW_BLOCKED is set, so continuing." >&2
       else
         cat >&2 <<EOF
 
-ERROR: $kit_name reached hosts it does not declare — every row under 'Blocked
-requests' above. The run otherwise succeeded, which is exactly the trap: a
-blocked request often leaves a hook quietly doing nothing instead of failing.
+ERROR: $kit_name reached hosts it does not declare:
+$unexpected_blocked
+
+The run otherwise succeeded, which is exactly the trap: a blocked request often
+leaves a hook quietly doing nothing instead of failing.
 
 Add each host to the right phase of the kit's com.docker.sandbox/network-policy@1
 config (\`install\` for a lifecycle install hook, \`runtime\` for the agent's
-steady state; an absent phase grants nothing), or set ALLOW_BLOCKED=1 to proceed
-anyway while iterating.
+steady state; an absent phase grants nothing). If the kit leaves the host
+unreachable on purpose, list it in testdata/e2e-expected-blocked instead. Or set
+ALLOW_BLOCKED=1 to proceed anyway while iterating.
 EOF
         exit 1
       fi

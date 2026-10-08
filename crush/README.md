@@ -38,7 +38,7 @@ You only need keys for the providers you intend to use.
 ## Usage
 
 ```console
-sbx run "docker.io/docker/sbx-kit-crush:latest"
+sbx run "docker.io/sbx/crush:latest"
 ```
 
 Or from a git URL targeting this repo:

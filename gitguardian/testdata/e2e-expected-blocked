@@ -1,0 +1,3 @@
+# ggshield's once-a-day release check, which the AI hook triggers too. No env or
+# config switch exists, and the release is pinned by the build anyway.
+api.github.com

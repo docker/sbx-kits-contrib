@@ -27,7 +27,7 @@ sbx secret set jfrog
 Your JFrog host is per-user, so pass it with `--kit-arg jfrog-xray.jfrog_host=...`:
 
 ```console
-sbx run --kit "docker.io/docker/sbx-kit-jfrog-xray:latest" --kit-arg jfrog-xray.jfrog_host=mycompany.jfrog.io claude
+sbx run --kit "docker.io/sbx/jfrog-xray:latest" --kit-arg jfrog-xray.jfrog_host=mycompany.jfrog.io claude
 ```
 
 Or target this repo directly over git, or a local clone:

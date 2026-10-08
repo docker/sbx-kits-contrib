@@ -164,9 +164,22 @@ The image config owns the runtime contract. The descriptor duplicates none of it
 | `sandbox.entrypoint` | the recipe's `ENTRYPOINT` |
 | `sandbox.command.default` | the recipe's `CMD` |
 | `sandbox.command.interactive` | `lifecycle@1.interactive` — the one piece with no image-config slot |
-| `environment.variables` | the recipe's `ENV` |
+| `environment.variables` | the recipe's `ENV`, with the merge rules below |
 
-The last row has an exception that catches everyone: **a mixin's image config never becomes the composed image's**, so `ENV` in a mixin recipe says nothing at run time. Drop the exports into `/etc/profile.d/<kit>-env.sh` instead, which the base workload's login shell sources.
+A mixin's `ENV`, `LABEL`, `EXPOSE` and `VOLUME` merge into the composed image; its `ENTRYPOINT`, `CMD`, `USER` and `WORKDIR` are ignored (SPEC-v3 §10). The env merge has two rules, and the second is the one that bites:
+
+- `PATH` merges by appending the elements the recipe added.
+- Every other variable belongs to whichever kit set it first. A second kit may restate the same value, never a different one: `env conflict on NO_PROXY: ./claude and ./grafana set different values` refuses the whole composition. The composer cannot know that `NO_PROXY` is a comma-separated list and `GRAFANA_URL` is not, so it does not guess.
+
+So `ENV` is right for a variable only your kit sets. For a variable the base may also set (`NO_PROXY`, `PYTHONPATH`, `LD_LIBRARY_PATH`, …), do not set it in the image config at all. Append to it at shell start from a drop-in the overlay ships, which the base workload's login shell sources:
+
+```sh
+# /etc/profile.d/<kit>-env.sh
+export NO_PROXY="${NO_PROXY:+$NO_PROXY,}host.docker.internal"
+export no_proxy="$NO_PROXY"
+```
+
+The `${VAR:+$VAR,}` form adds the separator only when there is something to separate, so the drop-in is correct on a base that sets the variable and on one that does not.
 
 ### Versions
 
@@ -206,8 +219,8 @@ A workload *is* the agent, so it goes in the first positional slot where a built
 The primary way to consume a kit from this repo is its published OCI image on Docker Hub — every kit here is discovered and published automatically (see [`PUBLISHING.md`](./PUBLISHING.md)), so it exists the moment a change merges to `main`:
 
 ```console
-sbx run docker.io/docker/sbx-kit-claude:latest .
-sbx run docker.io/docker/sbx-kit-claude:latest --kit docker.io/docker/sbx-kit-mise:latest .
+sbx run docker.io/sbx/claude:latest .
+sbx run docker.io/sbx/claude:latest --kit docker.io/sbx/mise:latest .
 ```
 
 Or target this repo directly over git:
@@ -304,11 +317,12 @@ This builds the kit and prints what it resolved to — kind, schema version, and
 `kit-tck` judges a **built artifact** against the specification — the descriptor in the manifest annotation, the staged sources, the layer shape, the derived provides. Build to an OCI layout and point it at the result:
 
 ```console
-go install github.com/docker/sandbox-kit-spec/v3/cmd/kit-tck@latest
+# kit-tck: download the binary for your platform from
+# https://github.com/docker/sandbox-kit-spec/releases
 
 cd my-kit
 docker buildx build . -f my-kit.yaml --output type=oci,dest=/tmp/k,tar=false -t my-kit:1.4.2
-kit-tck kit --layout /tmp/k 1.4.2
+kit-tck validate --layout /tmp/k 1.4.2
 ```
 
 Note the last argument: `kit-tck` takes the **tag alone**, not `my-kit:1.4.2`. A passing run prints the check count and `✓ conforms`.
@@ -423,5 +437,6 @@ Note that a fork PR does not receive repository secrets, so any leg needing Dock
 
 - **Docker** with buildx — the frontend is a BuildKit frontend, so this is what builds and validates a kit.
 - **`sbx`**, from an **rc or nightly** build. Install from [`docker/sbx-releases`](https://github.com/docker/sbx-releases/releases).
-- **`kit-tck`**, for conformance: `go install github.com/docker/sandbox-kit-spec/v3/cmd/kit-tck@latest`.
+- **`kit-tck`**, for conformance: download the binary for your platform from the
+  [specification's releases](https://github.com/docker/sandbox-kit-spec/releases).
 - **Go 1.23+**, only if you are working on the `spec/` or `tck/` packages.

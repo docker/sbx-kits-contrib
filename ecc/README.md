@@ -17,7 +17,7 @@ workload or [`claude-mixin`](../claude-mixin) satisfies.
 ## Usage
 
 ```console
-sbx run --kit "docker.io/docker/sbx-kit-ecc:latest" claude
+sbx run --kit "docker.io/sbx/ecc:latest" claude
 ```
 
 Or from a git URL targeting this repo:
@@ -53,7 +53,7 @@ writable.
   sandbox with a writable store:
 
   ```console
-  sbx run --skills readwrite --kit "docker.io/docker/sbx-kit-ecc:latest" claude
+  sbx run --skills readwrite --kit "docker.io/sbx/ecc:latest" claude
   ```
 
   `--skills off` also works: no store is mounted, so the installer

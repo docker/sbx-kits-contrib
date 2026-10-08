@@ -9,7 +9,7 @@
 # Emits, one per line, for redirecting into $GITHUB_OUTPUT:
 #
 #   title=              displayName, falling back to the kit directory name
-#   kit-repository=     <namespace>/sbx-kit-<kit> — the kit's Hub repo
+#   kit-repository=     <namespace>/<kit> — the kit's Hub repo
 #   short-description=  description, folded to one line and capped at Hub's
 #                       100 UTF-8 bytes
 #
@@ -29,8 +29,7 @@
 # `Dockerfile`, and no kit has one any more.)
 #
 # Environment:
-#   IMAGE_NAMESPACE     default docker      — the Hub org the kit publishes to
-#   IMAGE_NAME_PREFIX   default sbx-kit-    — must match publish-kit.sh's
+#   IMAGE_NAMESPACE     default sbx         — the Hub org the kit publishes to
 #
 # Exit codes: 0 read · 1 no such kit · 2 usage error.
 
@@ -42,8 +41,7 @@ if [ $# -ne 1 ]; then
 fi
 
 kit=$1
-IMAGE_NAMESPACE=${IMAGE_NAMESPACE:-docker}
-IMAGE_NAME_PREFIX=${IMAGE_NAME_PREFIX:-sbx-kit-}
+IMAGE_NAMESPACE=${IMAGE_NAMESPACE:-sbx}
 
 SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 REPO_ROOT=$(cd "$SCRIPT_DIR/.." && pwd)
@@ -51,6 +49,10 @@ REPO_ROOT=$(cd "$SCRIPT_DIR/.." && pwd)
 # KEY=VALUE goes to fd 3; stdout is rerouted to stderr so nothing added later
 # can pollute the stream CI reads.
 exec 3>&1 1>&2
+
+# Same rule as publish-kit.sh, for the same reason: this composes a repository
+# name from $1 and is not fed by discovery.
+"$SCRIPT_DIR/check-kit-name.sh" "$kit" || exit 1
 
 descriptor="$REPO_ROOT/$kit/$kit.yaml"
 [ -f "$descriptor" ] || descriptor="$REPO_ROOT/$kit/$kit.yml"
@@ -148,5 +150,5 @@ description=$(cap "$description")
 # the kit is published, so there is no second source of truth to read and
 # nothing that can drift.
 echo "title=${title}" >&3
-echo "kit-repository=${IMAGE_NAMESPACE}/${IMAGE_NAME_PREFIX}${kit}" >&3
+echo "kit-repository=${IMAGE_NAMESPACE}/${kit}" >&3
 echo "short-description=${description}" >&3

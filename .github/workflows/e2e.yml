@@ -24,7 +24,12 @@ name: Kit e2e
 # docker, `docker save` it, `sbx template load` it into the scoped daemon's store,
 # create with `--pull=never` — which existed only to stop a stale published image
 # from being tested instead of the branch. With it went this workflow's need for Go
-# (the e2e harness was a `go test`) and for a builder: sbx does the building now.
+# (the e2e harness was a `go test`).
+#
+# It did NOT remove the need for a builder, which is what the deleted dance
+# quietly supplied. sbx does the building now, but it builds through buildx and
+# exports an OCI archive, so the runner still has to offer a builder whose
+# driver can do that. See the setup-buildx-action step below before deleting it.
 
 on:
   workflow_call:
@@ -107,6 +112,43 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
+      # A BUILDER THAT CAN EXPORT OCI. `sbx` builds a local v3 source kit by
+      # shelling out to `docker buildx build <dir> -f <descriptor> --output
+      # type=oci,dest=<tar>` and reading the resulting archive back, and it
+      # passes no `--builder`, so it gets whatever buildx has as default. On a
+      # runner that is the `default` builder backed by the DOCKER driver, which
+      # supports no OCI exporter at all:
+      #
+      #   ERROR: failed to build: OCI exporter is not supported for the docker
+      #   driver. Switch to a different driver, or turn on the containerd image
+      #   store, and try again.
+      #
+      # This action creates a `docker-container` builder and `--use`s it, so the
+      # unqualified `docker buildx build` above resolves to one that can. It is
+      # the same step, at the same pin, that tck.yml already runs before its own
+      # kit builds; e2e.yml never had it, and because this workflow had never
+      # run on the v3 branch, nothing had reported it.
+      #
+      # No setup-qemu beside it: `sbx` builds without `--platform`, so every
+      # build here is native and nothing is emulated.
+      # The containerd image store. A v3 kit's descriptor rides in the OCI
+      # manifest annotation, and the daemon reads it back after a load/save
+      # round-trip through this Docker's store. The classic graphdriver store
+      # drops manifest annotations (Docker's own docs say it cannot load images
+      # with them); the containerd store keeps them. Without this every mixin
+      # composition dies in the daemon's kit assembler with a message the CLI
+      # never shows.
+      - uses: docker/setup-docker-action@2bf61fb9464cc67f0cbdeabed6aa0380accd1c70 # v5.5.0
+        with:
+          daemon-config: |
+            {
+              "features": {
+                "containerd-snapshotter": true
+              }
+            }
+
+      - uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v3.11.1
+
       - name: Enable KVM access
         run: |
           sudo chmod 666 /dev/kvm
@@ -152,7 +194,16 @@ jobs:
           # stripping all whitespace can't corrupt a legitimate value.
           USER_CLEAN=$(printf '%s' "$USERNAME" | tr -d '[:space:]')
           TOKEN_CLEAN=$(printf '%s' "$TOKEN" | tr -d '[:space:]')
-          printf '%s' "$TOKEN_CLEAN" | sbx --app-name "$APP_NAME" login --username "$USER_CLEAN" --password-stdin
+          # Every matrix job signs in as the same Hub account within a minute,
+          # and Hub answers 429 past its login rate. Backoff spreads them out.
+          n=0
+          until printf '%s' "$TOKEN_CLEAN" | sbx --app-name "$APP_NAME" login --username "$USER_CLEAN" --password-stdin; do
+            n=$((n + 1))
+            [ "$n" -lt 6 ] || { echo "giving up on Docker Hub login after $n attempts" >&2; exit 1; }
+            delay=$((n * 20 + RANDOM % 20))
+            echo "login failed (attempt $n), retrying in ${delay}s" >&2
+            sleep "$delay"
+          done
 
       # matrix.kit comes from directory names in the PR's own checkout, so it is
       # passed via env rather than interpolated into the script text: a directory
@@ -163,9 +214,7 @@ jobs:
         # gets *exactly* the outbound reachability its network-policy@1 capability
         # declares and nothing more, which is what makes this a contract test
         # rather than an assumption. Kit allow-rules are scoped per sandbox and
-        # punch through the default deny (see `ApplyKitNetworkPolicyScoped` in
-        # docker/sandboxes:sandboxd/pkg/server/options_governance.go); kit
-        # deny-rules win over allow-rules (deny-wins).
+        # punch through the default deny; kit deny-rules win over allow-rules.
         #
         # It also reads the policy log on the way out and FAILS on a blocked
         # request even when everything else passed — a hook that pipes an
@@ -177,4 +226,5 @@ jobs:
 
       - name: Sign out of Docker Hub
         if: always()
-        run: sbx logout --yes || true
+        # The confirmation-skip flag is --force from v0.48.0-rc3 and --yes before.
+        run: sbx --app-name "$APP_NAME" logout --force || sbx --app-name "$APP_NAME" logout --yes || true

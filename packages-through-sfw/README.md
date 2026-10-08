@@ -20,7 +20,7 @@ Enterprise or a forked kit with the right network and credential wiring.
 Run it with any agent kit or built-in agent, from its published OCI artifact on Docker Hub:
 
 ```console
-sbx run --kit "docker.io/docker/sbx-kit-packages-through-sfw:latest" <agent>
+sbx run --kit "docker.io/sbx/packages-through-sfw:latest" <agent>
 ```
 
 Or from a git URL targeting this repo:

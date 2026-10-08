@@ -27,7 +27,7 @@ Every kit in this repo was migrated from the v2 `spec.yaml` grammar. If you main
 | `sandbox.image` | the recipe's `FROM` |
 | `sandbox.entrypoint` / `sandbox.command.default` | the recipe's `ENTRYPOINT` / `CMD` |
 | `sandbox.command.interactive` | `lifecycle@1.interactive` |
-| `environment.variables` | the recipe's `ENV` (a mixin: `/etc/profile.d`) |
+| `environment.variables` | the recipe's `ENV`; a variable the base may also set (`NO_PROXY`, …): append from `/etc/profile.d`, see the README's merge rules |
 | `permissions.network` | `network-policy@1`, phase-scoped into `install` and `runtime` |
 | `credentials[]` | one `credential@1` per service |
 | `volumes[]` / `ports[]` | one `volume@1` per path / one `port@1` per port |
@@ -65,7 +65,7 @@ Pick an existing kit closest in shape to what you want to build and read it end-
 Every kit should ship a `README.md`. The structure isn't mandatory, but the existing kits converge on:
 
 - **Title and one-paragraph description** of what the kit does and, for a mixin, what it pairs with.
-- **Usage** — the `sbx run` invocation and any host-side prerequisites. Lead with the published image, `docker.io/docker/sbx-kit-<kit>:latest` — every kit here publishes automatically (see [`PUBLISHING.md`](./PUBLISHING.md)), so it is the primary way to consume one — then the git-URL form, then the local-path form.
+- **Usage** — the `sbx run` invocation and any host-side prerequisites. Lead with the published image, `docker.io/sbx/<kit>:latest` — every kit here publishes automatically (see [`PUBLISHING.md`](./PUBLISHING.md)), so it is the primary way to consume one — then the git-URL form, then the local-path form.
 - **How *X* works** — short sections explaining the non-obvious decisions, so the next reviewer doesn't have to reverse-engineer the descriptor. Pinning choices, why a host is or isn't in the allow list, why an install runs the way it does.
 - **Cleanup**, if the kit creates state on the host.
 
@@ -114,10 +114,11 @@ sbx run ./my-workload --kit ./my-mixin .    # a mixin, composed
 And the conformance suite, against the built artifact:
 
 ```console
-go install github.com/docker/sandbox-kit-spec/v3/cmd/kit-tck@latest
+# kit-tck: download the binary for your platform from
+# https://github.com/docker/sandbox-kit-spec/releases
 cd my-kit
 docker buildx build . -f my-kit.yaml --output type=oci,dest=/tmp/k,tar=false -t my-kit:1.4.2
-kit-tck kit --layout /tmp/k 1.4.2
+kit-tck validate --layout /tmp/k 1.4.2
 ```
 
 `kit-tck` takes the **tag alone** as its last argument, not `my-kit:1.4.2`.

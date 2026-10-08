@@ -30,7 +30,7 @@ sbx run claude --kit "git+https://github.com/docker/sbx-kits-contrib.git#dir=sny
 Or use the published v3 kit:
 
 ```bash
-sbx run claude --kit "docker.io/docker/sbx-kit-snyk-evo-ads:latest"
+sbx run claude --kit "docker.io/sbx/snyk-evo-ads:latest"
 ```
 
 If your network uses TLS interception, [stage your corporate root

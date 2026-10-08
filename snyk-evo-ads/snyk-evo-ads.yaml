@@ -14,7 +14,12 @@ version: "1.0.0"
 #
 # The startup worker uses `timeout` and `flock`; neither is in the v3 platform
 # floor. Workload publishing derives these package provides from dpkg.
-requires: ["deb/ca-certificates", "deb/coreutils", "deb/util-linux"]
+#
+# ca-certificates is needed too (the corp-ca hook runs update-ca-certificates)
+# but is not required here: the spec drops any dpkg version containing `~`
+# from a workload's derived provides, and Ubuntu's is `20260601~26.04.1`, so
+# the requirement can never resolve. The hook checks for the tool instead.
+requires: ["deb/coreutils", "deb/util-linux"]
 
 # MIGRATION NOTE: no `provides` are declared. Both installers resolve mutable
 # "latest" releases at create time, so a fixed provide would make an assertion
@@ -64,6 +69,10 @@ capabilities:
               echo "corp-ca: files/home/corp-ca/<name>.crt (PEM content, .crt extension)." >&2
               exit 0
             fi
+            command -v update-ca-certificates >/dev/null 2>&1 || {
+              echo "corp-ca: update-ca-certificates not found; install the ca-certificates package on the base image" >&2
+              exit 1
+            }
             update-ca-certificates
             echo "corp-ca: installed $found certificate(s) into the system trust store"
 

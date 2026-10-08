@@ -15,7 +15,7 @@ agent can resolve and install per-project tool versions from
 `mise` is agent-agnostic — pair it with whichever agent you're using:
 
 ```console
-sbx run claude --kit "docker.io/docker/sbx-kit-mise:latest" ~/my-project
+sbx run claude --kit "docker.io/sbx/mise:latest" ~/my-project
 ```
 
 Or from a git URL targeting this repo:

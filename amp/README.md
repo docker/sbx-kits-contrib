@@ -76,7 +76,7 @@ Run the kit. Pass the kit's name (`amp`) as the agent argument. The primary
 form is its published OCI artifact on Docker Hub:
 
 ```console
-sbx run "docker.io/docker/sbx-kit-amp:latest"
+sbx run "docker.io/sbx/amp:latest"
 ```
 
 Or from a git URL targeting this repo:

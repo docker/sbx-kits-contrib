@@ -44,7 +44,7 @@ Run the kit. Pass the kit's name (`junie`) as the agent argument. The primary
 form is its published OCI artifact on Docker Hub:
 
 ```console
-sbx run "docker.io/docker/sbx-kit-junie:latest"
+sbx run "docker.io/sbx/junie:latest"
 ```
 
 Or from a git URL targeting this repo:
@@ -109,7 +109,7 @@ the image the sandbox boots from. This kit builds and publishes its own, from
 [`junie.dockerfile`](./junie.dockerfile) in this directory:
 
 ```
-docker.io/docker/sbx-kit-junie
+docker.io/sbx/junie
 └── FROM docker/sandbox-templates:shell
     └── junie (upstream's own install.sh, stable channel)
         ENV JUNIE_SKIP_UPDATE_CHECK=1
@@ -122,7 +122,7 @@ this kit's egress policy allows. Setting it is what makes the trimmed
 allowlist above a closed set rather than an approximation of one.
 
 The `-image` suffix distinguishes the base image from the kit itself: the kit
-is published separately as an OCI artifact at `docker.io/docker/sbx-kit-junie` (see
+is published separately as an OCI artifact at `docker.io/sbx/junie` (see
 [Usage](#usage) above).
 
 ### Building and publishing
@@ -178,7 +178,7 @@ up base-image changes.
 
 ```console
 cd junie && docker buildx build . -f junie.yaml --output type=oci,dest=/tmp/junie-kit,tar=false
-kit-tck kit --layout /tmp/junie-kit 26.9.21
+kit-tck validate --layout /tmp/junie-kit 26.9.21
 ```
 
 The descriptor is the build target, not the recipe: its
@@ -190,8 +190,8 @@ you an ordinary image and no kit.
 Exporting an OCI layout rather than loading an image is what lets `kit-tck`
 judge the artifact with no registry involved — it reads the annotations, layers
 and image config the way a consumer would. Note it takes the tag alone, not
-`junie-kit:26.9.21`. Install it with
-`go install github.com/docker/sandbox-kit-spec/v3/cmd/kit-tck@latest`.
+`junie-kit:26.9.21`. Download it for your platform from the
+[specification's releases](https://github.com/docker/sandbox-kit-spec/releases).
 
 ## Customization
 

@@ -10,7 +10,7 @@ A mixin kit (`kind: mixin`) that installs a pinned, checksum-verified [Vale](htt
 ## Usage
 
 ```console
-sbx run --kit "docker.io/docker/sbx-kit-vale:latest" claude
+sbx run --kit "docker.io/sbx/vale:latest" claude
 agent@...$ vale --version
 ```
 

@@ -15,7 +15,7 @@ Store a key for at least one provider on the host, then run with port 8000 forwa
 
 ```console
 sbx secret set anthropic
-sbx run -p 8000 "docker.io/docker/sbx-kit-openhands-canvas:latest" .
+sbx run -p 8000 "docker.io/sbx/openhands-canvas:latest" .
 ```
 
 Open <http://localhost:8000>.

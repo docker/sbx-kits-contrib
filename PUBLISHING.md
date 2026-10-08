@@ -30,15 +30,24 @@ more.
 ## Naming
 
 ```text
-docker.io/docker/sbx-kit-<kit>
+docker.io/sbx/<kit>
 ```
 
-`sbx-kit-` is a **prefix**, not a suffix, and that is deliberate. The v2
-scheme needed a suffix (`<kit>-image` versus `<kit>-kit`) to keep two
-names apart for one kit. With one artifact there is nothing to
-disambiguate, and a prefix groups every kit together in a namespace
-listing instead of scattering them by agent name. It also matches the
-convention the specification's own examples use.
+**The repository name is the kit's name, with nothing added to it.** The
+v2 scheme needed a suffix (`<kit>-image` versus `<kit>-kit`) to keep two
+names apart for one kit; with one artifact there is nothing left to
+disambiguate. An `sbx-kit-` prefix would be the other way of saying it,
+and it earns its keep only in a shared namespace where kits sit beside
+unrelated repositories. `sbx` is not that namespace: everything in it is
+a kit, so the prefix would repeat the org name in every reference and
+carry no information.
+
+That leaves the v2 repositories, which keep their names for as long as
+they are published. They do not collide: `sbx/claude` is the v3 kit,
+`sbx/claude-kit` and `sbx/claude-image` are the v2 pair. Nothing collides
+by construction rather than by luck, because no kit directory is named
+`*-kit` or `*-image` — `scripts/discover-kits.sh` refuses one, so the two
+schemes cannot grow into each other.
 
 The name is derived from the kit's directory, not read out of the
 descriptor. In v2 the image name lived in `sandbox.image` and CI read it
@@ -66,7 +75,7 @@ bits, and only a date-plus-commit tag could name one build without lying.
 Most kits here now pin. A kit that declares a build-phase `version` arg
 and points `version:`, its `provides` entry and its installer at that one
 arg publishes a tag that names the software the image actually carries —
-`sbx-kit-claude:2.1.267` is Claude Code 2.1.267, and a build arg
+`claude:2.1.267` is Claude Code 2.1.267, and a build arg
 overriding the pin moves the tag with it, because the tag follows the
 resolved value rather than the file. That is a stronger statement than a
 build date ever made, and it is the statement a user pinning a tag
@@ -165,7 +174,7 @@ There is no separate validate step to skip.
 | Variable | Default |
 | --- | --- |
 | `REGISTRY` | `docker.io` |
-| `IMAGE_NAMESPACE` | `docker` |
+| `IMAGE_NAMESPACE` | `sbx` |
 | `IMAGE_TAG_LATEST` | `latest` |
 | `PLATFORMS` | `linux/amd64,linux/arm64` |
 
@@ -192,7 +201,7 @@ publishing story in one command:
 cd my-kit
 docker buildx build . -f my-kit.yaml --push \
   --platform linux/amd64,linux/arm64 \
-  -t docker.io/<you>/sbx-kit-my-kit:1.4.2
+  -t docker.io/<you>/my-kit:1.4.2
 ```
 
 ## Docker Hub authentication
@@ -270,7 +279,7 @@ leaves the page blank.
 
 | Hub repository | Overview from | Short description |
 | --- | --- | --- |
-| `docker/sbx-kit-<kit>` | `<kit>/README.md` | the descriptor's `description:` |
+| `sbx/<kit>` | `<kit>/README.md` | the descriptor's `description:` |
 
 That is a simplification the artifact merge handed us. Two repositories
 needed two different texts, because pointing both at the kit's README
@@ -340,10 +349,11 @@ the staged sources under `/usr/share/sandbox/kit/<stem>/`, the layer
 shape, the versioned provides. Run it the same way locally as CI does:
 
 ```console
-go install github.com/docker/sandbox-kit-spec/v3/cmd/kit-tck@latest
+# kit-tck: download the binary for your platform from
+# https://github.com/docker/sandbox-kit-spec/releases
 cd my-kit
 docker buildx build . -f my-kit.yaml --output type=oci,dest=/tmp/k,tar=false -t my-kit:1.4.2
-kit-tck kit --layout /tmp/k 1.4.2
+kit-tck validate --layout /tmp/k 1.4.2
 ```
 
 The last argument is the **tag alone**, not `my-kit:1.4.2`.

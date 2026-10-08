@@ -12,8 +12,8 @@
 # Why the two have to agree: the tag is not what gets published. The publisher
 # resolves the version from the descriptor (see kit-version.sh) and tags the
 # image with that, so a `claude/v9.9.9` tag on a descriptor resolving to 2.1.267
-# publishes `sbx-kit-claude:2.1.267` — a release announcing a version that
-# exists nowhere but in git. This check is what makes the git tag and the
+# publishes `sbx/claude:2.1.267` — a release announcing a version that exists
+# nowhere but in git. This check is what makes the git tag and the
 # published tag the same statement.
 #
 # What changed from v2: this used to compare the tag against a LITERAL
@@ -80,6 +80,11 @@ if ! printf '%s' "$version" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+$'; then
   echo "error: '${version}' must be vX.Y.Z (no pre-release or build suffix)"
   exit 1
 fi
+
+# A release tag is pushed by a human and reaches no discovery, so the reserved
+# suffix is checked here too: `claude-kit/v1.0.0` would otherwise publish over
+# the v2 artifact for `claude`.
+"$SCRIPT_DIR/check-kit-name.sh" "$kit" || exit 1
 
 descriptor="$REPO_ROOT/$kit/$kit.yaml"
 [ -f "$descriptor" ] || descriptor="$REPO_ROOT/$kit/$kit.yml"

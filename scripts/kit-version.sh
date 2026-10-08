@@ -296,7 +296,15 @@ if [ "$1" = "--all" ]; then
   # first, because "these four kits need a version" is one fix and four
   # sequential red builds is the same fix found four times.
   failed=0
+  # Captured first: process substitution discards the exit status, so
+  # discover-kits.sh refusing the layout would read as "no kits" and this
+  # gate would pass having checked none of them.
+  if ! discovered=$("$SCRIPT_DIR/discover-kits.sh"); then
+    echo >&2 "discover-kits.sh refused the kit layout; see its output above."
+    exit 1
+  fi
   while IFS= read -r kit; do
+    [ -n "$kit" ] || continue
     # Called directly, not through $(…): resolve answers in globals, and a
     # command substitution would run it in a subshell whose assignments die
     # with it.
@@ -305,7 +313,7 @@ if [ "$1" = "--all" ]; then
     else
       failed=$((failed + 1))
     fi
-  done < <("$SCRIPT_DIR/discover-kits.sh")
+  done <<< "$discovered"
 
   if [ "$failed" -gt 0 ]; then
     echo >&2 "${failed} kit(s) have no resolvable version."

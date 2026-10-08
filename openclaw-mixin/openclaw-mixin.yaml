@@ -66,10 +66,11 @@ capabilities:
           # openrouter/...`). Confirmed necessary via a real e2e run under
           # deny-all.
           - openrouter.ai
-          # Deliberately absent: models.opencode.ai. OpenClaw 2026.9.3 added a
-          # warn-only startup model/pricing catalog refresh against it. This
-          # kit does not widen credential-adjacent egress for optional pricing
-          # metadata.
+          # Deliberately absent: catalog.openclaw.ai, the warn-only startup
+          # model/pricing catalog refresh, and telemetry.openclaw.ai. This kit
+          # does not widen credential-adjacent egress for optional pricing
+          # metadata, and telemetry is the user's call. Both are listed in
+          # testdata/e2e-expected-blocked.
           # Docker Hub, so `docker pull` works inside the sandbox: OpenClaw
           # runs tool calls in a nested container and inspects (never pulls)
           # the image itself, so the bootstrap hook pulls it.

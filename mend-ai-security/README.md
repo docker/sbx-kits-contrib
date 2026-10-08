@@ -48,7 +48,7 @@ reference form:
 **Published OCI artifact (recommended):**
 
 ```bash
-sbx run claude --kit docker.io/docker/sbx-kit-mend-ai-security:latest .
+sbx run claude --kit docker.io/sbx/mend-ai-security:latest .
 ```
 
 **Git URL:**
@@ -105,7 +105,7 @@ email + key; the token is cached in `~/.mend/config/settings.json`.
 
 ```bash
 sbx run claude \
-  --kit docker.io/docker/sbx-kit-mend-ai-security:latest \
+  --kit docker.io/sbx/mend-ai-security:latest \
   -e MEND_EMAIL="svc@example.com" \
   -e MEND_USER_KEY="<service-user-key>" \
   -e MEND_ORGANIZATION="<org-uuid>" .
@@ -119,7 +119,7 @@ sbx run claude \
 > just `MEND_URL`. (This is why the kit sets no `MEND_URL` default.)
 
 > This repository publishes the v3 kit as
-> `docker.io/docker/sbx-kit-mend-ai-security:latest`. For reproducible use,
+> `docker.io/sbx/mend-ai-security:latest`. For reproducible use,
 > replace `:latest` with a release tag or digest — see
 > [`PUBLISHING.md`](../PUBLISHING.md).
 
@@ -139,7 +139,7 @@ authenticate the CLI and run the AI scan:
 # 1. Launch a sandbox with the kit, mounting the project to scan.
 #    Pass Service User creds as env vars (Option B)…
 sbx run claude \
-  --kit docker.io/docker/sbx-kit-mend-ai-security:latest \
+  --kit docker.io/sbx/mend-ai-security:latest \
   -e MEND_EMAIL="svc@example.com" \
   -e MEND_USER_KEY="<service-user-key>" \
   -e MEND_ORGANIZATION="<org-uuid>" \
@@ -161,7 +161,7 @@ auto-detected scope/project:
 
 ```bash
 # Mount multiple workspaces (append :ro to keep one read-only)
-sbx run claude --kit docker.io/docker/sbx-kit-mend-ai-security:latest \
+sbx run claude --kit docker.io/sbx/mend-ai-security:latest \
   ~/app-a ~/app-b ~/shared:ro
 
 # Then, inside the sandbox, scan each — every dir becomes its own Mend project

@@ -22,7 +22,7 @@ sbx secret set gitguardian
 Then create a Claude sandbox with the kit:
 
 ```console
-sbx run --kit "docker.io/docker/sbx-kit-gitguardian:latest" claude
+sbx run --kit "docker.io/sbx/gitguardian:latest" claude
 ```
 
 Or target this repo directly over git, or a local clone:

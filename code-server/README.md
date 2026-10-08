@@ -21,7 +21,7 @@ CLI agent.
 Pair it with the built-in `claude` agent, from its published OCI artifact on Docker Hub:
 
 ```console
-sbx run claude --kit "docker.io/docker/sbx-kit-code-server:latest" ~/my-project
+sbx run claude --kit "docker.io/sbx/code-server:latest" ~/my-project
 ```
 
 Or from a git URL targeting this repo:

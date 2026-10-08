@@ -318,6 +318,8 @@ sbx --app-name $APP policy log tck-e2e-<short-uuid>
 
 Every row under `Blocked requests` is a host your kit reached for under `deny-all`. Add the host (column `HOST`, e.g. `download.docker.com:443`) to `permissions.network.allow` and re-run until the block list is empty *and* the e2e test passes.
 
+If the kit leaves a host unreachable on purpose (a telemetry sink, a vendor's update check), do not allow it. List the bare hostname in `<kit>/testdata/e2e-expected-blocked`, one per line with `#` comments, and say why. The e2e check passes blocks on those hosts and still fails on any other.
+
 If the scoped daemon ever gets wedged: `sbx --app-name sbx-kits-contrib-tck reset --force` wipes only that daemon's state — your main sbx is untouched.
 
 Common hosts that surface only under `deny-all` (easy to forget):

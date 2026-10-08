@@ -24,7 +24,7 @@ The proxy swaps the placeholder for the real token on outbound requests to the c
 Set your collector host (and path, if it is not the default):
 
 ```console
-sbx run claude --kit "docker.io/docker/sbx-kit-panw-siem-telemetry:latest" --kit-arg panw-siem-telemetry.siemCollectorHost=collector.example.com
+sbx run claude --kit "docker.io/sbx/panw-siem-telemetry:latest" --kit-arg panw-siem-telemetry.siemCollectorHost=collector.example.com
 ```
 
 Or target this repo directly over git, or a local clone:

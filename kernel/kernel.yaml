@@ -45,6 +45,33 @@ args:
     pattern: '^[0-9]+\.[0-9]+\.[0-9]+$'
     description: Kernel CLI release to install
     buildArg: KERNEL_VERSION
+  # MIGRATION NOTE: this is where v2's `environment.variables.KERNEL_NO_UPDATE_CHECK`
+  # went. v3 has no static env grammar, and a mixin's image config does not become
+  # the composed image's, so neither a descriptor block nor an ENV in the recipe
+  # has anywhere to land. `env:` on a create-phase arg is the mechanism SPEC-v3 §6
+  # names for exactly this: "opts the resolved value into the container
+  # environment under this name".
+  #
+  # NAMED AFTER THE VARIABLE IT SETS, not after the behaviour. An earlier draft
+  # called this `updateCheck`, which reads as "turn the update check on" while
+  # exporting KERNEL_NO_UPDATE_CHECK and turning it off -- and its documented
+  # `0` escape hatch almost certainly did nothing, because a variable set to the
+  # string "0" is still set, and a CLI that tests for the name's presence (the
+  # usual shape for a NO_* flag) stays suppressed either way.
+  #
+  # So there is no knob: v2 set this unconditionally and had no claim to be
+  # wrong about. Fixed at "1" via an arg because v3 has no static env grammar
+  # and a mixin's image config does not become the composed image's, so `env:`
+  # on a create-phase arg (SPEC-v3 §6) is the only place the value can live. The
+  # enum is what makes it fixed rather than merely defaulted.
+  noUpdateCheck:
+    default: "1"
+    enum: ["1"]
+    description: >-
+      Suppresses the Kernel CLI's update check. Fixed: the CLI is pinned by the
+      build, so an update check could only ever nag about a release this kit
+      did not install.
+    env: KERNEL_NO_UPDATE_CHECK
 
 provides: ["kernel@${{ kit.args.version }}"]
 
@@ -76,14 +103,19 @@ capabilities:
         allow:
           # CDP WebSocket proxy URLs take the form:
           #   wss://proxy.<region>.onkernel.com:8443/browser/cdp?jwt=...
-          # The wildcard covers all regional proxy hosts without auth injection.
-          - '*.onkernel.com'
+          # The RECURSIVE wildcard covers all regional proxy hosts without auth
+          # injection. `*` matches exactly one label, so it reaches
+          # `proxy.onkernel.com` but not a regional `proxy.us-west.onkernel.com`;
+          # `**` matches across labels and reaches both.
+          - '**.onkernel.com'
+          # Direct CDP endpoints are served from hosts under kernel.sh.
+          - '*.kernel.sh'
           # MIGRATION NOTE: api.onkernel.com is now listed literally beside the
           # wildcard that already covered it. v3 validates every credential
           # inject domain against the same phase's allow list by exact host and
           # deliberately does not expand a glob there, so that an inject rule
           # stays auditable against the list it rides on. This grants nothing
-          # `*.onkernel.com` did not.
+          # `**.onkernel.com` did not.
           - api.onkernel.com
           # npm — for agents that install @onkernel/sdk or playwright-core
           - registry.npmjs.org

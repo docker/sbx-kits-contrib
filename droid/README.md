@@ -35,7 +35,7 @@ Either of these works — you do not need both:
 ## Usage
 
 ```console
-sbx run "docker.io/docker/sbx-kit-droid:latest"
+sbx run "docker.io/sbx/droid:latest"
 ```
 
 Or from a git URL targeting this repo:
@@ -131,7 +131,7 @@ The image is **`docker.io/sbx/droid-image`**, built on
 requests Docker-in-Docker.
 
 The `-image` suffix distinguishes the base image from the kit itself: the kit
-itself is published as an OCI artifact at `docker.io/docker/sbx-kit-droid` (see
+itself is published as an OCI artifact at `docker.io/sbx/droid` (see
 [Usage](#usage) above).
 The name is derived from the kit directory and enforced repo-wide — see
 [PUBLISHING.md](../PUBLISHING.md#naming).

@@ -49,7 +49,7 @@ These are the commands the kit is meant to be run with. They do **not** work
 while `claude` is still a built-in agent — see the note at the top.
 
 ```console
-sbx run "docker.io/docker/sbx-kit-claude:latest"
+sbx run "docker.io/sbx/claude:latest"
 ```
 
 Or from a git URL targeting this repo:

@@ -20,7 +20,7 @@ sbx secret set gitea
 Then create a sandbox with the kit, naming your instance:
 
 ```console
-sbx run --kit "docker.io/docker/sbx-kit-gitea:latest" --kit-arg gitea.host=git.example.com claude
+sbx run --kit "docker.io/sbx/gitea:latest" --kit-arg gitea.host=git.example.com claude
 ```
 
 Or target this repo directly over git, or a local clone:

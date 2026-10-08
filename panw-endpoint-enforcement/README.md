@@ -14,7 +14,7 @@ Pairs with any base agent.
 ## Usage
 
 ```console
-sbx run claude --kit "docker.io/docker/sbx-kit-panw-endpoint-enforcement:latest" .
+sbx run claude --kit "docker.io/sbx/panw-endpoint-enforcement:latest" .
 ```
 
 Or target this repo directly over git, or a local clone:

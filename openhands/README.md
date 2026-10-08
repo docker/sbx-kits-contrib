@@ -46,7 +46,7 @@ on first run) and pick the provider and model there. That choice is saved to
 the Anthropic credential this kit resolves automatically:
 
 ```console
-sbx run "docker.io/docker/sbx-kit-openhands:latest"
+sbx run "docker.io/sbx/openhands:latest"
 # inside the sandbox: open Settings and choose e.g. openai/gpt-4o
 ```
 
@@ -71,7 +71,7 @@ sbx secret set-custom -g \
 ## Usage
 
 ```console
-sbx run "docker.io/docker/sbx-kit-openhands:latest"
+sbx run "docker.io/sbx/openhands:latest"
 ```
 
 Or from a git URL targeting this repo:

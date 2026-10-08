@@ -20,7 +20,7 @@ sbx secret set cloudsmith
 Then create a sandbox with the kit:
 
 ```console
-sbx run --kit "docker.io/docker/sbx-kit-cloudsmith:latest" claude
+sbx run --kit "docker.io/sbx/cloudsmith:latest" claude
 ```
 
 Or target this repo directly over git, or a local clone:

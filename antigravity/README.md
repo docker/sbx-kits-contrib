@@ -14,7 +14,7 @@ There is also an [`antigravity-mixin`](../antigravity-mixin) variant of the same
 Use the published kit:
 
 ```console
-sbx run "docker.io/docker/sbx-kit-antigravity:latest"
+sbx run "docker.io/sbx/antigravity:latest"
 ```
 
 Or load it directly from this repository:
@@ -37,7 +37,7 @@ For API-key mode, provide the key when `sbx` offers to configure the `google` cr
 
 ```console
 sbx secret set google
-sbx run "docker.io/docker/sbx-kit-antigravity:latest"
+sbx run "docker.io/sbx/antigravity:latest"
 ```
 
 The kit exposes `GEMINI_API_KEY` as a proxy sentinel and injects the real key only into requests to `generativelanguage.googleapis.com`. It also sets Antigravity's required `modelProvider` setting to `gemini`. Removing the stored credential and recreating the sandbox switches back to OAuth mode.

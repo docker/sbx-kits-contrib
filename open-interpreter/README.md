@@ -43,7 +43,7 @@ value never enters the sandbox.
 ## Usage
 
 ```console
-sbx run "docker.io/docker/sbx-kit-open-interpreter:latest"
+sbx run "docker.io/sbx/open-interpreter:latest"
 ```
 
 Or from a git URL targeting this repo:

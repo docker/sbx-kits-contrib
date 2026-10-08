@@ -69,10 +69,14 @@ capabilities:
 
         # Fluent Bit's prebuilt package bundles jemalloc for 4KB pages and
         # aborts on 16KB-page hosts. Install by page size, not architecture.
+        # install.sh leaves its apt source behind; the base workload's startup
+        # `apt-get update` would then reach packages.fluentbit.io at runtime,
+        # where this kit does not allow it.
         - command: >-
             if command -v fluent-bit >/dev/null 2>&1 || [ -x /opt/fluent-bit/bin/fluent-bit ]; then exit 0; fi;
             if [ "$(getconf PAGESIZE)" = "4096" ]; then
             curl -fsSL https://raw.githubusercontent.com/fluent/fluent-bit/master/install.sh | sh || true;
+            rm -f /etc/apt/sources.list.d/fluent-bit.list;
             /opt/fluent-bit/bin/fluent-bit --version >/dev/null 2>&1 && exit 0;
             fi;
             set -e;

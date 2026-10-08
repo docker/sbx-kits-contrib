@@ -17,7 +17,7 @@ Your SSH key must be loaded in the agent on the host and registered with your
 GitHub account. Start the sandbox with this kit attached, from its published OCI artifact on Docker Hub:
 
 ```console
-sbx run --kit "docker.io/docker/sbx-kit-github-ssh:latest" claude
+sbx run --kit "docker.io/sbx/github-ssh:latest" claude
 ```
 
 Or from a git URL targeting this repo:

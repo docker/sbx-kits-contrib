@@ -21,7 +21,7 @@ name: Sync Docker Hub overviews
 #
 # Each kit owns ONE Hub repository:
 #
-#   sbx-kit-<kit>  ← <kit>/README.md   the kit: how to run it, what it does
+#   sbx/<kit>  ← <kit>/README.md   the kit: how to run it, what it does
 #
 # v2 owned two, and they got deliberately different text: a kit was a YAML file
 # pointing at a base image, so `<kit>-image` existed alongside `<kit>-kit` and
@@ -144,7 +144,7 @@ jobs:
         id: meta
         run: ./scripts/kit-meta.sh "${{ matrix.kit }}" >> "$GITHUB_OUTPUT"
         env:
-          IMAGE_NAMESPACE: ${{ vars.IMAGE_NAMESPACE || 'docker' }}
+          IMAGE_NAMESPACE: ${{ vars.IMAGE_NAMESPACE || 'sbx' }}
 
       # This has to precede the unauthenticated readiness probe below: Hub
       # reports a private repository as 404 to anonymous callers. The dedicated

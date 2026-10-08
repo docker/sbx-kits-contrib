@@ -13,7 +13,7 @@ agents can run `Taskfile.yml` tasks from the workspace.
 Run it with any agent kit or built-in agent, from its published OCI artifact on Docker Hub:
 
 ```console
-sbx run --kit "docker.io/docker/sbx-kit-task:latest" claude
+sbx run --kit "docker.io/sbx/task:latest" claude
 ```
 
 Or from a git URL targeting this repo:

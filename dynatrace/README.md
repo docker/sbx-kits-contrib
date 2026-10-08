@@ -25,7 +25,7 @@ sbx secret set dynatrace
 Pass your environment URL with `--kit-arg dynatrace.environment=...`:
 
 ```console
-sbx run --kit "docker.io/docker/sbx-kit-dynatrace:latest" --kit-arg dynatrace.environment=https://abc12345.apps.dynatrace.com claude
+sbx run --kit "docker.io/sbx/dynatrace:latest" --kit-arg dynatrace.environment=https://abc12345.apps.dynatrace.com claude
 ```
 
 Or target this repo directly over git, or a local clone:

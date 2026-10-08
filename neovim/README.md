@@ -12,7 +12,7 @@ A mixin that installs a pinned [Neovim](https://neovim.io) release and injects a
 Pair with any agent. The primary form is its published OCI artifact on Docker Hub:
 
 ```console
-sbx run claude --kit "docker.io/docker/sbx-kit-neovim:latest" ~/my-project
+sbx run claude --kit "docker.io/sbx/neovim:latest" ~/my-project
 ```
 
 Or from a git URL targeting this repo:

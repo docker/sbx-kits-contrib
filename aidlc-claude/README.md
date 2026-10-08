@@ -25,7 +25,7 @@ Run it with the `claude-bedrock` agent, from its published OCI artifact on
 Docker Hub:
 
 ```console
-sbx run --kit "docker.io/docker/sbx-kit-aidlc-claude:latest" claude-bedrock
+sbx run --kit "docker.io/sbx/aidlc-claude:latest" claude-bedrock
 ```
 
 Or from a git URL targeting this repo:

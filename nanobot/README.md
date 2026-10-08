@@ -21,7 +21,7 @@ the same agent onto a shell base instead.
 ## Usage
 
 ```console
-sbx run "docker.io/docker/sbx-kit-nanobot:latest"
+sbx run "docker.io/sbx/nanobot:latest"
 ```
 
 Or from a git URL targeting this repo:

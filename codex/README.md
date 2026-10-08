@@ -38,7 +38,7 @@ Any one of these works — the kit adapts to what it finds:
 ## Usage
 
 ```console
-sbx run "docker.io/docker/sbx-kit-codex:latest"
+sbx run "docker.io/sbx/codex:latest"
 ```
 
 Or from a git URL targeting this repo:
@@ -136,15 +136,18 @@ When a sandbox has an MCP gateway reserved, a startup hook appends an
 a token — the proxy substitutes the real value per request, so nothing
 credential-shaped is ever written to disk.
 
-Three details worth knowing if you edit that hook:
+Four details worth knowing if you edit that hook:
 
 - The header table is **`http_headers`**, not `headers`. Codex ignores unknown
-  config keys silently, so a `headers` table is accepted, the server shows up
-  as registered and healthy, and every request through it goes out with no
-  `Authorization` at all. `headers` is the right spelling for the
+  config keys (it only warns at startup), so a `headers` table is accepted, the
+  server shows up as registered and healthy, and every request through it goes
+  out with no `Authorization` at all. `headers` is the right spelling for the
   JSON-configured agents in this repo (`copilot`, `kiro`); it does not carry
   over to Codex's TOML. `codex mcp get mcp-gateway` is the quick check —
   `http_headers: Authorization=*****` means it took.
+- There is **no `type` key**. Codex infers the transport from `url`, and
+  `type = "http"` is Claude Code's `.mcp.json` spelling, which Codex warns at
+  startup that it is ignoring.
 - It **appends**. `config.toml` is shared territory: the install hook writes the
   yolo-mode and provider keys before launch, and Codex itself appends
   per-project and TUI state during a session. Rewriting the file would clobber
@@ -256,7 +259,7 @@ carries a Docker engine and requests Docker-in-Docker.
 
 There is one artifact rather than two. Under v2 this kit named a separately
 published `docker.io/sbx/codex-image` in `sandbox.image` and the kit itself
-shipped as `docker.io/docker/sbx-kit-codex`; a v3 kit is one OCI image carrying both
+shipped as `docker.io/sbx/codex-kit`; a v3 kit is one OCI image carrying both
 the declarations (in a manifest annotation) and the content (in its layers), so
 the published kit *is* the image the sandbox boots. The name is derived from the
 kit directory and enforced repo-wide — see
@@ -280,7 +283,7 @@ are below.
 ### Building locally
 
 ```console
-docker build -f codex/codex.dockerfile -t docker.io/docker/sbx-kit-codex:latest codex
+docker build -f codex/codex.dockerfile -t docker.io/sbx/codex:latest codex
 ```
 
 That builds the content alone. To build the kit — content plus the validated,
@@ -289,7 +292,7 @@ expanded descriptor in its manifest annotation — build
 line dispatches to the kit frontend:
 
 ```console
-docker build -f codex/codex.yaml -t docker.io/docker/sbx-kit-codex:latest codex
+docker build -f codex/codex.yaml -t docker.io/sbx/codex:latest codex
 ```
 
 Codex installs via its standalone installer script, which downloads a

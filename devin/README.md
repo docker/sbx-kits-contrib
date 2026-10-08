@@ -40,7 +40,7 @@ sbx secret set devin      # only if you already have a Devin key to paste
 ## Usage
 
 ```console
-sbx run "docker.io/docker/sbx-kit-devin:latest"
+sbx run "docker.io/sbx/devin:latest"
 ```
 
 Or from a git URL targeting this repo:
@@ -212,7 +212,7 @@ anything.
 The file is written directly rather than by shelling out to `devin mcp add`,
 which puts the exact key names in the descriptor rather than behind a CLI
 whose output shape nothing here asserts. `transport` is Devin's spelling; the
-three wrong answers nearest to hand are `type` (Codex's and opencode's),
+three wrong answers nearest to hand are `type` (Claude Code's and opencode's),
 `httpUrl` (Gemini's) and `http_headers` (Codex's spelling of `headers`). Devin keeps MCP
 servers in `mcp_config.json` alone — its other settings live in the sibling
 `config.json` — so the file is rewritten whole rather than merged, which is
