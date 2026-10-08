@@ -241,12 +241,21 @@ jobs:
           # all -- which is the one thing the `go install` block this replaced
           # did tell you. Empty output and a failed call are different
           # answers and are reported as such.
-          if ! releases=$(gh release list --repo "$repo" --exclude-drafts \
-                            --limit 20 --json tagName 2>&1); then
-            echo "::error::Could not list releases in ${repo}. This runner's" \
-                 "token may not be able to read it. gh said: ${releases}"
-            exit 1
-          fi
+          # The listing is retried for the same reason as the download below:
+          # the GitHub API fails transiently often enough across the matrix.
+          n=0
+          until releases=$(gh release list --repo "$repo" --exclude-drafts \
+                             --limit 20 --json tagName 2>&1); do
+            n=$((n + 1))
+            if [ "$n" -ge 4 ]; then
+              echo "::error::Could not list releases in ${repo} after ${n} attempts." \
+                   "Either the API is failing or this runner's token cannot read it." \
+                   "gh said: ${releases}"
+              exit 1
+            fi
+            echo "release listing failed (attempt $n), retrying in $((n * 15))s" >&2
+            sleep $((n * 15))
+          done
           tag=$(printf '%s' "$releases" | jq -r '[.[].tagName | select(startswith("v3."))][0] // ""')
           if [ -z "$tag" ]; then
             echo "::error::${repo} is readable but publishes no v3.* release," \
