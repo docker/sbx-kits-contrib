@@ -65,8 +65,17 @@ RUN set -eu; \
 
 # Builds the Bun binaries, registers every skill under ~/.claude/skills,
 # creates ~/.gstack state.
+# setup ends by launching Playwright's Chromium once to prove it runs, and
+# that launch fails intermittently on the CI runner (one build in four on
+# 2026-10-08) with nothing else wrong. setup is idempotent, so retry it.
 RUN cd /home/agent/.claude/skills/gstack && \
-    GSTACK_SKIP_FONTS=1 GSTACK_PLAN_TUNE_HOOKS=no ./setup --no-prefix
+    n=0; \
+    until GSTACK_SKIP_FONTS=1 GSTACK_PLAN_TUNE_HOOKS=no ./setup --no-prefix; do \
+      n=$((n + 1)); \
+      [ "$n" -lt 3 ] || { echo "gstack setup failed $n times; giving up" >&2; exit 1; }; \
+      echo "gstack setup failed (attempt $n), retrying in 15s" >&2; \
+      sleep 15; \
+    done
 
 USER root
 # v2's environment.variables. A mixin's image config is not the composed
