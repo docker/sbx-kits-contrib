@@ -60,6 +60,8 @@ This repo ships **30 workloads and 57 mixins**. Every workload has a `-mixin` si
 └── README.md            # what this kit is and how to use it
 ```
 
+A kit's Hub logo comes from the descriptor's `iconUrl`: the overview job downloads it and uploads it to the kit's repository, the same way `README.md` becomes the overview, and keeps it in sync. Point it at an image the vendor hosts. Logo files are not kept in this repository: they are third-party trademarks and this tree is Apache-2.0. A kit without `iconUrl` keeps whatever logo its repository already has.
+
 The descriptor and the recipe pair by **filename stem**: `claude.yaml` looks for `claude.dockerfile` beside it. Naming a recipe that does not exist is an error; *not having* the conventional companion just means a declaration-only kit, which is legal for a `kind: mixin` and rejected for a `kind: workload`. Fourteen mixins here are declaration-only — they contribute credentials, egress and hooks without shipping bits.
 
 There is no `spec.yaml`, no plain `Dockerfile`, no `testdata/tck.yaml` and no `.dockerignore`. The build context is the kit's own directory and a `dockerfile:` path may not escape it, so a mixin cannot reach an asset sitting in its workload sibling's directory — a shared script has to be copied into both.

@@ -47,6 +47,10 @@ sbx run claude --kit oci://ghcr.io/org/my-kit@sha256:<digest> .
 
 `sbx kit push` accepts a tag for human ergonomics (humans pick `1.0`, the engine resolves to a digest), but **consumers** of the kit must always reference by digest. `sbx kit push` rewrites the spec to its **distribution form** (image pinned to digest, `sandbox.build` stripped). The source `spec.yaml` is never modified.
 
+Hub metadata rides along: the kit's `README.md` becomes the repository overview and
+the descriptor's `iconUrl` its logo (`scripts/hub-logo.sh`; no logo files live in
+the repository).
+
 ## Git references
 
 URL grammar:

@@ -331,6 +331,15 @@ page.
 > on a PR can be printed by that PR. The gate is therefore split in two,
 > and only the non-PR half mentions the secret.
 
+### Logos
+
+The same job mirrors the descriptor's `iconUrl` to the repository logo, comparing
+against what Hub already serves and uploading only on change; `workflow_dispatch`
+with `force-logos` re-uploads everything. Logo files are not kept in this
+repository (third-party trademarks); the descriptor holds the pointer. The initial
+logos were copied from the v2 repositories by hand with the same script. See
+`scripts/hub-logo.sh`.
+
 ## Pre-publish verification
 
 Two layers, and they check different things.

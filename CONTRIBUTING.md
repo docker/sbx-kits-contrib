@@ -73,6 +73,10 @@ A workload and its `-mixin` sibling each get their own README. They differ in ex
 
 For kits that have a corresponding tutorial on [docs.docker.com](https://docs.docker.com/), link to it instead of duplicating the design rationale.
 
+## Per-kit logo
+
+Set `iconUrl` in the descriptor to an image the vendor hosts (https, PNG or SVG, under 1 MiB). The overview job downloads it and uploads it to the kit's Hub repository, and re-uploads when the bytes change. Do not add logo files to the repository: they are third-party trademarks and the tree is Apache-2.0, so the only thing we store is the pointer. `DRY_RUN=true scripts/hub-logo.sh <kit>` shows what would be uploaded without logging in.
+
 ## Network policy: declare every domain
 
 A kit's `network-policy@1` is its **complete** outbound contract — anything not listed is blocked at request time, and a blocked request inside an install hook surfaces as sandbox creation failing.

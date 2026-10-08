@@ -261,6 +261,11 @@ only the `--kit` value changes. See any existing kit's README for the
 pattern, and [CONTRIBUTING.md](../../../CONTRIBUTING.md#per-kit-readme) for the full
 per-kit README convention.
 
+Give the kit a logo by setting `iconUrl` to an image the vendor hosts (https,
+PNG or SVG, under 1 MiB). The overview job mirrors it to the kit's Hub
+repository, like the README. Do not add logo files to the repository; they are
+third-party trademarks. Check with `DRY_RUN=true scripts/hub-logo.sh <kit>`.
+
 CI on the repo skips the e2e legs (`e2e-release`, `e2e-nightly`) for fork PRs (Docker Hub secrets aren't exposed to fork-triggered workflows). Run e2e locally before you ask for review:
 
 ```bash

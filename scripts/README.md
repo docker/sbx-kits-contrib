@@ -201,6 +201,25 @@ like an absent one. That is the safe direction to be wrong in. A transport
 failure exits non-zero rather than reporting `false`, so a flaky network shows up
 as something to investigate instead of a silently skipped sync.
 
+## `hub-logo.sh` — sync one kit's logo to its Hub repository
+
+```bash
+DRY_RUN=true scripts/hub-logo.sh claude     # resolve, validate, compare; upload nothing
+scripts/hub-logo.sh claude                  # needs HUB_USERNAME / HUB_TOKEN
+```
+
+Downloads the descriptor's `iconUrl` and uploads it to the kit's Hub repository
+through Hub's media endpoint. No `iconUrl` is a skip; an `iconUrl` that is the
+repository's own Hub logo URL is a skip too (nothing to mirror). Refuses an image
+that is not PNG or SVG by content, or one over `MAX_LOGO_BYTES` (1 MiB). Fetches
+what Hub serves and uploads only when the bytes differ, or when `FORCE=true`.
+The upload is the raw image body with its MIME type as `Content-Type`, which is
+the shape Hub's media endpoint accepts (a multipart form is rejected). Prints
+`source=`, `action=` (`uploaded`, `unchanged`, `skipped`, `dry-run`) and `detail=`
+for `$GITHUB_OUTPUT`. Exit 1 is a transport or Hub error, 2 a usage or kit error.
+`HUB_API` points it at a stand-in server; `hub_logo_test.go` runs it against one.
+Logo files are not kept in this repository, on purpose.
+
 ## `kit-meta.sh` — Hub-facing metadata from a descriptor
 
 Reads a kit's Hub-facing metadata out of its `<kit>/<kit>.yaml`: the repository
