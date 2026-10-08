@@ -259,8 +259,13 @@ A skill is a directory holding a `SKILL.md`. pi discovers them under
 (`sbx skills ls`) is bound there and your skills are available in the sandbox:
 
 ```console
-$ sbx create docker.io/docker/sbx-kit-pi:latest --name pi-skills
-$ sbx exec pi-skills ls ~/.agents/skills
+sbx run "docker.io/sbx/pi:latest"
+```
+
+and from a second terminal, with `<sandbox-name>` as above:
+
+```console
+sbx exec <sandbox-name> ls '~/.agents/skills'
 ```
 
 The binding is read-only unless the sandbox was created with
