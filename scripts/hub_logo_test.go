@@ -17,16 +17,16 @@ import (
 // fakeHub stands in for hub.docker.com: the login endpoint, the media alias
 // (302 to the stored asset, 404 when there is none) and the multipart upload.
 type fakeHub struct {
-	mu      sync.Mutex
-	logos   map[string][]byte // "ns%2Fkit" -> bytes
-	uploads []string          // repos that received a POST, in order
-	field   string            // multipart field name the server expects
-	srv     *httptest.Server
+	mu        sync.Mutex
+	logos     map[string][]byte // "ns%2Fkit" -> bytes
+	uploads   []string          // repos that received a POST, in order
+	rejectSVG bool              // true: the server refuses image/svg+xml, to exercise the error path
+	srv       *httptest.Server
 }
 
 func newFakeHub(t *testing.T) *fakeHub {
 	t.Helper()
-	h := &fakeHub{logos: map[string][]byte{}, field: "file"}
+	h := &fakeHub{logos: map[string][]byte{}}
 	mux := http.NewServeMux()
 	mux.HandleFunc("/v2/users/login/", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
@@ -62,16 +62,13 @@ func newFakeHub(t *testing.T) *fakeHub {
 				http.Error(w, `{"message":"unauthorized"}`, http.StatusUnauthorized)
 				return
 			}
-			if err := r.ParseMultipartForm(4 << 20); err != nil {
-				http.Error(w, err.Error(), http.StatusBadRequest)
+			// The real endpoint takes the raw image body and judges it by Content-Type.
+			ct := r.Header.Get("Content-Type")
+			if ct != "image/png" && (ct != "image/svg+xml" || h.rejectSVG) {
+				http.Error(w, fmt.Sprintf(`{"details":{"reason":"unsupported image type: %s"},"message":"uploaded image is invalid"}`, ct), http.StatusBadRequest)
 				return
 			}
-			f, _, err := r.FormFile(h.field)
-			if err != nil {
-				http.Error(w, fmt.Sprintf(`{"message":"missing field %s"}`, h.field), http.StatusBadRequest)
-				return
-			}
-			b, _ := io.ReadAll(f)
+			b, _ := io.ReadAll(r.Body)
 			h.mu.Lock()
 			h.logos[repo] = b
 			h.uploads = append(h.uploads, repo)
@@ -285,15 +282,14 @@ func TestHubLogo_DryRunNeverLogsInOrUploads(t *testing.T) {
 
 func TestHubLogo_ReportsHubUploadErrors(t *testing.T) {
 	hub := newFakeHub(t)
-	hub.field = "upload" // the server wants a different field name than the script sends
-	hub.logos["src-png"] = pngBytes
-	root := repoFixture(t, map[string]map[string]string{"vale": {"vale.yaml": withIcon(hub, "src-png")["k.yaml"]}})
+	hub.rejectSVG = true
+	hub.logos["src-svg"] = []byte(svgBytes)
+	root := repoFixture(t, map[string]map[string]string{"vale": {"vale.yaml": withIcon(hub, "src-svg")["k.yaml"]}})
 	r := runHubLogo(t, hub, root, "vale")
-	if r.code != 1 || !strings.Contains(r.stderr, "HTTP 400") || !strings.Contains(r.stderr, "missing field upload") {
+	if r.code != 1 || !strings.Contains(r.stderr, "HTTP 400") || !strings.Contains(r.stderr, "unsupported image type") {
 		t.Fatalf("code=%d stderr=%q", r.code, r.stderr)
 	}
-	r = runHubLogo(t, hub, root, "vale", "HUB_LOGO_FIELD=upload")
-	if r.code != 0 || r.outputs["action"] != "uploaded" {
-		t.Fatalf("with the right field: code=%d outputs=%v stderr=%s", r.code, r.outputs, r.stderr)
+	if len(hub.uploads) != 0 {
+		t.Fatalf("a rejected upload must not be recorded, got %v", hub.uploads)
 	}
 }

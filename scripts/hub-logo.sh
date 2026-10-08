@@ -25,7 +25,6 @@
 #   DRY_RUN                   "true": resolve, validate and compare, never log in or upload
 #   FORCE                     "true": upload even when the bytes already match
 #   MAX_LOGO_BYTES            size cap (default: 1048576)
-#   HUB_LOGO_FIELD            multipart field name of the media endpoint (default: file)
 #   REPO_ROOT                 repository root (default: the parent of this script's directory)
 #
 # Exit codes: 0 synced/unchanged/skipped · 1 transport or Hub error · 2 usage or kit error.
@@ -38,7 +37,6 @@ HUB_API=${HUB_API:-https://hub.docker.com}
 DRY_RUN=${DRY_RUN:-false}
 FORCE=${FORCE:-false}
 MAX_LOGO_BYTES=${MAX_LOGO_BYTES:-1048576}
-HUB_LOGO_FIELD=${HUB_LOGO_FIELD:-file}
 
 usage() { echo "usage: $0 <kit>" >&2; exit 2; }
 [ $# -eq 1 ] || usage
@@ -101,9 +99,9 @@ size=$(wc -c <"$logo" | tr -d ' ')
 magic=$(head -c 8 "$logo" | od -An -tx1 | tr -d ' \n')
 head_text=$(head -c 512 "$logo" | tr -d '\0')
 if [ "${magic:0:16}" = "89504e470d0a1a0a" ]; then
-  mime=image/png; ext=png
+  mime=image/png
 elif printf '%s' "$head_text" | grep -qi '<svg'; then
-  mime=image/svg+xml; ext=svg
+  mime=image/svg+xml
 else
   die "$source_detail is neither PNG nor SVG by content" 2
 fi
@@ -153,10 +151,12 @@ jwt=$(
 )
 [ -n "$jwt" ] || die "Hub login returned no token"
 
+# The media endpoint takes the image as the raw request body with its MIME
+# type as Content-Type; a multipart form is rejected as application/octet-stream.
 response="$workdir/response"
 code=$(curl --silent --show-error --max-time 60 --output "$response" --write-out '%{http_code}' \
          --request POST --header "Authorization: JWT $jwt" \
-         --form "${HUB_LOGO_FIELD}=@${logo};type=${mime};filename=logo.${ext}" \
+         --header "Content-Type: ${mime}" --data-binary "@${logo}" \
          "$alias_url" || echo 000)
 case "$code" in
   2*) log "$kit: uploaded (HTTP $code)" ;;
