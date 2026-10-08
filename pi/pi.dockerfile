@@ -45,6 +45,24 @@ RUN apt-get update && \
     rm -rf /var/lib/apt/lists/* && \
     ln -sf "$(command -v fdfind)" /usr/local/bin/fd
 
+# ~/.agents is where pi reads the cross-agent skills tree (~/.agents/skills),
+# which pi.yaml declares as agent-skills@1. The host binds its store at that
+# path, and a bind whose target does not exist has the parent created for it
+# by the runtime -- as root, which would leave the agent unable to write
+# anything else under ~/.agents for the life of the sandbox. Creating it here,
+# as agent, means the bind lands inside a directory that is already the
+# agent's.
+#
+# It has to be the image rather than an install hook: the bind is established
+# when the container starts, so a hook's `mkdir -p` runs second, finds the
+# root-owned directory already there, and succeeds without changing anything.
+#
+# Deliberately placed above the ARG PI_VERSION section below, like the fd
+# layer above: this has nothing to do with which pi version is installed, and
+# up here it stays a cache hit across version bumps and nightly rebuilds.
+USER agent
+RUN mkdir -p /home/agent/.agents
+
 # The kit's `version` arg arriving as a build arg -- pi.yaml declares it with
 # `buildArg: PI_VERSION`, validates its shape, and expands the same value into
 # `provides: ["pi@..."]`. Deliberately no default here: the descriptor is the

@@ -26,7 +26,17 @@ ARG BASE_IMAGE
 # before anything else in the container start sequence can create it as root.
 # The install hook still does its own `mkdir -p`, which makes this belt and
 # braces rather than the only guarantee.
-RUN mkdir -p /home/agent/.codex
+#
+# ~/.agents is the same idea for a stronger reason: it is the parent of
+# ~/.agents/skills, which codex.yaml declares as agent-skills@1, and the host
+# binds its skills store at that path. A bind whose target is missing has the
+# whole path created for it by the runtime, as root, when the container
+# starts. For ~/.agents the install hook is therefore not belt and braces but
+# no guarantee at all: it runs after the bind, finds a root-owned directory
+# already there, and its `mkdir -p` succeeds without changing the ownership,
+# leaving the agent unable to write anything beside skills/ for the life of
+# the sandbox. The image is the only place early enough.
+RUN mkdir -p /home/agent/.codex /home/agent/.agents
 
 # xdg-utils, for the `xdg-open` that this kit's BROWSER variable names.
 #

@@ -83,6 +83,15 @@ USER root
 # export: the global bin dir is on PATH on the shell templates, but a mixin
 # lands on any base and /usr/local/bin is on every one of them. Guarded
 # because a prefix of /usr/local would make it a self-referential link.
+#
+# /home/agent/.agents is an empty directory and still worth carrying: it is
+# where pi reads the cross-agent skills tree, the host binds its store at
+# ~/.agents/skills, and a bind target that does not exist gets its parent
+# created by the runtime as root. Its own ownership is mirrored for the
+# reason stated above, and so is /home and /home/agent -- an overlay stamps
+# every directory entry it carries, so shipping the leaf without them would
+# land a root-owned /home/agent on the base, which is the failure the
+# `chown --reference` above exists to avoid.
 RUN set -eu; \
     prefix="$(npm prefix -g)"; \
     mkdir -p "/out${prefix}/lib/node_modules" "/out${prefix}/bin" /out/usr/local/bin /out/usr/bin; \
@@ -93,7 +102,10 @@ RUN set -eu; \
     cp -a "${prefix}/bin/pi" "/out${prefix}/bin/pi"; \
     [ "${prefix}/bin/pi" = /usr/local/bin/pi ] || ln -s "${prefix}/bin/pi" /out/usr/local/bin/pi; \
     cp -a "$(command -v fdfind)" /out/usr/bin/fdfind; \
-    ln -s /usr/bin/fdfind /out/usr/local/bin/fd
+    ln -s /usr/bin/fdfind /out/usr/local/bin/fd; \
+    mkdir -p /out/home/agent/.agents; \
+    for d in /home /home/agent; do chown --reference="$d" "/out${d}"; done; \
+    chown --reference=/home/agent /out/home/agent/.agents
 
 # The overlay: the agent, its bin shim and fd, landing on any base. No
 # ENTRYPOINT -- the base workload's launch command stays, and the user runs

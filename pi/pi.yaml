@@ -162,7 +162,24 @@ capabilities:
     config:
       filename: AGENTS.md
 
-# MIGRATION NOTE: no agent-skills@1. pi's "skills" are npm packages it
-# installs at runtime (`pi install npm:@scope/pkg`), not a directory a host
-# skills store could be mounted at -- neither spec.yaml nor the README names
-# such a path, and inventing one would declare a mount the agent never reads.
+  # Where pi reads the cross-agent skills tree, so the host's shared store
+  # reaches it. Upstream's own path, not an invented one: pi scans
+  # ~/.pi/agent/skills and ~/.agents/skills for directories holding a
+  # SKILL.md. ~/.agents/skills is the one bound here because pi never puts it
+  # behind project trust, so a mounted store loads without a prompt.
+  #
+  # MIGRATION NOTE: the v2 kit declared no skills path, and this kit's own
+  # migration note claimed pi had none -- that npm packages (`pi install
+  # npm:@scope/pkg`) were its only skills. They are a separate mechanism, not
+  # a substitute: packages land under ~/.pi/agent/npm, so the mount and the
+  # installer never meet.
+  #
+  # Read-only by default, which is all pi needs here: it reads this tree and
+  # writes nothing into it.
+  #
+  # Optional, so a host with no store (or the setting off) composes the kit
+  # rather than refusing it.
+  - type: com.docker.sandbox/agent-skills@1
+    optional: true
+    config:
+      path: /home/agent/.agents/skills
