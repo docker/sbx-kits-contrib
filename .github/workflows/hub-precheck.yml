@@ -1,0 +1,69 @@
+# TEMPORARY. Proves two Hub facts for the ref it is dispatched from, before
+# the publish workflow is pointed at a new branch: the OIDC connection mints a
+# token for this ref, and that token may create a repository in the org. It
+# pushes one throwaway image, docker.io/<org>/ci-precheck:<run id>; delete
+# that repository afterwards. Remove this file once the answer is recorded.
+name: Hub precheck
+
+on:
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+  id-token: write
+
+env:
+  REGISTRY: ${{ vars.REGISTRY || 'docker.io' }}
+  IMAGE_NAMESPACE: ${{ vars.IMAGE_NAMESPACE || 'sbx' }}
+
+jobs:
+  precheck:
+    if: github.repository == 'docker/sbx-kits-contrib'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Exchange GitHub OIDC token for Docker Hub access
+        id: docker_oidc
+        uses: docker/oidc-action@96ba694c64860c7209bcd1ede7d698c71564ef78 # v1.2.0
+        with:
+          connection-id: ${{ env.OIDC_CONNECTION_ID }}
+          expires-in: 600
+        env:
+          OIDC_CONNECTION_ID: ${{ secrets.DOCKERHUB_OIDC_CONNECTIONID }}
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          username: ${{ env.IMAGE_NAMESPACE }}
+          password: ${{ steps.docker_oidc.outputs.token }}
+
+      - uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v3.11.1
+
+      - name: Push a throwaway image to a repository that does not exist yet
+        env:
+          REF: ${{ github.ref }}
+          RUN_ID: ${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          repo="${IMAGE_NAMESPACE}/ci-precheck"
+          if [ "$(./scripts/hub-repo-ready.sh "$repo")" = "ready=true" ]; then
+            echo "::warning::${repo} already exists on Hub, so this run proves push rights only, not creation. Delete it and re-run for the creation check."
+          fi
+          dir=$(mktemp -d)
+          printf 'FROM scratch\nCOPY precheck /precheck\n' > "$dir/Dockerfile"
+          printf 'hub precheck from %s, run %s\n' "$REF" "$RUN_ID" > "$dir/precheck"
+          docker buildx build "$dir" --push -t "${REGISTRY}/${repo}:${RUN_ID}"
+          [ "$(./scripts/hub-repo-ready.sh "$repo")" = "ready=true" ] || { echo "::error::push reported success but ${repo} shows no tags on Hub"; exit 1; }
+          {
+            echo "## Hub precheck"
+            echo
+            echo "| check | result |"
+            echo "| --- | --- |"
+            echo "| OIDC exchange for \`${REF}\` | passed |"
+            echo "| login as \`${IMAGE_NAMESPACE}\` | passed |"
+            echo "| create + push \`${repo}:${RUN_ID}\` | passed |"
+            echo
+            echo "Delete \`${repo}\` on Hub once recorded."
+          } >> "$GITHUB_STEP_SUMMARY"
