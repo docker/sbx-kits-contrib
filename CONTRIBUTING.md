@@ -27,7 +27,7 @@ Every kit in this repo was migrated from the v2 `spec.yaml` grammar. If you main
 | `sandbox.image` | the recipe's `FROM` |
 | `sandbox.entrypoint` / `sandbox.command.default` | the recipe's `ENTRYPOINT` / `CMD` |
 | `sandbox.command.interactive` | `lifecycle@1.interactive` |
-| `environment.variables` | the recipe's `ENV` (a mixin: `/etc/profile.d`) |
+| `environment.variables` | the recipe's `ENV`; a variable the base may also set (`NO_PROXY`, …): append from `/etc/profile.d`, see the README's merge rules |
 | `permissions.network` | `network-policy@1`, phase-scoped into `install` and `runtime` |
 | `credentials[]` | one `credential@1` per service |
 | `volumes[]` / `ports[]` | one `volume@1` per path / one `port@1` per port |
