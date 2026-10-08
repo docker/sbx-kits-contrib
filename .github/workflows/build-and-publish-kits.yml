@@ -58,7 +58,9 @@ name: Build and publish kits
 
 on:
   push:
-    branches: [main]
+    # v3 publishes to its own coordinates (sbx/<kit>, no suffix), so the two
+    # branches never write the same repository.
+    branches: [main, v3]
   pull_request:
   # Nightly, because these images track moving upstreams rather than frozen
   # ones: agents are typically installed from a `latest` channel and bases are
@@ -76,7 +78,12 @@ on:
   # bytes to hold still.
   schedule:
     - cron: "0 5 * * *"
-  workflow_dispatch: {}
+  workflow_dispatch:
+    inputs:
+      no-cache:
+        description: Rebuild without the layer cache, as the nightly does. The nightly bridge on main sets this for v3.
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -352,3 +359,4 @@ jobs:
     secrets: inherit
     with:
       kit: ${{ matrix.kit }}
+      no-cache: ${{ github.event_name == 'workflow_dispatch' && inputs.no-cache }}
