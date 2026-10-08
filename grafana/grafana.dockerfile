@@ -28,9 +28,16 @@ COPY files/home/runbooks /out/home/agent/runbooks
 RUN chown 0:0 /out/home \
  && chown -R 1000:1000 /out/home/agent
 
+# NO_PROXY is appended at shell start rather than set in the image config: the
+# composer refuses two kits that set one variable to different values, and the
+# base already sets NO_PROXY.
+RUN mkdir -p /out/etc/profile.d \
+ && printf '%s\n' \
+      'export NO_PROXY="${NO_PROXY:+$NO_PROXY,}host.docker.internal"' \
+      'export no_proxy="$NO_PROXY"' \
+      > /out/etc/profile.d/grafana-env.sh
+
 # The overlay: no entrypoint, so the base workload keeps its launch command.
 FROM scratch
 COPY --from=build /out /
-ENV GRAFANA_URL=http://host.docker.internal:3000 \
-    NO_PROXY=localhost,127.0.0.1,host.docker.internal \
-    no_proxy=localhost,127.0.0.1,host.docker.internal
+ENV GRAFANA_URL=http://host.docker.internal:3000

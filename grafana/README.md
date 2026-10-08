@@ -11,7 +11,7 @@ For the built-in `claude` agent the MCP server is registered automatically at st
 
 ## Prerequisites
 
-A Grafana instance reachable from the sandbox at `http://host.docker.internal:3000`. The kit sets `NO_PROXY` so that host traffic bypasses the sandbox proxy. If you do not already run Grafana locally, the simplest option is a small Compose stack (Grafana + Prometheus) on the host - anything listening on port 3000 works.
+A Grafana instance reachable from the sandbox at `http://host.docker.internal:3000`. The kit appends `host.docker.internal` to `NO_PROXY` at shell start so that host traffic bypasses the sandbox proxy. If you do not already run Grafana locally, the simplest option is a small Compose stack (Grafana + Prometheus) on the host - anything listening on port 3000 works.
 
 ## Usage
 
