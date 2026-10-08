@@ -29,7 +29,7 @@ name: Kit TCK
 
 on:
   push:
-    branches: [main, v3]
+    branches: [main]
   pull_request:
 
 permissions:

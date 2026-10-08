@@ -231,7 +231,7 @@ if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
       echo "- \`${ref}:${IMAGE_TAG_LATEST}\` — rolling"
     else
       echo ""
-      echo "_The rolling \`${IMAGE_TAG_LATEST}\` tag was not moved — it follows the branch, not releases._"
+      echo "_The rolling \`${IMAGE_TAG_LATEST}\` tag was not moved — it follows main, not releases._"
     fi
     echo ""
     if [ "$sbom_enabled" = "true" ]; then

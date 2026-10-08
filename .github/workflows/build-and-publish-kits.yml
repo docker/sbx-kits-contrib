@@ -58,9 +58,7 @@ name: Build and publish kits
 
 on:
   push:
-    # v3 publishes to its own coordinates (sbx/<kit>, no suffix), so the two
-    # branches never write the same repository.
-    branches: [main, v3]
+    branches: [main]
   pull_request:
   # Nightly, because these images track moving upstreams rather than frozen
   # ones: agents are typically installed from a `latest` channel and bases are
