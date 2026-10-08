@@ -33,7 +33,7 @@ name: Sync Docker Hub overviews
 
 on:
   push:
-    branches: [main]
+    branches: [main, v3]
     paths:
       - "*/README.md"
       - "*/*.yaml"
