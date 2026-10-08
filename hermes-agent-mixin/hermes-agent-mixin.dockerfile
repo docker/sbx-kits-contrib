@@ -95,7 +95,7 @@ RUN set -eu; \
 # The startup hook's script, at the absolute path the descriptor names.
 #
 # MIGRATION NOTE: this file is a copy of
-# ../hermes-agent/files/home/.local/bin/hermes-anthropic-auth.sh, not a
+# ../hermes-agent/files/home/.local/bin/hermes-credential-auth.sh, not a
 # reference to it. A kit's build context is rooted at its own descriptor's
 # directory and may not escape it (SPEC-v3 §4), so a sibling kit's assets are
 # unreachable from here. The two must move together — see this kit's README.
@@ -104,7 +104,7 @@ RUN set -eu; \
 # env file before exec'ing the binary, and that is an entrypoint's job. A
 # mixin has no entrypoint, and the auth script already appends a source line
 # to ~/.profile, which is what a login shell picks up.
-COPY --chown=agent:agent --chmod=0755 files/home/.local/bin/hermes-anthropic-auth.sh /home/agent/.local/bin/hermes-anthropic-auth.sh
+COPY --chown=agent:agent --chmod=0755 files/home/.local/bin/hermes-credential-auth.sh /home/agent/.local/bin/hermes-credential-auth.sh
 
 USER root
 # v2's environment.variables plus the recipe's own HERMES_DISABLE_LAZY_INSTALLS.
@@ -129,7 +129,7 @@ RUN set -eux; \
     cp -a /home/agent/.local /out/home/agent/.local; \
     chown -R 1000:1000 /out/home/agent; \
     test -x /out/home/agent/.local/bin/hermes; \
-    test -x /out/home/agent/.local/bin/hermes-anthropic-auth.sh; \
+    test -x /out/home/agent/.local/bin/hermes-credential-auth.sh; \
     mkdir -p /out/usr/local/bin; \
     ln -s /home/agent/.local/bin/hermes /out/usr/local/bin/hermes
 

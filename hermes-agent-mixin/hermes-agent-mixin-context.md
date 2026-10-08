@@ -4,7 +4,7 @@ Hermes Agent is installed at `/home/agent/.local/bin/hermes`, with a shim on
 
 **Run it from a login shell.** A startup hook works out which of the
 `anthropic`, `openai` and `openrouter` credentials the host actually bound and
-records the result in `~/.hermes/anthropic-auth.env`, sourced from
+records the result in `~/.hermes/credential-auth.env`, sourced from
 `~/.profile`. A non-login shell never reads that file, so a scripted call
 should ask for one:
 
