@@ -13,6 +13,7 @@ description: >-
   PII protection, prompt-injection detection and audit logs apply
   automatically to every call.
 sourceUrl: https://github.com/predictionguard/docker-pg-experiment
+iconUrl: https://raw.githubusercontent.com/predictionguard/docker-pg-experiment/main/pg-kit/logo.svg
 
 kind: mixin
 
