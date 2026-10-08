@@ -247,6 +247,31 @@ container, which defeats `proxyManaged: true` — from there it is readable by
 the agent and by anything the agent runs, and the kit's allowlist includes
 hosts it could be sent to. Keep credentials host-side.
 
+## Skills
+
+pi has two separate mechanisms that both get called "skills", and the kit
+wires up one of them.
+
+A skill is a directory holding a `SKILL.md`. pi discovers them under
+`~/.pi/agent/skills` and under `~/.agents/skills`, the cross-agent location
+`codex` and others use too. The kit declares the second one as
+`com.docker.sandbox/agent-skills@1`, so the host's shared store
+(`sbx skills ls`) is bound there and your skills are available in the sandbox:
+
+```console
+$ sbx create docker.io/docker/sbx-kit-pi:latest --name pi-skills
+$ sbx exec pi-skills ls ~/.agents/skills
+```
+
+The binding is read-only unless the sandbox was created with
+`--skills readwrite`, and absent entirely under `--skills off`. It is declared
+`optional`, so a host with no store composes the kit rather than refusing it.
+
+Separately, `pi install npm:@scope/pkg` fetches packages (extensions, skills,
+prompt templates, themes) at runtime. Those land under `~/.pi/agent/npm` and
+are recorded in `~/.pi/agent/settings.json`, so they neither read from nor
+write to the shared store. Needing one is not a reason to skip the other.
+
 ## Content
 
 Unlike a `kind: mixin` kit, which is an overlay that lands on someone else's

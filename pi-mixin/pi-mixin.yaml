@@ -141,8 +141,12 @@ capabilities:
     config:
       contentFile: ./pi-mixin-context.md
 
-# MIGRATION NOTE: no agent-skills@1, for the same reason as the workload.
-# pi's "skills" are npm packages it installs at runtime
-# (`pi install npm:@scope/pkg`), not a directory a host skills store could be
-# mounted at -- neither the v2 spec.yaml nor the README names such a path, and
-# inventing one would declare a mount the agent never reads.
+  # Where pi reads the cross-agent skills tree, so the host's shared store
+  # reaches it in the mixin shape too. See ../pi for why this path and not
+  # ~/.pi/agent/skills, and why npm packages are not the same mechanism. The
+  # overlay carries the ~/.agents parent for the same reason the workload
+  # image creates it.
+  - type: com.docker.sandbox/agent-skills@1
+    optional: true
+    config:
+      path: /home/agent/.agents/skills
