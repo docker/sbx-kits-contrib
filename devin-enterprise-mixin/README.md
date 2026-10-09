@@ -55,8 +55,9 @@ code back into the terminal.
 The `devin` wrapper keeps the base Devin kit's credential-state checks,
 empty-key cleanup and post-login validation. `devin-cli` is the underlying
 CLI. The wrapper omits the proxy-sentinel securing step because enterprise
-credential handoff is currently broken; see
-[docker/sbx-releases#683](https://github.com/docker/sbx-releases/issues/683).
+credential handoff still does not fire for enterprise hosts; the report is
+[docker/sbx-releases#683](https://github.com/docker/sbx-releases/issues/683),
+closed after this kit supplied a workaround.
 No `credential@1` capability is declared.
 
 **Trade-off:** the durable key remains readable by the agent in

@@ -1,17 +1,17 @@
 # syntax=docker/sandbox-kit:3
-# MIGRATION NOTE: v2 reused docker.io/sbx/devin-image:latest. Build the same
+# MIGRATION NOTE: the v2 workload reused docker.io/sbx/devin-image:latest.
+# This new companion overlay builds the same
 # CLI installation as the v3 Devin kit instead of depending on the legacy
 # image publication; the companion recipe pins and verifies the CLI release.
 # The enterprise wrapper preserves the merged v2 kit's login behavior.
 # Layer this overlay onto a shell workload and run devin; the workload's
 # launch command stays in control. Apt mirrors/cache refresh stay with it too.
 schemaVersion: "3"
-displayName: Devin (Enterprise) (mixin)
+displayName: Devin Enterprise (mixin)
 description: >-
   Devin CLI by Cognition, pinned to a Devin Enterprise deployment
   (<org>.devinenterprise.com). Layer onto a shell workload and run devin.
 sourceUrl: https://devin.ai
-licenses: [Apache-2.0]
 kind: mixin
 
 # Devin CLI's version, by reference. SPEC-v3 §4 admits a build-phase arg
@@ -122,8 +122,9 @@ capabilities:
           overwrite: false
           description: Disable Devin background updates
       startup:
-        # Pin enterprise auth on every boot. This depends on a create-time
-        # arg and writes /etc, so it stays a root startup hook in both shapes.
+        # Reassert enterprise routing on every boot, preserving the v2
+        # workload behavior. Root is needed to write /etc; startup is used
+        # deliberately so edits cannot redirect a later enterprise session.
         - command: |
             set -e
             mkdir -p /etc/devin
@@ -173,11 +174,11 @@ capabilities:
           env: [MCP_GATEWAY_URL, MCP_SENTINEL_TOKEN_NAME]
           description: Register the sandbox MCP gateway
 
-  # MIGRATION NOTE: v2 declared only the AGENTS.md filename. Progressive
-  # context can now explain the enterprise routing and credential passthrough.
+  # New companion to the migrated workload: progressive context explains
+  # manual launch, enterprise routing and credentials kept inside the sandbox.
   - type: com.docker.sandbox/agent-context@1
     config:
-      contentFile: ./devin-enterprise-context.md
+      contentFile: ./devin-enterprise-mixin-context.md
 
-  # No agent-sessions@1: v2 omitted promptArgs because enterprise sign-in
+  # No agent-sessions@1: the v2 workload omitted promptArgs because sign-in
   # needs a human. No agent-skills@1: no verified discovery path was declared.

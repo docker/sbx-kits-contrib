@@ -9,7 +9,6 @@ description: >-
   Devin CLI by Cognition, pinned to a Devin Enterprise deployment
   (<org>.devinenterprise.com). Signs in interactively inside the sandbox.
 sourceUrl: https://devin.ai
-licenses: [Apache-2.0]
 kind: workload
 
 # Devin CLI's version, by reference. SPEC-v3 §4 admits a build-phase arg
@@ -145,8 +144,9 @@ capabilities:
           env: [HTTP_PROXY, HTTPS_PROXY, NO_PROXY]
           description: Update apt package cache in background
 
-        # Pin enterprise auth on every boot. This depends on a create-time
-        # arg and writes /etc, so it stays a root startup hook in both shapes.
+        # Reassert enterprise routing on every boot, preserving the v2
+        # workload behavior. Root is needed to write /etc; startup is used
+        # deliberately so edits cannot redirect a later enterprise session.
         - command: |
             set -e
             mkdir -p /etc/devin
@@ -207,7 +207,7 @@ capabilities:
           description: Register the sandbox MCP gateway
 
   # MIGRATION NOTE: v2 declared only the AGENTS.md filename. Progressive
-  # context can now explain the enterprise routing and credential passthrough.
+  # context can now explain the enterprise routing and credentials kept inside the sandbox.
   - type: com.docker.sandbox/agent-context@1
     config:
       filename: AGENTS.md
