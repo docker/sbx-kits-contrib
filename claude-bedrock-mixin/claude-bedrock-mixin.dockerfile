@@ -6,7 +6,7 @@
 #
 # The build stage is a real base because writing a file needs a shell and
 # `scratch` has none.
-FROM docker/sandbox-templates:claude-code-docker AS build
+FROM docker/sandbox-templates:shell-docker AS build
 
 USER root
 RUN mkdir -p /out/etc/profile.d \
