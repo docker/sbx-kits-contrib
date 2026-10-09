@@ -1,8 +1,8 @@
 schemaVersion: "2"
 kind: sandbox
 name: gemini
-# The kit's version, not Gemini CLI's. The CLI comes with the floating
-# gemini-docker base image, so this is a release number, not a content identity.
+# The kit's version, not Gemini CLI's. The image installs the latest CLI from
+# npm on every rebuild, so this is a release number, not a content identity.
 version: "1.0.0"
 displayName: Gemini CLI (deprecated)
 description: Google Gemini CLI. Deprecated in favour of the antigravity kit.

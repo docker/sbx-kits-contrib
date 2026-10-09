@@ -43,6 +43,6 @@ When Docker Sandboxes provides an MCP gateway, the kit adds it to that file as `
 
 ## Versions and publishing
 
-The kit cannot pin the Gemini CLI version. It comes with the floating `gemini-docker` base image, so the kit version is a release number, not a content identity.
+The kit does not pin the Gemini CLI version. The image installs `@google/gemini-cli@latest` from npm at build time and is rebuilt nightly, so the kit version is a release number, not a content identity.
 
 The kit and image are rebuilt nightly until the Gemini CLI deprecation window ends. After that the rebuilds stop and the last published tag stays in place.
