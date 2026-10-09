@@ -1,0 +1,66 @@
+schemaVersion: "2"
+kind: mixin
+name: biome
+displayName: Biome
+description: Installs the Biome CLI (JS/TS/JSON/CSS linter and formatter) from a pinned GitHub release.
+agentInstructions:
+  content: |
+    ## Biome
+
+    The `biome` CLI v2.5.14 is on PATH. Use it to lint and format
+    JavaScript, TypeScript, JSON, and CSS in the workspace. A project
+    `biome.json` / `biome.jsonc` wins when present.
+
+    - Check (lint + format): `biome check .`
+    - Lint only: `biome lint .`
+    - Format only: `biome format .`
+    - Autofix safe fixes: `biome check --write .`
+    - Confirm: `biome --version`
+
+    Do not run `biome upgrade` — this kit pins the binary. Runtime
+    package installs are not on the allowlist.
+permissions:
+  network:
+    allow:
+      # Release binary download (install time, one-shot).
+      # github.com 302-redirects to objects.githubusercontent.com for
+      # binary downloads; release-assets.githubusercontent.com kept
+      # alongside it since that isn't guaranteed for every asset.
+      - github.com
+      - objects.githubusercontent.com
+      - release-assets.githubusercontent.com
+setup:
+  install:
+    # Install Biome from a pinned, SHA256-verified GitHub release.
+    # Do NOT use npm @biomejs/biome (pulls a platform package at
+    # install time). Do NOT query api.github.com for releases/latest
+    # (CI IPs hit the 60 req/hr limit). To bump: change BIOME_VERSION
+    # plus the per-arch SHA256 below (sha256sum of the release asset).
+    # Assets are raw binaries, not archives.
+    - command: |
+        set -euo pipefail
+        BIOME_VERSION=2.5.14
+        ARCH=$(dpkg --print-architecture)
+        case "$ARCH" in
+          amd64)
+            ASSET="biome-linux-x64"
+            SHA256="290c1c85deeaf01310d9187306060b53961574856a7e34f59d9662562e6f19fe"
+            ;;
+          arm64)
+            ASSET="biome-linux-arm64"
+            SHA256="50ac7f598985e21b15da57e5d87da0f7ab0c163e6f78eb6d4690309827d77ef8"
+            ;;
+          *)
+            echo "unsupported sandbox arch: $ARCH (expected amd64 or arm64)" >&2
+            exit 1
+            ;;
+        esac
+        curl --proto '=https' --tlsv1.2 -fsSL \
+          -o /tmp/biome \
+          "https://github.com/biomejs/biome/releases/download/%40biomejs/biome%40${BIOME_VERSION}/${ASSET}"
+        echo "${SHA256}  /tmp/biome" | sha256sum -c -
+        install -m 0755 /tmp/biome /usr/local/bin/biome
+        rm -f /tmp/biome
+        biome --version
+      user: "0"
+      description: Install Biome CLI v2.5.14, version+digest pinned
