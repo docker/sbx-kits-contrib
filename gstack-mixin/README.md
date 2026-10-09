@@ -13,7 +13,7 @@ is [`../gstack`](../gstack).
 ## Compose it
 
 ```bash
-sbx create --kit docker.io/dockerdev/sbx-kit-claude --kit ./gstack-mixin
+sbx create --kit docker.io/sbx/claude:latest --kit ./gstack-mixin
 sbx exec <sandbox> -- claude
 ```
 

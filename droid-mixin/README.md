@@ -12,7 +12,7 @@ own. The workload form is [`../droid`](../droid).
 ## Compose it
 
 ```bash
-sbx create --kit docker.io/dockerdev/sbx-kit-shell --kit ./droid-mixin
+sbx create --kit <shell-workload> --kit ./droid-mixin
 sbx exec <sandbox> -- droid
 ```
 

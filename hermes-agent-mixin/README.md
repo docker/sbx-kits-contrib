@@ -13,7 +13,7 @@ than a sandbox image of its own. The workload form is
 ## Compose it
 
 ```bash
-sbx create --kit docker.io/dockerdev/sbx-kit-shell --kit ./hermes-agent-mixin
+sbx create --kit <shell-workload> --kit ./hermes-agent-mixin
 sbx exec <sandbox> -- sh -lc 'hermes'
 ```
 

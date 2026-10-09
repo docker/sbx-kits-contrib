@@ -12,7 +12,7 @@ of its own. The workload form is [`../grok`](../grok).
 ## Compose it
 
 ```bash
-sbx create --kit docker.io/dockerdev/sbx-kit-shell --kit ./grok-mixin
+sbx create --kit <shell-workload> --kit ./grok-mixin
 sbx exec <sandbox> -- grok --yolo
 ```
 
