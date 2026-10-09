@@ -1,0 +1,165 @@
+schemaVersion: "2"
+kind: sandbox
+name: tau
+displayName: Tau
+description: Minimalist Pi-style coding agent by Hugging Face, with a built-in catalog of ~29 model providers
+sandbox:
+  # Pre-baked image: tau at the latest upstream PyPI release, on the shell
+  # template (no Docker engine -- tau runs its tool calls in the sandbox
+  # itself). Built and published by build-and-publish-kits.yml, the shared
+  # kit-image pipeline (see ../PUBLISHING.md) -- no bespoke workflow needed,
+  # same as pi/hermes-agent/openclaw/kiro. Sandbox creation only pulls the
+  # image; the pipeline's nightly rebuild keeps tau current (rolling updates,
+  # no deliberate version bump -- see the Dockerfile).
+  image: docker.io/sbx/tau-image:latest
+  entrypoint:
+    # The kit's only piece of provider policy, and the reason it needs no
+    # wrapper script.
+    #
+    # tau's built-in default is openai (provider_config.py:
+    # DEFAULT_PROVIDER_NAME), so a kit that pins nothing starts every sandbox
+    # on a provider most users here have no key for. OpenRouter is pinned
+    # instead because one credential reaches ~400 models, which is the closest
+    # thing to a neutral default for an agent whose catalog spans ~29
+    # providers.
+    #
+    # This stays a default rather than a decision: arguments after `--` on
+    # `sbx run` are appended, and tau's last `--provider` wins (verified:
+    # `tau --provider openrouter --provider anthropic` talks to anthropic). So
+    #
+    #     sbx run --name tau -- --provider anthropic
+    #
+    # switches provider with no edit to this kit.
+    - tau
+    - --provider
+    - openrouter
+agentInstructions:
+  filename: AGENTS.md
+permissions:
+  network:
+    allow:
+      # One entry per credential below. A credential's inject domains are NOT
+      # allowed implicitly (SPEC-v2 §5.2, "all-egress-declared"), and e2e runs
+      # every kit under deny-all, so a domain missing here is unreachable no
+      # matter what the credential block says.
+      - api.anthropic.com
+      - api.openai.com
+      - openrouter.ai
+      # The anthropic credential's OAuth token endpoint, for the refresh the
+      # proxy performs once the access token expires.
+      - platform.claude.com:443
+      # tau's model catalogue. `models_dev_store.refresh_models_dev_catalog`
+      # caches a refreshed snapshot under ~/.tau, over the bundled one. It is
+      # not a startup fetch: it runs on `tau update --models` and when the TUI
+      # model picker is opened.
+      - models.dev
+      # Fetched by the SAME refresh, in the same try block, and
+      # `raise_for_status`d -- so a block here fails the whole refresh,
+      # including the models.dev half that already succeeded. Listing
+      # models.dev without this would buy nothing: the catalogue would never
+      # update under deny-all and the failure would name NVIDIA rather than
+      # anything the user asked for. Either both hosts or neither.
+      - integrate.api.nvidia.com
+      #
+      # Deliberately absent: pypi.org. tau checks PyPI for a newer release on
+      # startup (`update_check.py`), which cannot lead anywhere useful here --
+      # the image is rebuilt nightly against the latest release, and a
+      # self-update inside a sandbox dies with the sandbox. TAU_NO_UPDATE_CHECK
+      # below switches the check off at the source rather than letting it fail
+      # against the policy on every launch.
+      #
+      # Also absent: the other ~26 providers in tau's built-in catalog. Each is
+      # reachable only by declaring a credential and a domain for it -- see
+      # README, "Adding a provider".
+credentials:
+  # Three providers, so that whichever of them the host already holds is usable
+  # without editing this kit. They also happen to cover both credential shapes
+  # an author has to choose between: Anthropic takes a custom header, OpenAI and
+  # OpenRouter take a bearer token.
+  #
+  # What the kit does NOT do is infer which of them is usable. `proxyManaged`
+  # sets the declared variable to the literal sentinel "proxy-managed" for every
+  # credential declared here, whether or not the host holds that secret, and
+  # tau's key check is presence-only (`provider_config.py`:
+  # `bool(environ.get(provider.api_key_env))`). So an unbound provider looks
+  # usable to tau and answers 401 when selected.
+  #
+  # That is a documented failure rather than a handled one, deliberately: the
+  # only in-container signals that could distinguish "bound" from "declared"
+  # are SBX_CRED_<SERVICE>_MODE, which reports `none` for a working OAuth login
+  # (see pi's README), and the contents of tau's credential store, where
+  # sentinels are what a working OAuth credential legitimately looks like.
+  # Acting on either means a kit deleting credentials on a guess. See README,
+  # "When a provider has no key".
+  - service: anthropic
+    apiKey:
+      name: ANTHROPIC_API_KEY
+      proxyManaged: true
+      inject:
+        - domain: api.anthropic.com
+          header: x-api-key
+          format: '%s'
+    # For a host whose stored anthropic credential is an OAuth login -- signed
+    # in from a `claude` sandbox rather than registered as an API key. Without
+    # this block such a host has no usable Anthropic credential here at all:
+    # the apiKey sentinel would reach Anthropic unswapped and every call would
+    # 401.
+    #
+    # credentialFile points at tau's own credential store, which it reads
+    # natively -- `_api_key_from_provider` consults the store before the
+    # environment -- so nothing in the kit has to translate the credential.
+    # The file holds sentinels, not real tokens. When tau resolves a provider
+    # this way it builds the client with bearer_auth, sending
+    # `Authorization: Bearer <access>` instead of `x-api-key`, which is why
+    # resourceHosts names the inference host too: without it the access
+    # sentinel would only be swapped on the refresh call.
+    oauth:
+      tokenEndpoint:
+        host: platform.claude.com
+        path: /v1/oauth/token
+      resourceHosts:
+        - api.anthropic.com
+      sentinels:
+        accessToken: sk-ant-oat01-proxy-managed
+        refreshToken: sk-ant-ort01-proxy-managed
+      credentialFile:
+        path: ~/.tau/credentials.json
+        structure:
+          anthropic:
+            type: oauth
+            access: '{{.AccessToken}}'
+            refresh: '{{.RefreshToken}}'
+            # tau stores expiry as Unix milliseconds
+            # (`oauth.py`: `int(time.time() * 1000) >= credential.expires - skew`)
+            # and rejects anything that is not a positive integer, which is
+            # what a standalone {{.ExpiresAt}} (SPEC-v2 §5.4.2, Unix ms)
+            # materializes as.
+            expires: '{{.ExpiresAt}}'
+  - service: openai
+    apiKey:
+      name: OPENAI_API_KEY
+      proxyManaged: true
+      inject:
+        - domain: api.openai.com
+          scheme: bearer
+  - service: openrouter
+    apiKey:
+      name: OPENROUTER_API_KEY
+      proxyManaged: true
+      inject:
+        - domain: openrouter.ai
+          scheme: bearer
+environment:
+  variables:
+    # Suppress the PyPI version check (`update_check.py`). Not a network
+    # workaround -- the check is meaningless for an image rebuilt nightly, and
+    # switching it off here is what lets pypi.org stay off the allow list.
+    # Unset it if you want the notice back, and add pypi.org alongside.
+    TAU_NO_UPDATE_CHECK: "1"
+#
+# No `setup:` block at all. tau is in the image; it speaks HTTP through httpx,
+# and `tau_ai/http.py` normalizes and honours the HTTP_PROXY/HTTPS_PROXY
+# variables the runtime injects (SPEC-v2 §9.5) without being told to; and the
+# provider default is expressed in the entrypoint above rather than computed at
+# start. Nothing is left for a script to do, which is the point: a kit that
+# runs no code cannot corrupt state that outlives it.
