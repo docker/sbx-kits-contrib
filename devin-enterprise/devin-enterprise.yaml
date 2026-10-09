@@ -1,0 +1,217 @@
+# syntax=docker/sandbox-kit:3
+# MIGRATION NOTE: v2 reused docker.io/sbx/devin-image:latest. Build the same
+# CLI installation as the v3 Devin kit instead of depending on the legacy
+# image publication; the companion recipe pins and verifies the CLI release.
+# The enterprise wrapper preserves the merged v2 kit's login behavior.
+schemaVersion: "3"
+displayName: Devin (Enterprise)
+description: >-
+  Devin CLI by Cognition, pinned to a Devin Enterprise deployment
+  (<org>.devinenterprise.com). Signs in interactively inside the sandbox.
+sourceUrl: https://devin.ai
+kind: workload
+
+# Devin CLI's version, by reference. SPEC-v3 §4 admits a build-phase arg
+# reference here and expands it at publish, so this field resolves out of the
+# `version` arg below -- the same release the recipe installs and the provide
+# publishes under. This descriptor, the network policy, the lifecycle hooks and
+# the entrypoint wrapper are released as the CLI they carry rather than under a
+# number of their own.
+version: "${{ kit.args.version }}"
+
+# The Devin CLI release the recipe installs, declared once: validated here,
+# handed to the recipe as the version path of the setup script it fetches, and
+# expanded into the provide -- so the kit cannot claim a release it does not
+# ship.
+#
+# HOW THE DEFAULT WAS ESTABLISHED, and how to bump it: the `version` field of
+# https://static.devin.ai/cli/current/manifest.json, which is the same document
+# the unpinned installer reads to decide what "current" means. 3000.10.31 at
+# the time of writing.
+#
+# HOW THE PIN REACHES THE INSTALL: Cognition's installer takes no version from
+# its environment or its argv -- the top-level script carries a bare
+# `PINNED_VERSION=""` literal. But its own comment on that line says the value
+# is "Set by the build system for versioned setup scripts (e.g.
+# cli/2026.3.5-1/setup.sh)", and those scripts are published:
+# https://static.devin.ai/cli/<version>/setup.sh is byte-for-byte the top-level
+# script with `PINNED_VERSION="<version>"` in place of the empty literal, which
+# sends it at .../<version>/manifest.json instead of .../current/manifest.json.
+# So the pin is expressed by fetching the versioned script rather than by
+# passing the installer anything, which is the vendor's own supported way to do
+# it. The recipe fetches `https://static.devin.ai/cli/${DEVIN_VERSION}/setup.sh`
+# and asserts the installed binary reports this exact version.
+#
+# The install is pinned so the versioned provide describes the shipped CLI.
+# Both enterprise shapes keep the same default as the base Devin pair.
+#
+# The pattern admits the vendor's two release shapes and nothing else: the
+# three-segment release this pin uses, and the `-N` respin suffix the
+# installer's own comment documents (`2026.3.5-1`). `current` is deliberately
+# not admitted -- the value is expanded into `provides` below, and
+# `devin@current` is not a version.
+args:
+  version:
+    default: "3000.10.31"
+    pattern: '^[0-9]+\.[0-9]+\.[0-9]+(-[0-9]+)?$'
+    description: Devin CLI release to install
+    buildArg: DEVIN_VERSION
+
+  # Create-time enterprise org slug; private to the descriptor, not baked
+  # into the image. All enterprise auth routing derives from this value.
+  org:
+    required: true
+    description: 'Enterprise org slug — "acme" for acme.devinenterprise.com'
+    pattern: "^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$"
+
+provides: ["devin@${{ kit.args.version }}"]
+
+capabilities:
+  - type: com.docker.sandbox/sbx@1
+
+  # MIGRATION NOTE: all v2 hosts remain runtime grants. CLI installation is
+  # image content, and startup hooks run during the runtime phase.
+  - type: com.docker.sandbox/network-policy@1
+    config:
+      runtime:
+        allow:
+          # The enterprise platform. <org>.devinenterprise.com serves the
+          # webapp + PKCE sign-in; api.devinenterprise.com is the shared
+          # enterprise API and OAuth token endpoint. `*.` matches exactly one
+          # DNS label.
+          - "*.devinenterprise.com"
+          # Model/seat backend: server.enterprise.windsurf.com (api_server_url),
+          # the shared Windsurf-side enterprise backend.
+          - "*.enterprise.windsurf.com"
+          # Kept from the upstream `devin` kit for the same reasons:
+          # sign-in may touch the SaaS host depending on server-side account
+          # routing.
+          - windsurf.com
+          # Login-time account verification probes the SaaS backend even on
+          # enterprise deployments (observed: Connect permission_denied when
+          # blocked). Egress only — no credential is declared, so nothing is
+          # rewritten.
+          - server.codeium.com
+          # Feature flags reach the login path; upstream observed the CLI hand
+          # out the wrong sign-in URL with this host blocked.
+          - unleash.codeium.com
+          # `devin update` fetches install.sh and the bundle manifest here;
+          # background auto-update is disabled via lifecycle files, so only an
+          # explicit update reaches them.
+          - cli.devin.ai
+          - static.devin.ai
+          # apt sources shipped by the shell-docker base image.
+          - archive.ubuntu.com
+          - security.ubuntu.com
+          - ports.ubuntu.com
+          - download.docker.com
+
+  # No credential@1: enterprise auth uses a durable key in the container.
+  # The managed proxy handoff cannot validate enterprise credentials yet
+  # (docker/sbx-releases#683). The key is readable by the agent, as in v2.
+
+  - type: com.docker.sandbox/lifecycle@1
+    config:
+      files:
+        # Devin CLI updates itself in the background by default, which inside a
+        # sandbox means an unannounced binary swap under a running session and
+        # egress to cli.devin.ai/static.devin.ai that nobody asked for. Turning
+        # it off leaves `devin update` available for a user who wants it.
+        #
+        # MIGRATION NOTE: v2's `onlyIfMissing: true` is spelled `overwrite:
+        # false` in v3. Same behavior, stated as the default it departs from: a
+        # user who edits this file -- it is Devin's general settings file, not
+        # a kit-owned one -- keeps their edit across restarts. The engine
+        # creates the parent directory before writing, so no image-side mkdir
+        # is needed.
+        - path: /home/agent/.config/devin/config.json
+          content: '{"auto_update": false}'
+          overwrite: false
+          description: Disable Devin background updates
+      startup:
+        # MIGRATION NOTE: v2 backgrounded this by hand -- a trailing `&` inside
+        # `sh -c`, wrapped in `>/dev/null 2>&1 </dev/null` on the outer group,
+        # because a backgrounded job that inherited the exec's pipe write ends
+        # kept it from reaching EOF and timed the exec out. v3 has
+        # `background: true`, so the engine owns the detaching and the
+        # redirection trick that existed only to make the hand-rolled version
+        # safe goes with it. Output is still discarded, which is the part that
+        # was about this command rather than about the backgrounding.
+        - command: [sh, -c, "{ command -v apt-get && apt-get update -qq -y || true; } >/dev/null 2>&1"]
+          user: "root"
+          background: true
+          # MIGRATION NOTE: child processes need the proxy environment too.
+          env: [HTTP_PROXY, HTTPS_PROXY, NO_PROXY]
+          description: Update apt package cache in background
+
+        # Reassert enterprise routing on every boot, preserving the v2
+        # workload behavior. Root is needed to write /etc; startup is used
+        # deliberately so edits cannot redirect a later enterprise session.
+        - command: |
+            set -e
+            mkdir -p /etc/devin
+            cat > /etc/devin/system.json <<'EOF'
+            {"enterprise_host": "${{ kit.args.org }}.devinenterprise.com"}
+            EOF
+          user: "root"
+          description: Pin Devin enterprise host via system.json
+
+        # Gateway-first MCP registration. MCP_GATEWAY_URL and
+        # MCP_SENTINEL_TOKEN_NAME are injected into the container env when a
+        # gateway has been reserved for the sandbox; the hook no-ops when there
+        # is none. The sentinel is a NAME, not a credential -- the proxy
+        # substitutes the real token per request, keyed by it.
+        #
+        # MIGRATION NOTE: hook environments are deny-by-default in v3, so the
+        # two variables this reads are now declared. $HOME is in the platform
+        # baseline and needs no declaration. Without the `env:` list the guard
+        # on the first line would see an empty MCP_GATEWAY_URL and the hook
+        # would silently no-op on every boot.
+        #
+        # The config is written directly rather than by shelling out to
+        # `devin mcp add`, for the same reason the codex and opencode kits do:
+        # it puts the exact key names in the descriptor where they can be
+        # pinned, instead of behind a CLI whose output shape nothing here
+        # asserts. The file is written whole rather than merged because Devin
+        # keeps MCP servers in mcp_config.json alone -- its other settings live
+        # in the sibling config.json, which the file entry above writes
+        # separately and never mixes server entries into.
+        #
+        # Note `transport`, not `type` (Claude Code's and opencode's spelling), not
+        # `httpUrl` (Gemini's), and not `http_headers` (Codex's spelling of
+        # `headers`): all three are wrong answers nearest to hand when editing
+        # this.
+        #
+        # Startup rather than install, and safe there: this is a whole-file
+        # rewrite with deterministic content, so re-running it on every
+        # container start converges rather than accumulating.
+        - command: |
+            set -e
+            [ -n "$MCP_GATEWAY_URL" ] || exit 0
+            mkdir -p "$HOME/.config/devin"
+            cat > "$HOME/.config/devin/mcp_config.json" <<EOF
+            {
+              "mcpServers": {
+                "mcp-gateway": {
+                  "url": "$MCP_GATEWAY_URL",
+                  "transport": "http",
+                  "headers": {
+                    "Authorization": "Bearer $MCP_SENTINEL_TOKEN_NAME"
+                  }
+                }
+              }
+            }
+            EOF
+          user: "agent"
+          env: [MCP_GATEWAY_URL, MCP_SENTINEL_TOKEN_NAME]
+          description: Register the sandbox MCP gateway
+
+  # MIGRATION NOTE: v2 declared only the AGENTS.md filename. Progressive
+  # context can now explain the enterprise routing and credentials kept inside the sandbox.
+  - type: com.docker.sandbox/agent-context@1
+    config:
+      filename: AGENTS.md
+      contentFile: ./devin-enterprise-context.md
+
+  # No agent-sessions@1: v2 omitted promptArgs because enterprise sign-in
+  # needs a human. No agent-skills@1: no verified discovery path was declared.
