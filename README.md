@@ -362,7 +362,7 @@ Note that a fork PR does not receive repository secrets, so any leg needing Dock
 
 ## Kit index
 
-87 kits: 30 workloads and 57 mixins. Every workload has a `-mixin` sibling that declares the same capabilities in overlay form, so you can either boot the agent as the sandbox or layer it onto one.
+88 kits: 30 workloads and 58 mixins. Every workload has a `-mixin` sibling that declares the same capabilities in overlay form, so you can either boot the agent as the sandbox or layer it onto one.
 
 ### Workloads
 
@@ -408,6 +408,7 @@ Note that a fork PR does not receive repository secrets, so any leg needing Dock
 | [`claude-mem`](./claude-mem) | `claude` | Persistent memory across Claude Code sessions, in SQLite + FTS5 |
 | [`claude-model-runner`](./claude-model-runner) | `claude` | Routes Claude Code's API calls to a local Docker Model Runner |
 | [`claude-sbx-statusline`](./claude-sbx-statusline) | `claude`, `deb/jq` | A two-line Docker Sandboxes status line for Claude Code |
+| [`claude-vertex-mixin`](./claude-vertex-mixin) | `claude`, `deb/jq` | Claude Code on Google Vertex AI with host gcloud Application Default Credentials |
 | [`code-server`](./code-server) | `claude` | code-server on port 8080 with the Claude Code VS Code extension |
 | [`codex-acp`](./codex-acp) | `codex` | The Codex ACP adapter over stdio |
 | [`codex-app-server`](./codex-app-server) | `codex`, `deb/apt` | sshd plus forwarded host keys, so the Codex Mac GUI can drive `codex app-server` |
