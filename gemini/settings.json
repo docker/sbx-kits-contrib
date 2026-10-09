@@ -1,0 +1,14 @@
+{
+  "tools": {
+    "sandbox": false
+  },
+  "security": {
+    "disableYoloMode": false,
+    "folderTrust": {
+      "enabled": false
+    }
+  },
+  "ui": {
+    "useFullWidth": true
+  }
+}
