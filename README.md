@@ -47,7 +47,7 @@ There are two kinds:
 | `workload` | The whole environment: the image the sandbox boots from, including the agent. Replaces v2's `kind: sandbox`. | A full root filesystem. A workload **must** have a recipe. |
 | `mixin` | A delta layered onto a workload: extra tools, credentials, hooks, egress. | An overlay (`FROM scratch`), or no recipe at all for a declaration-only kit. |
 
-This repo ships **30 workloads and 57 mixins**. Every workload has a `-mixin` sibling declaring the same capabilities in overlay form, so an agent can either *be* the sandbox or be layered onto one; the remaining 27 mixins are standalone tools and integrations. See the [Kit index](#kit-index).
+This repo ships **32 workloads and 69 mixins**. Every workload has a `-mixin` sibling declaring the same capabilities in overlay form, so an agent can either *be* the sandbox or be layered onto one; the remaining 38 mixins are standalone tools and integrations. See the [Kit index](#kit-index).
 
 ## Anatomy of a kit
 
@@ -362,7 +362,7 @@ Note that a fork PR does not receive repository secrets, so any leg needing Dock
 
 ## Kit index
 
-100 kits: 32 workloads and 68 mixins. Every workload has a `-mixin` sibling that declares the same capabilities in overlay form, so you can either boot the agent as the sandbox or layer it onto one.
+101 kits: 32 workloads and 69 mixins. Every workload has a `-mixin` sibling that declares the same capabilities in overlay form, so you can either boot the agent as the sandbox or layer it onto one.
 
 ### Workloads
 
@@ -406,6 +406,7 @@ Note that a fork PR does not receive repository secrets, so any leg needing Dock
 | --- | --- | --- |
 | [`aidlc-claude`](./aidlc-claude) | `claude-bedrock` | AWS AI-DLC starter: a pinned Bun and the aidlc-workflows Claude harness |
 | [`claude-acp`](./claude-acp) | `claude` | The Claude ACP adapter over stdio |
+| [`claude-bedrock-mixin`](./claude-bedrock-mixin) | `claude`, `deb/jq` | Claude Code on Amazon Bedrock with the AWS profile stored on the host |
 | [`claude-mem`](./claude-mem) | `claude` | Persistent memory across Claude Code sessions, in SQLite + FTS5 |
 | [`claude-model-runner`](./claude-model-runner) | `claude` | Routes Claude Code's API calls to a local Docker Model Runner |
 | [`claude-sbx-statusline`](./claude-sbx-statusline) | `claude`, `deb/jq` | A two-line Docker Sandboxes status line for Claude Code |

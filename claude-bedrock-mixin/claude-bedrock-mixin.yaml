@@ -1,0 +1,76 @@
+# syntax=docker/sandbox-kit:3
+# Claude Code on Amazon Bedrock as a MIXIN. It differs from plain Claude Code in
+# four things only: the credential service, the egress allowlist, the
+# environment, and two settings keys. The rest (session volumes, MCP gateway
+# registration, CLAUDE.md profile, base settings and onboarding flags) stays
+# with the `claude` workload, so there is no ENTRYPOINT, no sbx@1 and no
+# agent-context `filename:` here.
+schemaVersion: "3"
+kind: mixin
+displayName: Claude Code on Amazon Bedrock (mixin)
+description: >-
+  Routes Claude Code at Amazon Bedrock with the AWS profile stored under the
+  bedrock credential. Layer it onto the claude workload.
+
+version: "1.0.0"
+
+# Unversioned for the same reason as claude-ollama-mixin: the overlay ships no
+# binary, so a version would claim content it does not carry.
+provides: ["claude-bedrock"]
+
+# `claude` puts the workload's settings seed before this kit's merge hook.
+requires: ["claude", "deb/jq"]
+
+capabilities:
+  - type: com.docker.sandbox/network-policy@1
+    config:
+      runtime:
+        allow:
+          # Deliberately absent: FIPS endpoints (bedrock-runtime-fips.*), Bedrock
+          # Agents, sts.*, oidc.*, portal.sso.* and the rest of amazonaws.com.
+          # The daemon resolves credentials on the host, so a leaked STS triple
+          # can only call Bedrock.
+          - bedrock-runtime.*.amazonaws.com
+          - bedrock.*.amazonaws.com
+
+  - type: com.docker.sandbox/credential@1
+    optional: true
+    description: AWS profile name resolved to short-lived STS credentials on the host
+    config:
+      service: bedrock
+      phase: runtime
+      apiKey:
+        name: AWS_PROFILE
+        # Empty header: SigV4 signing happens in the container against the STS
+        # triple, not in the proxy.
+        inject:
+          - {domain: "bedrock-runtime.*.amazonaws.com", header: "", format: "%s"}
+          - {domain: "bedrock.*.amazonaws.com", header: "", format: "%s"}
+
+  - type: com.docker.sandbox/lifecycle@1
+    config:
+      install:
+        # apiKeyHelper stops Claude Code prompting for /login.
+        # awsCredentialExport makes it re-read the sidecar file about five
+        # minutes before expiry, which the default ~/.aws/credentials would not
+        # (the AWS SDK caches it).
+        - command: |
+            set -e
+            cfg=/home/agent/.claude/settings.json
+            mkdir -p "$(dirname "$cfg")"
+            [ -s "$cfg" ] || echo '{}' > "$cfg"
+            if [ "${SBX_CRED_BEDROCK_MODE:-none}" != none ]; then
+              jq '.apiKeyHelper = "echo proxy-managed"
+                  | .awsCredentialExport = "cat /home/agent/.aws/sbx-bedrock-credentials.json"' \
+                "$cfg" > "$cfg.tmp"
+            else
+              jq 'del(.awsCredentialExport)' "$cfg" > "$cfg.tmp"
+            fi
+            mv "$cfg.tmp" "$cfg"
+          user: agent
+          env: [SBX_CRED_BEDROCK_MODE]
+          description: Merge the Bedrock settings keys into Claude's settings.json
+
+  - type: com.docker.sandbox/agent-context@1
+    config:
+      contentFile: ./claude-bedrock-mixin-context.md
