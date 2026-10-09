@@ -1,0 +1,72 @@
+# syntax=docker/sandbox-kit:3
+# Prediction Guard as a MIXIN: adds the PG network allow-list and credential
+# injection to any agent workload (Claude Code, Hermes, OpenCode, or your own).
+# Layer it onto any sandbox with --kit and the agent's calls route through
+# your Prediction Guard control plane instead of provider APIs directly.
+schemaVersion: "3"
+displayName: Prediction Guard
+author: "Prediction Guard, Inc."
+description: >-
+  Route any agent's LLM calls through a self-hosted Prediction Guard control
+  plane — network-isolated to only the PG gateway, with the API token
+  credential-proxied so it never enters the sandbox directly. Governance,
+  PII protection, prompt-injection detection and audit logs apply
+  automatically to every call.
+sourceUrl: https://github.com/predictionguard/docker-pg-experiment
+iconUrl: https://raw.githubusercontent.com/predictionguard/docker-pg-experiment/main/pg-kit/logo.svg
+
+kind: mixin
+
+args:
+  pgHost:
+    description: >-
+      Hostname of your Prediction Guard deployment
+      (e.g. pg.yourcompany.com). Do not include the scheme or port.
+    env: PG_HOST
+
+capabilities:
+  # Lock egress to the PG gateway only. The agent cannot reach any other
+  # model provider — that is the point of Gate #1.
+  - type: com.docker.sandbox/network-policy@1
+    config:
+      runtime:
+        allow:
+          # The kit arg resolves to whatever host the user declared.
+          # MIGRATION NOTE: v2 hardcoded pg.yourcompany.com as a
+          # placeholder; v3 makes the host an arg so the kit is
+          # usable across deployments without editing the spec.
+          - "${{ kit.args.pgHost }}:443"
+          - "${{ kit.args.pgHost }}:8080"
+
+  # Proxy-managed bearer token: the PG API key is stored on the host
+  # and injected at the TLS layer — it never appears inside the sandbox.
+  - type: com.docker.sandbox/credential@1
+    description: Prediction Guard API token
+    config:
+      service: predictionguard
+      phase: runtime
+      apiKey:
+        name: PREDICTIONGUARD_TOKEN
+        proxyManaged: true
+        inject:
+          - domain: "${{ kit.args.pgHost }}"
+            header: Authorization
+            format: "Bearer %s"
+
+  # Expose the PG base URL as an env var so agent configs (opencode.json,
+  # hermes config.yaml, CLAUDE.md) can reference it without hardcoding.
+  - type: com.docker.sandbox/lifecycle@1
+    config:
+      install:
+        - command: |
+            printf 'PG_BASE_URL=https://%s\n' "$PG_HOST" \
+              >> /home/agent/.env 2>/dev/null || true
+          user: agent
+          env: [PG_HOST]
+          description: Write PG_BASE_URL into /home/agent/.env for agent configs
+
+  - type: com.docker.sandbox/agent-context@1
+    config:
+      filename: AGENTS.md
+      directory: /home/agent
+      contentFile: ./predictionguard-context.md
