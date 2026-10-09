@@ -1,0 +1,60 @@
+# syntax=docker/sandbox-kit:3
+# Docker Sandboxes kit for a SAM mesh.
+# Usage, prerequisites and design notes: see README.md in this directory.
+schemaVersion: "3"
+kind: mixin
+displayName: SAM mesh node
+description: Runs a sam-node inside the sandbox and registers it as an MCP server with the agent.
+sourceUrl: https://github.com/google/sam
+licenses: [Apache-2.0]
+
+# The sam-node release the overlay carries; bump with samVersion below.
+version: "0.1.0-rc.8"
+provides: ["sam@0.1.0-rc.8"]
+dockerfile: sam.dockerfile
+
+args:
+  samVersion:
+    default: "v0.1.0-rc.8"
+    buildArg: SAM_VERSION
+    description: ghcr.io/google/sam-node image tag the binary is copied from
+  controlPlane:
+    required: true
+    env: SAM_CONTROL_PLANE
+    pattern: "^[A-Za-z0-9.-]+$"
+    description: Control plane host, reached over https (e.g. my-mesh.trycloudflare.com)
+  # An arg, not a credential: the token travels in the enrollment request body,
+  # where the proxy cannot inject it. It is single-use, spent on first boot.
+  token:
+    required: true
+    env: SAM_BOOTSTRAP_TOKEN
+    description: Single-use bootstrap token; pass it with --kit-args-file, never on the command line
+  # SAM's own label format. The control plane accepts only the labels the
+  # token's role permits in allowed_labels, and checks them at enrollment.
+  labels:
+    default: ""
+    env: SAM_LABELS
+    pattern: '^([A-Za-z0-9_.-]{1,63}=[^,=\s"]{1,255}(,[A-Za-z0-9_.-]{1,63}=[^,=\s"]{1,255})*)?$'
+    description: Node labels as comma-separated key=value pairs, e.g. site=laptop,team=ml
+
+capabilities:
+  # The node reaches the rest of the mesh through the control plane host, over
+  # WSS on 443, so this one host is the kit's whole network contract.
+  - type: com.docker.sandbox/network-policy@1
+    config:
+      runtime:
+        allow: ["${{ kit.args.controlPlane }}"]
+
+  # Startup, not install: agent workloads rewrite their config files in their own
+  # install hooks, which would drop a registration made at install.
+  - type: com.docker.sandbox/lifecycle@1
+    config:
+      startup:
+        - command: /usr/local/lib/sam/startup.sh
+          user: "1000"
+          env: [SAM_CONTROL_PLANE, SAM_BOOTSTRAP_TOKEN, SAM_LABELS]
+          description: Register the node's MCP with the agent CLIs present, enroll on first boot, run sam-node
+
+  - type: com.docker.sandbox/agent-context@1
+    config:
+      contentFile: ./sam-context.md
