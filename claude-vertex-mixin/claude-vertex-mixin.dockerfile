@@ -5,7 +5,7 @@
 # rides as a profile.d export, sourced by the base workload's login shell.
 #
 # The build stage needs a shell to write the file; scratch has none.
-FROM docker/sandbox-templates:claude-code-docker AS build
+FROM docker/sandbox-templates:shell-docker AS build
 
 USER root
 RUN mkdir -p /out/etc/profile.d \
