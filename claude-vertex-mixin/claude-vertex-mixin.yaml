@@ -1,0 +1,88 @@
+# syntax=docker/sandbox-kit:3
+# Claude Code on Google Vertex AI as a MIXIN. It sits on the `claude` workload
+# and adds only what differs from plain Claude: the vertex credential, its
+# egress, the environment, and the apiKeyHelper key in settings.json. The
+# workload keeps the install, the session volumes, ~/.claude.json and the
+# profile.
+schemaVersion: "3"
+kind: mixin
+displayName: Claude Code on Vertex AI (mixin)
+description: >-
+  Routes Claude Code at Claude on Google Vertex AI with the Application
+  Default Credentials stored under the vertex credential. Layer it onto the
+  claude workload.
+
+version: "1.0.0"
+
+# Unversioned on purpose: the overlay ships no binary, so a version here would
+# be a claim about the base's content. It falls back to `version:` at publish.
+provides: ["claude-vertex"]
+requires: ["claude", "deb/jq"]
+
+args:
+  vertex_project:
+    required: true
+    description: Google Cloud project that hosts the Vertex AI models
+    env: ANTHROPIC_VERTEX_PROJECT_ID
+  vertex_region:
+    default: global
+    description: Vertex AI region
+    env: CLOUD_ML_REGION
+
+capabilities:
+  - type: com.docker.sandbox/network-policy@1
+    config:
+      runtime:
+        allow:
+          # Inference and token refresh only. googleapis.com as a whole,
+          # storage, bigquery and accounts.google.com stay blocked: login
+          # happens on the host.
+          - aiplatform.googleapis.com
+          - oauth2.googleapis.com
+
+  - type: com.docker.sandbox/credential@1
+    optional: true
+    description: Google Application Default Credentials for Vertex AI
+    config:
+      service: vertex
+      phase: runtime
+      oauth:
+        tokenEndpoint: {host: oauth2.googleapis.com, path: /token}
+        resourceHosts: [aiplatform.googleapis.com]
+        sentinels:
+          accessToken: ya29.sbx-vertex-access-managed-by-proxy
+          refreshToken: 1//sbx-vertex-refresh-managed-by-proxy
+        credentialFile:
+          path: ~/.config/gcloud/application_default_credentials.json
+          structure:
+            type: authorized_user
+            # gcloud's published application-default installer client. Not
+            # secret: installed-app OAuth secrets are public by design. The
+            # structure map has no placeholder for these two.
+            client_id: 764086051850-6qr4p6gpi6hn506pt8ejuq83di341hur.apps.googleusercontent.com
+            client_secret: d-FL95Q19q7MQmFpd7hHD0Ty
+            refresh_token: "{{.RefreshToken}}"
+
+  - type: com.docker.sandbox/lifecycle@1
+    config:
+      install:
+        # Without apiKeyHelper Claude Code prompts for /login. Merged into the
+        # file the claude workload seeded (hooks run in dependency order), so
+        # nothing else in it changes. The branch is skipped when no credential
+        # resolved.
+        - command: |
+            set -e
+            cfg=/home/agent/.claude/settings.json
+            mkdir -p "$(dirname "$cfg")"
+            [ -s "$cfg" ] || echo '{}' > "$cfg"
+            if [ "${SBX_CRED_VERTEX_MODE:-none}" != none ]; then
+              jq '.apiKeyHelper = "echo proxy-managed"' "$cfg" > "$cfg.tmp"
+              mv "$cfg.tmp" "$cfg"
+            fi
+          user: agent
+          env: [SBX_CRED_VERTEX_MODE]
+          description: Add apiKeyHelper to Claude's settings.json when a credential resolved
+
+  - type: com.docker.sandbox/agent-context@1
+    config:
+      contentFile: ./claude-vertex-mixin-context.md
