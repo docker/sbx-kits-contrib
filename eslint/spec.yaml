@@ -1,0 +1,89 @@
+schemaVersion: "2"
+kind: mixin
+name: eslint
+displayName: ESLint
+description: ESLint JavaScript linter with eslint:recommended — agents can lint JS/TS workspaces that already have a config, or fall back to the kit default.
+agentInstructions:
+  content: |
+    ## ESLint
+
+    `eslint` v9.39.5 is on PATH. If the workspace already has a
+    flat config (`eslint.config.*`) that file wins. A legacy
+    `.eslintrc*` is honoured via ESLINT_USE_FLAT_CONFIG=false.
+    Otherwise the wrapper passes
+    `--config /usr/local/share/eslint/eslint.config.mjs`
+    (`@eslint/js` recommended).
+
+    - Lint the workspace: `eslint .`
+    - Autofix: `eslint . --fix`
+    - Confirm: `eslint --version`
+
+    ESLint 10.x needs Node >= 20.19; standard agent templates
+    only guarantee Node >= 18. This kit stays on the last 9.x
+    line (Node >= 18.18). Do not pass an ESLint 10-only config.
+    TypeScript projects should ship their own config
+    (`typescript-eslint`); the fallback is JS-only.
+permissions:
+  network:
+    allow:
+      # npm packages (install time): eslint and its dependency tree.
+      - registry.npmjs.org
+environment:
+  variables:
+    NODE_PATH: /usr/local/share/npm-global/lib/node_modules
+setup:
+  install:
+    # ESLint 10.x requires Node >= 20.19. 9.39.5 is the last 9.x
+    # and accepts Node >= 18.18. npm verifies tarballs against
+    # registry sha512 integrity. To bump: change ESLINT_VERSION
+    # here and in agentInstructions / README. Do not jump to 10.x
+    # until templates ship Node 20.19.
+    - command: |
+        set -euo pipefail
+        command -v npm >/dev/null || { echo "npm not found: this mixin needs a base image with Node.js >= 18.18 (all standard agent templates ship Node >= 18)" >&2; exit 1; }
+        if [ -n "${HTTP_PROXY:-}" ]; then
+          npm config set proxy "$HTTP_PROXY"
+          npm config set https-proxy "$HTTP_PROXY"
+        fi
+        ESLINT_VERSION=9.39.5
+        npm install -g "eslint@${ESLINT_VERSION}"
+        PREFIX="$(npm prefix -g)"
+        ESLINT_JS="${PREFIX}/lib/node_modules/eslint/bin/eslint.js"
+        test -f "$ESLINT_JS" || { echo "eslint CLI entry not found at $ESLINT_JS" >&2; exit 1; }
+        mkdir -p /usr/local/share/eslint
+        cat > /usr/local/share/eslint/eslint.config.mjs <<'EOF'
+        import js from "@eslint/js";
+        export default [
+          js.configs.recommended,
+          { ignores: ["**/node_modules/**", "**/dist/**", "**/build/**", "**/coverage/**"] },
+        ];
+        EOF
+        {
+          printf '%s\n' '#!/bin/sh' 'set -eu' 'has_flag=0' 'has_flat=0' 'has_legacy=0'
+          printf '%s\n' 'for arg in "$@"; do'
+          printf '%s\n' '  case "$arg" in' '    --config|--config=*) has_flag=1 ;;' '  esac'
+          printf '%s\n' 'done'
+          printf '%s\n' 'if [ "$has_flag" -eq 0 ]; then'
+          printf '%s\n' '  for f in eslint.config.js eslint.config.mjs eslint.config.cjs eslint.config.ts eslint.config.mts eslint.config.cts; do'
+          printf '%s\n' '    [ -e "$f" ] && has_flat=1 && break'
+          printf '%s\n' '  done'
+          printf '%s\n' '  for f in .eslintrc .eslintrc.js .eslintrc.cjs .eslintrc.json .eslintrc.yaml .eslintrc.yml; do'
+          printf '%s\n' '    [ -e "$f" ] && has_legacy=1 && break'
+          printf '%s\n' '  done'
+          printf '%s\n' '  if [ "$has_flat" -eq 0 ] && [ "$has_legacy" -eq 1 ]; then'
+          printf '%s\n' '    export ESLINT_USE_FLAT_CONFIG=false'
+          printf '%s\n' '  fi'
+          printf '%s\n' '  if [ "$has_flat" -eq 0 ] && [ "$has_legacy" -eq 0 ]; then'
+          printf '%s\n' '    set -- --config /usr/local/share/eslint/eslint.config.mjs "$@"'
+          printf '%s\n' '  fi'
+          printf '%s\n' 'fi'
+          printf '%s\n' "exec node \"${ESLINT_JS}\" \"\$@\""
+        } > /usr/local/bin/eslint
+        chmod 0755 /usr/local/bin/eslint
+        NPM_ES="${PREFIX}/bin/eslint"
+        if [ -e "$NPM_ES" ] && [ "$NPM_ES" != /usr/local/bin/eslint ]; then
+          ln -sfn /usr/local/bin/eslint "$NPM_ES"
+        fi
+        eslint --version
+      user: "0"
+      description: Install eslint v9.39.5, version pinned, with a recommended-config wrapper
