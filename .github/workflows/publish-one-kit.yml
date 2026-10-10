@@ -178,7 +178,7 @@ jobs:
         # even though the caller lumps it with `schedule`: a manual run is also
         # how a publish that failed on something other than the image gets
         # retried, and that should not cost an uncached multi-arch rebuild.
-        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: ${{ inputs.kit }}
           file: ${{ inputs.kit }}/Dockerfile
@@ -303,7 +303,7 @@ jobs:
         # verification build above — and it is repeated here rather than relying
         # on that build having refreshed the cache, because that one is amd64
         # only while this one is multi-arch.
-        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: ${{ inputs.kit }}
           file: ${{ inputs.kit }}/Dockerfile
