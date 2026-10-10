@@ -1,0 +1,144 @@
+schemaVersion: "2"
+kind: sandbox
+name: dapr-agents
+version: "0.1.0"
+displayName: Dapr Agents
+description: Run a durable Python Dapr Agent with its local Dapr services in one Docker Sandbox.
+sourceURL: https://github.com/docker/sbx-kits-contrib
+licenses:
+  - Apache-2.0
+
+args:
+  mode:
+    default: "example"
+    enum: ["example", "custom"]
+    description: "Run the bundled example or a compatible project in the sandbox workspace."
+  entrypoint:
+    default: ""
+    description: "Python script relative to the workspace; required when mode is custom."
+  resources-dir:
+    default: ""
+    description: "Optional Dapr component overlay relative to the workspace. An llm-provider.yaml in this directory overrides the selected bundled provider."
+  app-id:
+    default: "dapr-agent"
+    pattern: '^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$'
+    description: "Stable Dapr application ID."
+  provider:
+    default: "openai"
+    enum: ["openai", "anthropic", "deepseek", "google", "huggingface", "mistral"]
+    description: "Bundled Dapr Conversation provider to expose as llm-provider."
+  model:
+    default: ""
+    description: "Optional provider model override. When omitted, the selected Dapr Conversation component uses its pinned default."
+
+sandbox:
+  # The v2 manifest is pinned to the multi-platform template index selected for
+  # this implementation. Individual platform digests are in docs/verification.md.
+  image: docker/sandbox-templates:shell-docker@sha256:5fc81bc7a127e59d81b244a06831ae3212a0310b2e5a0349c54e29249e45e919
+  entrypoint: ["python3", "/home/agent/dapr-kit/launcher.py"]
+  command:
+    default: []
+    interactive: []
+  resources:
+    memory: 4g
+
+credentials:
+  - service: anthropic
+    description: "Optional Anthropic API key for the bundled conversation.anthropic provider."
+    required: false
+    apiKey:
+      name: ANTHROPIC_API_KEY
+      proxyManaged: true
+      inject:
+        - domain: api.anthropic.com
+          header: x-api-key
+          format: "%s"
+  - service: deepseek
+    description: "Optional DeepSeek API key for the bundled conversation.deepseek provider."
+    required: false
+    apiKey:
+      name: DEEPSEEK_API_KEY
+      proxyManaged: true
+      inject:
+        - domain: api.deepseek.com
+          scheme: bearer
+  - service: google
+    description: "Optional Google AI API key for the bundled conversation.googleai provider."
+    required: false
+    apiKey:
+      name: GOOGLE_API_KEY
+      proxyManaged: true
+      inject:
+        - domain: generativelanguage.googleapis.com
+          header: x-goog-api-key
+          format: "%s"
+  - service: huggingface
+    description: "Optional Hugging Face token for the bundled conversation.huggingface provider."
+    required: false
+    apiKey:
+      name: HF_TOKEN
+      proxyManaged: true
+      inject:
+        - domain: router.huggingface.co
+          scheme: bearer
+  - service: mistral
+    description: "Optional Mistral API key for the bundled conversation.mistral provider."
+    required: false
+    apiKey:
+      name: MISTRAL_API_KEY
+      proxyManaged: true
+      inject:
+        - domain: api.mistral.ai
+          scheme: bearer
+  - service: openai
+    description: "Optional OpenAI API key for the default bundled conversation.openai provider."
+    required: false
+    apiKey:
+      name: OPENAI_API_KEY
+      proxyManaged: true
+      inject:
+        - domain: api.openai.com
+          scheme: bearer
+
+environment:
+  variables:
+    DAPR_KIT_MODE: "${{ kit.args.mode }}"
+    DAPR_KIT_ENTRYPOINT: "${{ kit.args.entrypoint }}"
+    DAPR_KIT_RESOURCES_DIR: "${{ kit.args.resources-dir }}"
+    DAPR_KIT_APP_ID: "${{ kit.args.app-id }}"
+    DAPR_KIT_PROVIDER: "${{ kit.args.provider }}"
+    SANDBOX_DAPR_AGENTS_MODEL: "${{ kit.args.model }}"
+
+permissions:
+  network:
+    allow:
+      # Template package sources (amd64 and arm64) plus Docker's template repo.
+      - "archive.ubuntu.com:80"
+      - "security.ubuntu.com:80"
+      - "ports.ubuntu.com:80"
+      - "download.docker.com:443"
+      # Python package resolution and immutable Dapr binary downloads.
+      - "pypi.org:443"
+      - "files.pythonhosted.org:443"
+      - "releases.astral.sh:443"
+      - "github.com:443"
+      - "objects.githubusercontent.com:443"
+      - "release-assets.githubusercontent.com:443"
+      # Private-engine image pulls and the proxy-routed model request.
+      - "registry-1.docker.io:443"
+      - "auth.docker.io:443"
+      - "production.cloudflare.docker.com:443"
+      - "production.cloudfront.docker.com:443"
+      # Dapr Conversation providers supported by the sandbox credential proxy.
+      - "api.anthropic.com:443"
+      - "api.deepseek.com:443"
+      - "generativelanguage.googleapis.com:443"
+      - "router.huggingface.co:443"
+      - "api.mistral.ai:443"
+      - "api.openai.com:443"
+
+setup:
+  install:
+    - command: "bash /home/agent/dapr-kit/install.sh"
+      user: "0"
+      description: "Install pinned Python, uv, Dapr CLI, and daprd binaries."
