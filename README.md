@@ -47,7 +47,7 @@ There are two kinds:
 | `workload` | The whole environment: the image the sandbox boots from, including the agent. Replaces v2's `kind: sandbox`. | A full root filesystem. A workload **must** have a recipe. |
 | `mixin` | A delta layered onto a workload: extra tools, credentials, hooks, egress. | An overlay (`FROM scratch`), or no recipe at all for a declaration-only kit. |
 
-This repo ships **32 workloads and 69 mixins**. Every workload has a `-mixin` sibling declaring the same capabilities in overlay form, so an agent can either *be* the sandbox or be layered onto one; the remaining 38 mixins are standalone tools and integrations. See the [Kit index](#kit-index).
+This repo ships **32 workloads and 69 mixins**. Every workload except `openhands-canvas` has a `-mixin` sibling declaring the same capabilities in overlay form, so an agent can either *be* the sandbox or be layered onto one; the remaining 38 mixins are standalone tools and integrations. See the [Kit index](#kit-index).
 
 ## Anatomy of a kit
 
