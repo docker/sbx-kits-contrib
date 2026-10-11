@@ -10,9 +10,9 @@ tokens, not real ones, and the proxy swaps in the real values on outbound
 requests. Do not try to log in here: `gcloud auth application-default login`
 runs on the host.
 
-Only `aiplatform.googleapis.com`, `oauth2.googleapis.com` and the region's
-Vertex hosts are reachable. Storage, BigQuery and the rest of `googleapis.com`
-are blocked.
+Only `aiplatform.googleapis.com` and `oauth2.googleapis.com` are listed as
+reachable. Hosts for a non-global region are reachable only if the runtime adds
+them. Storage, BigQuery and the rest of `googleapis.com` are blocked.
 
 The workspace is mounted at its absolute host path. `sudo` is passwordless; use
 it for package installs.

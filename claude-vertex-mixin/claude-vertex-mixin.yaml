@@ -41,7 +41,8 @@ capabilities:
           - oauth2.googleapis.com
 
   - type: com.docker.sandbox/credential@1
-    optional: true
+    # Required: login cannot happen in the sandbox, so an unbound credential
+    # would start Claude Code on Vertex with no way to authenticate.
     description: Google Application Default Credentials for Vertex AI
     config:
       service: vertex
@@ -68,20 +69,16 @@ capabilities:
       install:
         # Without apiKeyHelper Claude Code prompts for /login. Merged into the
         # file the claude workload seeded (hooks run in dependency order), so
-        # nothing else in it changes. The branch is skipped when no credential
-        # resolved.
+        # nothing else in it changes.
         - command: |
             set -e
             cfg=/home/agent/.claude/settings.json
             mkdir -p "$(dirname "$cfg")"
             [ -s "$cfg" ] || echo '{}' > "$cfg"
-            if [ "${SBX_CRED_VERTEX_MODE:-none}" != none ]; then
-              jq '.apiKeyHelper = "echo proxy-managed"' "$cfg" > "$cfg.tmp"
-              mv "$cfg.tmp" "$cfg"
-            fi
+            jq '.apiKeyHelper = "echo proxy-managed"' "$cfg" > "$cfg.tmp"
+            mv "$cfg.tmp" "$cfg"
           user: agent
-          env: [SBX_CRED_VERTEX_MODE]
-          description: Add apiKeyHelper to Claude's settings.json when a credential resolved
+          description: Add apiKeyHelper to Claude's settings.json
 
   - type: com.docker.sandbox/agent-context@1
     config:

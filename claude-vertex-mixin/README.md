@@ -25,12 +25,17 @@ Login never happens inside the sandbox. `accounts.google.com` is not reachable.
 ## Composing it
 
 ```console
-sbx run --kit ./claude-vertex-mixin/ claude
+sbx run claude --kit docker.io/sbx/claude-vertex-mixin:latest --kit-arg vertex_project=<project-id>
+sbx run claude --kit "git+https://github.com/docker/sbx-kits-contrib.git#dir=claude-vertex-mixin" --kit-arg vertex_project=<project-id>
+sbx run claude --kit ./claude-vertex-mixin/ --kit-arg vertex_project=<project-id>
 ```
 
-Supply the project and region as kit args (`vertex_project` is required,
-`vertex_region` defaults to `global`). They are exported as
+`vertex_project` is required. `vertex_region` defaults to `global`; set it with
+`--kit-arg vertex_region=<region>`. They are exported as
 `ANTHROPIC_VERTEX_PROJECT_ID` and `CLOUD_ML_REGION`.
+
+The credential is required too: creation fails when no gcloud ADC is stored on
+the host, because Claude Code cannot log in from inside the sandbox.
 
 It declares `requires: ["claude", "deb/jq"]` and `provides: ["claude-vertex"]`.
 The `provides` entry is unversioned because the overlay ships no binary.
@@ -46,10 +51,10 @@ not known yet and will be named here once it exists.
 
 | Piece | Value |
 |---|---|
-| Credential | `vertex`, from gcloud ADC. `SBX_CRED_VERTEX_MODE` is `none` when nothing is stored. |
+| Credential | `vertex`, from gcloud ADC. Required: resolution fails when nothing is stored. |
 | Credential file | `~/.config/gcloud/application_default_credentials.json`, with a placeholder `refresh_token` |
 | Environment | `CLAUDE_CODE_USE_VERTEX=1`, plus the project and region args |
-| Settings | `apiKeyHelper` is added to `~/.claude/settings.json` when a credential resolved |
+| Settings | `apiKeyHelper` is added to `~/.claude/settings.json` |
 | Egress | `aiplatform.googleapis.com`, `oauth2.googleapis.com` |
 
 The `client_id` and `client_secret` in the credential file are gcloud's public
