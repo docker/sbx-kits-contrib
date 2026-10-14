@@ -24,7 +24,7 @@ its own launch command.
   | You have | Bind it with | Add |
   | --- | --- | --- |
   | An OpenAI API key | `sbx secret set openai` | `--kit-arg provider=openai --kit-arg model=<model>` |
-  | A ChatGPT subscription | `sbx secret set -g openai --oauth` | `--kit-arg provider=chatgpt_codex --kit-arg model=gpt-5.5` |
+  | A ChatGPT subscription | `sbx secret set -g openai --oauth` | `--kit-arg provider=chatgpt_codex --kit-arg model=<model>` |
   | An Anthropic **API key** | `sbx secret set anthropic` | nothing, these are the defaults |
   | A Google Gemini API key | `sbx secret set google` | `--kit-arg provider=google --kit-arg model=<model>` |
   | An OpenRouter API key | `sbx secret set openrouter` | `--kit-arg provider=openrouter --kit-arg model=<model>` |
@@ -33,30 +33,38 @@ its own launch command.
 
 ## Usage
 
+A mixin lands on a workload, so name one. The plain shell workload Docker publishes,
+`docker/sbx-kit-shell:1.0.0`, is the simplest base:
+
 ```console
-sbx run <workload> --kit "docker.io/sbx/goose:latest" .
+sbx run docker/sbx-kit-shell:1.0.0 --kit "docker.io/sbx/goose:latest" .
 ```
 
 Or from a git URL targeting this repo:
 
 ```console
-sbx run <workload> --kit "git+https://github.com/docker/sbx-kits-contrib.git#dir=goose" .
+sbx run docker/sbx-kit-shell:1.0.0 --kit "git+https://github.com/docker/sbx-kits-contrib.git#dir=goose" .
 ```
 
 Or with a local clone of this repo:
 
 ```console
-sbx run <workload> --kit ./goose/ .
+sbx run docker/sbx-kit-shell:1.0.0 --kit ./goose/ .
 ```
 
-`<workload>` is the base the overlay lands on, for example a shell workload. The trailing
-`.` is the workspace the sandbox mounts. The base keeps its own launch command, so nothing
-starts goose for you. Run it from the shell:
+The trailing `.` is the workspace the sandbox mounts. The base keeps its own launch
+command, so you get that workload's shell and nothing starts goose for you. This is
+inherent to a mixin: the entrypoint and the interactive launch argv belong to the
+workload. Run goose from the shell:
 
 ```console
 goose
 goose run --text "explain this repo"
 ```
+
+The built-in agents (`sbx run shell --kit ...`) are not v3 workload kits, and a composition
+needs exactly one, so on current `sbx` builds that form fails with `no workload kit in the
+set`.
 
 ## Choosing a provider and model
 
@@ -73,7 +81,7 @@ goose refuses to start without both a provider and a model, so the kit seeds
 
 ```console
 sbx secret set openai
-sbx run <workload> --kit ./goose/ . --kit-arg provider=openai --kit-arg model=<model>
+sbx run docker/sbx-kit-shell:1.0.0 --kit ./goose/ . --kit-arg provider=openai --kit-arg model=<model>
 ```
 
 A provider other than `anthropic` needs its own model name as well: the default model is an
@@ -118,13 +126,18 @@ token. The far-future expiry is deliberate: it stops goose from ever trying to r
 which would send the sentinel refresh token to `auth.openai.com`, where the proxy already
 owns the real one.
 
+Which models a ChatGPT login may use depends on the account. goose's default for this
+provider, `gpt-5.5`, was rejected for one test account with `The 'gpt-5.5' model is not
+supported when using Codex with a ChatGPT account`; the error lists what the account can
+use, so pass one of those as `model`.
+
 goose normally reads the `chatgpt-account-id` header from the token's claims, which the
-sandbox cannot see. If requests are rejected without it, pass the `account_id` from your
-host's `~/.codex/auth.json`:
+sandbox cannot see. A personal ChatGPT account worked without it. If requests are rejected
+without it, pass the `account_id` from your host's `~/.codex/auth.json`:
 
 ```console
-sbx run <workload> --kit ./goose/ . --kit-arg provider=chatgpt_codex --kit-arg model=gpt-5.5 \
-  --kit-arg chatgptAccountId=<account_id>
+sbx run docker/sbx-kit-shell:1.0.0 --kit ./goose/ . --kit-arg provider=chatgpt_codex \
+  --kit-arg model=<model> --kit-arg chatgptAccountId=<account_id>
 ```
 
 The hook rewrites the token file on every create and is a no-op in `apikey` or `none` mode.
@@ -255,13 +268,14 @@ the tool proves they landed somewhere it can be launched from. Compose it and ru
 
 ## Known limits
 
-- Only the default `anthropic` provider path, and the ChatGPT token-file path as far as
-  goose accepting the seeded file and sending the sentinel bearer to `chatgpt.com`, were
-  exercised before this was proposed. Credential injection for `openai`, `google` and
-  `openrouter`, and the proxy's substitution for the ChatGPT login, follow goose's source
-  and the `codex` kit's pattern but have not been run end to end here.
-- Whether the ChatGPT backend needs `chatgptAccountId` for a given account is not known; it
-  is optional so that the common case needs nothing extra.
+- The ChatGPT login was exercised end to end in a real sandbox: the proxy replaced the
+  sentinel and `chatgpt.com` accepted the request, with no `chatgptAccountId` set. It
+  stopped at a model that account could not use, so a completed reply is not yet confirmed.
+  Credential injection for `openai` API keys, `google` and `openrouter` follows goose's
+  source and the `codex` kit's pattern but has not been run end to end.
+- Whether the ChatGPT backend needs `chatgptAccountId` for team or enterprise workspaces is
+  not known; it is optional so that the common case needs nothing extra.
+- Only the Anthropic API-key path, not a Claude subscription, is supported for `anthropic`.
 
 ## References
 
