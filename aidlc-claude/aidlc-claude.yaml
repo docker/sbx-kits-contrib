@@ -16,14 +16,12 @@ description: Starter Kit for AWS AI-DLC — installs a pinned Bun, clones the la
 # requirement turns that into a composition error instead.
 #
 # MIGRATION NOTE: v2's `requires: {agent: claude-bedrock}`, carried over by name.
-# Unlike the rest of this family, the provider is not a kit in this repository:
-# `claude-bedrock` was a built-in sbx agent, which is also why this kit's TCK
-# config marked its e2e as needing a host-side `bedrock` credential. v3
-# resolution is a closed-set check, so this requires is satisfied only by a
-# composition that actually carries a `claude-bedrock` provider — a kit for it, or
-# the built-in once it is exposed as one. It is stated rather than softened to
-# `claude`: the harness targets AWS Bedrock and pins Bedrock model ids, so the
-# plain claude kit is not a substitute.
+# The provider is claude-bedrock-mixin in this repository, so compose `claude`
+# with that mixin and this kit. v3 resolution is a closed-set check, so this
+# requires is satisfied only by a composition that carries a `claude-bedrock`
+# provider. It is stated rather than softened to `claude`: the harness targets
+# AWS Bedrock and pins Bedrock model ids, so the plain claude kit is not a
+# substitute.
 requires: ["claude-bedrock"]
 
 capabilities:

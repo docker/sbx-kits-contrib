@@ -25,6 +25,8 @@ will be named here once it ships.
 
 ```console
 sbx secret set bedrock
+sbx run claude --kit docker.io/sbx/claude-bedrock-mixin:latest
+sbx run claude --kit "git+https://github.com/docker/sbx-kits-contrib.git#dir=claude-bedrock-mixin"
 sbx run claude --kit ./claude-bedrock-mixin/
 ```
 
