@@ -1,0 +1,277 @@
+# syntax=docker/sandbox-kit:3
+# goose (https://github.com/aaif-goose/goose) as a MIXIN: the static CLI in an
+# overlay that lands on any base, with four optional proxy-managed provider
+# credentials (one of them also a ChatGPT login), the egress goose itself
+# needs, and the config seed goose needs to start without an interactive
+# `goose configure`.
+#
+# Written for v3 from the start, so there is no v2 to migrate from, and as a
+# mixin only: there is no `goose` workload beside it. What that leaves to the
+# workload the mixin lands on --
+#
+#   * the ENTRYPOINT. The base workload's launch command stays; the user runs
+#     `goose` from the shell. That is also why there is no interactive tail and
+#     no agent-sessions@1: both describe a launch argv this kit does not own.
+#   * sbx@1. A mixin's image config does not become the composed image's, so
+#     the identity and shells that type is a claim about are the base's.
+#   * agent-context@1. goose reads its guidance from ~/.config/goose/
+#     .goosehints, which a lifecycle file writes; a profile filename owned by
+#     the workload does not apply to it.
+schemaVersion: "3"
+kind: mixin
+displayName: goose
+description: >-
+  goose, the open-source agent now under the Linux Foundation's Agentic AI
+  Foundation, as a mixin: the static CLI in an overlay, with optional
+  proxy-managed credentials for Anthropic, OpenAI (API key or ChatGPT login),
+  Google and OpenRouter, and the config goose needs to start. Layer it onto any
+  base and run `goose`.
+sourceUrl: https://github.com/aaif-goose/goose
+licenses: [Apache-2.0]
+
+# goose's version, by reference -- the `version` arg below, expanded at publish.
+version: "${{ kit.args.version }}"
+
+# Bump the default together with the SHA-256 ARGs in goose.dockerfile: the build
+# fails on a mismatch, by design.
+args:
+  version:
+    default: "1.54.0"
+    pattern: '^[0-9]+\.[0-9]+\.[0-9]+$'
+    description: goose release to install (update the dockerfile's SHA-256 ARGs with it)
+    buildArg: GOOSE_VERSION
+  # Create-phase args, resolved when the sandbox is created: choose the model
+  # backend with `--kit-arg`. goose refuses to start without a provider AND a
+  # model, so both have real defaults. A provider other than anthropic needs
+  # its own model name too, and a credential bound for that provider.
+  provider:
+    default: anthropic
+    pattern: '^[a-z0-9_-]+$'
+    description: goose provider (GOOSE_PROVIDER), e.g. anthropic, openai, chatgpt_codex, google, openrouter
+  model:
+    default: claude-sonnet-5-5
+    pattern: '^[A-Za-z0-9._:/-]+$'
+    description: Model name for the provider (GOOSE_MODEL)
+  mode:
+    default: auto
+    enum: [auto, approve, smart_approve, chat]
+    description: goose permission mode (GOOSE_MODE). The sandbox is the boundary, so the default is auto.
+  # Only read with provider=chatgpt_codex over a ChatGPT OAuth login. goose
+  # normally takes chatgpt-account-id from the id_token claims; the sandbox
+  # holds only sentinels, so it cannot. Empty omits the header.
+  chatgptAccountId:
+    default: ""
+    pattern: '^[A-Za-z0-9-]*$'
+    description: ChatGPT account id (account_id in the host's ~/.codex/auth.json) for provider=chatgpt_codex; empty omits it
+
+# What `requires: ["goose"]` from another kit resolves against. A composition
+# that also carried another provider of the name `goose` would be refused: one
+# capability name has one owner.
+provides: ["goose@${{ kit.args.version }}"]
+
+capabilities:
+  # The agent's own egress rides with the kit that ships the agent: a base
+  # grants nothing for services it does not carry. Everything is runtime, with
+  # no install phase, because no install hook opens a socket.
+  #
+  # Only the model providers are listed. Anything else a session reaches is the
+  # base's or the user's to allow: GitHub for git, the package registries for
+  # `npx` or `uvx` MCP extensions, and the base's own package mirrors.
+  - type: com.docker.sandbox/network-policy@1
+    config:
+      runtime:
+        allow:
+          - api.anthropic.com
+          - api.openai.com
+          - auth.openai.com
+          - chatgpt.com
+          - generativelanguage.googleapis.com
+          - openrouter.ai
+
+  # Provider credentials, each optional: bind the one you use with
+  # `sbx secret set <service>`. goose reads the key from the provider's own env
+  # var (it holds a proxy-managed sentinel) and the proxy substitutes the real
+  # value on the way out. The auth shapes match goose's provider code:
+  # anthropic x-api-key, google x-goog-api-key, openai and openrouter Bearer.
+  #
+  # `anthropic` must be an API key. goose's Anthropic provider sends
+  # `x-api-key`, so a Claude subscription (the OAuth binding) is rejected with
+  # a 401; use the `openai` ChatGPT login or another provider instead.
+  - type: com.docker.sandbox/credential@1
+    optional: true
+    description: Anthropic API access
+    config:
+      service: anthropic
+      phase: runtime
+      apiKey:
+        name: ANTHROPIC_API_KEY
+        proxyManaged: true
+        inject:
+          - {domain: api.anthropic.com, header: x-api-key, format: "%s"}
+
+  # API key OR ChatGPT login, whichever the host has bound. `sbx secret set -g
+  # openai --oauth` binds a login instead of a key; the install hook below then
+  # seeds goose's chatgpt_codex token file with the two sentinels, and
+  # `resourceHosts` makes the proxy swap in the real token on calls to
+  # chatgpt.com. Same shape as the codex kit.
+  - type: com.docker.sandbox/credential@1
+    optional: true
+    description: OpenAI API access (API key or ChatGPT OAuth)
+    config:
+      service: openai
+      phase: runtime
+      apiKey:
+        name: OPENAI_API_KEY
+        proxyManaged: true
+        inject:
+          - {domain: api.openai.com, header: Authorization, format: "Bearer %s"}
+      oauth:
+        tokenEndpoint: {host: auth.openai.com, path: /oauth/token}
+        resourceHosts:
+          - chatgpt.com
+        sentinels:
+          accessToken: oai-oat01-proxy-managed
+          refreshToken: oai-ort01-proxy-managed
+
+  - type: com.docker.sandbox/credential@1
+    optional: true
+    description: Google Gemini API access
+    config:
+      service: google
+      phase: runtime
+      apiKey:
+        name: GOOGLE_API_KEY
+        proxyManaged: true
+        inject:
+          - {domain: generativelanguage.googleapis.com, header: x-goog-api-key, format: "%s"}
+
+  - type: com.docker.sandbox/credential@1
+    optional: true
+    description: OpenRouter API access
+    config:
+      service: openrouter
+      phase: runtime
+      apiKey:
+        name: OPENROUTER_API_KEY
+        proxyManaged: true
+        inject:
+          - {domain: openrouter.ai, header: Authorization, format: "Bearer %s"}
+
+  - type: com.docker.sandbox/lifecycle@1
+    config:
+      install:
+        # Seed ~/.config/goose/config.yaml from the create-phase args. Without
+        # a provider and a model goose stops at an interactive `goose
+        # configure`. No `extensions:` key is written on purpose: goose adds
+        # its default platform extensions (developer, skills, ...) to that map
+        # itself, and a hand-written map would only risk masking them.
+        #
+        # GOOSE_DISABLE_KEYRING is set here as well as in the environment:
+        # goose reads it from this file too, and the file is the one place that
+        # reaches every way goose can be launched. There is no keyring daemon
+        # in the sandbox, so without it goose waits on a secret service that
+        # is not there. API keys never go in this file; goose ignores them
+        # here and the sandbox keeps them off the VM anyway.
+        #
+        # The values come from args whose patterns admit no quote, backslash
+        # or newline, so they are safe inside the YAML strings below.
+        - command: |
+            set -e
+            mkdir -p "$HOME/.config/goose"
+            cfg="$HOME/.config/goose/config.yaml"
+            [ -f "$cfg" ] && exit 0
+            cat > "$cfg" <<'EOF'
+            GOOSE_PROVIDER: "${{ kit.args.provider }}"
+            GOOSE_MODEL: "${{ kit.args.model }}"
+            GOOSE_MODE: "${{ kit.args.mode }}"
+            GOOSE_DISABLE_KEYRING: true
+            GOOSE_TELEMETRY_ENABLED: false
+            EOF
+          user: agent
+          description: Seed goose config.yaml from the provider, model and mode args
+
+        # With a ChatGPT OAuth login bound, seed the token file goose's
+        # chatgpt_codex provider reads, holding only the proxy sentinels. The
+        # far-future expires_at keeps goose from refreshing: a refresh would go
+        # to auth.openai.com with the sentinel refresh token, and the proxy
+        # already owns the real one. Rewritten on every create, so it stays in
+        # step with the bound login; in `apikey` or `none` mode it is a no-op.
+        - command: |
+            set -e
+            [ "${SBX_CRED_OPENAI_MODE:-none}" = oauth ] || exit 0
+            dir="$HOME/.config/goose/chatgpt_codex"
+            mkdir -p "$dir"
+            acct='${{ kit.args.chatgptAccountId }}'
+            if [ -n "$acct" ]; then acct="\"$acct\""; else acct=null; fi
+            umask 077
+            cat > "$dir/tokens.json" <<EOF
+            {"access_token":"oai-oat01-proxy-managed","refresh_token":"oai-ort01-proxy-managed","id_token":null,"expires_at":"2099-01-01T00:00:00Z","account_id":$acct}
+            EOF
+          user: agent
+          env: [SBX_CRED_OPENAI_MODE]
+          description: Seed the goose ChatGPT token file with proxy sentinels when OAuth is bound
+      startup:
+        # Gateway-first MCP registration as a streamable_http goose extension.
+        # goose rewrites its config in block style and adds its own platform
+        # extensions, so the hook keys on the `mcp-gateway:` entry rather than a
+        # literal line, registers once (startup hooks run on every container
+        # start), and never edits an existing entry. The single-line flow
+        # mapping is valid YAML under a block `extensions:` map. It is a
+        # no-op when MCP is not enabled.
+        - command: |
+            set -e
+            [ -n "$MCP_GATEWAY_URL" ] || exit 0
+            cfg="$HOME/.config/goose/config.yaml"
+            mkdir -p "$(dirname "$cfg")"
+            touch "$cfg"
+            grep -q '^  mcp-gateway:' "$cfg" && exit 0
+            entry="  mcp-gateway: {type: streamable_http, name: mcp-gateway, enabled: true, uri: \"$MCP_GATEWAY_URL\", headers: {Authorization: \"Bearer $MCP_SENTINEL_TOKEN_NAME\"}, envs: {}, env_keys: [], timeout: 300}"
+            if grep -q '^extensions:[[:space:]]*$' "$cfg"; then
+              awk -v e="$entry" '{print} /^extensions:[ \t]*$/{print e}' "$cfg" > "$cfg.tmp"
+            elif grep -q '^extensions:' "$cfg"; then
+              echo "goose kit: extensions is not a block map in $cfg, skipping gateway registration" >&2
+              exit 0
+            else
+              { cat "$cfg"; printf 'extensions:\n%s\n' "$entry"; } > "$cfg.tmp"
+            fi
+            mv "$cfg.tmp" "$cfg"
+          user: agent
+          env: [MCP_GATEWAY_URL, MCP_SENTINEL_TOKEN_NAME]
+          description: Register the sandbox MCP gateway as a goose extension
+      files:
+        # goose's global hints file, loaded into every session. A plain file
+        # rather than agent-context@1: that capability's `directory` field
+        # (needed to target ~/.config/goose) is rejected as an unknown field by
+        # the v3 reader in sbx 0.47, and a workspace-sibling profile is outside
+        # the directories goose reads. overwrite: false keeps the user's own
+        # edits across recreates.
+        - path: /home/agent/.config/goose/.goosehints
+          overwrite: false
+          description: Sandbox guidance for goose
+          content: |
+            This sandbox runs goose, Block's open-source agent (now under the
+            Linux Foundation's Agentic AI Foundation), inside a Docker
+            Sandboxes microVM.
+
+            - The sandbox is the isolation boundary. Outbound network access
+              is limited by the sandbox's network policy, and the goose kit
+              itself only opens the model providers. If a request is blocked,
+              say so rather than working around it.
+            - Model provider keys are never present in the sandbox. The
+              provider env vars hold placeholder values and the host proxy
+              swaps in the real key on outbound calls to the provider's API
+              host. Do not try to read, print or "fix" them.
+            - goose is configured in ~/.config/goose/config.yaml. The
+              provider, model and mode come from the kit's arguments. goose
+              does not read API keys from that file.
+            - Local stdio MCP servers that goose launches (for example
+              npx-launched extensions) run inside this sandbox, subject to
+              the same network policy.
+
+  # Where goose reads global skills, so the host's skills store reaches it. The
+  # runtime also exposes selected agent-skill@1 bundles here, even when host
+  # sharing is off.
+  - type: com.docker.sandbox/agent-skills@1
+    optional: true
+    config:
+      path: /home/agent/.agents/skills
