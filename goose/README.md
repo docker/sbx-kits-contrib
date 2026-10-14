@@ -126,10 +126,12 @@ token. The far-future expiry is deliberate: it stops goose from ever trying to r
 which would send the sentinel refresh token to `auth.openai.com`, where the proxy already
 owns the real one.
 
-Which models a ChatGPT login may use depends on the account. goose's default for this
-provider, `gpt-5.5`, was rejected for one test account with `The 'gpt-5.5' model is not
-supported when using Codex with a ChatGPT account`; the error lists what the account can
-use, so pass one of those as `model`.
+Which models a ChatGPT login may use depends on the account and plan. goose's default for
+this provider, `gpt-5.5`, was rejected for one test account with `The 'gpt-5.5' model is not
+supported when using Codex with a ChatGPT account`, and so was `gpt-5.6`. The
+"Available models for this provider" list that goose prints after the error is goose's own
+built-in list, not what the account may use, so it is no guide. Use a model your ChatGPT plan
+offers in Codex; the `model` in your host's `~/.codex/config.toml` is a good place to start.
 
 goose normally reads the `chatgpt-account-id` header from the token's claims, which the
 sandbox cannot see. A personal ChatGPT account worked without it. If requests are rejected
