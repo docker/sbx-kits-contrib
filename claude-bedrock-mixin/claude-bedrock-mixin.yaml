@@ -18,7 +18,8 @@ version: "1.0.0"
 # binary, so a version would claim content it does not carry.
 provides: ["claude-bedrock"]
 
-# `claude` seeds the base settings.json that the startup merge waits for.
+# `claude` seeds the base settings.json; its install hook runs before this
+# kit's merge because hooks run in dependency order.
 requires: ["claude", "deb/jq"]
 
 capabilities:
@@ -49,38 +50,31 @@ capabilities:
 
   - type: com.docker.sandbox/lifecycle@1
     config:
-      # A startup hook, not install: the platform rewrites Claude's settings.json
-      # late in create, so an install-time merge can be lost. This waits for that
-      # write, then merges. Idempotent, so it is safe on every start.
-      startup:
-        - command:
-            - sh
-            - -c
-            - |
-              set -e
-              cfg=/home/agent/.claude/settings.json
-              mkdir -p "$(dirname "$cfg")"
-              i=0
-              while [ $i -lt 60 ]; do
-                if grep -q themeId "$cfg" 2>/dev/null; then break; fi
-                sleep 1; i=$((i+1))
-              done
-              [ -s "$cfg" ] || echo '{}' > "$cfg"
-              # apiKeyHelper stops Claude Code prompting for /login.
-              # awsCredentialExport makes it re-read the sidecar file about five
-              # minutes before expiry, which the default ~/.aws/credentials
-              # would not (the AWS SDK caches it).
-              if [ "${SBX_CRED_BEDROCK_MODE:-none}" != none ]; then
-                jq '.apiKeyHelper = "echo proxy-managed"
-                    | .awsCredentialExport = "cat /home/agent/.aws/sbx-bedrock-credentials.json"' \
-                  "$cfg" > "$cfg.tmp"
-              else
-                jq 'del(.awsCredentialExport)' "$cfg" > "$cfg.tmp"
-              fi
-              mv "$cfg.tmp" "$cfg"
+      # An install hook, not startup: startup hooks run from a detached
+      # dispatcher and can land after Claude has read its config. Install hooks
+      # finish before the entrypoint first runs and run in dependency order, so
+      # `requires: claude` puts this merge after the workload seeds settings.json.
+      install:
+        # apiKeyHelper stops Claude Code prompting for /login.
+        # awsCredentialExport makes it re-read the sidecar file about five
+        # minutes before expiry, which the default ~/.aws/credentials would not
+        # (the AWS SDK caches it).
+        - command: |
+            set -e
+            cfg=/home/agent/.claude/settings.json
+            mkdir -p "$(dirname "$cfg")"
+            [ -s "$cfg" ] || echo '{}' > "$cfg"
+            if [ "${SBX_CRED_BEDROCK_MODE:-none}" != none ]; then
+              jq '.apiKeyHelper = "echo proxy-managed"
+                  | .awsCredentialExport = "cat /home/agent/.aws/sbx-bedrock-credentials.json"' \
+                "$cfg" > "$cfg.tmp"
+            else
+              jq 'del(.awsCredentialExport)' "$cfg" > "$cfg.tmp"
+            fi
+            mv "$cfg.tmp" "$cfg"
           user: agent
           env: [SBX_CRED_BEDROCK_MODE]
-          description: Merge the Bedrock settings keys into Claude's settings.json after the platform write
+          description: Merge the Bedrock settings keys into the settings.json the claude workload seeded
 
   - type: com.docker.sandbox/agent-context@1
     config:

@@ -41,17 +41,18 @@ unversioned because the overlay ships no binary.
 | Piece | Value |
 |---|---|
 | Environment | `CLAUDE_CODE_USE_BEDROCK=1`, `ANTHROPIC_DEFAULT_SONNET_MODEL=us.anthropic.claude-sonnet-4-5-20250929-v1:0` |
-| Settings keys | `apiKeyHelper` (stops the `/login` prompt) and `awsCredentialExport` (reads the sidecar file) |
+| Settings keys | `apiKeyHelper` (stops the `/login` prompt) and `awsCredentialExport` (reads the sidecar file), merged at install, before Claude first starts |
 | Egress | `bedrock-runtime.*.amazonaws.com:443`, `bedrock.*.amazonaws.com:443` |
 
 Claude Code runs `awsCredentialExport` again about five minutes before the
 reported expiry, so a running session picks up a refresh without a restart. The
 default `~/.aws/credentials` would not, because the AWS SDK caches it.
 
-The two keys are merged by a startup hook, not at install. The platform
-rewrites `settings.json` late in create, so the hook waits for that write (up to
-60 seconds) and then merges. It is idempotent and runs on every start, the same
-shape `claude-mem` uses.
+The two keys are merged by an install hook that runs after the `claude`
+workload seeds `settings.json`, because hooks run in dependency order and this
+kit requires `claude`. Install hooks finish before Claude first starts, so the
+first session already has both keys. Startup hooks would not give that: they run
+from a detached dispatcher and can land after Claude has read its config.
 
 With no `bedrock` secret stored, `SBX_CRED_BEDROCK_MODE` is `none` and
 `awsCredentialExport` is not set.
