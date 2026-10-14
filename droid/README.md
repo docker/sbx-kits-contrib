@@ -82,17 +82,14 @@ The credential is **required** (v3 entries are required unless they set
 `optional: true`), so `sbx create` reports a missing binding up front rather
 than letting the CLI fail with an opaque 401 once you are inside.
 
-> [!IMPORTANT]
-> This kit sets `apiKey.proxyManaged: true` on `FACTORY_API_KEY`, matching
-> most (not all — `copilot`'s credentials notably don't, with no recorded
-> reason) apiKey-based kits in this repo. That makes the engine set the
-> in-container value to a sentinel and have the proxy substitute the real key
-> only on the domains listed above. **This interaction has not been verified
-> end-to-end**: it is not confirmed whether Droid's OAuth device/token-exchange
-> flow still resolves correctly when `FACTORY_API_KEY` holds the sentinel
-> rather than a value the CLI can use directly for anything outside those
-> three domains. If Droid misbehaves with only the OAuth path expected to run,
-> this is the first thing to check.
+> [!NOTE]
+> Unlike most apiKey-based kits here, this kit does not set
+> `apiKey.proxyManaged`. That flag sets `FACTORY_API_KEY` to a sentinel whether
+> or not a credential is bound, which would leave Droid always believing it has
+> a key and stop the OAuth device flow above from ever running. `claude` and
+> `cursor` omit it for the same reason. The proxy still substitutes the real key
+> on the three domains listed above; the kit simply does not advertise a key
+> when none is bound.
 
 ## Network policy
 

@@ -14,10 +14,12 @@ It provides `claude-bedrock`, which [`aidlc-claude`](../aidlc-claude) requires.
 
 ## Engine release
 
-This needs an `sbx` release that honours the `bedrock` credential service on
-any kit that declares it. Until that release exists, the mixin composes but the
-credential refresh and settings steps do not run. The release will be named here
-once it ships.
+The settings merge below is the kit's own and runs on any `sbx` release. The
+`bedrock` credential itself (profile resolution on the host and the refreshed
+sidecar file) needs an `sbx` release that honours that credential service on
+any kit that declares it, not only on the built-in agent. Until that release
+exists, the mixin composes but no credentials reach the container. The release
+will be named here once it ships.
 
 ## Composing it
 
@@ -45,6 +47,11 @@ unversioned because the overlay ships no binary.
 Claude Code runs `awsCredentialExport` again about five minutes before the
 reported expiry, so a running session picks up a refresh without a restart. The
 default `~/.aws/credentials` would not, because the AWS SDK caches it.
+
+The two keys are merged by a startup hook, not at install. The platform
+rewrites `settings.json` late in create, so the hook waits for that write (up to
+60 seconds) and then merges. It is idempotent and runs on every start, the same
+shape `claude-mem` uses.
 
 With no `bedrock` secret stored, `SBX_CRED_BEDROCK_MODE` is `none` and
 `awsCredentialExport` is not set.
