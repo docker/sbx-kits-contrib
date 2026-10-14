@@ -86,7 +86,7 @@ error) until a credential is set and the sandbox is recreated.
 ### Default: free-tier Agent Scan
 
 ```bash
-sbx run docker.io/docker/sbx-kit-claude:2.1.267 \
+sbx run docker.io/sbx/claude:2.1.267 \
   --kit "$PWD" \
   --name "$(hostname)-sandbox-free" \
   -e SNYK_TOKEN
@@ -97,7 +97,7 @@ sbx run docker.io/docker/sbx-kit-claude:2.1.267 \
 ### Agent Scan + Agent Guard
 
 ```bash
-sbx run docker.io/docker/sbx-kit-claude:2.1.267 \
+sbx run docker.io/sbx/claude:2.1.267 \
   --kit "$PWD" \
   --name "$(hostname)-sandbox" \
   -e SNYK_COMPONENTS=scan,guard \
@@ -111,7 +111,7 @@ install.
 ### All three components
 
 ```bash
-sbx run docker.io/docker/sbx-kit-claude:2.1.267 \
+sbx run docker.io/sbx/claude:2.1.267 \
   --kit "$PWD" \
   --name "$(hostname)-sandbox-all" \
   -e SNYK_COMPONENTS=scan,guard,studio \
@@ -121,7 +121,7 @@ sbx run docker.io/docker/sbx-kit-claude:2.1.267 \
 ### Studio alone
 
 ```bash
-sbx run docker.io/docker/sbx-kit-claude:2.1.267 \
+sbx run docker.io/sbx/claude:2.1.267 \
   --kit "$PWD" \
   --name "$(hostname)-sandbox-studio" \
   -e SNYK_COMPONENTS=studio
@@ -140,7 +140,7 @@ point them at a different Snyk API base instead — the kit passes it to
 path Agent Scan uses by default (only the host changes):
 
 ```bash
-sbx run docker.io/docker/sbx-kit-claude:2.1.267 \
+sbx run docker.io/sbx/claude:2.1.267 \
   --kit "$PWD" \
   --name "$(hostname)-sandbox" \
   -e SNYK_COMPONENTS=scan,guard \
@@ -175,7 +175,7 @@ certificates are supported.
 proxy's CA name):
 
 ```bash
-sbx run docker.io/docker/sbx-kit-claude:2.1.267 --kit sbx/snyk-evo-ads:latest \
+sbx run docker.io/sbx/claude:2.1.267 --kit sbx/snyk-evo-ads:latest \
   -e SNYK_CORP_CA_PEM="$(security find-certificate -a -c "Zscaler Root CA" -p /Library/Keychains/System.keychain)" \
   -e SNYK_TOKEN
 ```
@@ -183,7 +183,7 @@ sbx run docker.io/docker/sbx-kit-claude:2.1.267 --kit sbx/snyk-evo-ads:latest \
 **Linux, from a PEM file**:
 
 ```bash
-sbx run docker.io/docker/sbx-kit-claude:2.1.267 --kit sbx/snyk-evo-ads:latest \
+sbx run docker.io/sbx/claude:2.1.267 --kit sbx/snyk-evo-ads:latest \
   -e SNYK_CORP_CA_PEM="$(cat /path/to/ca.pem)" \
   -e SNYK_TOKEN
 ```
