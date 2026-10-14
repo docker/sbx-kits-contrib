@@ -22,7 +22,7 @@ sbx run <agent> --kit sbx/snyk-evo-ads:latest
 ```
 
 Credentials are supplied explicitly with `-e`: add `-e SNYK_TOKEN` for
-free-tier AgentScan, or `-e SNYK_ADS_PUSH_KEY` for enterprise Scan/Guard.
+free-tier Agent Scan, or `-e SNYK_ADS_PUSH_KEY` for enterprise Agent Scan / Agent Guard.
 Select what to install with `-e SNYK_COMPONENTS=scan,guard,studio`, a
 comma-separated list of `scan`, `guard`, and/or `studio`; it defaults to
 `scan` when omitted. See [Components](#components) for details.
@@ -104,7 +104,7 @@ sbx run docker.io/sbx/claude:2.1.267 \
   -e SNYK_ADS_PUSH_KEY
 ```
 
-Agent Guard hooks install directly, so the identity Guard reports matches Scan's
+Agent Guard hooks install directly, so the identity Agent Guard reports matches Agent Scan's
 — both use `docker-sbx:${SANDBOX_NAME}:${SANDBOX_ID}` — from the very first
 install.
 
@@ -250,6 +250,6 @@ none). Agent Scan and Agent Guard always share
 | TLS download failure, curl 60/77 | Pass the corporate root PEM with `-e SNYK_CORP_CA_PEM="$(cat /path/to/ca.pem)"` and recreate the sandbox; see [corporate certificates](#staging-the-corporate-ca-certificate) |
 | Connection failure, curl 6/7 | DNS, proxy, and organization network policy |
 | Sandbox creation fails immediately with a `snyk-ads: ERROR` | `SNYK_COMPONENTS` itself — an unknown component name, or a value that resolves to none (see [Components](#components)) |
-| Binary installed but Agent scan/guard hooks inactive | Missing credential for that component — install logs say so; set it and recreate the sandbox |
+| Binary installed but Agent Scan / Agent Guard hooks inactive | Missing credential for that component — install logs say so; set it and recreate the sandbox |
 | No Scan binary | Whether `scan` was actually requested in `SNYK_COMPONENTS` |
 | No recurring output | Startup log and sbx version |

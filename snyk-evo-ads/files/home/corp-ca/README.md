@@ -7,7 +7,7 @@ before Snyk downloads run. Recreate existing sandboxes to apply changes.
 See the [repo README](../../../README.md#staging-the-corporate-ca-certificate)
 for the macOS keychain command and launch examples.
 
-For a local checkout (`--kit .`), every `*.crt` file in this directory is
+For a local checkout (`--kit "$PWD"`), every `*.crt` file in this directory is
 also installed:
 
 ```text
