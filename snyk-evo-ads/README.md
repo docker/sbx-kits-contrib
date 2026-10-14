@@ -6,32 +6,38 @@
 # snyk-evo-ads
 
 A Docker Sandboxes mixin (`kind: mixin`), requiring **sbx 0.39.0 or later**.
-The kit installs whichever Snyk components you request — AgentScan, Agent
+The kit installs whichever Snyk components you request — Agent Scan, Agent
 Guard, and/or Snyk Studio — directly from their public release channels. It
 stages optional corporate certificates, installs the requested components,
-and runs AgentScan at startup and after a 15-minute pause between attempts.
+and runs Agent Scan at startup and after a 15-minute pause between attempts.
 There is no dependency on Snyk-internal infrastructure or any tenant-side
 configuration: what gets installed is exactly what you ask for.
 
-## Getting started
+## Quick Start
 
-Add the mixin to a built-in agent. With a local clone of this repo:
-
-```bash
-sbx run claude --kit ./snyk-evo-ads/
-```
-
-Or directly from the repo, without cloning:
+Use the published v3 kit with your agent:
 
 ```bash
-sbx run claude --kit "git+https://github.com/docker/sbx-kits-contrib.git#dir=snyk-evo-ads"
+sbx run <agent> --kit sbx/snyk-evo-ads:latest
 ```
 
-Or use the published v3 kit:
+Credentials are supplied explicitly with `-e`: add `-e SNYK_TOKEN` for
+free-tier AgentScan, or `-e SNYK_ADS_PUSH_KEY` for enterprise Scan/Guard.
+Select what to install with `-e SNYK_COMPONENTS=scan,guard,studio`, a
+comma-separated list of `scan`, `guard`, and/or `studio`; it defaults to
+`scan` when omitted. See [Components](#components) for details.
+
+**Note:** `sbx/snyk-evo-ads-kit` on Docker Hub is the older Sandbox Kit v2
+build; this repo (v3) is published as `sbx/snyk-evo-ads`.
+
+## Running from a local clone
 
 ```bash
-sbx run claude --kit "docker.io/sbx/snyk-evo-ads:latest"
+git clone https://github.com/snyk/evo-ads-sbx-kit.git && cd evo-ads-sbx-kit
+sbx run <agent> --kit "$PWD"
 ```
+
+`sbx run` rejects a bare `--kit .`, so pass the absolute path as above.
 
 If your network uses TLS interception, [stage your corporate root
 certificate](#staging-the-corporate-ca-certificate) before creating the
@@ -45,9 +51,10 @@ snyk-evo-ads/
 ├── snyk-evo-ads.yaml
 ├── snyk-evo-ads.dockerfile
 ├── snyk-evo-ads-context.md
-└── files/home/
-    ├── .snyk-kit/   # Component selection, auth, and download helpers
-    └── corp-ca/     # Optional corporate root certificates
+├── files/home/
+│   ├── .snyk-kit/   # Component selection, auth, and download helpers
+│   └── corp-ca/     # Optional corporate root certificates
+└── tests/           # Offline unit tests and Docker CA trust-store checks
 ```
 
 ## Components
@@ -57,11 +64,11 @@ Select what to install with `SNYK_COMPONENTS`, a comma-separated list of
 
 | Component | Credential to activate | Notes |
 | --- | --- | --- |
-| `scan` (AgentScan) | `SNYK_TOKEN`, or `SNYK_ADS_PUSH_KEY` | Free-tier with a token, or enterprise upload with a push key |
+| `scan` (Agent Scan) | `SNYK_TOKEN`, or `SNYK_ADS_PUSH_KEY` | Free-tier with a token, or enterprise upload with a push key |
 | `guard` (Agent Guard) | `SNYK_ADS_PUSH_KEY` | `SNYK_TENANT_ID` is optional — Agent Guard only needs it for the interactive push-key-minting flow this kit never uses |
 | `studio` (Snyk Studio) | none to install | Optional `SNYK_TOKEN` authenticates its Snyk CLI afterward |
 
-Scan and Guard are the same `agent-scan` binary (downloaded once, from
+Agent Scan and Agent Guard are the same `agent-scan` binary (downloaded once, from
 [github.com/snyk/agent-scan releases](https://github.com/snyk/agent-scan/releases),
 SHA-256 verified) and always live at
 `~/.local/share/snyk-agent-scan/agent-scan`, in every mode. Studio is a
@@ -76,36 +83,36 @@ install. Requesting `scan` or `guard` without its credential still installs
 the binary, but the corresponding hooks stay inactive (logged, not an
 error) until a credential is set and the sandbox is recreated.
 
-### Default: free-tier AgentScan
+### Default: free-tier Agent Scan
 
 ```bash
-sbx run claude \
-  --kit ./snyk-evo-ads/ \
+sbx run docker.io/docker/sbx-kit-claude:2.1.267 \
+  --kit "$PWD" \
   --name "$(hostname)-sandbox-free" \
   -e SNYK_TOKEN
 ```
 
-`SNYK_COMPONENTS` defaults to `scan`, so this installs AgentScan only.
+`SNYK_COMPONENTS` defaults to `scan`, so this installs Agent Scan only.
 
-### AgentScan + Agent Guard
+### Agent Scan + Agent Guard
 
 ```bash
-sbx run claude \
-  --kit ./snyk-evo-ads/ \
+sbx run docker.io/docker/sbx-kit-claude:2.1.267 \
+  --kit "$PWD" \
   --name "$(hostname)-sandbox" \
   -e SNYK_COMPONENTS=scan,guard \
   -e SNYK_ADS_PUSH_KEY
 ```
 
-Guard hooks install directly, so the identity Guard reports matches Scan's
+Agent Guard hooks install directly, so the identity Guard reports matches Scan's
 — both use `docker-sbx:${SANDBOX_NAME}:${SANDBOX_ID}` — from the very first
 install.
 
 ### All three components
 
 ```bash
-sbx run claude \
-  --kit ./snyk-evo-ads/ \
+sbx run docker.io/docker/sbx-kit-claude:2.1.267 \
+  --kit "$PWD" \
   --name "$(hostname)-sandbox-all" \
   -e SNYK_COMPONENTS=scan,guard,studio \
   -e SNYK_ADS_PUSH_KEY
@@ -114,8 +121,8 @@ sbx run claude \
 ### Studio alone
 
 ```bash
-sbx run claude \
-  --kit ./snyk-evo-ads/ \
+sbx run docker.io/docker/sbx-kit-claude:2.1.267 \
+  --kit "$PWD" \
   --name "$(hostname)-sandbox-studio" \
   -e SNYK_COMPONENTS=studio
 ```
@@ -127,14 +134,14 @@ pre-authenticate it. Never paste credentials into the agent conversation.
 
 ### Custom Snyk API base (`SNYK_API`)
 
-By default Scan and Guard talk to `https://api.snyk.io`. Set `SNYK_API` to
+By default Agent Scan and Agent Guard talk to `https://api.snyk.io`. Set `SNYK_API` to
 point them at a different Snyk API base instead — the kit passes it to
 `guard install` as `--url`, and to `scan` as `--analysis-url` with the same
-path AgentScan uses by default (only the host changes):
+path Agent Scan uses by default (only the host changes):
 
 ```bash
-sbx run claude \
-  --kit ./snyk-evo-ads/ \
+sbx run docker.io/docker/sbx-kit-claude:2.1.267 \
+  --kit "$PWD" \
   --name "$(hostname)-sandbox" \
   -e SNYK_COMPONENTS=scan,guard \
   -e SNYK_ADS_PUSH_KEY \
@@ -159,55 +166,41 @@ and you need to stage its root certificate, below.
 
 ### Staging the corporate CA certificate
 
-Place its PEM-encoded root certificate in `files/home/corp-ca/` with
-a `.crt` extension — any filename works, the install step globs `*.crt`:
-
-```text
-files/home/corp-ca/your-corporate-ca.crt
-```
+Pass the root CA's PEM text with `-e SNYK_CORP_CA_PEM` when creating a
+sandbox with the published kit — no local kit changes needed. A root CA
+is public, not a secret; never pass its private key. One or more PEM
+certificates are supported.
 
 **macOS, from the system keychain** (replace `"Zscaler Root CA"` with your
 proxy's CA name):
 
 ```bash
-security find-certificate -a -c "Zscaler Root CA" -p \
-  /Library/Keychains/System.keychain \
-  > files/home/corp-ca/your-corporate-ca.crt
+sbx run docker.io/docker/sbx-kit-claude:2.1.267 --kit sbx/snyk-evo-ads:latest \
+  -e SNYK_CORP_CA_PEM="$(security find-certificate -a -c "Zscaler Root CA" -p /Library/Keychains/System.keychain)" \
+  -e SNYK_TOKEN
 ```
 
-**Linux, from the system trust store** (Debian/Ubuntu path shown; RHEL-based
-distros use `/etc/pki/ca-trust/source/anchors/`):
+**Linux, from a PEM file**:
 
 ```bash
-cp /usr/local/share/ca-certificates/your-corporate-ca.crt \
-  files/home/corp-ca/your-corporate-ca.crt
+sbx run docker.io/docker/sbx-kit-claude:2.1.267 --kit sbx/snyk-evo-ads:latest \
+  -e SNYK_CORP_CA_PEM="$(cat /path/to/ca.pem)" \
+  -e SNYK_TOKEN
 ```
 
-**From the live TLS chain**, if you don't have keychain/trust-store access —
-this pulls the topmost certificate your proxy actually presents, which is
-usually an intermediate rather than a true self-signed root (proxies
-typically don't serve their root), but is sufficient as a trust anchor in
-practice:
+Add the same flag to any launch command above, including `--kit "$PWD"`.
+Certificates are installed at sandbox creation; **recreate an existing
+sandbox** to apply changes. The kit splits multi-cert PEM into individual
+`.crt` files, normalizes CRLF, updates the system trust store, and extends
+Node's CA bundle. Incomplete or non-PEM input fails installation. The
+`lifecycle@1` CA install hook explicitly allows `SNYK_CORP_CA_PEM` in its
+`env` list; v3 hooks otherwise deny environment variables by default.
+Missing certificates warn and continue, but intercepted downloads may fail.
 
-```bash
-openssl s_client -connect downloads.snyk.io:443 -showcerts </dev/null 2>/dev/null \
-  | awk '/-----BEGIN CERTIFICATE-----/{buf=""} {buf=buf $0 "\n"} /-----END CERTIFICATE-----/{last=buf} END{printf "%s", last}' \
-  > files/home/corp-ca/your-corporate-ca.crt
-```
-
-Validate before spending a sandbox create on it:
-
-```bash
-head -1 files/home/corp-ca/*.crt        # must read BEGIN CERTIFICATE
-openssl x509 -in files/home/corp-ca/your-corporate-ca.crt -noout -text \
-  | grep -A1 'Basic Constraints'                 # must read CA:TRUE
-```
-
-See the [certificate guide](./files/home/corp-ca/README.md) for the
-full set of rules (PEM vs DER, root vs leaf, gitignore behavior). The kit
-adds certificates to the system trust store and sets Node's additional CA
-bundle. Missing certificates do not themselves abort setup, but intercepted
-downloads may fail without them.
+For a local checkout, placing one PEM certificate per `.crt` file in
+`files/home/corp-ca/` still works alongside the environment variable.
+See the [certificate guide](./files/home/corp-ca/README.md) for format and
+validation rules.
 
 ### Network allowlist
 
@@ -215,7 +208,7 @@ The kit allows `**.snyk.io` (any host under `snyk.io`, any subdomain depth —
 covers `api.snyk.io`, `deeproxy.snyk.io`, `downloads.snyk.io`, and a custom
 `SNYK_API` host), plus `registry.npmjs.org`, `github.com`, and
 `release-assets.githubusercontent.com`. Snyk Code (SAST) needs access to
-`deeproxy.snyk.io`; AgentScan, Guard, and Studio binaries download from
+`deeproxy.snyk.io`; Agent Scan, Agent Guard, and Studio binaries download from
 `github.com`/`release-assets.githubusercontent.com`. Organization policy may
 require these domains to be allowed centrally. Kit changes apply when
 creating a sandbox; existing sandboxes need their network policy updated or
@@ -225,10 +218,10 @@ must be recreated.
 
 Inside the sandbox, ask the agent:
 
-> Run an AgentScan security review and summarize the findings for this sandbox.
+> Run an Agent Scan security review and summarize the findings for this sandbox.
 
 The kit's instructions explain authentication, binary discovery, and synchronous
-results via `--show-analysis-results`. AgentScan does not require `snyk auth`;
+results via `--show-analysis-results`. Agent Scan does not require `snyk auth`;
 Snyk CLI has separate authentication.
 
 Background results are logged rather than inserted into an existing conversation.
@@ -248,15 +241,15 @@ Replace `<sandbox-name>` with the name passed at creation.
 `resolve-components.sh` prints `scan=0|1 guard=0|1 studio=0|1
 auth_mode=enterprise|standalone|none` and fails only if `SNYK_COMPONENTS`
 itself is malformed (an unknown component, or a value that resolves to
-none). AgentScan and Guard always share
+none). Agent Scan and Agent Guard always share
 `~/.local/share/snyk-agent-scan/agent-scan`; Studio's binary is at
 `~/.local/share/snyk-studio/snyk-studio-installer`.
 
 | Symptom | Check |
 | --- | --- |
-| TLS download failure, curl 60/77 | Corporate root certificate and system trust store |
+| TLS download failure, curl 60/77 | Pass the corporate root PEM with `-e SNYK_CORP_CA_PEM="$(cat /path/to/ca.pem)"` and recreate the sandbox; see [corporate certificates](#staging-the-corporate-ca-certificate) |
 | Connection failure, curl 6/7 | DNS, proxy, and organization network policy |
 | Sandbox creation fails immediately with a `snyk-ads: ERROR` | `SNYK_COMPONENTS` itself — an unknown component name, or a value that resolves to none (see [Components](#components)) |
-| Binary installed but scan/guard hooks inactive | Missing credential for that component — install logs say so; set it and recreate the sandbox |
+| Binary installed but Agent scan/guard hooks inactive | Missing credential for that component — install logs say so; set it and recreate the sandbox |
 | No Scan binary | Whether `scan` was actually requested in `SNYK_COMPONENTS` |
 | No recurring output | Startup log and sbx version |
