@@ -63,7 +63,7 @@ set -eux
 
 (corepack disable npm 2>&1 || echo "no corepack npm shim to disable")
 
-npm install -g "opencode-ai@${OPENCODE_VERSION:-latest}" --include=optional
+npm install -g "@opencode/cli@${OPENCODE_VERSION:-latest}" --include=optional
 
 opencode --version
 

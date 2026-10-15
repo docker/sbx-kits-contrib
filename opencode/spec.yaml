@@ -137,13 +137,14 @@ credentials:
           header: Authorization
           format: Bearer %s
     # A ChatGPT-subscription token is only accepted at the Codex backend host;
-    # api.openai.com rejects it. OpenCode's built-in Codex auth plugin keys off
-    # an "openai" entry of type "oauth" in auth.json: it then rewrites
+    # api.openai.com rejects it. The startup bridge imports the rendered
+    # auth.json record into OpenCode v2's credential store; its built-in Codex
+    # auth plugin then rewrites
     # /v1/responses to chatgpt.com/backend-api/codex/responses and sends the
     # entry's `access` value as the bearer, which is why the sentinel below is
-    # what reaches the proxy for substitution. The plugin only engages when
-    # that entry exists, and the file is only rendered when the host holds an
-    # OAuth token — so `skipIfEnv` keeps the API-key path resolving
+    # what reaches the proxy for substitution. The plugin only engages when the
+    # imported credential exists, and the file is only rendered when the host
+    # holds an OAuth token — so `skipIfEnv` keeps the API-key path resolving
     # OPENAI_API_KEY exactly as before.
     #
     # `expires` carries the host token's real expiry, so OpenCode refreshes
@@ -247,14 +248,9 @@ permissions:
       # endpoints `/login` hands off to, and the JSON schema its config file
       # points at.
       #
-      # The wildcard is not decoration: the model catalog OpenCode refreshes
-      # hourly — provider list, context windows, pricing — is fetched from
-      # models.opencode.ai/api.json, and the account and app endpoints sit on
-      # sibling labels. The catalog is the data Models.dev publishes, and both
-      # the CLI's help text and its error messages name models.dev, but no
-      # request is ever made to that host — so models.dev is deliberately
-      # absent here. Unreachable, the catalog falls back to the snapshot
-      # embedded in the binary, so models go stale rather than erroring.
+      # The wildcard covers the model catalog at models.opencode.ai/api.json,
+      # plus account and app endpoints on sibling labels. Models.dev publishes
+      # this data but is not contacted by this version of the CLI.
       - opencode.ai
       - "*.opencode.ai"
       # `apt-get update` (the startup hook below) refreshes metadata for every
@@ -310,9 +306,9 @@ setup:
           EOF
       user: "agent"
       description: Register the sandbox MCP gateway in ~/.config/opencode/opencode.json
-    # OpenCode's github-copilot plugin sends auth.json's `refresh` value as the
-    # Copilot Bearer, so the GH_TOKEN sentinel rides the github inject rules
-    # declared above rather than a second credential entry.
+    # The startup bridge imports auth.json's `refresh` value into OpenCode v2's
+    # github-copilot credential, whose plugin sends it as the Copilot Bearer.
+    # The GH_TOKEN sentinel therefore rides the github inject rules above.
     - command:
         - sh
         - -c
@@ -354,6 +350,85 @@ setup:
           mv -f "$tmp" "$auth"
       user: "agent"
       description: Seed OpenCode's GitHub Copilot provider from the GH_TOKEN sentinel
+    # OpenCode v2 keeps credentials in SQLite, while sandbox OAuth bindings
+    # materialize sentinel-backed tokens in auth.json. Convert only those two
+    # managed records to v2's documented import format on every start; native
+    # OAuth accounts are left for OpenCode's own migration and refresh logic.
+    - command:
+        - sh
+        - -c
+        - |
+          set -e
+          auth="$HOME/.local/share/opencode/auth.json"
+          exec 9>>"$(dirname "$auth")/.credentials-sync.lock"
+          flock 9
+          if ! existing=$(opencode auth export --standalone); then
+            echo "unable to read OpenCode v2 credentials; leaving them unchanged" >&2
+            exit 0
+          fi
+          if [ -e "$auth" ] && [ ! -f "$auth" ]; then
+            echo "auth.json is not a regular file; leaving v2 credentials unchanged" >&2
+            exit 0
+          fi
+          if [ -f "$auth" ]; then
+            if ! credentials=$(jq -c --arg github_token "${GH_TOKEN:-}" '
+            def oauth($integration; $id; $method; $label; $access; $refresh):
+              .[$integration] as $credential |
+              if ($credential | type) == "object"
+                and ($credential.type == "oauth")
+                and ($access != "")
+                and ($credential.access == $access)
+                and ($credential.refresh == $refresh)
+                and (($credential.refresh | type) == "string")
+                and (($credential.access | type) == "string")
+                and ($credential.expires | type == "number" and . >= 0 and . == floor)
+              then {
+                id: $id, integrationID: $integration, label: $label, active: true,
+                value: ({type: "oauth", methodID: $method, refresh: $credential.refresh, access: $credential.access, expires: $credential.expires}
+                  + (if (($credential.accountId | type) == "string") or (($credential.enterpriseUrl | type) == "string")
+                     then {metadata: ({} + (if ($credential.accountId | type) == "string" then {accountID: $credential.accountId} else {} end)
+                                           + (if ($credential.enterpriseUrl | type) == "string" then {enterpriseUrl: $credential.enterpriseUrl} else {} end))}
+                     else {} end))
+              else empty end;
+            [oauth("openai"; "sbx-openai"; "chatgpt-browser"; "Sandbox OpenAI"; "oai-oat01-proxy-managed"; "oai-ort01-proxy-managed"), oauth("github-copilot"; "sbx-github-copilot"; "device"; "Sandbox GitHub Copilot"; $github_token; $github_token)]' "$auth"); then
+              echo "auth.json is not valid OpenCode OAuth data; leaving v2 credentials unchanged" >&2
+              exit 0
+            fi
+          else
+            credentials='[]'
+          fi
+          if ! sync=$(jq -cn --argjson existing "$existing" --argjson desired "$credentials" '
+            def managed($wanted):
+              .id == $wanted.id
+              or ($wanted.desired != null and .label == "OAuth" and .integrationID == $wanted.integrationID and .value == $wanted.desired.value);
+            ["openai", "github-copilot"] | map(
+              . as $integration |
+              {integrationID: $integration, id: ("sbx-" + $integration),
+               desired: ([$desired[] | select(.integrationID == $integration)][0])}
+              | . as $wanted
+              | ($existing | map(select(.integrationID == $wanted.integrationID))) as $records
+              | ($records | map(select(.active == true)) | .[0]) as $active
+              | {integrationID: $wanted.integrationID, id: $wanted.id, desired: $wanted.desired,
+                 remove: [$records[] | select(managed($wanted)) | .id],
+                 activate: ($wanted.desired != null and $active != null and ($active | managed($wanted)))}
+            )'); then
+            echo "unable to reconcile OpenCode v2 credentials; leaving them unchanged" >&2
+            exit 0
+          fi
+          printf '%s\n' "$sync" | jq -r '.[] | .integrationID as $integration | .remove[]? | [$integration, .] | @tsv' |
+            while IFS="$(printf '\t')" read -r integration id; do
+              opencode auth logout "$integration" "$id" --standalone >/dev/null 2>&1 || true
+            done
+          if [ "$credentials" != "[]" ] && ! printf '%s\n' "$credentials" | opencode auth import --standalone >/dev/null; then
+            echo "unable to import sandbox OAuth credentials into OpenCode v2" >&2
+            exit 0
+          fi
+          printf '%s\n' "$sync" | jq -r '.[] | select(.activate) | [.integrationID, .id] | @tsv' |
+            while IFS="$(printf '\t')" read -r integration id; do
+              opencode auth switch "$integration" "$id" --standalone >/dev/null
+            done
+      user: "agent"
+      description: Import sandbox OAuth credentials into OpenCode v2
 
 # OpenCode reads AGENTS.md from the project root every session, so this is the
 # filename composed kit context has to land in for the agent to pick it up.
