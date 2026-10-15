@@ -1,0 +1,33 @@
+# Services are owned by one sandbox's private Docker Engine. Ports bind only
+# to the VM loopback interface, so they are not published to the host.
+services:
+  redis:
+    image: redis:7.4.1-alpine@sha256:c1e88455c85225310bbea54816e9c3f4b5295815e6dbf80c34d40afc6df28275
+    command: ["redis-server", "--appendonly", "yes", "--appendfsync", "everysec"]
+    ports: ["127.0.0.1:6379:6379"]
+    volumes: ["dapr-agents-redis:/data"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 2s
+      timeout: 2s
+      retries: 30
+
+  placement:
+    image: daprio/placement:1.18.2@sha256:b933f3c7b66745abf2b7087ce97e6b95b0b3a990a0c665e68ce6825596c6e0ee
+    command: ["./placement", "-port", "50005"]
+    ports: ["127.0.0.1:50005:50005"]
+
+  scheduler:
+    image: daprio/scheduler:1.18.2@sha256:a26d49a0dd622f5f55f6e7b167bf2e11231ca1f10be5ad0ba42040e460773908
+    command:
+      - "./scheduler"
+      - "--port=50006"
+      - "--etcd-data-dir=/var/lock/dapr/scheduler"
+      - "--override-broadcast-host-port=localhost:50006"
+      - "--etcd-client-listen-address=0.0.0.0"
+    ports: ["127.0.0.1:50006:50006"]
+    volumes: ["dapr-agents-scheduler:/var/lock"]
+
+volumes:
+  dapr-agents-redis:
+  dapr-agents-scheduler:
