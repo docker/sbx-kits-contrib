@@ -486,7 +486,6 @@ setup:
               opencode auth switch "$integration" "$id" --standalone >/dev/null
             done
       user: "agent"
-      env: [GH_TOKEN]
       description: Import sandbox OAuth credentials into OpenCode v2
 
 # OpenCode reads AGENTS.md from the project root every session, so this is the
