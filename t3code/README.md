@@ -1,6 +1,6 @@
 # t3code
 
-A mixin kit that prepares a sandbox for [T3 Code](https://docs.docker.com/ai/sandboxes/integrations/t3-code/)'s SSH integration: it installs the `t3` npm package, and the `libatomic1` its binaries need, so the first T3 Code connection starts a server that is already there instead of fetching it from the npm registry on the spot. Pair it with any agent kit.
+A mixin kit that prepares a sandbox for [T3 Code](https://docs.docker.com/ai/sandboxes/integrations/t3-code/)'s SSH integration. T3 Code installs its own server on first connection, so the kit installs only what that server needs and cannot bring along: the `libatomic1` shared library its binaries link against, and the network allowance the download takes. Pair it with any agent kit.
 
 ## Usage
 
@@ -22,13 +22,7 @@ sbx run claude --kit ./t3code/ .
 
 Prerequisites:
 
-- A base image with Node.js ≥ 18 and npm. All standard agent templates ship both. The install fails loudly with a clear message if npm is missing.
-
-Inside the sandbox:
-
-```console
-t3 --version
-```
+- A base image with `curl` or `wget`, and `tar`. All standard agent templates ship them. The install fails loudly with a clear message if one is missing.
 
 Then connect the sandbox to T3 Code over SSH as usual, see
 [Connect T3 Code to a sandbox](https://docs.docker.com/ai/sandboxes/integrations/t3-code/).
@@ -55,32 +49,37 @@ t3 server reads at startup.
 
 ## How it works
 
+### What T3 Code does on first connection
+
+Current T3 Code releases (0.0.45 at the time of writing) do not look for a
+`t3` on `PATH`. The desktop app's remote bootstrap downloads the release
+archive whose version matches the connecting app from GitHub releases,
+verifies it against the published checksums, unpacks it under
+`~/.t3/runtime/versions/<version>/`, and runs the server from there. A later
+app version repeats this for its own version, so the server inside the
+sandbox always matches the app that connected.
+
+That is why this kit installs no `t3` itself. An earlier version of the kit
+pre-installed the `t3` npm package so that the bootstrap would find it on
+`PATH`; the current bootstrap never consults `PATH`, so that install cost
+sandbox-creation time and was never used.
+
 ### Why `libatomic1`
 
-`t3` installs a platform package, `@t3code/t3-linux-<arch>`, carrying prebuilt
-native modules including `node-pty`. Nothing compiles at install time, so the
-base image needs no toolchain, but those binaries do link against
-`libatomic1`. Without it `npm install` still succeeds and the binary it
-installed does not run:
+The release archive is self-contained and needs no Node.js, but its `t3`
+binary and the prebuilt native modules it carries (`node-pty` among them)
+link against `libatomic1`, which no sandbox template ships. Without it the
+download succeeds and the binary does not start:
 
 ```text
 t3: error while loading shared libraries: libatomic.so.1: cannot open shared
 object file: No such file or directory
 ```
 
-T3 Code reports nothing more specific than a connection timeout when that
-happens, so the kit installs `libatomic1` itself rather than counting on the
-base image to carry it. The check is `ldconfig -p`, so a base that already has
-it runs no `apt-get` at all.
-
-### Why `t3` is installed at build time
-
-T3 Code's own remote bootstrap resolves `t3` by falling back to `npx
---package t3@latest` when it isn't already on `PATH`. That works, but it
-means every first connection depends on npm registry access, and pays the
-download during the connection attempt. Installing `t3` globally at
-kit-install time does that work once, up front, so connecting is just SSH
-plus starting a binary that is already there.
+The bootstrap reports that as the release "does not run on this host", and
+T3 Code shows a connection failure, so the kit installs `libatomic1` itself
+rather than counting on the base image to carry it. The check is
+`ldconfig -p`, so a base that already has it runs no `apt-get` at all.
 
 ### Why these domains
 
@@ -88,13 +87,20 @@ plus starting a binary that is already there.
 
 | Domain | Why |
 | --- | --- |
-| `registry.npmjs.org` | npm tarballs for `t3` and its platform package (install time) |
-| `archive.ubuntu.com` | Ubuntu apt archive, amd64 |
+| `github.com` | T3 Code's remote bootstrap fetches `SHA256SUMS` and the release archive from `github.com/pingdotgg/t3code/releases/download/…` (runtime, first connection per version) |
+| `objects.githubusercontent.com` | GitHub redirects release asset downloads to this host |
+| `archive.ubuntu.com` | Ubuntu apt archive, amd64 (install time, only when `libatomic1` is missing) |
 | `security.ubuntu.com` | Ubuntu security pocket, amd64, refreshed by the same `apt-get update` |
 | `ports.ubuntu.com` | Ubuntu archive and security for arm64 (Apple Silicon sandboxes) |
 | `download.docker.com` | Docker's apt repo, pre-added by the `*-docker` templates. `apt-get update` refreshes every configured source and fails if any is blocked |
 
+The default sandbox policy already allows the GitHub hosts, so the download
+works without this kit under default settings. The kit declares them so the
+integration also works under a narrower policy, and so the contract is
+written down.
+
 ## Cleanup
 
-Everything is sandbox-local: the global `t3` npm package and `libatomic1`
-disappear with the sandbox (`sbx rm <name>`). Nothing touches the host.
+Everything is sandbox-local: `libatomic1` and the runtime T3 Code installs
+under `~/.t3` disappear with the sandbox (`sbx rm <name>`). Nothing touches
+the host.
