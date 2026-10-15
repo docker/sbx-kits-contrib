@@ -1,0 +1,83 @@
+# syntax=docker/sandbox-kit:3
+# Exposes the sandbox's Docker Engine on TCP and publishes that port on the
+# host's loopback, so a Docker client on the host -- the docker CLI, Compose,
+# Testcontainers -- can create and run containers inside the sandbox.
+#
+# The engine is the base's own: this kit ships no layers, only a daemon.json
+# edit and a port. The unix socket stays, because sbx's readiness probe pings
+# it on every start and everything inside the sandbox already uses it.
+#
+# THE API IS UNAUTHENTICATED. Anything on the host that can reach the published
+# loopback port gets root in the sandbox. Nothing outside the sandbox is
+# reachable through it, but the sandbox's workspace and credentials are.
+schemaVersion: "3"
+displayName: Docker over TCP
+description: >-
+  Serve the sandbox's Docker Engine on TCP port 2375 and publish it on the
+  host's loopback, so a Docker client on the host can run containers inside
+  the sandbox.
+kind: mixin
+
+# The kit's own version: the tag it publishes under, and the version of the
+# `docker-tcp` capability below, which has no tool of its own to take one from.
+version: "0.1.0"
+
+# What other kits `require` to be sure the engine is reachable from the host.
+provides: ["docker-tcp"]
+
+# The engine and the tools the startup hook drives it with, all of which the
+# shell base provides by construction.
+requires: ["deb/curl", "deb/docker-ce", "deb/jq", "deb/procps"]
+
+capabilities:
+  # `transport` is left out deliberately. sbx's local runtime reads an omitted
+  # protocol as IPv4-only loopback; `tcp` would ask for both families.
+  - type: com.docker.sandbox/port@1
+    config:
+      name: docker-api
+      container: 2375
+
+  - type: com.docker.sandbox/lifecycle@1
+    config:
+      # A startup hook, not an install hook: sbx starts dockerd before kit
+      # startup runs, and it reads daemon.json when it does. The first boot
+      # therefore needs one restart to pick up `hosts`; every later boot finds
+      # the edit already in place and the probe below answers at once.
+      startup:
+        - description: Make dockerd listen on tcp://0.0.0.0:2375 as well as the unix socket.
+          user: root
+          command: |
+            set -eu
+            cfg=/etc/docker/daemon.json
+            tcp=tcp://0.0.0.0:2375
+            probe() { curl -sf --max-time 2 http://127.0.0.1:2375/_ping >/dev/null 2>&1; }
+
+            command -v dockerd >/dev/null || { echo "docker-tcp: dockerd is not installed in this sandbox" >&2; exit 1; }
+
+            mkdir -p /etc/docker
+            [ -s "$cfg" ] || echo '{}' > "$cfg"
+            jq --arg tcp "$tcp" '.hosts = (((.hosts // []) + ["unix:///var/run/docker.sock", $tcp]) | unique)' "$cfg" > "$cfg.tmp"
+            if [ "$(cat "$cfg")" = "$(cat "$cfg.tmp")" ]; then rm -f "$cfg.tmp"; else mv "$cfg.tmp" "$cfg"; fi
+
+            probe && exit 0
+
+            if pkill -x dockerd; then
+              n=0
+              while pgrep -x dockerd >/dev/null; do
+                n=$((n + 1))
+                [ "$n" -lt 150 ] || { echo "docker-tcp: dockerd did not stop" >&2; exit 1; }
+                sleep 0.2
+              done
+            fi
+            nohup sh -c 'echo $$ > /var/run/sandboxes-dockerd.pid; exec dockerd >> /var/log/dockerd.log 2>&1' </dev/null >/dev/null 2>&1 &
+
+            n=0
+            until probe; do
+              n=$((n + 1))
+              if [ "$n" -ge 60 ]; then
+                echo "docker-tcp: dockerd did not come up on $tcp" >&2
+                tail -n 30 /var/log/dockerd.log >&2
+                exit 1
+              fi
+              sleep 0.5
+            done
