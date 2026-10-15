@@ -3,6 +3,13 @@ kind: mixin
 name: t3code
 displayName: T3 Code
 description: Installs the t3 npm package that T3 Code's SSH integration runs inside a sandbox, so the first connection starts a pre-installed server.
+
+args:
+  telemetry:
+    default: "false"
+    enum: ["true", "false"]
+    description: "Whether the t3 server inside the sandbox sends anonymous usage telemetry. Off by default: the sandbox proxy blocks the telemetry host unless it is allowed, and a server that cannot reach it keeps retrying. Set to true to opt in, and allow us.i.posthog.com:443 in the sandbox's network policy."
+
 agentInstructions:
   content: |
     ## T3 Code
@@ -15,6 +22,8 @@ agentInstructions:
     - `t3` installs a platform package that carries prebuilt native modules,
       `node-pty` among them, so nothing compiles here. Those binaries need
       `libatomic1`, which this kit installs when the base image lacks it.
+    - The t3 server's anonymous usage telemetry is off in this sandbox unless
+      the kit was installed with `telemetry=true`.
 permissions:
   network:
     allow:
@@ -28,6 +37,11 @@ permissions:
       - security.ubuntu.com:80
       - ports.ubuntu.com:80
       - download.docker.com:443
+environment:
+  variables:
+    # Read by the t3 server at startup. The sandbox proxy does not allow the
+    # telemetry host by default, so leaving this on only produces retries.
+    T3CODE_TELEMETRY_ENABLED: "${{ kit.args.telemetry }}"
 setup:
   install:
     - command: |

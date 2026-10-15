@@ -33,6 +33,26 @@ t3 --version
 Then connect the sandbox to T3 Code over SSH as usual, see
 [Connect T3 Code to a sandbox](https://docs.docker.com/ai/sandboxes/integrations/t3-code/).
 
+## Arguments
+
+| Argument | Default | Purpose |
+|---|---|---|
+| `telemetry` | `false` | Whether the t3 server sends anonymous usage telemetry to PostHog. |
+
+### Telemetry
+
+Telemetry is off by default. The sandbox proxy does not allow the telemetry
+host unless told to, and a server that cannot reach it keeps retrying and
+logging the failure. To opt in, allow the host and pass the argument:
+
+```console
+sbx policy allow network us.i.posthog.com
+sbx run claude --kit "docker.io/sbx/t3code-kit:latest" --kit-arg t3code.telemetry=true .
+```
+
+The kit sets `T3CODE_TELEMETRY_ENABLED` in the sandbox environment, which the
+t3 server reads at startup.
+
 ## How it works
 
 ### Why `libatomic1`
