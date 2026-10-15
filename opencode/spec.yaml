@@ -248,12 +248,11 @@ permissions:
       # endpoints `/login` hands off to, and the JSON schema its config file
       # points at.
       #
-      # The wildcard covers account and app endpoints on sibling labels. The
-      # v2 CLI refreshes its provider catalog from Models.dev, so it is listed
-      # separately below.
+      # The wildcard covers the model catalog at models.opencode.ai/api.json,
+      # plus account and app endpoints on sibling labels. Models.dev publishes
+      # this data but is not contacted by this version of the CLI.
       - opencode.ai
       - "*.opencode.ai"
-      - models.dev
       # `apt-get update` (the startup hook below) refreshes metadata for every
       # configured apt source and returns exit 100 if any one of them fails.
       # The shell-docker base ships three sources, so all three must be
@@ -410,23 +409,34 @@ setup:
       user: "agent"
       description: Seed OpenCode's GitHub Copilot provider from the GH_TOKEN sentinel
     # OpenCode v2 keeps credentials in SQLite, while sandbox OAuth bindings
-    # materialize the host-managed tokens in auth.json. Convert the two managed
-    # records to v2's documented import format on every start so refreshed host
-    # bindings replace only the sandbox-owned accounts.
+    # materialize sentinel-backed tokens in auth.json. Convert only those two
+    # managed records to v2's documented import format on every start; native
+    # OAuth accounts are left for OpenCode's own migration and refresh logic.
     - command:
         - sh
         - -c
         - |
           set -e
           auth="$HOME/.local/share/opencode/auth.json"
-          [ -f "$auth" ] || exit 0
           exec 9>>"$(dirname "$auth")/.credentials-sync.lock"
           flock 9
-          if ! credentials=$(jq -c '
-            def oauth($integration; $id; $method; $label):
+          if ! existing=$(opencode auth export --standalone); then
+            echo "unable to read OpenCode v2 credentials; leaving them unchanged" >&2
+            exit 0
+          fi
+          if [ -e "$auth" ] && [ ! -f "$auth" ]; then
+            echo "auth.json is not a regular file; leaving v2 credentials unchanged" >&2
+            exit 0
+          fi
+          if [ -f "$auth" ]; then
+            if ! credentials=$(jq -c --arg github_token "${GH_TOKEN:-}" '
+            def oauth($integration; $id; $method; $label; $access; $refresh):
               .[$integration] as $credential |
               if ($credential | type) == "object"
                 and ($credential.type == "oauth")
+                and ($access != "")
+                and ($credential.access == $access)
+                and ($credential.refresh == $refresh)
                 and (($credential.refresh | type) == "string")
                 and (($credential.access | type) == "string")
                 and ($credential.expires | type == "number" and . >= 0 and . == floor)
@@ -438,26 +448,28 @@ setup:
                                            + (if ($credential.enterpriseUrl | type) == "string" then {enterpriseUrl: $credential.enterpriseUrl} else {} end))}
                      else {} end))
               else empty end;
-            [oauth("openai"; "sbx-openai"; "chatgpt-browser"; "Sandbox OpenAI"), oauth("github-copilot"; "sbx-github-copilot"; "device"; "Sandbox GitHub Copilot")]' "$auth"); then
-            echo "auth.json is not valid OpenCode OAuth data; leaving v2 credentials unchanged" >&2
-            exit 0
-          fi
-          [ "$credentials" != "[]" ] || exit 0
-          if ! existing=$(opencode auth export --standalone); then
-            echo "unable to read OpenCode v2 credentials; leaving them unchanged" >&2
-            exit 0
+            [oauth("openai"; "sbx-openai"; "chatgpt-browser"; "Sandbox OpenAI"; "oai-oat01-proxy-managed"; "oai-ort01-proxy-managed"), oauth("github-copilot"; "sbx-github-copilot"; "device"; "Sandbox GitHub Copilot"; $github_token; $github_token)]' "$auth"); then
+              echo "auth.json is not valid OpenCode OAuth data; leaving v2 credentials unchanged" >&2
+              exit 0
+            fi
+          else
+            credentials='[]'
           fi
           if ! sync=$(jq -cn --argjson existing "$existing" --argjson desired "$credentials" '
             def managed($wanted):
               .id == $wanted.id
-              or (.label == "OAuth" and .integrationID == $wanted.integrationID and .value == $wanted.value);
-            [$desired[] as $wanted |
-              ($existing | map(select(.integrationID == $wanted.integrationID))) as $records |
-              ($records | map(select(.active == true)) | .[0]) as $active |
-              {integrationID: $wanted.integrationID, id: $wanted.id,
-               remove: [$records[] | select(managed($wanted)) | .id],
-               activate: ($active != null and ($active | managed($wanted)))}
-            ]'); then
+              or ($wanted.desired != null and .label == "OAuth" and .integrationID == $wanted.integrationID and .value == $wanted.desired.value);
+            ["openai", "github-copilot"] | map(
+              . as $integration |
+              {integrationID: $integration, id: ("sbx-" + $integration),
+               desired: ([$desired[] | select(.integrationID == $integration)][0])}
+              | . as $wanted
+              | ($existing | map(select(.integrationID == $wanted.integrationID))) as $records
+              | ($records | map(select(.active == true)) | .[0]) as $active
+              | {integrationID: $wanted.integrationID, id: $wanted.id, desired: $wanted.desired,
+                 remove: [$records[] | select(managed($wanted)) | .id],
+                 activate: ($wanted.desired != null and $active != null and ($active | managed($wanted)))}
+            )'); then
             echo "unable to reconcile OpenCode v2 credentials; leaving them unchanged" >&2
             exit 0
           fi
@@ -465,7 +477,7 @@ setup:
             while IFS="$(printf '\t')" read -r integration id; do
               opencode auth logout "$integration" "$id" --standalone >/dev/null 2>&1 || true
             done
-          if ! printf '%s\n' "$credentials" | opencode auth import --standalone >/dev/null; then
+          if [ "$credentials" != "[]" ] && ! printf '%s\n' "$credentials" | opencode auth import --standalone >/dev/null; then
             echo "unable to import sandbox OAuth credentials into OpenCode v2" >&2
             exit 0
           fi
@@ -474,6 +486,7 @@ setup:
               opencode auth switch "$integration" "$id" --standalone >/dev/null
             done
       user: "agent"
+      env: [GH_TOKEN]
       description: Import sandbox OAuth credentials into OpenCode v2
 
 # OpenCode reads AGENTS.md from the project root every session, so this is the

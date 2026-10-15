@@ -148,7 +148,7 @@ it, because there is no switch to set.
 Two things do reach the network on their own, and both are deliberate:
 
 - **The model catalog.** OpenCode refreshes its provider and model list —
-  context windows, pricing — from `models.dev` about hourly.
+  context windows, pricing — from `models.opencode.ai` every five minutes.
   `OPENCODE_DISABLE_MODELS_FETCH=1` stops it; the picker then falls back to the
   snapshot embedded in the binary.
 - **The update check.** OpenCode looks for a newer version and upgrades itself
@@ -189,7 +189,7 @@ start after the cause is fixed.
 plus the OpenAI OAuth token endpoint and Codex backend host, plus the hosts
 OpenCode reaches on its own: `registry.npmjs.org` for language servers, plugins
 and provider SDK packages; `opencode.ai` and `*.opencode.ai` for the config
-schema and account console; `models.dev` for the provider catalog; the GitHub
+schema, account console and model catalog at `models.opencode.ai`; the GitHub
 hosts language-server downloads redirect through; and the apt sources the base
 image ships with, which the startup `apt-get update` fails wholesale without.
 
@@ -197,7 +197,11 @@ Entries carry no port: a portless pattern matches any port, and pinning the apt
 hosts to `:80` breaks as soon as a mirror answers over HTTPS — with the same
 wholesale `apt-get update` failure.
 
-One omission is deliberate:
+Two omissions are deliberate:
+
+- **`models.dev` is not listed.** Models.dev publishes the catalog data, but
+  OpenCode v2.0.29 fetches it from `models.opencode.ai`, which the wildcard
+  already covers.
 
 - **Vendor CDNs for three language servers are not listed.** Most of OpenCode's
   language servers come from npm or GitHub releases, both allowed. The
