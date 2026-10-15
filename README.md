@@ -432,7 +432,7 @@ Note that a fork PR does not receive repository secrets, so any leg needing Dock
 | [`playwright`](./playwright) | — | The Playwright toolchain with Chromium on a shared system browsers path |
 | [`qemu`](./qemu) | `deb/docker-ce` | QEMU user-mode emulators via binfmt_misc, for cross-arch builds |
 | [`smolagents`](./smolagents) | `deb/apt` | Hugging Face smolagents in an isolated virtualenv |
-| [`t3code`](./t3code) | — | The build toolchain T3 Code's SSH integration needs to compile `node-pty` |
+| [`t3code`](./t3code) | — | Prepares a sandbox for T3 Code's SSH integration: `libatomic1` and the GitHub egress its server download takes |
 | [`task`](./task) | `deb/dpkg` | The Task CLI, for running Taskfiles |
 | [`vale`](./vale) | `deb/dpkg` | The Vale prose linter from a pinned release |
 
