@@ -1,12 +1,12 @@
 ## T3 Code
 
-This sandbox has the `t3` npm package pre-installed and on PATH.
+This sandbox is prepared for T3 Code's SSH integration.
 
-- T3 Code's remote bootstrap finds `t3` directly instead of falling back
-  to `npx --package t3@latest`, so the first connection does not reach
-  the npm registry.
-- `t3` ships prebuilt native modules (`node-pty` among them), so nothing
-  compiles here. Those binaries need `libatomic1`, which this kit installs
-  when the base image lacks it.
+- On first connection, T3 Code downloads the exact `t3` release that
+  matches the connecting app into `~/.t3/runtime/versions/<version>/`
+  and runs it from there. Nothing is pre-installed, so the server
+  always matches the app that connected.
+- Those binaries need `libatomic1`, which this kit installs when the base
+  image lacks it.
 - The t3 server's anonymous usage telemetry is off in this sandbox unless
   the kit was installed with `telemetry=true`.
