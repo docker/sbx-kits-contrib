@@ -134,6 +134,10 @@ func (s *Suite) RunContainerTests(t *testing.T) {
 		s.assertEnvVars(t, ctx, container)
 		s.assertFiles(t, ctx, container)
 		s.assertTmpfs(t, ctx, container)
+
+		// Last: this one seeds and rewrites the agent's MCP config, so it
+		// runs after every assertion that reads the container as provisioned.
+		s.RunMCPMergeTests(t, ctx, container)
 	})
 }
 

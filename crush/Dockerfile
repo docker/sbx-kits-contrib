@@ -25,24 +25,33 @@ ARG BASE_IMAGE
 # containers; LSPs and MCP servers are commands the user configures and Crush
 # execs them directly. The plain base is correct here.
 
-# Upstream's tagged releases (checked via the GitHub releases API) land
-# roughly weekly, sometimes with same-week patch releases (v0.91.0, v0.91.1,
-# v0.91.2 within four days) -- frequent enough that a rolling `latest`,
-# rebuilt nightly, is the right model rather than a hand-maintained pin.
-# Re-check the cadence before trusting this reasoning to still hold.
-# CRUSH_REF selects the GitHub releases API path segment: "latest" (default)
-# resolves upstream's newest tagged release, or "tags/vX.Y.Z" to pin one.
+# Upstream's tagged releases land roughly weekly, sometimes with same-week
+# patch releases (v0.91.0, v0.91.1, v0.91.2 within four days) -- frequent
+# enough that a rolling `latest`, rebuilt nightly, is the right model rather
+# than a hand-maintained pin. Re-check the cadence before trusting this
+# reasoning to still hold.
 #
-# The JSON is not parsed for a version string -- `apt-get install crush`
+# The feed is not parsed for a version string -- `apt-get install crush`
 # below always resolves whatever Charm's own apt repo currently serves, and
 # Charm publishes the .deb and the GitHub release from the same pipeline, so
-# a new release tag here is a reliable signal that the apt repo has moved
+# a new release entry here is a reliable signal that the apt repo has moved
 # too. What the ADD buys is cache invalidation: BuildKit re-fetches the URL
 # on every build to compute its digest, so this layer -- and every RUN after
-# it -- is a cache hit when upstream has not published since the last build,
-# and re-runs, picking up the apt repo's new package, exactly when it has.
-ARG CRUSH_REF=latest
-ADD --chmod=644 https://api.github.com/repos/charmbracelet/crush/releases/${CRUSH_REF} /tmp/crush-release.json
+# it -- re-runs whenever the feed's content has changed since the last build.
+# That happens on every tagged release, and at least once a day regardless:
+# upstream also re-cuts a rolling `nightly` pre-release entry every night, so
+# the digest moves daily even between stable releases. A same-day cache hit
+# is still possible, but the scheduled nightly publish always builds without
+# cache anyway, and the cost of a same-day miss is only one redundant apt
+# install.
+#
+# The feed is served by github.com, not the API: it sits outside the per-IP
+# unauthenticated quota hosted CI runners share on api.github.com, and
+# BuildKit's URL fetch carries no token to lift that limit anyway. The feed
+# is roughly 150 KB and ships in the image -- it lands before the apt install
+# layers, so a later-layer delete would only add a whiteout on top of its own
+# layer.
+ADD --chmod=644 https://github.com/charmbracelet/crush/releases.atom /tmp/crush-releases.atom
 
 # GPG key, apt repository, and install run once here at image-build time,
 # where they have ordinary internet access. repo.charm.sh (the apt index and

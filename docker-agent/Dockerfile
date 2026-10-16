@@ -23,16 +23,12 @@ ARG BASE_IMAGE
 # image under emulation.
 ARG TARGETARCH
 
-# Pin a release by passing --build-arg DOCKER_AGENT_VERSION=vX.Y.Z. Left empty,
-# the build resolves the newest release from the GitHub API.
-#
-# That fallback is an UNAUTHENTICATED API call, subject to a per-IP hourly rate
-# limit. On a shared or busy runner the limit can already be exhausted by
-# something else, and the call then answers 403 with a JSON body carrying no
-# `tag_name`; the guard below turns that into a build failure with a readable
-# message instead of a download of a URL containing an empty tag. Any pipeline
-# that builds this image repeatedly should resolve the tag once outside the
-# build and pass it in rather than relying on the fallback.
+# Pin a release by passing --build-arg DOCKER_AGENT_VERSION=<tag>. Left empty,
+# the build resolves the newest release from github.com's /releases/latest
+# redirect, not the releases API: unauthenticated api.github.com quota is
+# counted per source IP and hosted CI runners share egress addresses, so the
+# API can rate-limit the fetch mid-build. The redirect resolves the newest
+# release, skipping drafts and pre-releases.
 ARG DOCKER_AGENT_VERSION=""
 
 # The agent self-updates in place (DOCKER_AGENT_AUTO_UPDATE below), which means
@@ -49,13 +45,10 @@ set -euxo pipefail
 
 TAG="${DOCKER_AGENT_VERSION}"
 if [ -z "${TAG}" ]; then
-    TAG=$(
-        curl -fsSL "https://api.github.com/repos/docker/docker-agent/releases/latest" |
-        sed -nE 's/.*"tag_name": *"([^"]+)".*/\1/p'
-    )
+    TAG=$(curl -fsSI -o /dev/null -w '%{redirect_url}' "https://github.com/docker/docker-agent/releases/latest" | sed -n 's#.*/releases/tag/##p') || TAG=""
 fi
 if [ -z "${TAG}" ]; then
-    echo "Failed to resolve a docker-agent release tag: DOCKER_AGENT_VERSION is unset and the GitHub API returned no tag_name (rate limit?). Pass --build-arg DOCKER_AGENT_VERSION=vX.Y.Z." >&2
+    echo "Failed to resolve a docker-agent release tag: DOCKER_AGENT_VERSION is empty and the request to github.com/docker/docker-agent/releases/latest failed or did not redirect to a release tag (curl's own error, if any, is printed above). Pass --build-arg DOCKER_AGENT_VERSION=<tag>." >&2
     exit 1
 fi
 

@@ -133,6 +133,8 @@ KIT_UNDER_TEST="$PWD/my-kit" \
   go test -tags=e2e -v -timeout 25m -count=1 ./tck/...
 ```
 
+For a kit that ships a `Dockerfile`, the script builds that image and side-loads it into the scoped daemon before creating the sandbox, so e2e runs against the branch's image rather than a published tag. It then creates the sandbox with `--pull=never`, controlled by `SBX_E2E_PULL_POLICY` (`never` by default after a side-load, unset otherwise) — set it explicitly to override.
+
 Prerequisites: `sbx` on `PATH`, authenticated against Docker Hub, Linux with `/dev/kvm` accessible. See the repository [README](../../../README.md#end-to-end-e2e-tests) for the full setup and the precise assertions performed.
 
 ### `TestE2EKit` — the single e2e test
@@ -206,19 +208,24 @@ precedence, and a built-in's deprecated aliases are refused as well. That create
 chicken-and-egg when a built-in agent is being moved out into a kit: the kit cannot pass e2e
 until a released `sbx` has dropped the built-in, but the kit is normally reviewed first.
 
-`extractedFromBuiltin: true` breaks the cycle by turning that one failure into a **skip**:
+`extractedFromBuiltin: true` breaks the cycle, for a `kind: sandbox` kit only: on that
+specific collision, the test copies the kit to a temp directory, renames it `<name>-e2e`,
+and retries `sbx create` from the copy. The run then covers the same subtests it would
+under the real name.
 
 | Situation | Result |
 |---|---|
-| Collision, flag set | `SKIP` with an explanatory message |
+| Collision, flag set | Retries from a temp copy renamed `<name>-e2e`, then runs the same subtests it would under the real name, plus a `NOTICE` that the run used the renamed copy |
 | Collision, flag absent | **FAIL** — almost always a kit that took a built-in's name by accident |
-| No collision, flag set | Runs in full, plus a `NOTICE` that the flag is now obsolete |
+| No collision, flag set | Runs in full, plus a `NOTICE` that the flag is obsolete if the kit ran under its real name |
 | No collision, no flag | Runs in full (the normal case) |
+| Collision again under the renamed copy | **FAIL** — a genuine misnaming |
 
-It is deliberately not a blanket "skip e2e for this kit": only the collision error is
-tolerated, every other failure still fails, and nothing needs re-enabling afterwards —
-once the built-in is gone the test starts running on its own. Delete the line when you see
-the obsolete-flag notice.
+It is deliberately narrow: only the collision error triggers the rename-and-retry, every
+other failure still fails, and the flag still self-obsoletes — once the built-in is gone,
+no collision occurs and the test logs the obsolete-flag notice instead. Delete the line
+when you see it. A passing run under the renamed copy does not prove `sbx` accepts the kit
+under its real name; that's proven once a released `sbx` drops the built-in.
 
 #### Kits whose agent needs a host-stored credential
 

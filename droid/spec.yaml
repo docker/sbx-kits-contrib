@@ -38,14 +38,14 @@ credentials:
     required: true
     apiKey:
       name: FACTORY_API_KEY
-      # Most apiKey-based kits in this repo set this (pi, nanobot, crush,
-      # junie); copilot's own credentials notably don't, with no recorded
-      # reason. Following the majority here — but it has NOT been verified
-      # end-to-end whether Droid's OAuth device/token-exchange flow below
-      # still resolves correctly when FACTORY_API_KEY holds the proxy's
-      # sentinel value instead of a raw key the CLI reads directly. Needs a
-      # live `sbx run --kit ./droid droid` check; see the PR description.
-      proxyManaged: true
+      # NOTE: deliberately NOT `proxyManaged: true`, unlike most apiKey-based
+      # kits in this repo, and for the reason claude and cursor also omit it:
+      # this credential declares an `oauth` block below, and a proxyManaged
+      # variable is set to the sentinel whether or not a credential is bound.
+      # Droid would always believe it has a key, so the device flow could
+      # never run and a user with no Factory credential could not sign in.
+      # Without the flag the variable is populated only when a droid
+      # credential resolves. The `inject` rules below are unaffected.
       inject:
         - domain: api.factory.ai
           header: Authorization

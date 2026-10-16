@@ -2,24 +2,40 @@ schemaVersion: "2"
 kind: mixin
 name: gitlab
 displayName: GitLab CLI (glab)
-description: Installs the GitLab CLI (glab) with proxy-injected personal access token auth for gitlab.com, so agents can work with GitLab projects the way gh works with GitHub.
+description: Installs the GitLab CLI (glab) with proxy-injected personal access token auth, so agents can work with GitLab projects the way gh works with GitHub. Targets gitlab.com by default and any self-managed instance via the host argument.
+
+args:
+  host:
+    default: "gitlab.com"
+    description: "GitLab instance hostname, e.g. gitlab.example.com for a self-managed instance"
+    # No scheme, path, port or shell metacharacters: the value is substituted
+    # into a network rule, an inject domain, and an install-hook shell string.
+    pattern: '^[A-Za-z0-9][A-Za-z0-9.-]*$'
+  service:
+    default: "gitlab"
+    description: "Credential service name to bind with `sbx secret set`. Give a self-managed sandbox its own name (e.g. gitlab-acme) so it can hold a different PAT from a gitlab.com sandbox."
+    # Same grammar the spec requires of credentials[].service.
+    pattern: '^[a-z0-9]([a-z0-9-]{0,62}[a-z0-9])?$'
 
 permissions:
   network:
     allow:
-      # glab API traffic and the pinned release tarball download (install
-      # time). Release assets are served from gitlab.com directly — verified
-      # under deny-all e2e; no object-storage host needed.
+      # The target instance: glab API traffic.
+      - "${{ kit.args.host }}:443"
+      # Install time only. The pinned glab release tarball is served from
+      # gitlab.com whatever instance the kit targets, and the download
+      # redirects to a gitlab.com /api/v4/projects/… package path. Note this
+      # domain is deliberately NOT an injection destination below.
       - gitlab.com:443
 
 credentials:
-  - service: gitlab
-    description: GitLab personal access token (api scope). Stored on the host; the sandbox only sees a placeholder and the proxy injects the real value on requests to gitlab.com.
+  - service: "${{ kit.args.service }}"
+    description: GitLab personal access token (api scope) for the target instance. Stored on the host; the sandbox only sees a placeholder and the proxy injects the real value on requests to that instance.
     required: true
     apiKey:
       # glab reads GITLAB_TOKEN and treats itself as logged in. proxyManaged
       # sets it to the sentinel inside the container; the proxy replaces the
-      # Authorization header with the real token on outbound gitlab.com calls.
+      # Authorization header with the real token on outbound calls.
       #
       # A second inject rule with `scheme: basic` (for git-over-HTTPS) was
       # tried and confirmed NOT to work: the proxy does not disambiguate two
@@ -30,27 +46,45 @@ credentials:
       name: GITLAB_TOKEN
       proxyManaged: true
       inject:
-        - domain: gitlab.com
+        # Only the target instance. gitlab.com must not appear here when it is
+        # not the target: the install-time download above would then carry a
+        # PAT minted on another instance, and GitLab rejects a bad token
+        # outright rather than falling back to anonymous access — the download
+        # 401s and the kit fails to apply.
+        - domain: "${{ kit.args.host }}"
           header: Authorization
           format: Bearer %s
+
+environment:
+  variables:
+    # Pins glab to the instance this sandbox holds a token for. Without it
+    # glab falls back to "gitlab.com, or the authenticated host in the current
+    # Git directory", which can target a host the proxy injects nothing for.
+    GITLAB_HOST: "${{ kit.args.host }}"
 
 agentInstructions:
   content: |
     ## GitLab CLI
 
-    `glab` is installed and authenticated against gitlab.com through the
-    sandbox proxy — `GITLAB_TOKEN` is a proxy-managed placeholder, never the
-    real token. Use `glab api ...` for arbitrary GitLab REST calls and the
-    usual `glab mr` / `glab issue` / `glab repo` subcommands. Verify auth
-    with `glab auth status`.
+    `glab` is installed and authenticated against ${{ kit.args.host }}
+    through the sandbox proxy — `GITLAB_TOKEN` is a proxy-managed
+    placeholder, never the real token. Use `glab api ...` for arbitrary
+    GitLab REST calls and the usual `glab mr` / `glab issue` / `glab repo`
+    subcommands. Verify auth with `glab auth status`.
+
+    Only ${{ kit.args.host }} is authenticated. `GITLAB_TOKEN` holds a
+    sentinel the proxy rewrites for that host alone, so a request to any
+    other GitLab instance sends the literal sentinel and gets a 401 rather
+    than falling back to anonymous access. Nothing secret is exposed by
+    this; use a separate sandbox for a different instance.
 
     Git-over-HTTPS push/pull auth is NOT wired up by this kit (the sandbox
-    proxy cannot rewrite git's Basic auth on gitlab.com without breaking the
-    Bearer auth `glab`/the API rely on — same domain, two schemes). For
-    `git clone` / `git push` / `git pull` against GitLab, use SSH remotes
-    (`git@gitlab.com:group/project.git`) — add the `gitlab-ssh` kit for
-    passwordless host-key verification, and load your key with `ssh-add`
-    on the host so it forwards into the sandbox.
+    proxy cannot rewrite git's Basic auth without breaking the Bearer auth
+    `glab`/the API rely on — same domain, two schemes). For `git clone` /
+    `git push` / `git pull`, use SSH remotes
+    (`git@${{ kit.args.host }}:group/project.git`) — add the `gitlab-ssh`
+    kit for passwordless host-key verification, and load your key with
+    `ssh-add` on the host so it forwards into the sandbox.
 
 setup:
   install:
@@ -60,14 +94,14 @@ setup:
     # sourced from the release's checksums.txt.
     - command: |
         set -euo pipefail
-        GLAB_VERSION=1.114.0
+        GLAB_VERSION=1.118.0
         ARCH=$(dpkg --print-architecture)
         case "$ARCH" in
           amd64)
-            SHA256="00e892a80d586a1e8b8fdc035321923db99dce0caa3b0c4fd72c5337ffdb1c48"
+            SHA256="f3782ddb62b6ab20d0031699ea7b43f345dc6f63e991883660e21343b9524931"
             ;;
           arm64)
-            SHA256="d34d7ddb96ce5e5f3423d7e8053cb14c36bd93984e4b96320f7e20a341b83498"
+            SHA256="0f6171766dd7f8246b7ce85bab18bd99d57ce2538e0ec9121c48fe004308eac4"
             ;;
           *)
             echo "unsupported sandbox arch: $ARCH (expected amd64 or arm64)" >&2
@@ -83,4 +117,30 @@ setup:
         rm -rf /tmp/glab.tgz /tmp/bin
         glab --version
       user: "0"
-      description: "Install glab v1.114.0, version+digest pinned"
+      description: "Install glab v1.118.0, version+digest pinned"
+
+    # glab consults GITLAB_TOKEN for a host only if that host appears in its
+    # config. gitlab.com is built in; any other host without an entry is
+    # reported as "has not been authenticated with glab" even while every API
+    # call succeeds on the env token. Seeding an entry — carrying no token —
+    # makes `glab auth status` agree with reality. glab refuses to read a
+    # config that is not 0600.
+    - command: |
+        set -euo pipefail
+        CFG=/home/agent/.config/glab-cli/config.yml
+        # install re-runs on recreate: never clobber a config the user has
+        # since edited (or that `glab auth login` has written into).
+        if [ ! -f "$CFG" ]; then
+          install -d -m 0700 -o agent -g agent /home/agent/.config/glab-cli
+          cat > "$CFG" <<'EOF'
+        hosts:
+          ${{ kit.args.host }}:
+            api_host: ${{ kit.args.host }}
+            api_protocol: https
+            git_protocol: ssh
+        EOF
+          chmod 600 "$CFG"
+          chown agent:agent "$CFG"
+        fi
+      user: "0"
+      description: "Seed glab's host config so `glab auth status` recognizes the instance"

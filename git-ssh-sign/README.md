@@ -187,14 +187,54 @@ Git execs the key command itself, so a bare path would fail with `cannot
 exec: Permission denied` before any of the script's own diagnostics could
 run.
 
-When Git needs a signing key, it runs that command. The command reads the
-first public key from `ssh-add -L`, writes
+When Git needs a signing key, it runs that command. The command picks a
+public key from `ssh-add -L` (see below), writes
 `/home/agent/.config/git/allowed_signers` for signature verification, and
 prints the key in Git's inline `key::...` format.
 
 This avoids writing key material at install or startup time, when the
 forwarded SSH agent may not be connected yet. It also avoids relying on
 Git hooks for signing.
+
+**Picking which forwarded key to sign with**
+
+A host's SSH agent often forwards more than one key — e.g. a password
+manager's own key alongside the key you actually use with GitHub — and
+nothing about `ssh-add -L`'s ordering says which one is registered
+anywhere. Signing with the wrong one still produces a valid signature,
+but it shows **Unverified** on GitHub because that key was never added
+to the committer's account.
+
+When the repo's remote is on `github.com` and the `gh` CLI is
+authenticated (`gh auth status`), the command instead:
+
+1. Resolves the committer's GitHub login (`gh api user`).
+2. Fetches their registered signing keys from the public,
+   unauthenticated `GET /users/{username}/ssh_signing_keys` endpoint —
+   deliberately not `github.com/{username}.keys`, which only lists
+   **authentication** keys and can diverge from the signing-key list.
+3. Uses whichever of the agent's keys matches one of those, falling back
+   to the first agent key if none do.
+
+The fallback writes a warning to stderr, but git only echoes the key
+command's stderr in the `gpg.ssh.defaultKeyCommand failed:` line, which it
+prints when the command *exits non-zero* — so on the fallback
+path the commit signs and looks entirely normal. Run the command by hand
+to see it:
+
+```console
+/bin/sh ~/.config/git/ssh-signing-key-command
+```
+
+The GitHub response is cached for 5 minutes in
+`/home/agent/.config/git/github-signing-keys.cache`, since this command
+runs on every single commit and signature and unauthenticated GitHub API
+requests are capped at 60/hour per source IP.
+
+On any other remote host, or without `gh`, this step is skipped
+entirely: no network call is made and the command signs with the first
+key the agent offers. GitHub Enterprise Server and other forges aren't
+cross-checked.
 
 **Composing with repo-local hooks**
 

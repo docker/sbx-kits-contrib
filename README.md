@@ -207,22 +207,26 @@ The TCK validates your kit automatically:
 
 ## End-to-end (e2e) Tests
 
-The default TCK runs every kit assertion against a fabricated `testcontainers-go` container — fast, deterministic, no `sbx` needed. The optional e2e layer goes further: it boots a **real `sbx` sandbox** from the kit, then verifies the kit's content actually landed inside the running container. It catches things the default TCK can't — install commands that fail under the non-root agent user, `${WORKDIR}` placeholders that resolve differently than expected, agent-kit name mismatches, or memory blocks the engine never writes out.
+The default TCK runs every kit assertion against a fabricated `testcontainers-go` container — fast, deterministic, no `sbx` needed. The optional e2e layer goes further: it boots a **real `sbx` sandbox** from the kit, then verifies the kit's content actually landed inside the running container. It catches things the default TCK can't — install commands that fail under the non-root agent user, `${WORKDIR}` placeholders that resolve differently than expected, agent-kit name mismatches, or `agentContext` content the engine never renders.
 
 ### What the e2e test does
 
-`tck/e2e_test.go` (build-tag `e2e`, function `TestE2ECreateSandbox`) drives one kit per run:
+`tck/e2e_test.go` (build-tag `e2e`, function `TestE2EKit`) drives one kit per run — a thin wrapper around the exported `tck.RunE2EKit`, which any module importing this package can call against its own app-name:
 
 1. Loads the kit at `$KIT_UNDER_TEST`.
 2. Runs `sbx create`, shaped by the kit's manifest kind, against a temporary workspace:
    - `kind: sandbox` → `sbx create <kit> --name <unique> <tmpdir>` — the kit's own directory is the first positional, no `--kit` flag or agent argument. `sbx create --kit <sandbox-kit> ... <agent>` still works with a deprecation warning when `<agent>` doesn't name a built-in, but hard-fails as `must be kind "mixin", got "sandbox"` when it does, since the positional then resolves to the built-in rather than this kit; the positional form drops that deprecation warning for every sandbox kit, not only the built-in-shadowed ones.
    - `kind: mixin` → `sbx create --kit <kit> --name <unique> <agent> <tmpdir>`, composing the mixin onto `<agent>` (`claude`, or the mixin's declared base-agent affinity).
+   - For a `kind: sandbox` kit whose name still collides with a built-in agent, with `extractedFromBuiltin: true` set in its `testdata/tck.yaml`, the test retries from a temporary copy renamed `<name>-e2e` and runs the same subtests under that name — see [`skills/kit-author/topics/testing.md`](./skills/kit-author/topics/testing.md#kits-that-replace-a-built-in-agent) for the full table.
+
+   When the wrapper script side-loaded a Dockerfile kit's freshly built image, the create runs with `--pull=never` so that image is what boots (see "Overrides via env" below to change this).
 3. Verifies, via `sbx exec`, that the running sandbox contains:
    - every `environment.variables` entry,
    - every file under `files/home` and every `commands.initFiles` (with `${WORKDIR}` resolved to `/home/agent/workspace`, the real sandbox workdir),
    - every declared `tmpfs` mount (plus the implicit `/run/secrets`),
-   - the rendered memory file — `Manifest.AIFilename` for agent kits (inlined memory) or `kits-memory/<kit-name>.md` for mixin kits.
-4. Cleans up with `sbx rm -f <name>`.
+   - the rendered `agentContext` — inlined into the AI file (`aiFilename`) for `kind: sandbox` kits, or written to `kits-agent-context/<kit-name>.md` for `kind: mixin` kits.
+   - for `kind: sandbox` kits whose `testdata/tck.yaml` declares `promptArgs`, a non-interactive prompt to the agent.
+4. Cleans up with `sbx rm -f <name>` — unless the run failed, in which case the sandbox is kept for post-mortem and the test logs the `sbx policy log <name>` command to inspect it; the next wrapper run removes any such leftover before starting.
 
 ### Prerequisites
 
@@ -239,7 +243,7 @@ The default TCK runs every kit assertion against a fabricated `testcontainers-go
 
 ### Running locally
 
-The test is hidden behind the `e2e` build tag so kit authors running `go test ./...` see no behavior change. Opt in via the wrapper — the script handles the `--app-name` scoping and `deny-all` policy for you:
+The test is hidden behind the `e2e` build tag so kit authors running `go test ./...` see no behavior change. Opt in via the wrapper — the script handles the `--app-name` scoping and `deny-all` policy for you, and — for a kit that ships a `Dockerfile` — builds and side-loads its image so e2e runs against this working tree's build:
 
 ```bash
 # From inside the kit's directory:
@@ -250,13 +254,13 @@ cd my-kit
 ./scripts/test-kit-e2e.sh my-kit
 ```
 
-Idempotent and non-interactive. Re-running converges on the same state — set the same default policy, run the test, leave the scoped daemon as it was. Overrides via env: `APP_NAME` (default `sbx-kits-contrib-tck`) and `POLICY` (default `deny-all`; set `POLICY=` to skip the policy step). Extra positional flags are forwarded to `go test`.
+Idempotent and non-interactive. Re-running converges on the same state — set the same default policy, run the test, leave the scoped daemon as it was. Overrides via env: `APP_NAME` (default `sbx-kits-contrib-tck`), `POLICY` (default `deny-all`; set `POLICY=` to skip the policy step), `SBX_KIT_SKIP_IMAGE_LOAD` (set to `1` to skip building and side-loading a Dockerfile kit's image and use the published one instead), and `SBX_E2E_PULL_POLICY` (passed to `sbx create --pull`; the script sets it to `never` after a side-load, set it explicitly to override). Extra positional flags are forwarded to `go test`.
 
-If you'd rather drop to `go test` directly (note: this skips the policy-set step, so you need to apply `deny-all` yourself or the network contract isn't tested):
+If you'd rather drop to `go test` directly (note: this skips the policy-set step, so you need to apply `deny-all` yourself or the network contract isn't tested, and skips the image side-load, so a Dockerfile kit tests against its published image rather than this working tree's build):
 
 ```bash
 KIT_UNDER_TEST="$PWD/my-kit" \
-  go test -tags=e2e -v -timeout 25m -count=1 -run TestE2ECreateSandbox ./tck/...
+  go test -tags=e2e -v -timeout 25m -count=1 -run TestE2EKit ./tck/...
 ```
 
 `KIT_UNDER_TEST` must be an **absolute path**: `go test` runs each binary with its working directory set to the package directory (`./tck/`), so a relative path resolves against `./tck/`, not the repo root.
@@ -269,7 +273,7 @@ for spec in $(find "$PWD" -mindepth 2 -maxdepth 2 \( -name spec.yaml -o -name sp
 done
 ```
 
-Each subtest (`env`, `files/<path>`, `tmpfs/<path>`, `memory`) reports independently, so a failure pinpoints which piece of kit content didn't make it into the container.
+Each subtest (`env`, `files/<path>`, `tmpfs/<path>`, `agentContext`, `prompt`) reports independently, so a failure pinpoints which piece of kit content didn't make it into the container.
 
 ### Running in CI
 

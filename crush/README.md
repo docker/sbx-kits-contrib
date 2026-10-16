@@ -130,10 +130,11 @@ kit-specific build script or workflow; CI builds and publishes this image the
 same way it does for `hermes-agent`/`pi`/`openclaw`/`kiro`/`copilot`.
 
 Crush's tagged releases land roughly weekly, so this image rolls: the
-`Dockerfile`'s `ADD` against the GitHub releases API forces a fresh apt
+`Dockerfile`'s `ADD` against the GitHub releases Atom feed forces a fresh apt
 install whenever a new release is published, and the pipeline's nightly
-scheduled rebuild picks one up within a day either way. To reproduce a
-specific release, build with `--build-arg CRUSH_REF=tags/vX.Y.Z`.
+scheduled rebuild picks one up within a day either way. The installed version
+always comes from Charm's apt repository, not from the feed, so there is no
+build arg to pin a specific release here.
 
 ### Building locally
 

@@ -1,0 +1,331 @@
+schemaVersion: "2"
+kind: mixin
+name: github-clone
+displayName: GitHub Clone
+description: Clones a GitHub repository into the sandbox at create time, using the gh CLI with a proxy-managed GH_TOKEN sentinel. Auto-installs gh if the base image doesn't have it.
+
+# Args are v2 kit inputs — the installer supplies them at `sbx run --kit …`
+# time; they are substituted textually into this spec (and the install hook
+# below) before decoding. See spec/SPEC-v2.md §2.1.
+args:
+  repo:
+    required: true
+    description: |
+      GitHub repository to clone. Accepts the `owner/name` shorthand, a full
+      `https://github.com/owner/name[.git]` URL, or an
+      `git@github.com:owner/name[.git]` SSH URL. Any other form is rejected
+      before the clone shells out.
+    # RE2. Deliberately narrow: the value is interpolated straight into a
+    # shell command, so we reject anything that isn't a recognisable GitHub
+    # repo spec.
+    pattern: '^(?:[A-Za-z0-9._-]+/[A-Za-z0-9._-]+(?:\.git)?|https://github\.com/[A-Za-z0-9._-]+/[A-Za-z0-9._-]+(?:\.git)?|git@github\.com:[A-Za-z0-9._-]+/[A-Za-z0-9._-]+(?:\.git)?)$'
+  ref:
+    default: ""
+    description: |
+      Optional git ref (branch, tag, or 7–40 hex commit SHA) to check out.
+      Empty (the default) clones the repo's default branch. Mutually
+      exclusive with `pr`.
+    pattern: '^[A-Za-z0-9._/-]*$'
+  pr:
+    default: ""
+    description: |
+      Optional pull request number to check out with `gh pr checkout` after
+      the clone. The PR lands on a local branch, so `git push` from the
+      sandbox updates it. Empty (the default) leaves the working copy on
+      `ref` or the repo's default branch. Mutually exclusive with `ref`.
+    # Number only. A PR URL would let the value name a different repository
+    # than `repo`, leaving the clone and the checked-out branch unrelated.
+    pattern: '^[0-9]*$'
+  dir:
+    default: "/project"
+    description: |
+      Absolute directory inside the sandbox to clone into. If the directory
+      already exists and is non-empty, the clone is skipped (the mixin
+      re-runs cleanly on `sbx create` retries).
+    pattern: '^/[A-Za-z0-9._/-]+$'
+
+permissions:
+  network:
+    # The complete outbound contract for this mixin. Two groups:
+    #
+    # 1. `gh` runtime traffic (clone + gh api + credential-helper auth).
+    #    Every credential-inject domain below is also listed here — the
+    #    engine requires it (spec/SPEC-v2.md §5.2, "All-egress-declared").
+    #
+    # 2. `apt-get` install path when `gh` is missing from the base image.
+    #    `apt-get update` refreshes every configured source, and the
+    #    shell-docker / *-docker templates pre-add Docker's apt repo, so
+    #    all four Ubuntu + Docker hosts must be reachable even though we
+    #    only fetch from cli.github.com. Ubuntu hosts amd64 packages on
+    #    archive/security and arm64 packages on ports.ubuntu.com, so all
+    #    three Ubuntu hosts are listed for cross-arch coverage.
+    allow:
+      # gh + git runtime
+      - api.github.com
+      - github.com
+      - codeload.github.com
+      - raw.githubusercontent.com
+      # apt-install path (only used when the base image lacks gh)
+      - cli.github.com            # GitHub CLI apt repo (keyring + packages)
+      - archive.ubuntu.com        # Ubuntu archive (amd64 main)
+      - security.ubuntu.com       # Ubuntu security updates (amd64)
+      - ports.ubuntu.com          # Ubuntu archive/security (arm64)
+      - download.docker.com       # Docker's apt repo, pre-added by *-docker bases
+
+# The credential this mixin needs, and where the proxy may spend it. The
+# host side (`~/.config/sbx/credentials.yaml`, or `sbx secret set github`)
+# declares *where* the token lives — kits never declare discovery. See
+# SPEC-v2.md §5.4.
+#
+# `proxyManaged: true` keeps the real token out of the container: GH_TOKEN
+# in-container is a synthetic sentinel and the proxy substitutes the real
+# value on the way out.
+#
+# Both inject domains also appear in `permissions.network.allow` above —
+# the spec requires it (§5.4.1). api.github.com covers `gh api` and the
+# `gh repo clone` metadata lookup; github.com covers the git HTTPS
+# transport, so `git push` / `git pull` from inside the sandbox work too.
+credentials:
+  - service: github
+    description: Token used to clone the repository and for later gh/git operations.
+    apiKey:
+      name: GH_TOKEN
+      proxyManaged: true
+      inject:
+        - domain: api.github.com
+          header: Authorization
+          format: Bearer %s
+        - domain: github.com
+          header: Authorization
+          username: x-access-token
+          format: "%s"
+
+setup:
+  install:
+    # First hook: idempotently ensure `gh` (and `git`) are on PATH. Skipped
+    # entirely if the base image already carries them, so this pays the
+    # apt-get cost only on bases that need it.
+    - command: |
+        set -euo pipefail
+
+        NEED=""
+        command -v gh  >/dev/null 2>&1 || NEED="$NEED gh"
+        command -v git >/dev/null 2>&1 || NEED="$NEED git"
+
+        if [ -z "$NEED" ]; then
+          exit 0
+        fi
+
+        if ! command -v apt-get >/dev/null 2>&1; then
+          echo "github-clone: missing:$NEED and apt-get is not available — this kit only knows how to auto-install on Debian/Ubuntu bases. Layer a mixin that installs the missing tools, or pick a base agent that ships them." >&2
+          exit 1
+        fi
+
+        export DEBIAN_FRONTEND=noninteractive
+
+        # Add GitHub's official apt source only when gh is what's missing.
+        # Recipe follows https://github.com/cli/cli/blob/trunk/docs/install_linux.md.
+        case " $NEED " in
+          *' gh '*)
+            install -m 0755 -d /etc/apt/keyrings
+            if command -v curl >/dev/null 2>&1; then
+              curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg \
+                -o /etc/apt/keyrings/githubcli-archive-keyring.gpg
+            elif command -v wget >/dev/null 2>&1; then
+              wget -qO /etc/apt/keyrings/githubcli-archive-keyring.gpg \
+                https://cli.github.com/packages/githubcli-archive-keyring.gpg
+            else
+              # Fall back to installing curl first via apt so we can fetch
+              # the keyring; the base at least has ca-certificates for the
+              # https handshake (every *-docker base does).
+              apt-get update -qq
+              apt-get install -y -qq --no-install-recommends curl ca-certificates
+              curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg \
+                -o /etc/apt/keyrings/githubcli-archive-keyring.gpg
+            fi
+            chmod go+r /etc/apt/keyrings/githubcli-archive-keyring.gpg
+            echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" \
+              > /etc/apt/sources.list.d/github-cli.list
+            ;;
+        esac
+
+        apt-get update -qq
+        # `$NEED` is intentionally unquoted — it's a space-separated list
+        # of package names constructed from the two `command -v` checks
+        # above, not user input.
+        apt-get install -y -qq --no-install-recommends $NEED
+        rm -rf /var/lib/apt/lists/*
+      user: "0"
+      description: Install gh (and git) via apt if the base image doesn't already ship them
+
+    # Second hook: prepare the clone destination and system-wide Git auth as
+    # root. The clone itself runs as the agent in the next hook; creating and
+    # handing off the destination here lets that work even for paths such as
+    # /project whose parent is not writable by uid 1000.
+    #
+    # The value of `${{ kit.args.* }}` is substituted textually into this
+    # string before the spec is decoded; the args' `pattern:` constraints
+    # above are what keep that safe.
+    - command: |
+        set -euo pipefail
+
+        REF='${{ kit.args.ref }}'
+        PR='${{ kit.args.pr }}'
+        DIR='${{ kit.args.dir }}'
+
+        # Both args pick the checked-out commit, so honouring both would mean
+        # silently letting one win. Fail at create time instead.
+        if [ -n "$REF" ] && [ -n "$PR" ]; then
+          echo "github-clone: 'ref' and 'pr' are mutually exclusive — pass one or the other." >&2
+          exit 1
+        fi
+
+        # Route git HTTPS auth for github.com through gh's credential helper
+        # for both the clone below and later agent-run git operations.
+        git config --system --unset-all credential."https://github.com".helper 2>/dev/null || true
+        git config --system --add       credential."https://github.com".helper ''
+        git config --system --add       credential."https://github.com".helper '!gh auth git-credential'
+
+        # Idempotent re-run: don't change ownership of an existing working
+        # tree. The agent hook below performs the same check and skips it.
+        if [ -d "$DIR" ] && [ -n "$(ls -A "$DIR" 2>/dev/null || true)" ]; then
+          exit 0
+        fi
+
+        mkdir -p "$DIR"
+        chown agent:agent "$DIR"
+      user: "0"
+      description: Prepare ${{ kit.args.dir }} for an agent-owned clone
+
+    # Third hook: clone as the same uid that runs the agent. Besides making
+    # the resulting tree agent-owned from the outset, this avoids Git's
+    # dubious-ownership check when the destination already belongs to uid
+    # 1000 (as /home/agent/workspace does in the standard images).
+    - command: |
+        set -euo pipefail
+
+        REPO='${{ kit.args.repo }}'
+        REF='${{ kit.args.ref }}'
+        PR='${{ kit.args.pr }}'
+        DIR='${{ kit.args.dir }}'
+
+        if [ -d "$DIR" ] && [ -n "$(ls -A "$DIR" 2>/dev/null || true)" ]; then
+          echo "github-clone: '$DIR' already exists and is non-empty; skipping clone." >&2
+          exit 0
+        fi
+
+        # Prefer `gh`, but only when a real credential actually backs the
+        # sentinel. GH_TOKEN alone cannot tell us that: for a kit-declared
+        # `proxyManaged` apiKey the engine sets the literal placeholder
+        # `proxy-managed` in every proxy-backed sandbox, whether or not a host
+        # credential is bound. `gh` spends that placeholder verbatim, and with
+        # nothing bound the proxy has no real token to substitute for it, so
+        # GitHub answers "HTTP 401: Bad credentials" instead of serving the
+        # request anonymously. SBX_CRED_GITHUB_MODE carries the backing
+        # decision and reads `none` when nothing is bound.
+        #
+        # Both halves of the test earn their place, on different deployments:
+        # a local sandbox always sets GH_TOKEN and reports backing through the
+        # mode var, while a hosted one may omit the mode var and set GH_TOKEN
+        # only when a credential does back it — hence the empty default, which
+        # must compare unequal to `none`. Same two-condition form opencode's
+        # Copilot seed uses.
+        #
+        # With no backing — the TCK container, or a public clone with no host
+        # binding — fall back to plain `git clone` so the install still
+        # succeeds for public repos. `pr` always needs gh.
+        use_gh=0
+        if [ -n "${GH_TOKEN:-}" ] && [ "${SBX_CRED_GITHUB_MODE:-}" != none ]; then
+          use_gh=1
+        fi
+
+        to_https_url() {
+          case "$1" in
+            https://github.com/*) printf '%s\n' "$1" ;;
+            git@github.com:*)
+              printf 'https://github.com/%s\n' "${1#git@github.com:}"
+              ;;
+            *) printf 'https://github.com/%s.git\n' "$1" ;;
+          esac
+        }
+
+        if [ -n "$PR" ] && [ "$use_gh" -eq 0 ]; then
+          echo "github-clone: 'pr' requires a GitHub token (bind one with \`sbx secret set -g github\`); none is available in this sandbox." >&2
+          exit 1
+        fi
+
+        # gh reads GH_TOKEN itself, so no extra plumbing is needed for
+        # the clone. Extra flags after `--` are passed straight to
+        # `git clone`.
+        if [ "$use_gh" -eq 1 ]; then
+          if [ -n "$PR" ]; then
+            # Full history on purpose. `gh pr checkout` fetches the PR head
+            # into the clone, and in a --depth 1 repo that head shares no
+            # ancestor with the base branch, so `git diff base...HEAD` and
+            # `git log base..HEAD` — the first things anyone reviewing a PR
+            # reaches for — fail with "no merge base".
+            gh repo clone "$REPO" "$DIR"
+          elif [ -n "$REF" ]; then
+            # Fast path: shallow-clone a branch or tag directly. Fallback:
+            # if REF is a commit SHA (not a branch/tag), --branch fails, so
+            # do a full clone and check the SHA out.
+            if ! gh repo clone "$REPO" "$DIR" -- --depth 1 --branch "$REF" 2>/dev/null; then
+              # Keep the root-created destination itself: uid 1000 may not be
+              # able to recreate it beneath a root-owned parent such as `/`.
+              find "$DIR" -mindepth 1 -maxdepth 1 -exec rm -rf -- {} +
+              gh repo clone "$REPO" "$DIR"
+              git -C "$DIR" checkout "$REF"
+            fi
+          else
+            gh repo clone "$REPO" "$DIR" -- --depth 1
+          fi
+        else
+          URL=$(to_https_url "$REPO")
+          if [ -n "$REF" ]; then
+            if ! git clone --depth 1 --branch "$REF" "$URL" "$DIR" 2>/dev/null; then
+              find "$DIR" -mindepth 1 -maxdepth 1 -exec rm -rf -- {} +
+              git clone "$URL" "$DIR"
+              git -C "$DIR" checkout "$REF"
+            fi
+          else
+            git clone --depth 1 "$URL" "$DIR"
+          fi
+        fi
+
+        if [ -n "$PR" ]; then
+          # Run from inside the clone so gh resolves the repo from origin —
+          # no --repo, which would have to re-parse $REPO's URL forms. gh
+          # looks the PR up over api.github.com, fetches its head, and
+          # leaves a local branch behind, including for PRs from forks.
+          ( cd "$DIR" && gh pr checkout "$PR" )
+        fi
+
+      user: "1000"
+      description: Clone ${{ kit.args.repo }} into ${{ kit.args.dir }} via gh
+
+agentInstructions:
+  # `filename` is ignored on a mixin (a warning at load, per SPEC-v2.md §4.2).
+  # The content below is written to `<AI-dir>/kits-memory/github-clone.md`
+  # and referenced from the base agent's AI file's `## Kits` section.
+  content: |
+    ## github-clone
+
+    A GitHub repository (`${{ kit.args.repo }}`) has been cloned into
+    `${{ kit.args.dir }}` at sandbox-create time. Treat that directory as
+    the working copy for this task rather than `~/workspace`.
+
+    The kit's `pr` arg is `${{ kit.args.pr }}` — empty when no pull request
+    was requested. When it holds a number, that PR is already checked out on
+    a local branch via `gh pr checkout` and the clone has full history, so
+    `git diff <base>...HEAD` shows the PR's changes and `git push` updates
+    the PR itself.
+
+    Authentication is proxy-mediated: `GH_TOKEN` in the container is a
+    sentinel — the sandbox proxy swaps in the real token bound on the host
+    (via `sbx secret set -g github`) when talking to `api.github.com` and
+    `github.com`. `gh` and `git` HTTPS operations both use this path, so
+    `gh api …`, `gh pr create`, `git push`, and friends work without any
+    extra setup.
+
+    Public repos work with no host-side credential bound; only writes and
+    private-repo access need one.

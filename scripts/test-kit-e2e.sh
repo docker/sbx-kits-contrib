@@ -19,7 +19,8 @@
 #   - For a kit that ships its own Dockerfile: builds that image and
 #     side-loads it into the scoped daemon's image store, so e2e runs against
 #     the image this working tree produces rather than a published one (or
-#     none at all). Skip with SBX_KIT_SKIP_IMAGE_LOAD=1.
+#     none at all), and creates the sandbox with --pull=never so that image
+#     is what runs. Skip with SBX_KIT_SKIP_IMAGE_LOAD=1.
 #   - Runs `go test -tags=e2e ./tck/...` with KIT_UNDER_TEST exported.
 #   - On failure, prints how to read `sbx policy log` to find the missing
 #     domains.
@@ -47,6 +48,9 @@
 #   POLICY   — change the default network policy applied to the scoped
 #              daemon (default: deny-all). Set POLICY= (empty) to skip
 #              the policy step entirely.
+#   SBX_E2E_PULL_POLICY — passed to `sbx create --pull`. Defaults to never
+#              when this script side-loaded an image, otherwise unset (sbx
+#              default). Set explicitly to override.
 #
 # Mirrors scripts/test-kit.sh — keep the resolution logic in sync.
 
@@ -275,21 +279,24 @@ if [ -f "$kit_abs/Dockerfile" ] && [ -z "${SBX_KIT_SKIP_IMAGE_LOAD:-}" ]; then
     exit "$load_rc"
   fi
 
+  # The side-loaded image must be what the sandbox runs, not a re-pulled tag.
+  export SBX_E2E_PULL_POLICY="${SBX_E2E_PULL_POLICY:-never}"
+
   # Verify the tag survived the round trip. `sbx create` resolves the spec's
-  # image reference verbatim, so if the import landed the image under a
-  # different name the test still fails at PREPARE IMAGE — with a confusing
-  # 403 rather than anything pointing here. Warn rather than fail: `template
-  # ls` output is not a contract, and a false negative here should not block a
-  # run that would otherwise work.
+  # image reference verbatim and runs with --pull=never, so if the import
+  # landed the image under a different name the run fails at PREPARE IMAGE
+  # with an image-not-cached error rather than anything pointing here. Warn
+  # rather than fail: `template ls` output is not a contract, and a false
+  # negative here should not block a run that would otherwise work.
   if ! sbx --app-name "$APP_NAME" template ls 2>/dev/null | grep -qF "${kit_image%%:*}"; then
     cat >&2 <<EOF
 
 WARNING: after 'template load', '${kit_image}' was not visible in:
   sbx --app-name $APP_NAME template ls
 
-If the run below fails at PREPARE IMAGE with a pull error, the import likely
-stored the image under a different reference. Check the list above and either
-retag before saving, or point the kit's sandbox.image at what landed.
+The create uses --pull=never, so if the run below fails at PREPARE IMAGE with
+the image not cached, the import stored it under a different reference. Check
+the list above and either retag before saving, or point sandbox.image at it.
 EOF
   fi
 fi
@@ -379,6 +386,10 @@ EOF
     fi
 
     cat >&2 <<EOF
+
+If the failure was PREPARE IMAGE reporting the image is not cached with
+pull_policy=never, a registry mirror on the host rewrites Docker Hub
+references so the side-loaded tag is never consulted.
 
 If the scoped daemon is wedged, wipe it (your main sbx is unaffected):
 

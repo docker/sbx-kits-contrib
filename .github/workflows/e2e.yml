@@ -157,6 +157,9 @@ jobs:
         # `ApplyKitNetworkPolicyScoped` in
         # docker/sandboxes:sandboxd/pkg/server/options_governance.go);
         # kit deny-rules win over allow-rules (deny-wins).
+        #
+        # For Dockerfile kits, it also side-loads the freshly built image and
+        # creates with --pull=never, so the branch's Dockerfile is what runs.
         run: ./scripts/test-kit-e2e.sh "${{ matrix.kit }}"
 
       - name: Sign out of Docker Hub

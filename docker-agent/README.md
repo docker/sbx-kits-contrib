@@ -253,18 +253,13 @@ Two build args beyond `BASE_IMAGE`:
 
 - `DOCKER_AGENT_VERSION` pins a release tag:
   `--build-arg DOCKER_AGENT_VERSION=v1.2.3`. Left empty, the build resolves the
-  newest release from the GitHub API.
+  newest release from github.com's `/releases/latest` redirect.
 - `TARGETARCH` is supplied by BuildKit and selects the release asset. It is not
   derived from `uname -m`, which would read the builder rather than the target
   and produce an amd64 binary inside an arm64 image under emulation.
 
-> [!IMPORTANT]
-> The version fallback is an **unauthenticated** GitHub API call, subject to a
-> per-IP hourly rate limit. On a shared or busy CI runner that limit can
-> already be exhausted by something else, and the call answers `403` with a
-> body carrying no `tag_name`. The build fails with a readable message rather
-> than downloading a URL with an empty tag in it — but the fix is to resolve
-> the tag once outside the build and pass it in:
+> [!NOTE]
+> Pin the tag directly to avoid depending on the redirect at all:
 >
 > ```console
 > $ docker build --build-arg DOCKER_AGENT_VERSION=v1.2.3 \

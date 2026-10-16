@@ -1,0 +1,243 @@
+schemaVersion: "2"
+kind: sandbox
+name: devin-enterprise
+version: "0.1.0"
+displayName: Devin (Enterprise)
+description: >-
+  Devin CLI by Cognition, pinned to a Devin Enterprise deployment
+  (<org>.devinenterprise.com). The sibling `devin` kit targets Cognition's
+  public SaaS; this fork repoints auth, API, and model backends at the
+  enterprise endpoints and takes the org slug as a kit argument.
+
+args:
+  # The enterprise org slug: "acme" for acme.devinenterprise.com. Required —
+  # everything in this kit (the auth redirect, the webapp host written into
+  # credentials.toml, /etc/devin/system.json) derives from it.
+  org:
+    required: true
+    description: 'Enterprise org slug — "acme" for acme.devinenterprise.com'
+    pattern: "^[a-z0-9][a-z0-9-]*$"
+
+sandbox:
+  # Same image as the `devin` kit — it already carries the CLI (installed as
+  # `devin-cli`) plus the stock auth wrapper. No rebuild needed.
+  image: "docker.io/sbx/devin-image:latest"
+  # A kit-provided entrypoint (setup.files below), NOT the image's `devin`
+  # wrapper. The wrapper rewrites credentials.toml to the proxy-managed
+  # sentinel and proves it still authenticates — which relies on the
+  # sandbox proxy's OAuth capture plus Devin credential handoff. On
+  # enterprise deployments that capture never happens: the token endpoint
+  # (api.devinenterprise.com/auth/cli/token) returns only the short-lived
+  # PKCE intermediate (expires_in: 0) and the durable-key handoff does not
+  # fire, so the sentinel can never validate and the wrapper exits 1.
+  # Tracked in https://github.com/docker/sbx-releases/issues/683 — once the
+  # handoff works for non-SaaS hosts this kit can switch to the managed
+  # credential model (credentials[] + oauth block + stock `devin`
+  # entrypoint) the same way `devin` does.
+  #
+  # Until then this kit passes the credential through: login writes the real
+  # durable key to ~/.local/share/devin/credentials.toml and it stays there,
+  # readable by the agent inside the sandbox. That is a weaker credential
+  # posture than the managed kits and is the accepted trade-off here.
+  entrypoint: [devin, "--permission-mode", "dangerous", "--respect-workspace-trust=false"]
+
+permissions:
+  network:
+    allow:
+      # The enterprise platform. <org>.devinenterprise.com serves the
+      # webapp + PKCE sign-in; api.devinenterprise.com is the shared
+      # enterprise API and OAuth token endpoint. `*.` matches exactly one
+      # DNS label.
+      - "*.devinenterprise.com"
+      # Model/seat backend: server.enterprise.windsurf.com (api_server_url),
+      # the shared Windsurf-side enterprise backend.
+      - "*.enterprise.windsurf.com"
+      # Kept from the upstream `devin` kit for the same reasons:
+      # sign-in may touch the SaaS host depending on server-side account
+      # routing.
+      - windsurf.com
+      # Login-time account verification probes the SaaS backend even on
+      # enterprise deployments (observed: Connect permission_denied when
+      # blocked). Egress only — no credential is declared, so nothing is
+      # rewritten.
+      - server.codeium.com
+      # Feature flags reach the login path; upstream observed the CLI hand
+      # out the wrong sign-in URL with this host blocked.
+      - unleash.codeium.com
+      # `devin update` fetches install.sh and the bundle manifest here;
+      # background auto-update is disabled via setup.files, so only an
+      # explicit update reaches them.
+      - cli.devin.ai
+      - static.devin.ai
+      # apt sources shipped by the shell-docker base image.
+      - archive.ubuntu.com
+      - security.ubuntu.com
+      - ports.ubuntu.com
+      - download.docker.com
+
+setup:
+  startup:
+    - command: ["sh", "-c", "{ command -v apt-get && apt-get update -qq -y || true; } >/dev/null 2>&1 </dev/null &"]
+      user: "root"
+      description: Update apt package cache in background
+    # Pin the CLI to the enterprise deployment. /etc/devin/system.json is the
+    # machine-wide policy path on Linux; with enterprise_host set,
+    # `devin auth login` skips the login-method menu and produces a sign-in
+    # URL on <org>.devinenterprise.com instead of the SaaS hosts. Written at
+    # every container start as root (setup.files runs as uid 1000 and cannot
+    # write /etc).
+    - command:
+        - sh
+        - -c
+        - |
+          mkdir -p /etc/devin
+          cat > /etc/devin/system.json <<'EOF'
+          {"enterprise_host": "${{ kit.args.org }}.devinenterprise.com"}
+          EOF
+      user: "root"
+      description: Pin Devin enterprise host via system.json
+    - command:
+        - sh
+        - -c
+        - |
+          set -e
+          [ -n "$MCP_GATEWAY_URL" ] || exit 0
+          mkdir -p "$HOME/.config/devin"
+          cat > "$HOME/.config/devin/mcp_config.json" <<EOF
+          {
+            "mcpServers": {
+              "mcp-gateway": {
+                "url": "$MCP_GATEWAY_URL",
+                "transport": "http",
+                "headers": {
+                  "Authorization": "Bearer $MCP_SENTINEL_TOKEN_NAME"
+                }
+              }
+            }
+          }
+          EOF
+      user: "agent"
+      description: Register the sandbox MCP gateway
+  files:
+    - path: /home/agent/.config/devin/config.json
+      content: '{"auto_update": false}'
+      onlyIfMissing: true
+      description: Disable Devin background updates
+    # Keep the base kit's credential-state checks and login validation, but
+    # omit secure_credentials: enterprise cannot use the proxy sentinel.
+    # Replace the image's wrapper under the same name so launching `devin`
+    # inside the sandbox uses the enterprise auth flow too.
+    - path: /home/agent/.local/bin/devin
+      content: |
+        #!/bin/bash
+        # Keep the base Devin wrapper's auth checks and login flow. Enterprise
+        # credentials stay on disk because proxy-managed auth is unavailable.
+        # The real CLI is installed alongside this wrapper as devin-cli.
+        #
+        # `set -e` is deliberately NOT set. Every failure below is checked explicitly,
+        # and several checks depend on reading a non-zero status rather than dying on
+        # it.
+        set -uo pipefail
+
+        credentials_file="${HOME}/.local/share/devin/credentials.toml"
+
+        # The four states the credential file can be in, as one word. They are
+        # exhaustive and mutually exclusive, which is what lets the dispatch below
+        # close with a plain `else`.
+        #
+        #   absent     — no file, or no windsurf_api_key line in it
+        #   empty      — the key is present but blank, which the CLI treats as
+        #                logged-in-with-nothing and will not overwrite on its own
+        #   sentinel   — a proxy placeholder left by the managed wrapper
+        #   credential — a real key sitting in the container
+        credential_state() {
+            if [[ ! -f "${credentials_file}" ]] ||
+                ! grep -Eq '^[[:space:]]*windsurf_api_key[[:space:]]*=' "${credentials_file}"; then
+                echo absent
+            elif grep -Eq '^[[:space:]]*windsurf_api_key[[:space:]]*=[[:space:]]*""[[:space:]]*$' "${credentials_file}"; then
+                echo empty
+            elif grep -Fqx 'windsurf_api_key = "devin-proxy-managed"' "${credentials_file}"; then
+                echo sentinel
+            else
+                echo credential
+            fi
+        }
+
+        # `devin-cli auth status` exits 0 whether or not a session exists in some
+        # releases, so its message is checked as well as its status. It is captured
+        # into a variable rather than piped into grep: `grep -q` exits on first match,
+        # which can leave devin-cli killed by SIGPIPE, and under `pipefail` that
+        # failure becomes the pipeline's status and would mask the successful match.
+        state=$(credential_state)
+        login_required=false
+        if [[ "${state}" == absent || "${state}" == empty ]]; then
+            login_required=true
+        elif [[ "${state}" == sentinel ]]; then
+            # The placeholder is only as good as the key the host holds behind it. If
+            # that key has been revoked or rotated away, the file is worthless — drop
+            # it and log in again rather than starting an agent that will fail on its
+            # first request.
+            if ! status=$(devin-cli auth status 2>&1) ||
+                [[ "${status,,}" == *"failed to fetch"* ]] ||
+                [[ "${status,,}" == *"not logged in"* ]]; then
+                rm -f "${credentials_file}"
+                state=absent
+                login_required=true
+            fi
+        else
+            # state == credential. A real key is on disk; find out whether it works
+            # before deciding. Unlike the sentinel branch above, a transport failure
+            # here is fatal rather than a trigger for re-login: this key may be the
+            # user's own, and silently discarding it on a network blip would be worse
+            # than stopping.
+            if ! status=$(devin-cli auth status 2>&1); then
+                echo "Failed to read Devin authentication status." >&2
+                exit 1
+            fi
+            if [[ "${status,,}" == *"failed to fetch"* ]]; then
+                echo "Failed to validate Devin authentication." >&2
+                exit 1
+            fi
+            [[ "${status,,}" == *"not logged in"* ]] && login_required=true
+        fi
+
+        if [[ "${login_required}" == true ]]; then
+            echo "Not authenticated. Starting Devin login..."
+            # An empty key reads as logged-in to the CLI, so `auth login` would refuse
+            # to run. Clearing the session first is what makes the login below
+            # reachable from that state.
+            if [[ "${state}" == empty ]] && ! devin-cli auth logout >/dev/null 2>&1; then
+                echo "Failed to clear empty Devin credentials." >&2
+                exit 1
+            fi
+            # No browser runs in the sandbox, so the default localhost redirect never
+            # comes back. --force-manual-token-flow is Devin's own answer for that
+            # case, documented for remote and SSH sessions: it prints a URL to open on
+            # the host and reads the token back here.
+            if ! devin-cli auth login --force-manual-token-flow; then
+                echo "Login failed." >&2
+                exit 1
+            fi
+            # Login returns as soon as it has written the durable key. This status
+            # call is what puts that key on the wire to a Devin host, which is the
+            # moment the proxy can capture it — before secure_credentials below
+            # replaces the local copy.
+            if ! status=$(devin-cli auth status 2>&1) ||
+                [[ "${status,,}" == *"failed to fetch"* ]] ||
+                [[ "${status,,}" == *"not logged in"* ]]; then
+                echo "Failed to validate Devin login." >&2
+                exit 1
+            fi
+        fi
+
+        # exec so devin-cli replaces this wrapper rather than running underneath it:
+        # Ctrl-C and SIGTERM then reach the CLI directly instead of a shell that would
+        # have to forward them.
+        exec devin-cli "$@"
+      mode: "0755"
+      description: Entrypoint — validate credentials, login if needed, then exec devin-cli
+
+# Same reasoning as the `devin` kit: Devin reads AGENTS.md from the
+# workspace root, and there is nothing kit-specific to tell it here.
+agentInstructions:
+  filename: AGENTS.md

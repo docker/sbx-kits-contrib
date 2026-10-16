@@ -2,13 +2,14 @@
 #
 # cursor is still a built-in agent in released sbx builds, and sbx refuses to
 # load a kit whose name collides with a built-in ("built-in agents cannot be
-# overridden by a kit"). This flag turns that one specific `sbx create` failure
-# into a skip, so the kit can land and be reviewed here before the built-in is
-# removed from sbx.
+# overridden by a kit"). This flag makes the e2e retry `sbx create` from a
+# temporary copy of the kit renamed `cursor-e2e`, then run the same subtests
+# it would under the real name, so the kit can land and be reviewed here
+# before the built-in is removed from sbx.
 #
 # Nothing needs re-enabling later: once a released sbx no longer registers the
-# built-in, `sbx create` succeeds, the full e2e runs, and the test logs a notice
-# that this line is obsolete and can be deleted.
+# built-in, the run happens under the kit's real name and the test logs a
+# notice that this line is obsolete and can be deleted.
 extractedFromBuiltin: true
 #
 # `promptArgs` is deliberately omitted, which skips the e2e `prompt` subtest.
@@ -31,8 +32,7 @@ extractedFromBuiltin: true
 # flags that could flake or hang CI.
 #
 # The remaining subtests (env, files, tmpfs, agentContext) still run and are
-# what actually gate this kit — for as long as the built-in exists they are
-# skipped too, so read a green run here as "TCK passed", not "e2e passed".
+# what actually gate this kit.
 
 # The cursor kit's hooks do no MCP-gateway registration, so no `mcp:` block is
 # needed here.
