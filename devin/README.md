@@ -201,7 +201,7 @@ anything.
 The file is written directly rather than by shelling out to `devin mcp add`,
 which puts the exact key names in the spec where the TCK can pin them
 (`testdata/tck.yaml`). `transport` is Devin's spelling; the three
-asserted-against wrong answers are `type` (Codex's and opencode's), `httpUrl`
+asserted-against wrong answers are `type` (Claude Code's and opencode's), `httpUrl`
 (Gemini's) and `http_headers` (Codex's spelling of `headers`). Devin keeps MCP
 servers in `mcp_config.json` alone — its other settings live in the sibling
 `config.json` — so the file is rewritten whole rather than merged, which is

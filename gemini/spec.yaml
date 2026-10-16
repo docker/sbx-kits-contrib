@@ -1,0 +1,88 @@
+schemaVersion: "2"
+kind: sandbox
+name: gemini
+# The kit's version, not Gemini CLI's. The image installs the latest CLI from
+# npm on every rebuild, so this is a release number, not a content identity.
+version: "1.0.0"
+displayName: Gemini CLI (deprecated)
+description: Google Gemini CLI. Deprecated in favour of the antigravity kit.
+
+sandbox:
+  image: docker.io/sbx/gemini-image:latest
+  entrypoint:
+    - gemini
+  command:
+    default:
+      - --yolo
+
+agentInstructions:
+  filename: GEMINI.md
+
+credentials:
+  - service: google
+    description: Gemini API key
+    apiKey:
+      name: GEMINI_API_KEY
+      proxyManaged: true
+      inject:
+        - domain: aiplatform.googleapis.com
+          header: x-goog-api-key
+          format: "%s"
+        - domain: generativelanguage.googleapis.com
+          header: x-goog-api-key
+          format: "%s"
+        - domain: oauth2.googleapis.com
+          header: x-goog-api-key
+          format: "%s"
+        - domain: vertexai.googleapis.com
+          header: x-goog-api-key
+          format: "%s"
+
+permissions:
+  network:
+    allow:
+      - accounts.google.com
+      - aiplatform.googleapis.com
+      - generativelanguage.googleapis.com
+      - oauth2.googleapis.com
+      - vertexai.googleapis.com
+
+environment:
+  variables:
+    BROWSER: xdg-open
+    DISPLAY: ":0"
+    SANDBOX: docker
+    GEMINI_SANDBOX: "false"
+
+setup:
+  startup:
+    - command: ["sh", "-c", "{ command -v apt-get && apt-get update -qq -y || true; } >/dev/null 2>&1 </dev/null &"]
+      user: "root"
+      description: Update apt package cache in background
+    - command:
+        - sh
+        - -c
+        - |
+          set -e
+          [ -n "$MCP_GATEWAY_URL" ] || exit 0
+          cfg="$HOME/.gemini/settings.json"
+          mkdir -p "$(dirname "$cfg")"
+          [ -s "$cfg" ] || echo '{}' > "$cfg"
+          frag=/tmp/gemini-mcp-gateway.json
+          cat > "$frag" <<EOF
+          {
+            "mcpServers": {
+              "mcp-gateway": {
+                "httpUrl": "$MCP_GATEWAY_URL",
+                "headers": {
+                  "Authorization": "Bearer $MCP_SENTINEL_TOKEN_NAME"
+                }
+              }
+            }
+          }
+          EOF
+          jq -s '.[0] * .[1]' "$cfg" "$frag" > "$cfg.tmp"
+          mv "$cfg.tmp" "$cfg"
+          rm -f "$frag"
+      user: "1000"
+      description: Register the sandbox MCP gateway in Gemini CLI's user settings

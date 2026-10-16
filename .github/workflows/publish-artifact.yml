@@ -61,6 +61,17 @@ env:
       || secrets.DOCKERHUB_OIDC_CONNECTIONID == ''
       || secrets.DOCKERPUBLICBOT_WRITE_PAT == ''
       || vars.DOCKERPUBLICBOT_USERNAME == '') && '1' || '' }}
+  # Whether this run can hold an sbx session at all, which is a different
+  # question from whether it may publish. `sbx kit validate` refuses to run
+  # without one ("not signed in to Docker"), and publish-artifact.sh validates
+  # BEFORE the dry-run exit on purpose, so a same-repo pull request has to sign
+  # in even though it must never push. Keyed on the sbx credential only: the
+  # OIDC exchange, docker/login-action and oras below serve the push path and
+  # stay on DRY_RUN.
+  CAN_SBX_LOGIN: >-
+    ${{ (github.repository == 'docker/sbx-kits-contrib'
+      && secrets.DOCKERPUBLICBOT_WRITE_PAT != ''
+      && vars.DOCKERPUBLICBOT_USERNAME != '') && '1' || '' }}
 
 jobs:
   publish:
@@ -109,7 +120,7 @@ jobs:
           version: "1.3.3"
 
       - name: Sign in to Docker Hub with sbx
-        if: env.DRY_RUN == ''
+        if: env.CAN_SBX_LOGIN != ''
         # `--sign` attaches the signature (and the manifest read-back after
         # push) as sbx's own session, which resolves credentials
         # independently of the Docker credential store the login-action step
@@ -133,7 +144,12 @@ jobs:
         run: ./scripts/publish-artifact.sh "${{ inputs.kit }}" "${{ inputs.tag }}" >> "$GITHUB_OUTPUT"
         env:
           MOVE_LATEST: ${{ inputs.move-latest }}
+          # A fork pull request cannot reach the org's Hub credentials, so there
+          # is no session for `sbx kit validate` to run under. Skip validation
+          # there rather than fail a contributor's PR on a secret they cannot be
+          # given; every other event still validates.
+          SKIP_VALIDATE: ${{ env.CAN_SBX_LOGIN == '' && '1' || '' }}
 
       - name: Sign out of Docker Hub via sbx
-        if: always() && env.DRY_RUN == ''
+        if: always() && env.CAN_SBX_LOGIN != ''
         run: sbx logout --yes || true
