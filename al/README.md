@@ -9,7 +9,7 @@ A mixin that installs
 [`altool`](https://learn.microsoft.com/en-us/dynamics365/business-central/dev-itpro/developer/devenv-al-tool),
 the AL command-line compiler for
 [Microsoft Dynamics 365 Business Central](https://learn.microsoft.com/en-us/dynamics365/business-central/),
-together with the .NET 8 runtime it runs on, so the agent can build,
+together with the .NET 8 and .NET 10 runtimes it runs on, so the agent can build,
 compile, and package AL extensions inside the sandbox.
 
 ## Usage
@@ -51,10 +51,10 @@ agent@sandbox:~$ al compile /project:~/my-al-project /packagecachepath:~/my-al-p
 **altool and its runtime ship in the kit's image layers; nothing is
 downloaded into your sandbox.** `al.dockerfile` runs at build time:
 
-1. Installs the .NET 8 SDK into a throwaway build directory, and the
-   ASP.NET Core 8 runtime (which includes the base .NET runtime) into
-   `/opt/al/dotnet`. altool is framework-dependent on exactly those two
-   frameworks.
+1. Installs the .NET 10 SDK into a throwaway build directory, and the
+   ASP.NET Core 8 and 10 runtimes (each including the base .NET runtime)
+   side by side into `/opt/al/dotnet`. altool is framework-dependent on
+   exactly those two frameworks, in whichever major its release targets.
 2. Installs the pinned `Microsoft.Dynamics.BusinessCentral.Development.Tools`
    package into `/opt/al/tools` with `dotnet tool install --tool-path`.
 3. Writes `/usr/local/bin/al`, a small launcher that sets `DOTNET_ROOT`
@@ -62,7 +62,8 @@ downloaded into your sandbox.** `al.dockerfile` runs at build time:
    carries its own `DOTNET_ROOT`, `al` works from any process — an
    interactive shell, a non-login hook, or an MCP server spawned directly
    by the agent — without exporting anything into your environment.
-4. Checks the installed package version against the pin, deletes the SDK,
+4. Checks the installed package version against the pin and that both
+   runtime majors are present, deletes the SDK,
    and runs `al --version` against the shipped runtime alone, so an
    overlay that couldn't start fails the build rather than your sandbox.
 
@@ -88,7 +89,7 @@ prereleases — override the argument:
 docker buildx build ./al -f al/al.yaml --build-arg version=30.0.43.45776-beta ...
 ```
 
-The .NET 8 runtime floats to its latest servicing patch at each build,
+The .NET 8 and 10 runtimes float to their latest servicing patch at each build,
 so rebuilds pick up runtime security fixes without a kit change.
 
 To bump the default, read

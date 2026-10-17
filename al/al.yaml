@@ -11,7 +11,7 @@ kind: mixin
 displayName: AL (Business Central)
 description: >-
   altool, the AL command-line compiler and MCP server for Microsoft Dynamics 365
-  Business Central, with the .NET 8 runtime it runs on — so the agent can
+  Business Central, with the .NET 8 and 10 runtimes it runs on — so the agent can
   compile, package and inspect AL extensions in the sandbox.
 
 # altool's version, by reference to the `version` arg below — SPEC-v3 §4 admits
