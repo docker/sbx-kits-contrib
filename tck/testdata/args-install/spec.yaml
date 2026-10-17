@@ -1,0 +1,35 @@
+schemaVersion: "2"
+kind: mixin
+name: args-install
+version: "1.0.0"
+displayName: Args Install Fixture
+description: "TCK fixture: arguments substituted into an install command, a files/ payload, and environment variables."
+
+args:
+  greeting:
+    default: "the declared default"
+    description: "Overridden by testdata/tck.yaml; the install command asserts the override won."
+  version:
+    default: "1.20"
+    description: "Number-shaped, and quoted wherever it is referenced."
+    pattern: '^[0-9]+\.[0-9]+$'
+  token:
+    required: true
+    description: "Has no default, so testdata/tck.yaml must supply it."
+
+environment:
+  variables:
+    ARGS_FIXTURE_VERSION: "${{ kit.args.version }}"
+    ARGS_FIXTURE_TOKEN: "${{ kit.args.token }}"
+
+setup:
+  install:
+    - command: 'test "${{ kit.args.greeting }}" = "supplied by tck.yaml"'
+      description: install command receives a substituted argument
+    - command: 'grep -qx "version=${{ kit.args.version }}" /home/agent/.args-install/config.txt'
+      description: files payload carries a substituted argument
+    # The expected text is assembled in the shell from ${dollar} so that this
+    # command carries no opener of its own: were it written with the escape it
+    # is checking, both sides would move together and assert nothing.
+    - command: 'dollar=$; grep -qxF "literal=${dollar}{{ kit.args.version }}" /home/agent/.args-install/config.txt'
+      description: an escaped opener stays literal in the files payload

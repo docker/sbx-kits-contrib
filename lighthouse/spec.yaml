@@ -1,0 +1,133 @@
+schemaVersion: "2"
+kind: mixin
+name: lighthouse
+displayName: Lighthouse
+description: Google Lighthouse CLI for auditing performance, accessibility, SEO, and best practices — headless Chromium included so agents can score pages served inside the sandbox.
+agentInstructions:
+  content: |
+    ## Lighthouse
+
+    `lighthouse` v12.6.1 is on PATH. Chromium lives under
+    /opt/ms-playwright; CHROME_PATH points at a stable
+    /usr/local/bin/chromium symlink. Don't unset CHROME_PATH or
+    PLAYWRIGHT_BROWSERS_PATH, or chrome-launcher will look for a
+    host Chrome that is not in this sandbox.
+
+    The `lighthouse` wrapper always passes
+    `--no-enable-error-reporting` (Sentry is not on the allowlist)
+    and, unless you already passed `--chrome-flags`, appends
+    `--no-sandbox --disable-dev-shm-usage --disable-gpu`. Headless
+    is Lighthouse's default; the sandbox has no display, so headed
+    Chrome will not work.
+
+    - Audit a local server: `lighthouse http://localhost:3000 --output html --output-path ./lh-report.html --quiet`
+    - JSON for an agent to read: `lighthouse http://localhost:3000 --output json --output-path ./lh-report.json --quiet`
+    - Desktop form factor: `lighthouse http://localhost:3000 --preset=desktop --output json --output-path ./lh-report.json --quiet`
+    - Confirm the toolchain: `lighthouse --version` and `chromium --version`
+
+    Only Chromium is installed. External sites fail with a proxy
+    error unless their hosts are in the sandbox network policy;
+    localhost inside the sandbox always works. Do not enable
+    Lighthouse error reporting — that phones home to Sentry and is
+    not on the allowlist.
+permissions:
+  network:
+    allow:
+      # npm package (install time): lighthouse and its dependency tree
+      # (chrome-launcher, puppeteer-core, axe-core, …). puppeteer-core
+      # does not download a browser; Chromium comes from the second hook.
+      - registry.npmjs.org:443
+      # Chromium via `npx playwright install --with-deps chromium` — the
+      # same channel the playwright kit uses. cdn.playwright.dev is the
+      # primary CDN; prss.microsoft.com is the documented fallback.
+      - cdn.playwright.dev:443
+      - playwright.download.prss.microsoft.com:443
+      # On amd64, Playwright's Chromium is a Chrome-for-Testing build:
+      # cdn.playwright.dev 302s to this bucket. arm64 builds come from
+      # prss.microsoft.com instead.
+      - storage.googleapis.com:443
+      # `--with-deps` apt-installs Chromium's system libraries.
+      # `apt-get update` refreshes every configured source, so all
+      # template sources must be reachable: Ubuntu hosts amd64 on
+      # archive/security and arm64 on ports.ubuntu.com, and the
+      # *-docker templates pre-add Docker's apt repo.
+      - archive.ubuntu.com:80
+      - security.ubuntu.com:80
+      - ports.ubuntu.com:80
+      - download.docker.com:443
+environment:
+  variables:
+    # chrome-launcher reads CHROME_PATH (LIGHTHOUSE_CHROMIUM_PATH is
+    # deprecated). The install hook points this symlink at Playwright's
+    # chrome binary so the path stays stable across Chromium builds.
+    CHROME_PATH: /usr/local/bin/chromium
+    # Same system path as the playwright kit, so composing both kits
+    # shares one browser tree instead of downloading Chromium twice.
+    PLAYWRIGHT_BROWSERS_PATH: /opt/ms-playwright
+    # Lets `require('lighthouse')` / `import('lighthouse')` resolve
+    # from the global npm install in a workspace with no package.json.
+    # Projects with their own node_modules are unaffected.
+    NODE_PATH: /usr/local/share/npm-global/lib/node_modules
+setup:
+  install:
+    # Lighthouse 13.x requires Node >= 22.19; standard agent templates
+    # only guarantee Node >= 18. 12.6.1 is the last 12.x line and
+    # accepts Node >= 18.20. npm verifies tarballs against registry
+    # sha512 integrity, so pinning the version pins the content.
+    # To bump: change LIGHTHOUSE_VERSION here and in agentInstructions
+    # / README. Do not jump to 13.x until templates ship Node 22.19.
+    - command: |
+        set -euo pipefail
+        command -v npm >/dev/null || { echo "npm not found: this mixin needs a base image with Node.js >= 18 (all standard agent templates ship it)" >&2; exit 1; }
+        if [ -n "${HTTP_PROXY:-}" ]; then
+          npm config set proxy "$HTTP_PROXY"
+          npm config set https-proxy "$HTTP_PROXY"
+        fi
+        LIGHTHOUSE_VERSION=12.6.1
+        npm install -g "lighthouse@${LIGHTHOUSE_VERSION}"
+        LH_JS="$(npm prefix -g)/lib/node_modules/lighthouse/cli/index.js"
+        test -f "$LH_JS" || { echo "lighthouse CLI entry not found at $LH_JS" >&2; exit 1; }
+        # printf (not a YAML-indented heredoc) so the shebang stays in column 0.
+        {
+          printf '%s\n' '#!/bin/sh' 'set -eu' 'has_flags=0'
+          printf '%s\n' 'for arg in "$@"; do'
+          printf '%s\n' '  case "$arg" in' '    --chrome-flags|--chrome-flags=*) has_flags=1 ;;' '  esac'
+          printf '%s\n' 'done'
+          printf '%s\n' 'if [ "$has_flags" -eq 0 ]; then'
+          printf '%s\n' '  set -- "$@" --chrome-flags="--no-sandbox --disable-dev-shm-usage --disable-gpu"'
+          printf '%s\n' 'fi'
+          printf '%s\n' "exec node \"${LH_JS}\" --no-enable-error-reporting \"\$@\""
+        } > /usr/local/bin/lighthouse
+        chmod 0755 /usr/local/bin/lighthouse
+        NPM_LH="$(npm prefix -g)/bin/lighthouse"
+        if [ -e "$NPM_LH" ] && [ "$NPM_LH" != /usr/local/bin/lighthouse ]; then
+          ln -sfn /usr/local/bin/lighthouse "$NPM_LH"
+        fi
+        lighthouse --version
+      user: "0"
+      description: Install lighthouse v12.6.1 from registry.npmjs.org, version pinned, with a container-safe CLI wrapper
+    - command: |
+        set -euo pipefail
+        export PLAYWRIGHT_BROWSERS_PATH="${PLAYWRIGHT_BROWSERS_PATH:-/opt/ms-playwright}"
+        mkdir -p "$PLAYWRIGHT_BROWSERS_PATH"
+        find_chrome() {
+          find "$PLAYWRIGHT_BROWSERS_PATH" -type f -name chrome ! -path '*headless*' 2>/dev/null | head -1
+        }
+        CHROME_BIN="$(find_chrome || true)"
+        if [ -z "$CHROME_BIN" ]; then
+          # Reuse the playwright kit's browser channel so composing both
+          # kits shares one Chromium tree. Ubuntu apt chromium is often a
+          # snap stub that does not run in the sandbox.
+          npx -y playwright@1.61.1 install --with-deps chromium
+          rm -rf /var/lib/apt/lists/*
+          CHROME_BIN="$(find_chrome || true)"
+        fi
+        if [ -z "$CHROME_BIN" ] || [ ! -x "$CHROME_BIN" ]; then
+          echo "failed to locate Chromium chrome binary under $PLAYWRIGHT_BROWSERS_PATH" >&2
+          exit 1
+        fi
+        ln -sfn "$CHROME_BIN" /usr/local/bin/chromium
+        chmod -R a+rX "$PLAYWRIGHT_BROWSERS_PATH"
+        chromium --version
+      user: "0"
+      description: Install Playwright Chromium into /opt/ms-playwright and symlink /usr/local/bin/chromium

@@ -1,0 +1,13 @@
+schemaVersion: "2"
+kind: mixin
+name: args-bad-value
+description: "TCK fixture: a testdata/tck.yaml value that violates its argument's enum."
+
+args:
+  channel:
+    default: "stable"
+    enum: ["stable", "nightly"]
+
+environment:
+  variables:
+    ARGS_FIXTURE_CHANNEL: "${{ kit.args.channel }}"

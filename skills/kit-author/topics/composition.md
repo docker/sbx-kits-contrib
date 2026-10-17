@@ -34,8 +34,8 @@ extends: claude
 | Scalars | Child wins if set | Child overrides parent |
 | Maps | Recursive merge | Child wins for conflicting keys |
 | Named arrays (identity key, e.g. `credentials[].service`, `volumes[].path`) | Union by identity | Matching key: **error**; new key: appended |
-| Primitive arrays (e.g. `caps.network.allow`) | Set union | Deduplicated, parent order preserved first |
-| Commands (`install`, `startup`, `initFiles`) | Concatenate | Parent first, then child |
+| Primitive arrays (e.g. `permissions.network.allow`) | Set union | Deduplicated, parent order preserved first |
+| Setup lists (`install`, `startup`, `files`) | Concatenate | Parent first, then child |
 | Files | Overlay | Child overrides at same path |
 | `security.privileged` | OR semantics | Any `true` → `true` |
 
@@ -82,23 +82,23 @@ Pipeline:
 
 | Section | Strategy | Conflict |
 |---|---|---|
-| `caps.network.allow` | Append | Always succeeds |
-| `caps.network.deny` | Append | Always succeeds; deny wins at request time |
+| `permissions.network.allow` | Append | Always succeeds |
+| `permissions.network.deny` | Append | Always succeeds; deny wins at request time |
 | `credentials[]` | Union by `service` | Same service in two kits → **error** |
 | `environment.variables` | Union | Last wins (later `--kit` overrides earlier) |
-| `commands.install` | Concatenate in order | — |
-| `commands.startup` | Concatenate in order | — |
-| `commands.initFiles` | Concatenate in order | — |
+| `setup.install` | Concatenate in order | — |
+| `setup.startup` | Concatenate in order | — |
+| `setup.files` | Concatenate in order | — |
 | `files` | Overlay by `target:relativePath` | Later kits override earlier |
-| `publishedPorts` | Append | Two kits asking for the same container port get two host bindings (different ephemeral host ports) |
+| `ports` | Append | Two kits asking for the same container port get two host bindings (different ephemeral host ports) |
 | `volumes` (incl. tmpfs entries) | Union | Last wins per `path` |
 | `manifest.security` | Last wins (privileged is OR-merged in spirit) | — |
 
-### `commands.install` runs for every kit
+### `setup.install` runs for every kit
 
-`commands.install` runs **once, synchronously, before the agent launches** (at sandbox creation) for every kit — built-in or user-supplied. Built-in agents have their binary baked into the template image, so they don't need `commands.install` to install the binary; instead, built-in kits use it for pre-launch setup (e.g. seeding a credential-gated settings file via `SBX_CRED_<SERVICE>_MODE`).
+`setup.install` runs **once, synchronously, before the agent launches** (at sandbox creation) for every kit — built-in or user-supplied. Built-in agents have their binary baked into the template image, so they don't need `setup.install` to install the binary; instead, built-in kits use it for pre-launch setup (e.g. seeding a credential-gated settings file via `SBX_CRED_<SERVICE>_MODE`).
 
-Implication: if you fork a built-in agent as a user-supplied `kind: sandbox` kit, any install commands you copied will run. If the base image already provides the binary, guard with `command -v <binary> || <install>` to avoid reinstalling redundantly. See [Pitfalls §5](pitfalls.md#5-commands-install-footguns) for the full footgun checklist.
+Implication: if you fork a built-in agent as a user-supplied `kind: sandbox` kit, any install commands you copied will run. If the base image already provides the binary, guard with `command -v <binary> || <install>` to avoid reinstalling redundantly. See [Pitfalls §5](pitfalls.md#5-setupinstall-footguns) for the full footgun checklist.
 
 ### What "last wins" actually means
 
@@ -118,11 +118,11 @@ If you author a mixin that should run **before** another, document it. If it mus
 
 ## Practical patterns
 
-- **Add a tool to any agent** — mixin with `commands.install` only. `sbx run claude --kit ./rust-toolchain/`.
+- **Add a tool to any agent** — mixin with `setup.install` only. `sbx run claude --kit ./rust-toolchain/`.
 - **Add a credential source** — mixin with one `credentials[]` entry.
-- **Add network access** — mixin with `caps.network.allow` only.
-- **Inject a config file** — mixin with `files/home/...` or `commands.initFiles`.
-- **Expose a service port** — mixin with `publishedPorts`.
+- **Add network access** — mixin with `permissions.network.allow` only.
+- **Inject a config file** — mixin with `files/home/...` or `setup.files`.
+- **Expose a service port** — mixin with `ports`.
 - **Fork a built-in agent** — `kind: sandbox`, `extends: claude`, change what you need.
 - **Combine all of the above** — one mixin per concern, then `--kit a --kit b --kit c`.
 

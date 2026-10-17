@@ -12,16 +12,22 @@ CLI agent.
 
 ## Usage
 
-Pair it with the built-in `claude` agent:
+Pair it with the built-in `claude` agent, from its published OCI artifact on Docker Hub:
 
 ```console
-$ sbx run claude --kit "git+https://github.com/docker/sbx-kits-contrib.git#dir=code-server" ~/my-project
+sbx run claude --kit "docker.io/sbx/code-server-kit:latest" ~/my-project
+```
+
+Or from a git URL targeting this repo:
+
+```console
+sbx run claude --kit "git+https://github.com/docker/sbx-kits-contrib.git#dir=code-server" ~/my-project
 ```
 
 Once the sandbox is up, find the assigned host port:
 
 ```console
-$ sbx ports <sandbox-name>
+sbx ports <sandbox-name>
 ```
 
 Open `http://localhost:<host-port>/` in a browser. code-server opens
@@ -36,7 +42,7 @@ alongside the declared ephemeral binding.
 If the page doesn't load, check the startup log inside the sandbox:
 
 ```console
-$ sbx exec -it <sandbox-name> -- cat /tmp/code-server.log
+sbx exec -it <sandbox-name> -- cat /tmp/code-server.log
 ```
 
 ## How the workspace path gets set

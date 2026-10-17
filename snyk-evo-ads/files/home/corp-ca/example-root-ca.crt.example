@@ -1,0 +1,29 @@
+This file shows the expected shape of a cert in this directory. It is NOT a real
+certificate and the install step ignores it — the glob only matches *.crt, and this
+file ends in .example.
+
+Copy your real root CA here as <name>.crt. The contents must look exactly like this:
+a single PEM block, base64 between the BEGIN/END markers, nothing else.
+
+-----BEGIN CERTIFICATE-----
+MIIE6DCCA9CgAwIBAgIJANu+mC2Jt3uTMA0GCSqGSIb3DQEBCwUAMIGhMQswCQYD
+... roughly 20-40 more lines of base64 ...
+QSBSb290IENBMB4XDTE0MTIwODE5NDMwNFoXDTQyMTIwMTE5NDMwNFowgaExCzAJ
+-----END CERTIFICATE-----
+
+If your proxy chain needs more than one certificate, put each one in its own .crt
+file rather than concatenating them into one. update-ca-certificates indexes each
+staged file by its own hash for directory-style (CApath) lookups; a concatenated
+file only gets indexed under one hash, so tools that verify via CApath instead of
+the combined CAfile bundle can fail to discover the other certs in it.
+
+Common mistakes this format check catches:
+
+  Binary / DER      file starts with random bytes, not "-----BEGIN"
+                    fix: openssl x509 -inform der -in in.cer -out out.crt
+
+  PKCS#7 / .p7b     starts with "-----BEGIN PKCS7-----"
+                    fix: openssl pkcs7 -print_certs -in in.p7b -out out.crt
+
+  Wrong cert        it parses, but "Basic Constraints" has no CA:TRUE — you exported
+                    the server leaf instead of the root

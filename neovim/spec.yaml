@@ -1,0 +1,36 @@
+schemaVersion: "2"
+kind: mixin
+name: neovim
+displayName: Neovim
+description: Installs Neovim (latest stable) and injects the bundled ~/.config/nvim into the sandbox.
+permissions:
+  network:
+    allow:
+      # GitHub release redirect for the stable tag
+      - github.com
+      # Asset CDN — GitHub has used both hosts across releases
+      - objects.githubusercontent.com
+      - release-assets.githubusercontent.com
+environment:
+  variables:
+    EDITOR: nvim
+    VISUAL: nvim
+setup:
+  install:
+    - command: |
+        set -euo pipefail
+        ARCH=$(dpkg --print-architecture)
+        case "$ARCH" in
+          amd64) TARBALL="nvim-linux-x86_64.tar.gz"; NVIM_DIR="nvim-linux-x86_64" ;;
+          arm64) TARBALL="nvim-linux-arm64.tar.gz";  NVIM_DIR="nvim-linux-arm64"  ;;
+          *)     echo "unsupported arch: $ARCH" >&2; exit 1 ;;
+        esac
+        curl --proto '=https' --tlsv1.2 -fsSL \
+          "https://github.com/neovim/neovim/releases/download/stable/${TARBALL}" \
+          -o /tmp/nvim.tar.gz
+        tar -C /opt -xzf /tmp/nvim.tar.gz
+        ln -sf "/opt/${NVIM_DIR}/bin/nvim" /usr/local/bin/nvim
+        rm /tmp/nvim.tar.gz
+        nvim --version | head -1
+      user: "0"
+      description: Install Neovim stable from GitHub releases (amd64 + arm64)
