@@ -1,0 +1,61 @@
+# syntax=docker/sandbox-kit:3
+# Azure DevOps API and MCP access through the sandbox credential proxy, as a
+# MIXIN. Usage and prerequisites: see README.md in this directory.
+schemaVersion: "3"
+kind: mixin
+version: "1.0.0"
+displayName: Azure DevOps MCP
+description: >-
+  Wires an Azure DevOps personal access token into the sandbox proxy so the
+  Azure DevOps REST APIs and MCP endpoints authenticate from inside the
+  sandbox. The token stays on the host.
+
+capabilities:
+  # Everything here is reached by the agent at run time: Azure DevOps itself,
+  # and npm for the `npx`-launched Azure DevOps MCP server. Inject domains have
+  # to appear literally in the same phase's allow list, so the exact hosts are
+  # listed beside the wildcards that already cover them.
+  - type: com.docker.sandbox/network-policy@1
+    config:
+      runtime:
+        allow:
+          - dev.azure.com
+          - "*.dev.azure.com"
+          - mcp.dev.azure.com
+          - vssps.dev.azure.com
+          - "*.visualstudio.com"
+          - dc.services.visualstudio.com
+          - aka.ms
+          - registry.npmjs.org
+
+  # Inject-only: no `name`, so not even a sentinel enters the container. The
+  # secret holds base64(":<PAT>"), which the proxy sends as Basic auth.
+  - type: com.docker.sandbox/credential@1
+    description: Azure DevOps personal access token, stored on the host as base64 of `:<PAT>`; the proxy injects it as Basic auth on requests to Azure DevOps.
+    config:
+      service: az-devops
+      phase: runtime
+      apiKey:
+        inject:
+          - domain: dev.azure.com
+            header: Authorization
+            format: "Basic %s"
+          - domain: "*.dev.azure.com"
+            header: Authorization
+            format: "Basic %s"
+          - domain: mcp.dev.azure.com
+            header: Authorization
+            format: "Basic %s"
+          - domain: vssps.dev.azure.com
+            header: Authorization
+            format: "Basic %s"
+          - domain: "*.visualstudio.com"
+            header: Authorization
+            format: "Basic %s"
+
+  - type: com.docker.sandbox/lifecycle@1
+    config:
+      install:
+        - command: "mkdir -p /usr/local/share/npm-global/lib"
+          user: "0"
+          description: Create missing folder

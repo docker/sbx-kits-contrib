@@ -1,3 +1,8 @@
+> [!NOTE]
+> <strong>Experimental: Sandbox Kit v3</strong>
+>
+> This kit uses the experimental [Sandbox Kit specification](https://github.com/docker/sandbox-kit-spec), specifically [v3](https://github.com/docker/sandbox-kit-spec/blob/main/docs/spec/SPEC-v3.md). The format and runtime behavior may change before v3 is stable.
+
 # az-devops
 
 A mixin that enables Azure DevOps API access from a sandbox by wiring
@@ -35,17 +40,24 @@ Run with any agent:
 $ sbx run --kit "git+https://github.com/docker/sbx-kits-contrib.git#dir=az-devops" <agent>
 ```
 
-Or with a local clone of this repo:
+Or with a local clone of this repo — a local reference has to be an explicit
+path (`./az-devops`, not `az-devops`):
 
 ```console
-$ sbx run --kit ./az-devops/ <agent>
+$ sbx run --kit ./az-devops <agent>
 ```
+
+Kit v3 needs an `sbx` release candidate or nightly build from
+[docker/sbx-releases](https://github.com/docker/sbx-releases/releases);
+the stable line does not load v3 kits.
 
 ## How auth works
 
-The kit declares Azure DevOps hosts in `network.serviceDomains` and maps
-those hosts to the `az-devops` service. `network.serviceAuth.az-devops`
-then tells the proxy to inject:
+The kit declares a `com.docker.sandbox/credential@1` capability for the
+`az-devops` service whose `apiKey.inject` rules cover the Azure DevOps hosts
+(`dev.azure.com`, `*.dev.azure.com`, `mcp.dev.azure.com`,
+`vssps.dev.azure.com`, `*.visualstudio.com`). On requests to those hosts the
+proxy injects:
 
 - `Authorization: Basic %s`
 
@@ -54,27 +66,35 @@ in the way explained above.
 
 The credential is managed as secret on the host so tools
 inside the sandbox can make calls to Azure DevOps while the real
-credential stays under proxy control for outbound requests.
+credential stays under proxy control for outbound requests. The credential
+is inject-only: no environment variable, not even a placeholder, is set
+inside the sandbox.
 
 ## Network policy
 
-The outbound allowlist is intentionally narrow and currently includes:
+The `runtime` allow list is intentionally narrow and currently includes:
 
 - `dev.azure.com`
 - `*.dev.azure.com`
+- `mcp.dev.azure.com`
+- `vssps.dev.azure.com`
 - `*.visualstudio.com`
 - `dc.services.visualstudio.com`
 - `registry.npmjs.org`
 - `aka.ms`
 
-The `npmjs.org` allow is required because the Azure DevOps MCP is `npmx` based
+The `npmjs.org` allow is required because the Azure DevOps MCP is `npx` based.
+`mcp.dev.azure.com` and `vssps.dev.azure.com` are listed explicitly beside
+`*.dev.azure.com` because every credential inject domain has to appear
+literally in the same phase's allow list.
 
-If your workflow needs additional Azure hosts, fork this kit and extend
-`network.allowedDomains`
+If your workflow needs additional Azure hosts, fork this kit and extend the
+`runtime` allow list of the `com.docker.sandbox/network-policy@1` capability
+in `az-devops.yaml`.
 
 ## Install behavior
 
-During `commands.install`, the kit ensures `/usr/local/share/npm-global/lib` exists by running `mkdir -p`.
+The kit's `com.docker.sandbox/lifecycle@1` `install` hook ensures `/usr/local/share/npm-global/lib` exists by running `mkdir -p` as root.
 
 ```sh
 mkdir -p /usr/local/share/npm-global/lib
