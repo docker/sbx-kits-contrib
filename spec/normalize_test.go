@@ -52,6 +52,14 @@ func TestNormalizeSandbox(t *testing.T) {
 		}
 		require.ErrorContains(t, s.normalize(&warnings{}), "requires a 'sandbox:' block")
 	})
+
+	t.Run("sandbox_with_extends_needs_no_sandbox_block", func(t *testing.T) {
+		s := SpecFile{
+			Manifest: Manifest{Kind: KindSandbox, SchemaVersion: SchemaVersion, Name: "a"},
+			Extends:  "claude",
+		}
+		require.NoError(t, s.normalize(&warnings{}))
+	})
 }
 
 func TestNormalizeSecrets(t *testing.T) {
@@ -365,5 +373,97 @@ displayName: Normalize Kit
 		require.NoError(t, err)
 		require.Equal(t, fromBytes.Manifest.Name, sf.Name)
 		require.Equal(t, fromBytes.Manifest.Kind, sf.Kind)
+	})
+
+	t.Run("omitted_schema_version_accepted", func(t *testing.T) {
+		in := []byte(`kind: mixin
+name: normalize-kit
+`)
+		sf, err := LoadFromBytes(in)
+		require.NoError(t, err)
+		require.Equal(t, "normalize-kit", sf.Name)
+	})
+
+	// Previously accepted here under the v1 shape; the gate now rejects on
+	// schemaVersion alone.
+	t.Run("v2_alone_is_rejected", func(t *testing.T) {
+		in := []byte(`schemaVersion: "2"
+kind: mixin
+name: v2-alone
+`)
+		sf, err := LoadFromBytes(in)
+		require.Nil(t, sf)
+		require.Error(t, err)
+		require.ErrorContains(t, err, `schemaVersion "2"`)
+		require.ErrorContains(t, err, "LoadFromBytes does not accept")
+		require.ErrorContains(t, err, "LoadArtifactFromBytes")
+	})
+
+	// environment has a v1 field home too, so this also used to load cleanly
+	// under the v1 shape despite declaring schemaVersion "2".
+	t.Run("v2_with_v1_shaped_keys_is_rejected", func(t *testing.T) {
+		in := []byte(`schemaVersion: "2"
+kind: mixin
+name: v2-env
+environment:
+  variables:
+    FOO: "bar"
+`)
+		_, err := LoadArtifactFromBytes(in)
+		require.NoError(t, err)
+
+		sf, err := LoadFromBytes(in)
+		require.Nil(t, sf)
+		require.Error(t, err)
+		require.ErrorContains(t, err, `schemaVersion "2"`)
+		require.ErrorContains(t, err, "LoadFromBytes does not accept")
+		require.ErrorContains(t, err, "LoadArtifactFromBytes")
+	})
+
+	t.Run("garbage_schema_version_is_rejected", func(t *testing.T) {
+		in := []byte(`schemaVersion: "3"
+kind: mixin
+name: v3-garbage
+`)
+		sf, err := LoadFromBytes(in)
+		require.Nil(t, sf)
+		require.Error(t, err)
+		require.ErrorContains(t, err, `schemaVersion "3"`)
+		require.ErrorContains(t, err, "LoadFromBytes does not accept")
+		require.ErrorContains(t, err, "LoadArtifactFromBytes")
+	})
+
+	// A v2-only field would fail the strict v1 decode too; the gate must
+	// still win so the error names the version, not a raw unknown-field.
+	t.Run("v2_input_with_v2_only_fields_is_actionable_error", func(t *testing.T) {
+		in := []byte(`schemaVersion: "2"
+kind: mixin
+name: cloudflare-dns
+permissions:
+  network:
+    allow:
+      - api.cloudflare.com
+`)
+		// The v2 artifact loader handles this input fine.
+		_, err := LoadArtifactFromBytes(in)
+		require.NoError(t, err)
+
+		sf, err := LoadFromBytes(in)
+		require.Nil(t, sf)
+		require.Error(t, err)
+		require.ErrorContains(t, err, `schemaVersion "2"`)
+		require.ErrorContains(t, err, "LoadFromBytes does not accept")
+		require.ErrorContains(t, err, "LoadArtifactFromBytes")
+	})
+
+	// A parse failure must surface the v1 decoder's syntax error, not a
+	// schemaVersion complaint.
+	t.Run("malformed_yaml_surfaces_decoder_syntax_error", func(t *testing.T) {
+		in := []byte("schemaVersion: \"1\"\nkind: mixin\n\tname: broken\n")
+		sf, err := LoadFromBytes(in)
+		require.Nil(t, sf)
+		require.Error(t, err)
+		require.ErrorContains(t, err, "found a tab character")
+		require.NotContains(t, err.Error(), "LoadFromBytes does not accept")
 	})
 }

@@ -1,0 +1,63 @@
+schemaVersion: "2"
+kind: sandbox
+name: aider
+displayName: Aider
+description: |
+  AI pair programming in your terminal. Edits code, runs tests, and commits changes using Claude, GPT, Gemini, or any LiteLLM-compatible model.
+sandbox:
+  # Pre-baked image: Aider and its Python 3.12 runtime installed at build
+  # time. Built and published by build-and-publish-kits.yml, the shared
+  # kit-image pipeline (see ../PUBLISHING.md) -- no bespoke workflow needed,
+  # same as pi/openclaw/kiro/copilot/hermes-agent. Sandbox creation only
+  # pulls the image.
+  image: docker.io/sbx/aider-image:latest
+  entrypoint:
+    - aider
+permissions:
+  network:
+    allow:
+      # Every domain the credential blocks below inject into -- required here
+      # too, not just there: this repo's e2e runs every kit under
+      # `sbx policy init deny-all`, so a domain absent from this list is
+      # unreachable regardless of what the credential block declares.
+      - api.anthropic.com
+      - api.openai.com
+      - generativelanguage.googleapis.com
+# Aider uses LiteLLM under the hood, which checks the relevant env var is
+# present *before* it will attempt a request -- with no placeholder set,
+# LiteLLM raises its own "missing API key" error locally, before the proxy
+# ever gets a chance to inject the real credential. proxyManaged: true is
+# what makes the engine populate a placeholder value for each of these
+# automatically; the actual secret comes from the service-keyed store
+# (sbx secret set <service>, or the interactive wizard on first run).
+credentials:
+  - service: anthropic
+    apiKey:
+      name: ANTHROPIC_API_KEY
+      proxyManaged: true
+      inject:
+        - domain: api.anthropic.com
+          header: x-api-key
+          format: '%s'
+  - service: gemini
+    apiKey:
+      name: GEMINI_API_KEY
+      proxyManaged: true
+      inject:
+        - domain: generativelanguage.googleapis.com
+          header: x-goog-api-key
+          format: '%s'
+  - service: openai
+    apiKey:
+      name: OPENAI_API_KEY
+      proxyManaged: true
+      inject:
+        - domain: api.openai.com
+          header: Authorization
+          format: Bearer %s
+environment:
+  variables:
+    AIDER_ANALYTICS: "false"
+    AIDER_AUTO_COMMITS: "true"
+    AIDER_CHECK_UPDATE: "false"
+    AIDER_MODEL: sonnet

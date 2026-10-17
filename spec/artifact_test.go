@@ -20,6 +20,8 @@ func TestLoadFromDirectory(t *testing.T) {
 		require.Equal(t, "1.0.0", a.Manifest.Version)
 		require.Equal(t, "https://example.com/sample-mixin", a.Manifest.SourceURL)
 		require.Empty(t, a.Manifest.Template, "mixins have no template")
+		require.NotNil(t, a.Requires, "sample-mixin declares base-agent affinity")
+		require.Equal(t, "sample-agent", a.Requires.Agent)
 		require.NotEmpty(t, a.PublishedPorts)
 		require.NotNil(t, a.Credentials)
 		require.NotNil(t, a.Environment)
@@ -78,7 +80,7 @@ func TestLoadFromDirectory(t *testing.T) {
 		// Egress under caps.network (not the removed network block).
 		require.NotNil(t, a.Caps)
 		require.NotNil(t, a.Caps.Network)
-		require.ElementsMatch(t, []string{"api.anthropic.com", "api.openai.com:443", "*.example.com"}, a.Caps.Network.Allow)
+		require.ElementsMatch(t, []string{"api.anthropic.com", "api.openai.com:443", "api.github.com", "github.com", "*.example.com"}, a.Caps.Network.Allow)
 		require.ElementsMatch(t, []string{"telemetry.example.com"}, a.Caps.Network.Deny)
 
 		// Unified credentials[].
@@ -88,6 +90,18 @@ func TestLoadFromDirectory(t *testing.T) {
 			services = append(services, c.Service)
 		}
 		require.ElementsMatch(t, []string{"anthropic", "github", "workos"}, services)
+
+		// The github credential exercises the `scheme:` sugar with no explicit
+		// header:, so bearer must supply the Authorization header itself.
+		for _, c := range a.Credentials {
+			if c.Service != "github" {
+				continue
+			}
+			require.Len(t, c.ApiKey.Inject, 2)
+			require.Equal(t, "Authorization", c.ApiKey.Inject[0].Header)
+			require.Equal(t, "Bearer %s", c.ApiKey.Inject[0].Format)
+			require.Empty(t, c.ApiKey.Inject[0].Scheme)
+		}
 
 		require.Len(t, a.Manifest.Volumes, 2)
 		require.NotNil(t, a.Commands)

@@ -1,15 +1,16 @@
-schemaVersion: "1"
+schemaVersion: "2"
 kind: mixin
 name: task
 displayName: Task
 description: Installs the Task CLI so sandbox agents can run Taskfiles.
-
-network:
-  allowedDomains:
-    - github.com
-    - release-assets.githubusercontent.com
-
-commands:
+permissions:
+  network:
+    allow:
+      - github.com
+      # Confirmed by hand: github.com's release-download redirect target.
+      - objects.githubusercontent.com
+      - release-assets.githubusercontent.com
+setup:
   install:
     - command: |
         set -euo pipefail
@@ -36,4 +37,4 @@ commands:
         rm /tmp/task.tgz
         task --version
       user: "0"
-      description: "Install Task CLI v3.50.0, version+digest pinned"
+      description: Install Task CLI v3.50.0, version+digest pinned

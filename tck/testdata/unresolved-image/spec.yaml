@@ -1,0 +1,8 @@
+schemaVersion: "2"
+kind: sandbox
+name: unresolved-image
+# A sandbox that inherits its image via extends but names a parent the TCK
+# cannot resolve to a well-known template. ValidateArtifact accepts it (the
+# image is satisfied through extends), but containerImage cannot derive an
+# image, so WithImage must be able to override — see TestNewSuiteFromDir.
+extends: no-such-agent

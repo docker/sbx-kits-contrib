@@ -1,0 +1,139 @@
+schemaVersion: "2"
+kind: sandbox
+name: open-interpreter
+displayName: Open Interpreter
+description: |
+  Natural language interface for your sandbox. Describe what you need; Open Interpreter writes and runs the code (Python, JS, Shell, and more) to complete the task.
+sandbox:
+  # Pre-baked image: Open Interpreter, its C toolchain for psutil, and its
+  # Python 3.12 runtime all installed at build time. Built and published by
+  # build-and-publish-kits.yml, the shared kit-image pipeline (see
+  # ../PUBLISHING.md) -- no bespoke workflow needed, same as
+  # pi/openclaw/kiro/copilot/hermes-agent/aider. Sandbox creation only pulls
+  # the image.
+  image: docker.io/sbx/open-interpreter-image:latest
+  entrypoint:
+    # Kit content, not the installed binary: the entrypoint has to source the
+    # Anthropic auth env file the startup hook writes. Invoked through `sh`
+    # because files under `files/home/` land 0644 -- the artifact loader does
+    # not carry the source exec bit, so a direct exec fails with EACCES.
+    - sh
+    - /home/agent/.local/bin/open-interpreter-start.sh
+agentInstructions:
+  filename: AGENTS.md
+  content: |
+    ## Open Interpreter
+
+    You are Open Interpreter. You take natural language requests and complete
+    them by writing and running code.
+
+    The sandbox is isolated — you can run code freely without worrying about
+    damaging the host system.
+
+    - **Auto-run is on**: code executes without confirmation prompts.
+    - **Supported languages**: Python, JavaScript, Shell, and anything else
+      installed in the environment.
+    - **Switch models**: run `interpreter --model claude-3-5-sonnet-20241022`
+      to use Claude, or `interpreter --model ollama/llama3` for a local model.
+    - **Workspace**: your working directory is `${WORKDIR}`. Files created
+      there persist across sandbox restarts.
+permissions:
+  network:
+    allow:
+      # Every domain the two LLM credentials inject into -- required here
+      # too, not just below: this repo's e2e runs every kit under
+      # `sbx policy init deny-all`, so a domain absent from this list is
+      # unreachable regardless of what the credential block declares.
+      - api.anthropic.com
+      # The anthropic credential's OAuth token endpoint, for the refresh the
+      # proxy performs once the access token expires.
+      - platform.claude.com:443
+      - api.openai.com
+      # PyPI, npm, and apt are runtime needs, not install-time ones: OI's
+      # whole purpose is writing and running code on request, and that code
+      # can `pip install`, `npm install`, or `apt-get install` anything it
+      # needs. Unlike the kit's own toolchain (now baked into the image, see
+      # Dockerfile), these stay because the *agent*, not the kit, uses them
+      # while running.
+      - pypi.org
+      - files.pythonhosted.org
+      - registry.npmjs.org
+      - '*.npmjs.org'
+      # download.docker.com is pre-added to sources.list.d by this base image
+      # even without the `-docker` variant (confirmed by pulling
+      # docker/sandbox-templates:shell and inspecting it directly) --
+      # `apt-get update` fails on the first source that doesn't resolve, even
+      # if the package OI's code wants comes from elsewhere. Ubuntu hosts
+      # amd64 packages on archive/security and arm64 packages on
+      # ports.ubuntu.com.
+      - deb.debian.org
+      - archive.ubuntu.com
+      - security.ubuntu.com
+      - ports.ubuntu.com
+      - download.docker.com
+credentials:
+  # Narrow inject domains: only the LLM API hosts that need auth injection.
+  # A wildcard here would TLS-intercept all traffic, including code that
+  # OI executes on your behalf, breaking arbitrary downloads.
+  - service: anthropic
+    apiKey:
+      name: ANTHROPIC_API_KEY
+      proxyManaged: true
+      inject:
+        - domain: api.anthropic.com
+          header: x-api-key
+          format: '%s'
+    # For a host whose stored anthropic credential is an OAuth login -- signed
+    # in from a `claude` sandbox rather than an API key. Without this block
+    # such a host gets no usable credential at all: the apiKey sentinel reaches
+    # Anthropic unswapped and every model call 401s.
+    #
+    # LiteLLM never reads this file -- it takes the credential from
+    # ANTHROPIC_API_KEY -- so credentialFile serves two narrower purposes: it
+    # is what makes the OAuth path detectable from inside the sandbox
+    # (SBX_CRED_ANTHROPIC_MODE reports "none" even when this credential
+    # resolves, so it cannot discriminate oauth from apikey), and it carries
+    # the sentinel open-interpreter-anthropic-auth.sh exports. The file holds sentinels,
+    # not real tokens.
+    oauth:
+      tokenEndpoint:
+        host: platform.claude.com
+        path: /v1/oauth/token
+      resourceHosts:
+        - api.anthropic.com
+      sentinels:
+        accessToken: sk-ant-oat01-proxy-managed
+        refreshToken: sk-ant-ort01-proxy-managed
+      credentialFile:
+        path: ~/.claude/.credentials.json
+        structure:
+          claudeAiOauth:
+            accessToken: '{{.AccessToken}}'
+            refreshToken: '{{.RefreshToken}}'
+            expiresAt: '{{.ExpiresAt}}'
+            scopes: '{{.Scopes}}'
+  # NOTE (migration gap, flagged for review): the original v1 spec also
+  # declared a file-based fallback source for this credential
+  # (credentials.sources.openai.file: {path: ~/.openai-api-key}) alongside
+  # the env var. kit-spec v2's apiKey has no file-source equivalent -- only
+  # env-var sourcing -- so that fallback has no way to be expressed here and
+  # is dropped by this migration. A host relying on the file fallback (no
+  # OPENAI_API_KEY env var set) will stop getting the credential injected.
+  - service: openai
+    apiKey:
+      name: OPENAI_API_KEY
+      proxyManaged: true
+      inject:
+        - domain: api.openai.com
+          header: Authorization
+          format: Bearer %s
+setup:
+  startup:
+    # Runs on every container start, ahead of any attach: the credential state
+    # is wired at create time and a stop/start can follow a change of host
+    # credential, so the env file is recomputed rather than cached.
+    - command:
+        - sh
+        - /home/agent/.local/bin/open-interpreter-anthropic-auth.sh
+      user: "1000"
+      description: Resolve whether Anthropic auth is an API key, an OAuth login, or absent, and record it for the entrypoint and `sbx exec` shells

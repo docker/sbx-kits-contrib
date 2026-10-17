@@ -1,0 +1,259 @@
+schemaVersion: "2"
+kind: sandbox
+name: docker-agent
+# The KIT's version, not Docker Agent's. It covers this spec, the network
+# policy and the setup hooks — the binary inside the image floats (the image
+# build resolves the newest release, and the agent self-updates at runtime), so
+# a newer docker-agent does not bump this and this does not track its releases.
+#
+# Published as the vnd.docker.sandbox.kit.version OCI annotation at pack time,
+# and `scripts/check-release-tag.sh` refuses a `docker-agent/vX.Y.Z` tag that
+# disagrees with it. Bump here first, then tag.
+version: "1.0.0"
+displayName: Docker Agent
+description: Docker Agent, Docker's multi-provider agentic coding CLI.
+sandbox:
+  # Built from the Dockerfile beside this spec and published by
+  # .github/workflows/build-and-publish-kits.yml. Carries a Docker engine and
+  # requests Docker-in-Docker, matching the agent this kit replaces.
+  #
+  # This value is the source of truth for what CI builds and publishes: the
+  # workflow reads it from here rather than deriving a name, because spec.yaml
+  # is consumed literally (no env interpolation) and so cannot follow a
+  # variable. scripts/check-image-ref.sh asserts it stays inside the namespace
+  # CI can actually push to.
+  #
+  # The `-image` suffix distinguishes the base image from the kit artifact:
+  # when the kit itself is published as an OCI artifact it will be
+  # `docker.io/sbx/docker-agent-kit`.
+  image: "docker.io/sbx/docker-agent-image:latest"
+  # --yolo lets the agent run tools without asking for per-tool approval. That
+  # is the point of a sandbox — the blast radius is the container.
+  #
+  # --agent-picker opens a full-screen agent chooser at launch. It requires an
+  # interactive terminal, which `sbx run` always provides, and it is mutually
+  # exclusive with the binary's own non-interactive `--exec` mode: appending
+  # `--exec` to this argv is an error, not an override. Anything that needs a
+  # one-shot run must invoke the binary directly instead of going through this
+  # entrypoint.
+  entrypoint: [docker-agent, run, "--yolo", "--agent-picker"]
+
+credentials:
+  # Eight provider services, none marked `required: true`. That is deliberate
+  # and uniform: the agent runs against a locally served model with nothing
+  # bound at all, so failing `sbx create` on a missing credential would take
+  # away a working configuration rather than protect one.
+  #
+  # Service names are load-bearing beyond this file — they are the keys a host
+  # binds secrets under (`sbx secret set <service> …`) and the keys the proxy
+  # routes on. Renaming one here silently detaches it from the host binding.
+  - service: anthropic
+    apiKey:
+      name: ANTHROPIC_API_KEY
+      proxyManaged: true
+      inject:
+        - domain: api.anthropic.com
+          header: x-api-key
+          format: "%s"
+        - domain: claude.ai
+          header: x-api-key
+          format: "%s"
+        - domain: console.anthropic.com
+          header: x-api-key
+          format: "%s"
+  - service: github
+    apiKey:
+      # Empty on purpose: this credential is handled entirely proxy-side, so
+      # no in-container environment variable is set for it. Setting a name
+      # (with proxyManaged) would put a sentinel into the environment that
+      # in-container tooling would read as a real token.
+      name: ""
+      # The agent's GitHub-backed model provider calls the Copilot API with a
+      # Bearer sentinel, so every Copilot host must map to this service or the
+      # sentinel tunnels through unreplaced.
+      #
+      # The proxy applies ONE auth format per service, taken from the first
+      # inject entry, so this list must stay uniform: a mixed list would
+      # silently apply Bearer everywhere anyway and the spec would stop
+      # describing what actually happens. Bearer is the required choice — the
+      # Copilot API rejects the "token" scheme, GitHub's REST API accepts
+      # both, and git over HTTPS on github.com is re-encoded to Basic by the
+      # proxy regardless of the format named here.
+      # https://github.blog/changelog/2026-02-13-network-configuration-changes-for-copilot-coding-agent/
+      inject:
+        - domain: api.business.githubcopilot.com # Copilot Business
+          header: Authorization
+          format: Bearer %s
+        - domain: api.enterprise.githubcopilot.com # Copilot Enterprise
+          header: Authorization
+          format: Bearer %s
+        - domain: api.github.com
+          header: Authorization
+          format: Bearer %s
+        - domain: api.githubcopilot.com
+          header: Authorization
+          format: Bearer %s
+        - domain: api.individual.githubcopilot.com # Copilot Pro and Pro+
+          header: Authorization
+          format: Bearer %s
+        - domain: copilot.github.com
+          header: Authorization
+          format: Bearer %s
+        - domain: github.com
+          header: Authorization
+          format: Bearer %s
+        - domain: raw.githubusercontent.com
+          header: Authorization
+          format: Bearer %s
+  - service: google
+    apiKey:
+      name: GOOGLE_API_KEY
+      proxyManaged: true
+      inject:
+        - domain: aiplatform.googleapis.com
+          header: x-goog-api-key
+          format: "%s"
+        - domain: generativelanguage.googleapis.com
+          header: x-goog-api-key
+          format: "%s"
+        - domain: oauth2.googleapis.com
+          header: x-goog-api-key
+          format: "%s"
+        - domain: vertexai.googleapis.com
+          header: x-goog-api-key
+          format: "%s"
+  - service: mistral
+    apiKey:
+      name: MISTRAL_API_KEY
+      # No inject list, so the proxy routes nothing for this service: the
+      # sentinel this flag puts in MISTRAL_API_KEY is never substituted, and
+      # the service's API host is correspondingly absent from
+      # permissions.network.allow below. Kept declared so the service stays
+      # bindable on the host; see the README's "Providers without routing".
+      proxyManaged: true
+  - service: nebius
+    apiKey:
+      name: NEBIUS_API_KEY
+      # Same shape as `mistral` above: declared, not routed.
+      proxyManaged: true
+  - service: openai
+    apiKey:
+      name: OPENAI_API_KEY
+      proxyManaged: true
+      inject:
+        - domain: api.openai.com
+          header: Authorization
+          format: Bearer %s
+  - service: openrouter
+    apiKey:
+      name: OPENROUTER_API_KEY
+      proxyManaged: true
+      inject:
+        - domain: openrouter.ai
+          header: Authorization
+          format: Bearer %s
+  - service: xai
+    apiKey:
+      name: XAI_API_KEY
+      # Same shape as `mistral` above: declared, not routed.
+      proxyManaged: true
+
+permissions:
+  network:
+    # The agent this kit replaces shipped no egress policy of its own: it
+    # inherited the host policy, which defaults to permissive. A community kit
+    # cannot rely on that — this repo's e2e runs every kit under
+    # `sbx policy init deny-all`, so the kit gets exactly the reachability it
+    # declares here and nothing more.
+    #
+    # Entries are written without a port: a portless pattern matches any port,
+    # which is what the apt hosts below need — pinning them to :80 breaks the
+    # moment a mirror answers over https, and `apt-get update` then fails
+    # wholesale rather than skipping one source.
+    allow:
+      # Every domain a credential above injects into. Required here as well,
+      # not just in the credential block: a domain absent from this list is
+      # unreachable no matter what the credential declares. The services with
+      # no inject list contribute nothing here by construction.
+      - api.anthropic.com
+      - claude.ai
+      - console.anthropic.com
+      - api.business.githubcopilot.com
+      - api.enterprise.githubcopilot.com
+      - api.github.com
+      - api.githubcopilot.com
+      - api.individual.githubcopilot.com
+      - copilot.github.com
+      - github.com
+      - raw.githubusercontent.com
+      - aiplatform.googleapis.com
+      - generativelanguage.googleapis.com
+      - oauth2.googleapis.com
+      - vertexai.googleapis.com
+      - api.openai.com
+      - openrouter.ai
+      # Self-update is on (DOCKER_AGENT_AUTO_UPDATE, set in the image), and it
+      # resolves a release through api.github.com and downloads the asset from
+      # github.com, which redirects to the release-asset host. github.com and
+      # api.github.com are already listed above as credential domains; the
+      # redirect target is not covered by either and has to be named.
+      - objects.githubusercontent.com
+      # The agent resolves model metadata (context windows, pricing) from the
+      # models.dev catalog. Unreachable, it silently falls back to a snapshot
+      # embedded at binary build time, so the limits go stale rather than error.
+      - models.dev
+      # `apt-get update` (the startup hook below) refreshes metadata for every
+      # configured apt source and returns exit 100 if any one of them fails.
+      # The shell-docker base ships three sources, so all three must be
+      # reachable. Ubuntu serves amd64 from archive/security and arm64 from
+      # ports.ubuntu.com, so all three Ubuntu hosts are listed to keep the kit
+      # working cross-arch.
+      - archive.ubuntu.com        # Ubuntu archive (amd64 main)
+      - security.ubuntu.com       # Ubuntu security updates (amd64)
+      - ports.ubuntu.com          # Ubuntu archive/security (arm64)
+      - download.docker.com       # Docker's apt repo, pre-added by shell-docker
+
+environment:
+  variables:
+    TERM: xterm-256color
+    COLORTERM: truecolor
+    LANG: en_US.UTF-8
+    # Opt out of the agent's usage reporting. The name is unscoped rather than
+    # vendor-prefixed, so it applies to anything else in the sandbox that reads
+    # it — that direction is fail-closed, and this is the only knob the agent
+    # offers. Only the exact string "false" disables it.
+    TELEMETRY_ENABLED: "false"
+
+setup:
+  install:
+    # The agent rewrites its own binary when it self-updates, so the binary has
+    # to live somewhere the agent user can write. This image already installs
+    # it that way; the command re-establishes the layout when BASE_IMAGE has
+    # been re-pointed at an image that placed a root-owned binary on PATH
+    # instead. Idempotent: on this image the target already exists and the only
+    # effect is re-pointing an already-correct symlink.
+    - command: |
+        set -eu
+        link=/usr/local/bin/docker-agent
+        target=/opt/docker-agent/bin/docker-agent
+
+        if [ ! -x "$target" ] && [ -x "$link" ]; then
+          install -d -o agent -g agent /opt/docker-agent/bin
+          install -o agent -g agent -m 0755 "$link" "$target"
+        fi
+        [ -x "$target" ] && ln -sf "$target" "$link"
+      user: "root"
+      description: Keep docker-agent on an agent-writable path so self-update works
+  startup:
+    # The redirects and </dev/null belong on the outer group, not inside a
+    # subshell: a backgrounded job that inherits the exec's pipe write ends
+    # keeps it from reaching EOF, and a slow apt-get then times out the exec.
+    - command: ["sh", "-c", "{ command -v apt-get && apt-get update -qq -y || true; } >/dev/null 2>&1 </dev/null &"]
+      user: "root"
+      description: Update apt package cache in background
+
+# The agent's default configuration lists AGENTS.md among the prompt files it
+# reads, so this is the filename composed kit context has to land in for the
+# agent to pick it up.
+agentInstructions:
+  filename: AGENTS.md

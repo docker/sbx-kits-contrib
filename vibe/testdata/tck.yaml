@@ -1,0 +1,7 @@
+# TCK configuration for the vibe kit.
+#
+# `-p` is Vibe's programmatic mode: it sends the prompt, prints the response and
+# exits. `--trust` is repeated here because the e2e prompt subtest invokes the
+# binary through `sbx exec`, which bypasses `sandbox.entrypoint` and would
+# otherwise stop on the workspace trust prompt with no TTY to answer it.
+promptArgs: ["--trust", "-p"]

@@ -1,0 +1,81 @@
+schemaVersion: "2"
+kind: mixin
+name: ecc
+displayName: ECC (Everything Claude Code)
+description: 'The agent-harness optimization content pack for Claude Code: rules, agents, commands, and — when the sandbox skills store is writable — skills, installed from upstream''s minimal profile (no hooks runtime). Pinned to v2.0.0.'
+requires:
+  agent: claude
+agentInstructions:
+  content: |
+    ## ECC (Everything Claude Code)
+
+    This sandbox has ECC's rules under `~/.claude/rules/ecc/`, plus its
+    agents and commands. The rules load automatically. ECC's
+    continuous-learning hooks runtime is not installed; to add it, run
+    ECC's installer with `--profile core` from inside the session — that
+    profile is a superset of `minimal` and writes the skills too, so it
+    needs a writable skills store (see below), or `--modules` with the
+    skills module left out.
+
+    ECC's skills are installed under `~/.claude/skills/ecc/` only when
+    `~/.claude/skills` is writable — for example the sandbox was created
+    with `--skills readwrite` or `--skills off` (no store mounted, so the
+    installer creates the directory itself), the host's
+    `skills.defaultMode` setting makes that the default, or the sbx
+    predates v0.43.0. Check with `ls ~/.claude/skills/ecc`; if the skills
+    are missing and you need them, ask the user to recreate the sandbox
+    with `--skills readwrite` — it is a host-side flag you cannot set
+    from in here.
+permissions:
+  network:
+    allow:
+      - github.com:443
+      - objects.githubusercontent.com:443
+      - release-assets.githubusercontent.com:443
+      # Confirmed necessary via a real e2e run under deny-all.
+      - api.github.com:443
+      - raw.githubusercontent.com:443
+      # `requires.agent: claude` composes this mixin onto the built-in
+      # claude kit, which runs its own background `apt-get update` on
+      # every sandbox (best-effort, non-blocking) -- refreshing metadata
+      # for every configured apt source, which fails on any one of them
+      # even if the kit's own package would come from a different repo.
+      # claude's base image (claude-code-docker) ships three sources, so
+      # all three must be allowed under `deny-all`. Ubuntu hosts amd64
+      # packages on archive/security and arm64 packages on ports.ubuntu.com,
+      # so all three Ubuntu hosts are listed to keep the kit working
+      # cross-arch (CI runs amd64; a real e2e run on arm64 only exercised
+      # ports.ubuntu.com).
+      - archive.ubuntu.com        # Ubuntu archive (amd64 main)
+      - security.ubuntu.com       # Ubuntu security updates (amd64)
+      - ports.ubuntu.com          # Ubuntu archive/security (arm64)
+      - download.docker.com       # Docker's apt repo
+      - registry.npmjs.org
+      - '*.npmjs.org'
+setup:
+  install:
+    - command: npm config set proxy $HTTP_PROXY && npm config set https-proxy $HTTPS_PROXY || true
+      user: "1000"
+      description: Point npm at the sandbox egress proxy
+    # Since sbx v0.43.0 the shared skills store at
+    # /home/agent/.claude/skills is bind-mounted read-only unless the
+    # sandbox was created with `--skills readwrite`, and upstream's
+    # installer aborts at its first read-only write, leaving a partial
+    # install. `workflow-quality` is the only minimal-profile module
+    # whose paths live under `skills/`, so dropping it costs ECC's
+    # skills and nothing else. A store that is absent (`--skills off`)
+    # is created by the installer in a writable parent, hence the `-d`
+    # guard.
+    - command: |
+        set -e
+        git clone --depth 1 --branch v2.0.0 https://github.com/affaan-m/ECC /tmp/ecc
+        cd /tmp/ecc
+        npm install --no-audit --no-fund --loglevel=error
+        if [ -d /home/agent/.claude/skills ] && ! { touch /home/agent/.claude/skills/.ecc-write-probe.$$ && rm -f /home/agent/.claude/skills/.ecc-write-probe.$$; } 2>/dev/null; then
+          ./install.sh --modules rules-core,agents-core,commands-core,platform-configs --target claude
+        else
+          ./install.sh --profile minimal --target claude
+        fi
+        rm -rf /tmp/ecc
+      user: "1000"
+      description: Install ECC v2.0.0 into ~/.claude, omitting the skills module when the skills store is read-only

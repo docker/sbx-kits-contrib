@@ -92,6 +92,69 @@ sandbox:
 		"using build must emit a not-yet-implemented warning, got: %v", art.Warnings)
 }
 
+func TestRequires_DecodeAndValidate(t *testing.T) {
+	yaml := []byte(`
+schemaVersion: "2"
+kind: mixin
+name: claude-model-runner
+requires:
+  agent: claude
+`)
+	art, err := LoadArtifactFromBytes(yaml)
+	require.NoError(t, err)
+	require.NotNil(t, art.Requires, "requires must decode onto Artifact.Requires")
+	require.Equal(t, "claude", art.Requires.Agent,
+		"requires.agent must round-trip onto Artifact.Requires.Agent unchanged")
+	// Affinity is enforced by the composing consumer, not the spec library,
+	// so declaring it must not emit a not-implemented warning.
+	require.False(t, hasWarningContaining(art.Warnings, "requires"),
+		"declaring requires must not warn, got: %v", art.Warnings)
+}
+
+func TestRequires_Absent(t *testing.T) {
+	yaml := []byte(`
+schemaVersion: "2"
+kind: mixin
+name: plain-mixin
+`)
+	art, err := LoadArtifactFromBytes(yaml)
+	require.NoError(t, err)
+	require.Nil(t, art.Requires, "absent requires must leave Artifact.Requires nil")
+}
+
+func TestRequires_InvalidAgentName_Rejected(t *testing.T) {
+	yaml := []byte(`
+schemaVersion: "2"
+kind: mixin
+name: bad-affinity
+requires:
+  agent: "Not A Name"
+`)
+	// LoadArtifactFromBytes decodes but does not validate (per its contract);
+	// well-formedness is enforced by ValidateArtifact on the load-from-disk
+	// paths, so validate the decoded artifact explicitly here.
+	art, err := LoadArtifactFromBytes(yaml)
+	require.NoError(t, err)
+	require.ErrorContains(t, ValidateArtifact(art), "requires.agent")
+}
+
+func TestExtends_SandboxWithoutImage_Loads(t *testing.T) {
+	yaml := []byte(`
+schemaVersion: "2"
+kind: sandbox
+name: claude-model-runner
+extends: claude
+environment:
+  variables:
+    ANTHROPIC_BASE_URL: "http://host.docker.internal:12434"
+`)
+	art, err := LoadArtifactFromBytes(yaml)
+	require.NoError(t, err, "a sandbox kit that extends a parent may omit sandbox.image")
+	require.Equal(t, "claude", art.Extends)
+	require.Empty(t, art.Manifest.Template,
+		"leaf carries no image; it is inherited from the extends parent at resolve time")
+}
+
 func TestBuild_Only_Rejected(t *testing.T) {
 	yaml := []byte(`
 schemaVersion: "2"

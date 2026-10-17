@@ -3,5 +3,6 @@
   "chat.commandCenter.enabled": false,
   "workbench.tips.enabled": false,
   "telemetry.telemetryLevel": "off",
-  "claudeCode.preferredLocation": "sidebar"
+  "claudeCode.preferredLocation": "sidebar",
+  "security.workspace.trust.enabled": false
 }

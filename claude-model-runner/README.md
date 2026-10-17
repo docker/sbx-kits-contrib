@@ -21,8 +21,14 @@ cost-free experimentation, or testing custom local models with Claude Code.
 ## Usage
 
 ```console
-$ sbx run --kit "git+https://github.com/docker/sbx-kits-contrib.git#dir=claude-model-runner" claude ~/my-project
-$ sbx run --kit ./claude-model-runner/ claude ~/my-project
+sbx run --kit "docker.io/sbx/claude-model-runner-kit:latest" claude ~/my-project
+```
+
+Or from a git URL or a local clone of this repo:
+
+```console
+sbx run --kit "git+https://github.com/docker/sbx-kits-contrib.git#dir=claude-model-runner" claude ~/my-project
+sbx run --kit ./claude-model-runner/ claude ~/my-project
 ```
 
 The agent name passed to `sbx run` (`claude`) is the base agent the mixin
@@ -34,17 +40,17 @@ directory, change the anchored value at `&model "gpt-oss"`, and pass
 `--kit` at that path:
 
 ```console
-$ mkdir claude-model-runner
-$ curl -o claude-model-runner/spec.yaml \
+mkdir claude-model-runner
+curl -o claude-model-runner/spec.yaml \
     https://raw.githubusercontent.com/docker/sbx-kits-contrib/main/claude-model-runner/spec.yaml
-$ # edit `&model "gpt-oss"` in claude-model-runner/spec.yaml
-$ sbx run --kit ./claude-model-runner claude ~/my-project
+# edit `&model "gpt-oss"` in claude-model-runner/spec.yaml
+sbx run --kit ./claude-model-runner claude ~/my-project
 ```
 
 For a larger context window than the default, package a variant first:
 
 ```console
-$ docker model package --from gpt-oss --context-size 32000 gpt-oss:32k
+docker model package --from gpt-oss --context-size 32000 gpt-oss:32k
 ```
 
 then point the anchored value at `gpt-oss:32k`.

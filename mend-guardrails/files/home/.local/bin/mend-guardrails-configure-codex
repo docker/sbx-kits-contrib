@@ -1,0 +1,212 @@
+#!/usr/bin/env python3
+"""Optionally merge user-level Codex config so the TUI hits Mend Guardrails.
+
+Opt-in via MEND_GUARDRAILS_INTERCEPT_TUI=true (kit arg interceptTui=true).
+When disabled (default), removes a previously installed mend_guardrails
+provider block so ChatGPT subscription TUI auth keeps working.
+
+When enabled, writes `$CODEX_HOME/config.toml` with an HTTP-only custom
+provider (no WebSocket probe against loopback):
+
+  model_provider = "mend_guardrails"
+
+  [model_providers.mend_guardrails]
+  name = "Mend Guardrails"
+  base_url = "http://127.0.0.1:8787/v1"
+  wire_api = "responses"
+  supports_websockets = false
+  env_key = "OPENAI_API_KEY"
+
+Codex ignores project `.codex/config.toml` for provider URL keys. Existing
+unrelated keys are preserved.
+"""
+
+from __future__ import annotations
+
+import os
+import re
+import sys
+from pathlib import Path
+
+LOOPBACK = "http://127.0.0.1:8787/v1"
+PROVIDER_ID = "mend_guardrails"
+PROVIDER_TABLE = f"[model_providers.{PROVIDER_ID}]"
+PROVIDER_BLOCK = f"""{PROVIDER_TABLE}
+name = "Mend Guardrails"
+base_url = "{LOOPBACK}"
+wire_api = "responses"
+supports_websockets = false
+env_key = "OPENAI_API_KEY"
+"""
+
+
+def _intercept_enabled() -> bool:
+    return os.environ.get("MEND_GUARDRAILS_INTERCEPT_TUI", "").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+
+
+def _codex_home() -> Path:
+    raw = os.environ.get("CODEX_HOME", "").strip()
+    if raw:
+        return Path(raw).expanduser()
+    return Path.home() / ".codex"
+
+
+def _set_top_level(text: str, key: str, value: str) -> str:
+    """Replace or append a top-level TOML assignment (outside [tables])."""
+    lines = text.splitlines(keepends=True)
+    if not lines and text:
+        lines = [text]
+    out: list[str] = []
+    in_table = False
+    replaced = False
+    pattern = re.compile(rf"^\s*{re.escape(key)}\s*=")
+
+    for line in lines:
+        stripped = line.lstrip()
+        if stripped.startswith("["):
+            in_table = True
+            if not replaced:
+                out.append(f"{key} = {value}\n")
+                replaced = True
+            out.append(line)
+            continue
+        if not in_table and pattern.match(line):
+            out.append(f"{key} = {value}\n")
+            replaced = True
+            continue
+        out.append(line)
+
+    if not replaced:
+        if out and not out[-1].endswith("\n"):
+            out[-1] = out[-1] + "\n"
+        if out and out[-1].strip() != "":
+            out.append("\n")
+        out.append(f"{key} = {value}\n")
+    return "".join(out)
+
+
+def _remove_top_level(text: str, key: str, *, only_if_value: str | None = None) -> str:
+    """Remove a top-level assignment. Optionally only when value matches."""
+    lines = text.splitlines(keepends=True)
+    out: list[str] = []
+    in_table = False
+    value_re = re.compile(rf'^\s*{re.escape(key)}\s*=\s*(.+?)\s*$')
+    for line in lines:
+        stripped = line.lstrip()
+        if stripped.startswith("["):
+            in_table = True
+            out.append(line)
+            continue
+        if not in_table:
+            match = value_re.match(line.rstrip("\n"))
+            if match:
+                raw_val = match.group(1).strip()
+                if only_if_value is None or raw_val == only_if_value:
+                    continue
+        out.append(line)
+    return "".join(out)
+
+
+def _remove_provider_table(text: str) -> str:
+    """Remove the [model_providers.mend_guardrails] table if present."""
+    header_line = PROVIDER_TABLE + "\n"
+    start = text.find(header_line)
+    if start == -1:
+        start = text.find(PROVIDER_TABLE)
+        if start == -1:
+            return text
+        after = start + len(PROVIDER_TABLE)
+        if after < len(text) and text[after] == "\n":
+            after += 1
+        next_table = re.search(r"\n\[", text[after:])
+        end = after + next_table.start() + 1 if next_table else len(text)
+        return text[:start] + text[end:]
+
+    after_header = start + len(header_line)
+    next_table = re.search(r"\n\[", text[after_header:])
+    end = after_header + next_table.start() + 1 if next_table else len(text)
+    return text[:start] + text[end:]
+
+
+def _upsert_provider_table(text: str) -> str:
+    """Replace or append the [model_providers.mend_guardrails] table."""
+    block = PROVIDER_BLOCK if PROVIDER_BLOCK.endswith("\n") else PROVIDER_BLOCK + "\n"
+    header_line = PROVIDER_TABLE + "\n"
+    start = text.find(header_line)
+    if start == -1:
+        start = text.find(PROVIDER_TABLE)
+        if start == -1:
+            if text and not text.endswith("\n"):
+                text += "\n"
+            if text and not text.endswith("\n\n"):
+                text += "\n"
+            return text + block
+        prefix = text[:start]
+        if prefix and not prefix.endswith("\n"):
+            prefix += "\n"
+        if prefix and not prefix.endswith("\n\n"):
+            prefix += "\n"
+        return prefix + block
+
+    after_header = start + len(header_line)
+    next_table = re.search(r"\n\[", text[after_header:])
+    end = after_header + next_table.start() + 1 if next_table else len(text)
+    prefix = text[:start]
+    suffix = text[end:]
+    if prefix and not prefix.endswith("\n"):
+        prefix += "\n"
+    if prefix and not prefix.endswith("\n\n"):
+        prefix += "\n"
+    return prefix + block + suffix
+
+
+def _disable(text: str) -> str:
+    """Undo kit TUI intercept settings; leave other Codex config alone."""
+    updated = _remove_top_level(text, "model_provider", only_if_value=f'"{PROVIDER_ID}"')
+    updated = _remove_top_level(updated, "openai_base_url", only_if_value=f'"{LOOPBACK}"')
+    updated = _remove_provider_table(updated)
+    # Collapse excessive blank lines left by removals.
+    updated = re.sub(r"\n{3,}", "\n\n", updated)
+    return updated.strip() + ("\n" if updated.strip() else "")
+
+
+def _enable(text: str) -> str:
+    updated = text
+    updated = _remove_top_level(updated, "openai_base_url", only_if_value=f'"{LOOPBACK}"')
+    updated = _remove_top_level(updated, "model_provider", only_if_value='"openai"')
+    updated = _set_top_level(updated, "model_provider", f'"{PROVIDER_ID}"')
+    updated = _upsert_provider_table(updated)
+    return updated
+
+
+def main() -> int:
+    home = _codex_home()
+    home.mkdir(parents=True, exist_ok=True)
+    path = home / "config.toml"
+
+    existing = ""
+    if path.is_file():
+        existing = path.read_text(encoding="utf-8")
+
+    if _intercept_enabled():
+        updated = _enable(existing)
+        action = "enabled TUI intercept"
+    else:
+        updated = _disable(existing)
+        action = "TUI intercept off (default)"
+
+    if updated != existing:
+        path.write_text(updated, encoding="utf-8")
+        print(f"mend-guardrails: {action}; wrote {path}", file=sys.stderr)
+    else:
+        print(f"mend-guardrails: {action}; {path} unchanged", file=sys.stderr)
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

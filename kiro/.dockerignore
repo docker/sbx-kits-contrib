@@ -1,0 +1,10 @@
+# The build context is the kit directory, which also holds kit metadata that the
+# image has no use for. Excluding it keeps the context small and keeps README or
+# testdata edits from touching the image build at all.
+#
+# Listed by exclusion rather than as an allowlist (`*` + `!start.sh`) so that
+# adding a COPY for a new file does not silently fail on a stale ignore rule.
+README.md
+spec.yaml
+testdata/
+.dockerignore
