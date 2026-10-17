@@ -32,6 +32,8 @@ capabilities:
           - dc.services.visualstudio.com
           - aka.ms
           - registry.npmjs.org
+          - github.com
+          - release-assets.githubusercontent.com
 
   # Inject-only: no `name`, so not even a sentinel enters the container. The
   # secret holds base64(":<PAT>"), which the proxy sends as Basic auth.
