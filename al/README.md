@@ -14,24 +14,29 @@ compile, and package AL extensions inside the sandbox.
 
 ## Usage
 
-`al` is agent-agnostic — layer it onto whichever agent you're using:
+`al` is a mixin, so it cannot run on its own: it composes with `--kit`
+onto a base agent. It is agent-agnostic — pick whichever you use:
 
 ```console
-sbx run claude --kit "docker.io/sbx/al:latest" ~/my-al-project
+sbx run shell --kit docker.io/sbx/al:latest ~/my-al-project
 ```
 
 Or from a git URL targeting this repo:
 
 ```console
-sbx run claude --kit "git+https://github.com/docker/sbx-kits-contrib.git#dir=al" ~/my-al-project
 sbx run shell --kit "git+https://github.com/docker/sbx-kits-contrib.git#dir=al" ~/my-al-project
 ```
 
-Or from a local clone:
+Or from a local clone — a local reference has to be an explicit path
+(`./al`, not `al`):
 
 ```console
-sbx run claude --kit ./al ~/my-al-project
+sbx run shell --kit ./al ~/my-al-project
 ```
+
+Kit v3 needs an `sbx` release candidate or nightly build from
+[docker/sbx-releases](https://github.com/docker/sbx-releases/releases);
+the stable line does not load v3 kits.
 
 Once attached, `al` is on `PATH`:
 
