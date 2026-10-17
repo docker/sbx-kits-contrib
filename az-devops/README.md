@@ -94,7 +94,24 @@ in `az-devops.yaml`.
 
 ## Install behavior
 
-The kit's `com.docker.sandbox/lifecycle@1` `install` hook ensures `/usr/local/share/npm-global/lib` exists by running `mkdir -p` as root.
+**libsecret ships in the kit's image layer; nothing is apt-installed in
+your sandbox.** The Azure DevOps MCP depends on `keytar`, a native addon
+that fails to load with
+`libsecret-1.so.0: cannot open shared object file` when libsecret is
+missing, which it is on the sandbox-templates bases.
+
+`az-devops.dockerfile` runs at build time:
+
+1. apt-installs `libsecret-1-0` on top of the base image and records which
+   packages apt had to add (libsecret plus dependencies the base lacks,
+   such as glib).
+2. Stages the files of exactly those packages, minus documentation.
+3. Copies the staged files onto a fresh base and checks with `ldd` that
+   every library libsecret needs resolves, so a broken overlay fails the
+   build rather than your sandbox.
+
+The kit's `com.docker.sandbox/lifecycle@1` `install` hook also ensures
+`/usr/local/share/npm-global/lib` exists by running `mkdir -p` as root:
 
 ```sh
 mkdir -p /usr/local/share/npm-global/lib

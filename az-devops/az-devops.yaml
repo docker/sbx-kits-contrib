@@ -1,6 +1,11 @@
 # syntax=docker/sandbox-kit:3
 # Azure DevOps API and MCP access through the sandbox credential proxy, as a
-# MIXIN. Usage and prerequisites: see README.md in this directory.
+# MIXIN with an overlay. Usage and prerequisites: see README.md in this
+# directory.
+#
+# The overlay (az-devops.dockerfile) ships libsecret, which the npx-launched
+# Azure DevOps MCP needs through its keytar native addon. It is content, so it
+# is built into the published layer rather than apt-installed at create.
 schemaVersion: "3"
 kind: mixin
 version: "1.0.0"
