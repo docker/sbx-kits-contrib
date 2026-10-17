@@ -20,49 +20,105 @@ jobs:
       spec-changed: ${{ steps.filter.outputs.spec }}
       scripts-changed: ${{ steps.filter.outputs.scripts }}
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
+
+      - name: Resolve filter base
+        id: filter-base
+        # What the path filters below compare against.
+        #
+        # On `pull_request`, actions/checkout checks out refs/pull/N/merge,
+        # whose FIRST parent is the base commit GitHub computed that merge
+        # against (main's tip) and whose second is the PR head. Diffing against
+        # that parent is exactly "what this PR changes", and nothing else.
+        #
+        # The action's own default for this event is
+        # `github.event.pull_request.base.sha`, which GitHub PINS when the PR is
+        # opened and never advances. A PR left open across someone else's merge
+        # then reports every file main gained since as its own — #328 touched
+        # three files, inherited `scripts/publish-artifact.sh` from #327, matched
+        # the `shared` filter, and rebuilt all 69 kits across 274 jobs. It
+        # re-fires on every push for the life of the PR, and only for PRs opened
+        # before the change, so two identical PRs get different blast radii
+        # purely by opening date.
+        #
+        # `origin/main` would be closer but still races: `getChanges` does a
+        # two-dot diff, so if main advances between GitHub computing the merge
+        # ref and this checkout fetching it, main's newer commits show up
+        # inverted, as changes belonging to the PR. The merge ref's own first
+        # parent cannot drift that way.
+        #
+        # Left EMPTY on push, where the action's default (compare against the
+        # previously pushed commit) is already what we want. Also empty if HEAD
+        # is not a merge commit, which degrades to that pinned default rather
+        # than failing the run.
+        run: |
+          set -euo pipefail
+          base=""
+          if [ "${{ github.event_name }}" = "pull_request" ] \
+             && git rev-parse --verify --quiet HEAD^2 >/dev/null; then
+            base=$(git rev-parse HEAD^1)
+          fi
+          echo "Filter base: ${base:-(action default)}"
+          echo "sha=${base}" >> "$GITHUB_OUTPUT"
 
       - name: Generate filters
         id: filter-setup
         run: |
           filters=""
-          # Add a filter for each kit directory (spec.yaml or spec.yml)
-          for f in */spec.yaml */spec.yml; do
-            [ -f "$f" ] || continue
-            kit=$(dirname "$f")
+          # Add a filter for each kit directory. discover-kits.sh is the
+          # single source of truth for "what is a kit" — delegate to it here
+          # too instead of re-globbing spec.yaml/spec.yml.
+          while IFS= read -r kit; do
             filters=$(printf '%s\n%s: "%s/**"' "$filters" "$kit" "$kit")
-          done
+          done < <(./scripts/discover-kits.sh)
           # Add filters for shared packages that should trigger all kits
           filters=$(printf '%s\ntck: "tck/**"\nspec: "spec/**"\nscripts: "scripts/**"' "$filters")
 
-          echo "filters<<EOF" >> "$GITHUB_OUTPUT"
-          echo "$filters" >> "$GITHUB_OUTPUT"
-          echo "EOF" >> "$GITHUB_OUTPUT"
+          filters=$(printf '%s\nworkflows: [".github/workflows/e2e.yml", ".github/workflows/tck.yml"]' "$filters")
+
+          {
+            echo "filters<<EOF"
+            echo "$filters"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
 
       - name: Filter changes
         id: filter
-        uses: dorny/paths-filter@fbd0ab8f3e69293af611ebaee6363fc25e6d187d # v4.0.1
+        uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4.0.3
         with:
           filters: ${{ steps.filter-setup.outputs.filters }}
           # Use local git diff instead of GitHub API — works for fork PRs
           # which have restricted GITHUB_TOKEN permissions.
           token: ""
+          # Anchors the diff to the merge ref's first parent; see "Resolve
+          # filter base" above for why the action's pinned default is wrong
+          # here. The action logs "'base' input parameter is ignored when action
+          # is triggered by pull request event" at this point. That warning does
+          # not apply to this configuration: with `token: ""` it takes the
+          # local-git path, which uses `base || pull_request.base.sha`
+          # (src/main.ts:117 at the pinned commit), so this value IS the one used.
+          base: ${{ steps.filter-base.outputs.sha }}
 
       - name: Collect kits to test
         id: collect
         run: |
-          # If tck/ or spec/ changed, run all kits
+          # Shared code or workflow changes run all kits
           tck_changed="${{ steps.filter.outputs.tck }}"
           spec_changed="${{ steps.filter.outputs.spec }}"
 
-          if [ "$tck_changed" = "true" ] || [ "$spec_changed" = "true" ]; then
-            kits=$(for f in */spec.yaml */spec.yml; do [ -f "$f" ] && dirname "$f"; done | sort -u | jq -R . | jq -sc .)
+          workflows_changed="${{ steps.filter.outputs.workflows }}"
+
+          if [ "$tck_changed" = "true" ] || [ "$spec_changed" = "true" ] || [ "$workflows_changed" = "true" ]; then
+            kits=$(./scripts/discover-kits.sh | jq -R . | jq -sc .)
           else
-            # Only kits that changed
+            # Only kits that changed. `grep -vE` exits 1 (no output, no
+            # match) when $changes is `[]` — e.g. a doc-only PR — which
+            # would abort this step under bash's default -e/pipefail in
+            # GitHub Actions. `|| true` keeps an empty result a success.
             changes='${{ steps.filter.outputs.changes }}'
-            kits=$(echo "$changes" | jq -r '.[]' | grep -vE '^(tck|spec|scripts)$' | jq -R . | jq -sc .)
+            kits=$(echo "$changes" | jq -r '.[]' | { grep -vE '^(tck|spec|scripts|workflows)$' || true; } | jq -R . | jq -sc .)
           fi
 
           echo "kits=${kits:-[]}" >> "$GITHUB_OUTPUT"
@@ -80,9 +136,9 @@ jobs:
         kit: ${{ fromJson(needs.detect-changes.outputs.kits) }}
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
 
@@ -91,7 +147,15 @@ jobs:
         # local workflow stay 1:1. Pass the matrix kit name as a positional
         # arg (the script resolves it against the repo root) and forward
         # `-timeout 30m` to `go test`.
-        run: ./scripts/test-kit.sh "${{ matrix.kit }}" -timeout 30m
+        #
+        # matrix.kit comes from directory names in the PR's own checkout
+        # (discover-kits.sh); passed via env rather than interpolated into
+        # the script text so a directory name containing shell metacharacters
+        # can't inject commands. Unlike the e2e jobs, this one has no
+        # fork-PR restriction.
+        env:
+          KIT: ${{ matrix.kit }}
+        run: ./scripts/test-kit.sh "$KIT" -timeout 30m
 
   test-tck:
     needs: detect-changes
@@ -100,9 +164,9 @@ jobs:
       needs.detect-changes.outputs.spec-changed == 'true'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
 
@@ -114,20 +178,30 @@ jobs:
     if: needs.detect-changes.outputs.scripts-changed == 'true'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
 
       - name: Run scripts tests
         run: go test -v -timeout 10m -count=1 ./scripts/...
 
-  test-kit-e2e:
-    # End-to-end test: install the latest released sbx, authenticate against
-    # Docker Hub non-interactively, and run `sbx create --kit <kit> claude <tmp>`
-    # to prove the kit composes with a real CLI. Skipped for fork PRs because
-    # the Docker Hub secrets are not exposed there.
+  # End-to-end tests run against three sbx channels via the reusable e2e.yml:
+  #
+  #   * e2e-release — the last tagged sbx release. This is the channel users
+  #     have today, so it GATES the PR: the stable `e2e` job below requires it.
+  #   * e2e-nightly — the rolling nightly build, so kits are exercised against
+  #     what sbx will ship next. Informational only — its result never feeds
+  #     the `e2e` gate, so a broken nightly shows red on the PR but does NOT
+  #     block merge.
+  #   * e2e-rc — the latest sbx-releases prerelease ("*-rcN"), so kits are
+  #     exercised against what's currently being validated for the next
+  #     stable cut. Also informational only, for the same reason as nightly:
+  #     an unreleased build failing shouldn't block a kit PR from merging.
+  #
+  # All three are skipped for fork PRs (Docker Hub secrets are not exposed there).
+  e2e-release:
     needs: detect-changes
     if: >-
       (github.event_name == 'push' ||
@@ -135,147 +209,109 @@ jobs:
       needs.detect-changes.outputs.kits != '[]' &&
       needs.detect-changes.outputs.kits != 'null' &&
       needs.detect-changes.outputs.kits != ''
-    strategy:
-      fail-fast: false
-      matrix:
-        kit: ${{ fromJson(needs.detect-changes.outputs.kits) }}
+    uses: ./.github/workflows/e2e.yml
+    with:
+      kits: ${{ needs.detect-changes.outputs.kits }}
+      channel: release
+    secrets: inherit
+
+  e2e-nightly:
+    needs: detect-changes
+    if: >-
+      (github.event_name == 'push' ||
+       github.event.pull_request.head.repo.full_name == github.repository) &&
+      needs.detect-changes.outputs.kits != '[]' &&
+      needs.detect-changes.outputs.kits != 'null' &&
+      needs.detect-changes.outputs.kits != ''
+    uses: ./.github/workflows/e2e.yml
+    with:
+      kits: ${{ needs.detect-changes.outputs.kits }}
+      channel: nightly
+    secrets: inherit
+
+  e2e-rc:
+    needs: detect-changes
+    if: >-
+      (github.event_name == 'push' ||
+       github.event.pull_request.head.repo.full_name == github.repository) &&
+      needs.detect-changes.outputs.kits != '[]' &&
+      needs.detect-changes.outputs.kits != 'null' &&
+      needs.detect-changes.outputs.kits != ''
+    uses: ./.github/workflows/e2e.yml
+    with:
+      kits: ${{ needs.detect-changes.outputs.kits }}
+      channel: rc
+    secrets: inherit
+
+  # Stable gate for branch protection. Configure the repo's required status
+  # check to be `e2e` (not the dynamic `e2e-release (<kit>)` matrix legs,
+  # whose names change per PR, and NOT `e2e-nightly`/`e2e-rc`). It reflects
+  # ONLY the release leg: it fails iff release e2e failed or was cancelled,
+  # and passes when release succeeded or was skipped (fork PRs / no kits
+  # changed). It always runs so a required check is never left pending.
+  e2e:
+    needs: [e2e-release]
+    if: always()
     runs-on: ubuntu-latest
-    timeout-minutes: 30
-    permissions:
-      contents: read
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
-
-      - uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
-        with:
-          go-version-file: go.mod
-
-      - name: Enable KVM access
+      - name: Require the release e2e leg
         run: |
-          sudo chmod 666 /dev/kvm
-          ls -la /dev/kvm
-          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          result="${{ needs.e2e-release.result }}"
+          echo "release e2e result: ${result}"
+          case "${result}" in
+            success|skipped) echo "release e2e gate passed"; exit 0 ;;
+            *)               echo "release e2e gate failed"; exit 1 ;;
+          esac
 
-      - name: Download sbx release
+  # Surface the nightly leg's outcome loudly without blocking. Because
+  # e2e-nightly is informational, its red/green can be easy to miss; this
+  # job echoes the state into the run log and writes a banner to the
+  # GitHub Step Summary so the health of sbx nightly is visible at a glance.
+  # It always exits 0 — reporting the state must never affect mergeability.
+  e2e-nightly-report:
+    needs: [e2e-nightly]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Report nightly e2e state
         run: |
-          set -euo pipefail
-          VERSION=$(curl -fsSL \
-            -H "Authorization: Bearer ${GITHUB_TOKEN}" \
-            https://api.github.com/repos/docker/sbx-releases/releases/latest \
-            | jq -r .tag_name)
-          echo "Resolved latest sbx version: ${VERSION}"
-          echo "SBX_VERSION=${VERSION}" >> "$GITHUB_ENV"
+          result="${{ needs.e2e-nightly.result }}"
+          echo "nightly e2e result: ${result}"
+          case "${result}" in
+            success)   emoji="✅"; msg="sbx **nightly** e2e passed — kits compose against the next sbx." ;;
+            failure)   emoji="🌙"; msg="sbx **nightly** e2e failed — informational only, does **not** block this PR. Track the sbx nightly build." ;;
+            cancelled) emoji="⚠️"; msg="sbx **nightly** e2e was cancelled." ;;
+            skipped)   emoji="⏭️"; msg="sbx **nightly** e2e was skipped (fork PR or no kits changed)." ;;
+            *)         emoji="❔"; msg="sbx **nightly** e2e ended in an unexpected state: ${result}." ;;
+          esac
+          echo "${emoji} ${msg}"
+          {
+            echo "## ${emoji} Nightly e2e (non-blocking)"
+            echo ""
+            echo "${msg}"
+          } >> "$GITHUB_STEP_SUMMARY"
 
-          curl -fsSL \
-            "https://github.com/docker/sbx-releases/releases/download/${VERSION}/DockerSandboxes-linux.tar.gz" \
-            -o /tmp/DockerSandboxes-linux.tar.gz
-          tar xzf /tmp/DockerSandboxes-linux.tar.gz -C /tmp
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Install sbx
+  # Surface the rc leg's outcome the same way as e2e-nightly-report — visible
+  # in the run log and step summary, never affecting mergeability.
+  e2e-rc-report:
+    needs: [e2e-rc]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Report rc e2e state
         run: |
-          set -euo pipefail
-          sudo PREFIX="${HOME}/.docker/sbx" /tmp/docker-sbx/install.sh
-          echo "${HOME}/.docker/sbx/bin" >> "$GITHUB_PATH"
-
-      - name: Verify sbx installation
-        run: sbx version
-
-      - name: Set up Secret Service for sbx login
-        # sbx's released Linux binary persists credentials via libsecret,
-        # which talks to org.freedesktop.secrets over D-Bus. GHA's
-        # ubuntu-latest is headless, so no Secret Service is running and
-        # `sbx login` blocks. The recipe below mirrors the maintainers'
-        # own CI script in docker/secrets-engine
-        # (store/scripts/gnome-keyring), which is the canonical reference:
-        #
-        #   1. Install gnome-keyring + dbus-daemon.
-        #   2. Pre-create ~/.local/share/keyrings/login.keyring as a
-        #      passwordless ini stanza. With the file already on disk,
-        #      `gnome-keyring-daemon --start` adopts it instead of
-        #      prompting via gcr-prompter for a password — that prompt
-        #      activation was the root cause of every earlier iteration
-        #      failing on headless runners.
-        #   3. Start a dbus session bus (dbus-daemon, not dbus-launch or
-        #      dbus-run-session — the former leaves no persistent bus,
-        #      the latter dies when its wrapped command exits).
-        #   4. Start gnome-keyring-daemon's secrets component.
-        #   5. Poll until org.freedesktop.secrets is owned on D-Bus
-        #      before letting the next step run sbx.
-        #
-        # Both DBUS_SESSION_BUS_ADDRESS and the daemon's env are exported
-        # to $GITHUB_ENV so the sbx login + go test steps inherit them.
-        run: |
-          set -euo pipefail
-          sudo apt-get update -qq
-          sudo apt-get install -y -qq gnome-keyring dbus
-
-          mkdir -p "$HOME/.local/share/keyrings"
-          cat > "$HOME/.local/share/keyrings/login.keyring" <<'KEYRING'
-          [keyring]
-          display-name=login
-          ctime=1750965549
-          mtime=0
-          lock-on-idle=false
-          lock-after=false
-          KEYRING
-
-          DBUS_SESSION_BUS_ADDRESS=$(dbus-daemon --session --print-address --fork)
-          echo "DBUS_SESSION_BUS_ADDRESS=$DBUS_SESSION_BUS_ADDRESS" >> "$GITHUB_ENV"
-          export DBUS_SESSION_BUS_ADDRESS
-
-          gnome-keyring-daemon --start --components=secrets >/dev/null
-
-          # Poll until the daemon registers on the bus. 5s is what the
-          # secrets-engine reference script uses.
-          for _ in $(seq 1 50); do
-            if gdbus call --session \
-                --dest org.freedesktop.DBus \
-                --object-path /org/freedesktop/DBus \
-                --method org.freedesktop.DBus.GetNameOwner \
-                org.freedesktop.secrets >/dev/null 2>&1; then
-              echo "Secret Service registered on D-Bus"
-              exit 0
-            fi
-            sleep 0.1
-          done
-          echo "Timed out waiting for org.freedesktop.secrets to register"
-          exit 1
-
-      - name: Sign in to Docker Hub via sbx
-        env:
-          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
-          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
-        run: |
-          if [ -z "${DOCKERHUB_USERNAME}" ] || [ -z "${DOCKERHUB_TOKEN}" ]; then
-            echo "DOCKERHUB_USERNAME / DOCKERHUB_TOKEN not configured; cannot run e2e."
-            exit 1
-          fi
-          # Defensive trim: GH preserves any whitespace pasted into the
-          # secret editor, and sbx's readPasswordStdin only strips trailing
-          # \r\n. Hub usernames and PATs are alphanumeric + hyphens, so
-          # stripping all whitespace can't corrupt a legitimate value.
-          USER_CLEAN=$(printf '%s' "$DOCKERHUB_USERNAME" | tr -d '[:space:]')
-          TOKEN_CLEAN=$(printf '%s' "$DOCKERHUB_TOKEN"    | tr -d '[:space:]')
-          printf '%s' "$TOKEN_CLEAN" | sbx --app-name "$APP_NAME" login --username "$USER_CLEAN" --password-stdin
-
-      - name: Run e2e TCK for ${{ matrix.kit }}
-        # Runs TestE2EKit: verifies kit content (env, files, tmpfs, agentContext)
-        # for all kits, then — for kind:sandbox kits with testdata/tck.yaml —
-        # also sends a non-interactive prompt to the agent.
-        #
-        # The script handles `sbx --app-name $APP_NAME policy init
-        # deny-all` internally, so CI and local runs converge on the same
-        # baseline: each kit gets *exactly* the outbound reachability it
-        # declares in `network.allowedDomains` and nothing more, making
-        # this a real contract test. Kit allow-rules are scoped per
-        # sandbox and punch through the default deny (see
-        # `ApplyKitNetworkPolicyScoped` in
-        # docker/sandboxes:sandboxd/pkg/server/options_governance.go);
-        # kit deny-rules win over allow-rules (deny-wins).
-        run: ./scripts/test-kit-e2e.sh "${{ matrix.kit }}"
-
-      - name: Sign out of Docker Hub
-        if: always()
-        run: sbx logout --yes || true
+          result="${{ needs.e2e-rc.result }}"
+          echo "rc e2e result: ${result}"
+          case "${result}" in
+            success)   emoji="✅"; msg="sbx **rc** e2e passed — kits compose against the current release candidate." ;;
+            failure)   emoji="🕯️"; msg="sbx **rc** e2e failed — informational only, does **not** block this PR. Track the sbx rc build." ;;
+            cancelled) emoji="⚠️"; msg="sbx **rc** e2e was cancelled." ;;
+            skipped)   emoji="⏭️"; msg="sbx **rc** e2e was skipped (fork PR or no kits changed)." ;;
+            *)         emoji="❔"; msg="sbx **rc** e2e ended in an unexpected state: ${result}." ;;
+          esac
+          echo "${emoji} ${msg}"
+          {
+            echo "## ${emoji} RC e2e (non-blocking)"
+            echo ""
+            echo "${msg}"
+          } >> "$GITHUB_STEP_SUMMARY"

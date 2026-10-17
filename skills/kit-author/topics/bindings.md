@@ -11,7 +11,7 @@ credentials:
       inject:
         - domain: api.anthropic.com
           header: x-api-key
-          format: "%s"
+          format: "%s"          # or: scheme: bearer / scheme: basic (v2 sugar for header+format)
 ```
 
 A **user** declares where it lives on their host:

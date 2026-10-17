@@ -24,7 +24,7 @@ stores the value in the host secret store and exposes a placeholder
 inside every sandbox launched from this kit:
 
 ```console
-$ sbx secret set-custom -g \
+sbx secret set-custom -g \
     --host ampcode.com \
     --env AMP_API_KEY \
     --placeholder "sgamp-{rand}" \
@@ -43,16 +43,23 @@ the real secret on outbound requests to `ampcode.com`.
 
 ## Usage
 
-Run the kit. Pass the kit's name (`amp`) as the agent argument:
+Run the kit. Pass the kit's name (`amp`) as the agent argument. The primary
+form is its published OCI artifact on Docker Hub:
 
 ```console
-$ sbx run --kit "git+https://github.com/docker/sbx-kits-contrib.git#dir=amp" amp
+sbx run --kit "docker.io/sbx/amp-kit:latest" amp
+```
+
+Or from a git URL targeting this repo:
+
+```console
+sbx run --kit "git+https://github.com/docker/sbx-kits-contrib.git#dir=amp" amp
 ```
 
 Or with a local clone of this repo:
 
 ```console
-$ sbx run --kit ./amp/ amp
+sbx run --kit ./amp/ amp
 ```
 
 The first launch installs Amp via its `curl | bash` script and applies
@@ -85,7 +92,7 @@ To remove the entry created by `set-custom`, pass the host to
 `sbx secret rm`:
 
 ```console
-$ sbx secret rm -g --host ampcode.com
+sbx secret rm -g --host ampcode.com
 ```
 
 The `--host` flag on `sbx secret rm` isn't listed in

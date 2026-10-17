@@ -21,29 +21,30 @@ func WithImage(image string) Option {
 // NewSuiteFromDir loads a kit artifact from the given directory and derives
 // all test expectations from the spec.yaml and files/ directory.
 //
-// The artifact is loaded via spec.OpenFromDirectory (streaming path) so the
-// TCK exercises on-demand file reading via ArtifactFile.Open. File content is
-// still read into memory at the copy boundary inside RunContainerTests, but
-// only one file at a time.
+// A `${{ kit.args.<name> }}` reference in spec.yaml or under files/ is
+// substituted before the spec is decoded, taking its value from the `args:`
+// block of <dir>/testdata/tck.yaml or, failing that, from the argument's
+// declared default.
+//
+// A kit with nothing to substitute is loaded via spec.OpenFromDirectory
+// (streaming path), so the TCK exercises on-demand file reading via
+// ArtifactFile.Open. File content is still read into memory at the copy
+// boundary inside RunContainerTests, but only one file at a time.
 //
 // For kind=agent artifacts, the container image is taken from the manifest's template.
-// For kind=mixin artifacts, the image is resolved from the extends field using
-// well-known agent templates, or defaults to the shell template.
+// For kind=mixin artifacts, the image is resolved from extends or the declared
+// base-agent affinity (requires.agent) using well-known agent templates, or
+// defaults to the shell template.
 // Use WithImage to override the image for any artifact.
 func NewSuiteFromDir(dir string, opts ...Option) (*Suite, error) {
-	artifact, err := spec.OpenFromDirectory(dir)
+	artifact, err := openKitArtifact(dir)
 	if err != nil {
 		return nil, fmt.Errorf("load artifact from %q: %w", dir, err)
 	}
 
-	image, err := containerImage(artifact)
-	if err != nil {
-		return nil, err
-	}
-
 	suite := &Suite{
 		Artifact:               artifact,
-		Image:                  image,
+		Dir:                    dir,
 		ExpectedEnvVars:        deriveEnvVars(artifact.Environment),
 		ExpectedContainerFiles: deriveContainerFiles(artifact.Files, artifact.Commands),
 		ExpectedTmpfs:          deriveTmpfs(artifact.Manifest.TmpfsVolumes()),
@@ -84,9 +85,22 @@ func NewSuiteFromDir(dir string, opts ...Option) (*Suite, error) {
 		}
 	}
 
-	// Apply functional options (e.g., WithImage)
+	// Apply functional options first, so WithImage can override image
+	// resolution — including rescuing an artifact whose image cannot be
+	// derived from the spec (unknown extends, or a sandbox with no template).
 	for _, opt := range opts {
 		opt(suite)
+	}
+
+	// Resolve the container image from the spec only when WithImage has not
+	// already supplied one. This keeps the "use WithImage" guidance in
+	// containerImage's error messages truthful: a caller can always override.
+	if suite.Image == "" {
+		image, err := containerImage(artifact)
+		if err != nil {
+			return nil, err
+		}
+		suite.Image = image
 	}
 
 	return suite, nil

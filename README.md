@@ -2,13 +2,17 @@
 
 Community-contributed kits for [Docker Sandboxes](https://docs.docker.com/ai/sandboxes/).
 
-Each top-level directory is a **kit** — a declarative artifact containing a `spec.yaml` and optional `files/` directory that extends sandbox agents with additional capabilities.
+Each top-level directory containing a `spec.yaml` is a **kit** — a declarative artifact with that `spec.yaml` and an optional `files/` directory, extending sandbox agents with additional capabilities. A `kind: sandbox` kit may also carry a `Dockerfile` for the image its sandbox boots from (see [`kiro/`](./kiro)); CI builds and publishes that image as `docker.io/sbx/<kit>-image` — see [`PUBLISHING.md`](./PUBLISHING.md).
+
+The remaining top-level directories are shared infrastructure: [`spec/`](./spec) (the kit spec implementation), [`tck/`](./tck) (the compatibility test kit), [`scripts/`](./scripts) (maintainer utilities), and [`skills/`](./skills).
 
 ## Documentation
 
 - [Kits overview](https://docs.docker.com/ai/sandboxes/customize/kits/) — what kits are and how to use them
 - [Kit examples](https://docs.docker.com/ai/sandboxes/customize/kit-examples/) — reference examples for common kit patterns
 - [Build your own agent kit](https://docs.docker.com/ai/sandboxes/customize/build-an-agent/) — step-by-step tutorial using the `amp` kit in this repo
+
+Repository docs: [`CONTRIBUTING.md`](./CONTRIBUTING.md) (how to submit a kit) and [`PUBLISHING.md`](./PUBLISHING.md) (for kits that build their own image).
 
 Contributing a kit or a fix? Read [`CONTRIBUTING.md`](./CONTRIBUTING.md) first — this repo enforces verified commit signatures, so you'll need GPG or SSH signing set up before your PR can be merged.
 
@@ -22,12 +26,18 @@ Contributing a kit or a fix? Read [`CONTRIBUTING.md`](./CONTRIBUTING.md) first �
 
 ## Using a kit
 
-Kits are passed to `sbx run` (or `sbx create`) via `--kit`. The flag accepts a local path, an OCI registry reference, a ZIP archive, or a `git+...` URL.
+Kits are passed to `sbx run` (or `sbx create`) via `--kit`. The flag accepts an OCI registry reference, a `git+...` URL, a local path, or a ZIP archive.
 
-The most common form is a git URL targeting this repo:
+The primary way to consume a kit from this repo is its published OCI artifact on Docker Hub — every kit here is discovered and published automatically (see [`PUBLISHING.md`](./PUBLISHING.md)), so the artifact exists the moment a change merges to `main`:
 
 ```console
-$ sbx run --kit "git+https://github.com/docker/sbx-kits-contrib.git#dir=code-server" claude
+sbx run --kit "docker.io/sbx/code-server-kit:latest" claude
+```
+
+Or target this repo directly over git:
+
+```console
+sbx run --kit "git+https://github.com/docker/sbx-kits-contrib.git#dir=code-server" claude
 ```
 
 The fragment after `#` accepts two parameters, both optional:
@@ -41,13 +51,13 @@ Combine them with `&`:
 
 ```console
 # Pin to a tag — the recommended form for production use
-$ sbx run --kit "git+https://github.com/docker/sbx-kits-contrib.git#ref=v0.2.0&dir=code-server" claude
+sbx run --kit "git+https://github.com/docker/sbx-kits-contrib.git#ref=v0.2.0&dir=code-server" claude
 
 # Track a branch (less stable; the kit may change under you)
-$ sbx run --kit "git+https://github.com/docker/sbx-kits-contrib.git#ref=main&dir=code-server" claude
+sbx run --kit "git+https://github.com/docker/sbx-kits-contrib.git#ref=main&dir=code-server" claude
 
 # Pin to an exact commit SHA — fully reproducible
-$ sbx run --kit "git+https://github.com/docker/sbx-kits-contrib.git#ref=abc1234&dir=code-server" claude
+sbx run --kit "git+https://github.com/docker/sbx-kits-contrib.git#ref=abc1234&dir=code-server" claude
 ```
 
 Without `ref`, sbx clones the default branch shallowly. With a branch or tag, sbx clones at that ref shallowly. With a commit SHA, sbx clones fully and checks out the commit.
@@ -55,13 +65,13 @@ Without `ref`, sbx clones the default branch shallowly. With a branch or tag, sb
 You can also use SSH instead of HTTPS for private repos:
 
 ```console
-$ sbx run --kit "git+ssh://git@github.com/docker/sbx-kits-contrib.git#dir=code-server" claude
+sbx run --kit "git+ssh://git@github.com/docker/sbx-kits-contrib.git#dir=code-server" claude
 ```
 
 For local development, point `--kit` at a directory:
 
 ```console
-$ sbx run --kit ./code-server/ claude
+sbx run --kit ./code-server/ claude
 ```
 
 ## Repository Structure
@@ -91,23 +101,24 @@ There's no per-kit test file to write — the shared `TestKitTCK` in `tck/kit_te
 2. Write your `spec.yaml`:
 
 ```yaml
-schemaVersion: "1"
+schemaVersion: "2"
 kind: mixin
 name: my-kit
 displayName: My Kit
 description: "Short description of what this kit does"
 
-network:
-  allowedDomains:
-    - example.com
-  deniedDomains:
-    - tracker.example.com
+permissions:
+  network:
+    allow:
+      - example.com
+    deny:
+      - tracker.example.com
 
 environment:
   variables:
     MY_CONFIG: "/home/agent/config.json"
 
-commands:
+setup:
   install:
     - command: "pip install my-tool"
       user: "1000"
@@ -146,11 +157,11 @@ working directory set to the package directory (`./tck/`).
 
 ## Declare every domain your kit needs
 
-A kit's `network.allowedDomains` is its **complete** outbound network contract. The CI e2e job runs with a `deny-all` default policy, so anything not in your `allowedDomains` is blocked at request time — and any failed request inside an install hook surfaces as `sbx create` failing.
+A kit's `permissions.network.allow` is its **complete** outbound network contract. The CI e2e job runs with a `deny-all` default policy, so anything not in your `permissions.network.allow` is blocked at request time — and any failed request inside an install hook surfaces as `sbx create` failing.
 
 The non-obvious trap is **package managers refreshing every configured source**, not just the one you added:
 
-- `apt-get update` re-fetches metadata for every file in `/etc/apt/sources.list[.d/]` — including sources the base template added. If *any* of those returns non-2xx, `apt-get` exits non-zero even if the package you want is in a different source. For kits built on `shell-docker` / `*-docker` templates that means `download.docker.com` (Docker's apt repo, pre-added by the template) needs to be in your `allowedDomains` even if you're only installing something from Ubuntu's main archive.
+- `apt-get update` re-fetches metadata for every file in `/etc/apt/sources.list[.d/]` — including sources the base template added. If *any* of those returns non-2xx, `apt-get` exits non-zero even if the package you want is in a different source. For kits built on `shell-docker` / `*-docker` templates that means `download.docker.com` (Docker's apt repo, pre-added by the template) needs to be in your `permissions.network.allow` even if you're only installing something from Ubuntu's main archive.
 - Ubuntu hosts amd64 packages on `archive.ubuntu.com` + `security.ubuntu.com` and arm64 packages on `ports.ubuntu.com`. List all three for cross-arch coverage; CI is amd64, your Mac is likely arm64.
 - `npm install`, `pip install`, `cargo`, `go get`, etc. each have their own registry/mirror hosts — declare them too.
 
@@ -168,7 +179,7 @@ sbx --app-name $APP ls                            # find the tck-e2e-* sandbox
 sbx --app-name $APP policy log tck-e2e-<short-uuid>
 ```
 
-Every `Blocked requests` row is a domain your install or startup hook reached for under `deny-all`. Add the host (column `HOST`, e.g. `download.docker.com:443`) to `allowedDomains` and re-run until the block list is empty.
+Every `Blocked requests` row is a domain your install or startup hook reached for under `deny-all`. Add the host (column `HOST`, e.g. `download.docker.com:443`) to `permissions.network.allow` and re-run until the block list is empty.
 
 If you'd rather hand-build a probe sandbox without invoking the test harness (useful when iterating on install scripts without touching the spec), the manual flow is:
 
@@ -196,20 +207,26 @@ The TCK validates your kit automatically:
 
 ## End-to-end (e2e) Tests
 
-The default TCK runs every kit assertion against a fabricated `testcontainers-go` container — fast, deterministic, no `sbx` needed. The optional e2e layer goes further: it boots a **real `sbx` sandbox** from the kit, then verifies the kit's content actually landed inside the running container. It catches things the default TCK can't — install commands that fail under the non-root agent user, `${WORKDIR}` placeholders that resolve differently than expected, agent-kit name mismatches, or memory blocks the engine never writes out.
+The default TCK runs every kit assertion against a fabricated `testcontainers-go` container — fast, deterministic, no `sbx` needed. The optional e2e layer goes further: it boots a **real `sbx` sandbox** from the kit, then verifies the kit's content actually landed inside the running container. It catches things the default TCK can't — install commands that fail under the non-root agent user, `${WORKDIR}` placeholders that resolve differently than expected, agent-kit name mismatches, or `agentContext` content the engine never renders.
 
 ### What the e2e test does
 
-`tck/e2e_test.go` (build-tag `e2e`, function `TestE2ECreateSandbox`) drives one kit per run:
+`tck/e2e_test.go` (build-tag `e2e`, function `TestE2EKit`) drives one kit per run — a thin wrapper around the exported `tck.RunE2EKit`, which any module importing this package can call against its own app-name:
 
-1. Loads the kit at `$KIT_UNDER_TEST` and picks the agent argument — kit name for `kind: agent`, `claude` for `kind: mixin`.
-2. Runs `sbx create --kit <kit> --name <unique> <agent> <tmpdir>` against a temporary workspace.
+1. Loads the kit at `$KIT_UNDER_TEST`.
+2. Runs `sbx create`, shaped by the kit's manifest kind, against a temporary workspace:
+   - `kind: sandbox` → `sbx create <kit> --name <unique> <tmpdir>` — the kit's own directory is the first positional, no `--kit` flag or agent argument. `sbx create --kit <sandbox-kit> ... <agent>` still works with a deprecation warning when `<agent>` doesn't name a built-in, but hard-fails as `must be kind "mixin", got "sandbox"` when it does, since the positional then resolves to the built-in rather than this kit; the positional form drops that deprecation warning for every sandbox kit, not only the built-in-shadowed ones.
+   - `kind: mixin` → `sbx create --kit <kit> --name <unique> <agent> <tmpdir>`, composing the mixin onto `<agent>` (`claude`, or the mixin's declared base-agent affinity).
+   - For a `kind: sandbox` kit whose name still collides with a built-in agent, with `extractedFromBuiltin: true` set in its `testdata/tck.yaml`, the test retries from a temporary copy renamed `<name>-e2e` and runs the same subtests under that name — see [`skills/kit-author/topics/testing.md`](./skills/kit-author/topics/testing.md#kits-that-replace-a-built-in-agent) for the full table.
+
+   When the wrapper script side-loaded a Dockerfile kit's freshly built image, the create runs with `--pull=never` so that image is what boots (see "Overrides via env" below to change this).
 3. Verifies, via `sbx exec`, that the running sandbox contains:
    - every `environment.variables` entry,
    - every file under `files/home` and every `commands.initFiles` (with `${WORKDIR}` resolved to `/home/agent/workspace`, the real sandbox workdir),
    - every declared `tmpfs` mount (plus the implicit `/run/secrets`),
-   - the rendered memory file — `Manifest.AIFilename` for agent kits (inlined memory) or `kits-memory/<kit-name>.md` for mixin kits.
-4. Cleans up with `sbx rm -f <name>`.
+   - the rendered `agentContext` — inlined into the AI file (`aiFilename`) for `kind: sandbox` kits, or written to `kits-agent-context/<kit-name>.md` for `kind: mixin` kits.
+   - for `kind: sandbox` kits whose `testdata/tck.yaml` declares `promptArgs`, a non-interactive prompt to the agent.
+4. Cleans up with `sbx rm -f <name>` — unless the run failed, in which case the sandbox is kept for post-mortem and the test logs the `sbx policy log <name>` command to inspect it; the next wrapper run removes any such leftover before starting.
 
 ### Prerequisites
 
@@ -218,7 +235,7 @@ The default TCK runs every kit assertion against a fabricated `testcontainers-go
   ```bash
   sbx --app-name sbx-kits-contrib-tck login
   ```
-  Non-interactive (matches CI):
+  Non-interactive (using your own Docker Hub username and access token):
   ```bash
   printf '%s' "$DOCKERHUB_TOKEN" | sbx --app-name sbx-kits-contrib-tck login --username "$DOCKERHUB_USERNAME" --password-stdin
   ```
@@ -226,7 +243,7 @@ The default TCK runs every kit assertion against a fabricated `testcontainers-go
 
 ### Running locally
 
-The test is hidden behind the `e2e` build tag so kit authors running `go test ./...` see no behavior change. Opt in via the wrapper — the script handles the `--app-name` scoping and `deny-all` policy for you:
+The test is hidden behind the `e2e` build tag so kit authors running `go test ./...` see no behavior change. Opt in via the wrapper — the script handles the `--app-name` scoping and `deny-all` policy for you, and — for a kit that ships a `Dockerfile` — builds and side-loads its image so e2e runs against this working tree's build:
 
 ```bash
 # From inside the kit's directory:
@@ -237,13 +254,13 @@ cd my-kit
 ./scripts/test-kit-e2e.sh my-kit
 ```
 
-Idempotent and non-interactive. Re-running converges on the same state — set the same default policy, run the test, leave the scoped daemon as it was. Overrides via env: `APP_NAME` (default `sbx-kits-contrib-tck`) and `POLICY` (default `deny-all`; set `POLICY=` to skip the policy step). Extra positional flags are forwarded to `go test`.
+Idempotent and non-interactive. Re-running converges on the same state — set the same default policy, run the test, leave the scoped daemon as it was. Overrides via env: `APP_NAME` (default `sbx-kits-contrib-tck`), `POLICY` (default `deny-all`; set `POLICY=` to skip the policy step), `SBX_KIT_SKIP_IMAGE_LOAD` (set to `1` to skip building and side-loading a Dockerfile kit's image and use the published one instead), and `SBX_E2E_PULL_POLICY` (passed to `sbx create --pull`; the script sets it to `never` after a side-load, set it explicitly to override). Extra positional flags are forwarded to `go test`.
 
-If you'd rather drop to `go test` directly (note: this skips the policy-set step, so you need to apply `deny-all` yourself or the network contract isn't tested):
+If you'd rather drop to `go test` directly (note: this skips the policy-set step, so you need to apply `deny-all` yourself or the network contract isn't tested, and skips the image side-load, so a Dockerfile kit tests against its published image rather than this working tree's build):
 
 ```bash
 KIT_UNDER_TEST="$PWD/my-kit" \
-  go test -tags=e2e -v -timeout 25m -count=1 -run TestE2ECreateSandbox ./tck/...
+  go test -tags=e2e -v -timeout 25m -count=1 -run TestE2EKit ./tck/...
 ```
 
 `KIT_UNDER_TEST` must be an **absolute path**: `go test` runs each binary with its working directory set to the package directory (`./tck/`), so a relative path resolves against `./tck/`, not the repo root.
@@ -256,11 +273,17 @@ for spec in $(find "$PWD" -mindepth 2 -maxdepth 2 \( -name spec.yaml -o -name sp
 done
 ```
 
-Each subtest (`env`, `files/<path>`, `tmpfs/<path>`, `memory`) reports independently, so a failure pinpoints which piece of kit content didn't make it into the container.
+Each subtest (`env`, `files/<path>`, `tmpfs/<path>`, `agentContext`, `prompt`) reports independently, so a failure pinpoints which piece of kit content didn't make it into the container.
 
 ### Running in CI
 
-The `test-kit-e2e` job in [`.github/workflows/tck.yml`](.github/workflows/tck.yml) runs alongside the default `test-kit` job. It downloads the latest `sbx` release, signs in to Docker Hub using `DOCKERHUB_USERNAME` / `DOCKERHUB_TOKEN` repo secrets, then runs the e2e test once per detected kit. **The job is skipped on fork PRs** because GitHub does not expose secrets to fork-triggered workflows — so for the typical contributor, e2e never runs in CI on their PR, and the reviewer sees a green check that does **not** cover the e2e assertions.
+The e2e legs in [`.github/workflows/tck.yml`](.github/workflows/tck.yml) run alongside the default `test-kit` job, via the reusable [`.github/workflows/e2e.yml`](.github/workflows/e2e.yml). Each signs in to Docker Hub using `DOCKERPUBLICBOT_USERNAME` / `DOCKERPUBLICBOT_WRITE_PAT` repo secrets, then runs the e2e test once per detected kit — against three `sbx` channels:
+
+- **`e2e-release`** downloads the latest tagged `sbx` release. This is the channel users have today, so it **gates the PR** through the stable `e2e` job (the required status check).
+- **`e2e-nightly`** downloads the rolling `nightly` build, so kits are also exercised against what `sbx` will ship next. It is **informational only** — a broken nightly shows a red check but never blocks merge. The `e2e-nightly-report` job echoes its outcome to the run log and the job summary.
+- **`e2e-rc`** downloads the latest `sbx-releases` prerelease tagged `*-rcN`, so kits are also exercised against the release candidate currently being validated for the next stable cut. Also **informational only** — the `e2e-rc-report` job echoes its outcome the same way `e2e-nightly-report` does.
+
+**All e2e legs are skipped on fork PRs** because GitHub does not expose secrets to fork-triggered workflows — so for the typical contributor, e2e never runs in CI on their PR, and the reviewer sees a green check that does **not** cover the e2e assertions.
 
 That makes a local e2e run **mandatory** before opening a PR from a fork. Run `./scripts/test-kit-e2e.sh <kit>` — the script applies the same `deny-all` baseline CI uses on a scoped daemon (`--app-name sbx-kits-contrib-tck`), so the network contract gets tested without touching your main sbx state. See [Declare every domain your kit needs](#declare-every-domain-your-kit-needs) for the recurring "read the proxy log, add a host, re-run" loop.
 
@@ -305,6 +328,20 @@ suite, err := tck.NewSuiteFromDir(".")
 suite.RunAll(t)
 ```
 
+For the real-sandbox e2e layer, `tck.RunE2EKit` is exported the same way, so
+another module (e.g. a sibling kit repo with its own kits and its own CI) can
+drive the identical assertions this repo's own `TestE2EKit` uses, scoped to
+its own `sbx --app-name`:
+
+```go
+import "github.com/docker/sbx-kits-contrib/tck"
+
+func TestE2EKit(t *testing.T) {
+	kitPath := os.Getenv("KIT_UNDER_TEST")
+	tck.RunE2EKit(t, kitPath, tck.E2EOptions{AppName: "my-repo-tck"})
+}
+```
+
 ## CI
 
 Pull requests trigger TCK tests automatically:
@@ -312,7 +349,7 @@ Pull requests trigger TCK tests automatically:
 - **Kit changes**: only the modified kit is tested
 - **TCK/spec changes**: all kits are tested
 - Each kit runs in a separate CI runner on Linux
-- The optional `test-kit-e2e` job exercises every detected kit against a real `sbx` CLI — see [End-to-end (e2e) Tests](#end-to-end-e2e-tests). Skipped on fork PRs (no Docker Hub secrets).
+- The optional e2e legs exercise every detected kit against a real `sbx` CLI — `e2e-release` (latest release, gates the PR), `e2e-nightly` (rolling nightly, informational only), and `e2e-rc` (latest release candidate, informational only). See [End-to-end (e2e) Tests](#end-to-end-e2e-tests). Skipped on fork PRs (no Docker Hub secrets).
 
 ## Prerequisites
 

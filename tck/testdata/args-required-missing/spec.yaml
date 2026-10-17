@@ -1,0 +1,13 @@
+schemaVersion: "2"
+kind: mixin
+name: args-required-missing
+description: "TCK fixture: a required argument that no testdata/tck.yaml supplies, which must fail rather than skip."
+
+args:
+  token:
+    required: true
+    description: "Deliberately unsupplied — this kit ships no testdata/tck.yaml."
+
+environment:
+  variables:
+    ARGS_FIXTURE_TOKEN: "${{ kit.args.token }}"

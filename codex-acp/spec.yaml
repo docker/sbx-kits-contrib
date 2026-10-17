@@ -1,0 +1,39 @@
+schemaVersion: "2"
+kind: mixin
+name: codex-acp
+# The adapter execs the sandboxed Codex binary; composing onto any other
+# base agent yields a sandbox with an adapter and no agent behind it.
+requires:
+  agent: codex
+displayName: Codex ACP
+description: Runs the Codex ACP adapter inside a Codex sandbox over stdio.
+
+permissions:
+  network:
+    allow:
+      - api.github.com
+      - gist.github.com
+      - github.com
+      - registry.npmjs.org
+      - raw.githubusercontent.com
+
+setup:
+  files:
+    - path: /home/agent/.local/bin/codex-acp
+      mode: "0755"
+      description: Launch the Codex ACP adapter with the sandboxed Codex binary.
+      content: |
+        #!/bin/bash
+        set -e
+        if [ -z "$CODEX_PATH" ]; then
+          export CODEX_PATH=codex
+        fi
+        exec npx -y @agentclientprotocol/codex-acp@1.1.0 "$@"
+
+agentInstructions:
+  content: |
+    The Codex ACP adapter is available at `/home/agent/.local/bin/codex-acp`.
+    Host tools should run it with a non-TTY stdin/stdout stream, for example
+    `sbx exec -i <sandbox> /home/agent/.local/bin/codex-acp`.
+    If the host has a global sbx GitHub secret, `GH_TOKEN` is available in the
+    sandbox as a proxy-managed sentinel for `gh` and git HTTPS operations.

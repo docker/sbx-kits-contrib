@@ -2,7 +2,7 @@
 
 Four layers. Run **all four locally** before opening a PR — only the first two run on CI for fork PRs.
 
-**Why fork contributors must run e2e locally.** The repo's `test-kit-e2e` job needs `DOCKERHUB_USERNAME` / `DOCKERHUB_TOKEN` to pull the template image, and GitHub does not expose secrets to workflows triggered from forks. So if you're contributing from a fork (the common case), the e2e job is **skipped silently** on your PR — the reviewer sees a green check that does not include `TestE2EKit`. The only place those assertions ever run is on your laptop. See [`.github/workflows/tck.yml`](../../../.github/workflows/tck.yml) and the "Running in CI" note in [the README](../../../README.md#running-in-ci).
+**Why fork contributors must run e2e locally.** The repo's CI e2e legs (`e2e-release`, which gates the PR, and the informational `e2e-nightly`/`e2e-rc`) need `DOCKERHUB_USERNAME` / `DOCKERHUB_TOKEN` to pull the template image, and GitHub does not expose secrets to workflows triggered from forks. So if you're contributing from a fork (the common case), the e2e legs are **skipped silently** on your PR — the reviewer sees a green check that does not include `TestE2EKit`. The only place those assertions ever run is on your laptop. See [`.github/workflows/tck.yml`](../../../.github/workflows/tck.yml) and the "Running in CI" note in [the README](../../../README.md#running-in-ci).
 
 ## 1. Spec-level validation
 
@@ -20,13 +20,14 @@ Validation runs automatically inside every `spec.Load*` path. If a kit cannot pa
 This repository ships a TCK package at [`tck/`](../../../tck/). It validates:
 
 1. Spec parses with required fields
-2. Network policy (`caps.network` allow/deny entries are well-formed)
+2. Network policy (`permissions.network` allow/deny entries are well-formed)
 3. Credentials (each `credentials[]` entry is well-formed; injection rules valid)
 4. Environment variables (declared, set in container)
-5. Commands (install/startup are well-formed)
+5. Setup (`setup.install` / `setup.startup` are well-formed)
 6. Container files (files from `files/` are injected at the correct paths)
 7. Volumes (block-backed and `type: tmpfs` entries — plus the implicit `/run/secrets` tmpfs)
-8. Published ports (`publishedPorts[]` entries validate)
+8. Published ports (`ports[]` entries validate)
+9. Arguments (in `spec.yaml` scalars outside `args:`, and in every regular file under `files/`, each `${{ kit.args.<name> }}` reference names a declared argument and resolves to a constraint-satisfying value — checked as the suite loads, before any subtest runs)
 
 ### Writing a TCK test
 
@@ -53,6 +54,49 @@ suite, err := tck.NewSuiteFromDir(".", tck.WithImage("my-custom/template:latest"
 ```
 
 The TCK auto-resolves well-known parent agents (shell, claude, codex, copilot, cursor, docker-agent, droid, gemini, kiro, opencode) via their template images.
+
+### Kits that declare `args`
+
+A kit that declares [`args`](spec-anatomy.md#args) is installed with values someone supplies. The TCK is that someone: it substitutes every `${{ kit.args.<name> }}` reference in `spec.yaml` and in the regular files under `files/` before the spec is decoded, which is why an argument works in a field the schema pattern-checks, such as `requires.agent`. [SPEC-v2 §2.1](../../../spec/SPEC-v2.md#21-args) is the reference for what counts as a reference and what does not — a key, the `args:` block itself, another namespace, a substituted value.
+
+Each value comes from the `args:` block of your kit's `testdata/tck.yaml`, or from the argument's declared `default` when that block says nothing about it:
+
+```yaml
+# my-kit/spec.yaml
+args:
+  channel:
+    default: "stable"
+    enum: ["stable", "nightly"]
+  token:
+    required: true
+    description: "API token"
+
+setup:
+  install:
+    - command: "install-my-tool --channel '${{ kit.args.channel }}'"
+```
+
+```yaml
+# my-kit/testdata/tck.yaml
+args:
+  token: "dummy-for-ci"
+```
+
+An argument declared `required: true` has no default to fall back on, so the TCK **fails** the kit until `testdata/tck.yaml` supplies a value — naming the argument and the file. That is deliberate: a skip here is how a kit ends up shipping with nothing testing it. Pick a value that is safe in a public repo and good enough for the install to run; the TCK container has no real credentials either way.
+
+| Situation | Result |
+|---|---|
+| `tck.yaml` supplies a value | That value is substituted |
+| No value, argument has a `default` | The default is substituted |
+| No value, argument is `required` | **FAIL**, naming the argument and `testdata/tck.yaml` |
+| Value violates the argument's `enum` or `pattern` | **FAIL**, naming the value and the constraint |
+| A reference no `args:` entry declares | **FAIL**, naming the file and the reference |
+| A reference that does not parse — a dotted name, a missing `}}` | **FAIL**, naming the file and the offending text |
+| A `spec.yaml` mapping key naming an argument, escaped or not | **FAIL**, naming the key |
+
+Values are strings, and quoting the placeholder in `spec.yaml` is what keeps the substituted value one: leave it unquoted in a field that takes a number and `1.20` is read as a number, which is what you want there and not what you want in a string field.
+
+The e2e layer passes the very same `testdata/tck.yaml` values to `sbx create`, using its repeatable `--kit-arg <kit-name>.name=value` flag, so both layers install the kit with identical values. Arguments you leave to their defaults need no entry — the create resolves those the same way the TCK does.
 
 ### Running TCK
 
@@ -89,6 +133,8 @@ KIT_UNDER_TEST="$PWD/my-kit" \
   go test -tags=e2e -v -timeout 25m -count=1 ./tck/...
 ```
 
+For a kit that ships a `Dockerfile`, the script builds that image and side-loads it into the scoped daemon before creating the sandbox, so e2e runs against the branch's image rather than a published tag. It then creates the sandbox with `--pull=never`, controlled by `SBX_E2E_PULL_POLICY` (`never` by default after a side-load, unset otherwise) — set it explicitly to override.
+
 Prerequisites: `sbx` on `PATH`, authenticated against Docker Hub, Linux with `/dev/kvm` accessible. See the repository [README](../../../README.md#end-to-end-e2e-tests) for the full setup and the precise assertions performed.
 
 ### `TestE2EKit` — the single e2e test
@@ -98,16 +144,18 @@ There is one e2e test function, `TestE2EKit`, that handles all kit kinds. It cre
 | Subtest | Applies to | What it checks |
 |---|---|---|
 | `env` | all kits | declared `environment.variables` are set in the container |
-| `files` | all kits | files from `files/home` and `commands.initFiles` exist and are non-empty |
+| `files` | all kits | files from `files/home` and `setup.files` exist and are non-empty |
 | `tmpfs` | all kits | declared tmpfs paths (plus `/run/secrets`) are mounted |
-| `agentContext` | all kits | agentContext content rendered into the AI profile file (skipped when undeclared) |
+| `agentContext` | all kits | `agentInstructions.content` rendered into the AI profile file (skipped when undeclared) |
 | `prompt` | `kind: sandbox` only | non-interactive prompt sent to the agent; asserts non-empty response |
 
 Every `sbx` call carries `--app-name sbx-kits-contrib-tck` so all commands route to the same authenticated daemon instance.
 
 ### `testdata/tck.yaml` — kit-specific e2e config
 
-`kind: sandbox` kits **should** ship a `testdata/tck.yaml` file alongside their `spec.yaml` to opt in to the `prompt` subtest. The file is optional — the subtest is simply absent when the file is missing or `promptArgs` is empty. Kits whose agent requires a long async installation (e.g. nanoclaw, hermes-agent) may omit it until the installation reliably completes within the test timeout.
+`kind: sandbox` kits **should** ship a `testdata/tck.yaml` file alongside their `spec.yaml` to opt in to the `prompt` subtest, which only exists for `kind: sandbox` kits (see the table above). The file is optional there too — the subtest is simply absent when the file is missing or `promptArgs` is empty. Kits whose agent requires a long async installation (e.g. nanoclaw, hermes-agent) may omit it until the installation reliably completes within the test timeout.
+
+The file itself is not sandbox-only, though: a `kind: mixin` kit ships one too when it needs `requiresHostCredentials` (see "Kits whose agent needs a host-stored credential" below) or `args` (see ["Kits that declare `args`"](#kits-that-declare-args)). Only `promptArgs`, `readyFile`, `binary`, and `extractedFromBuiltin` are meaningful solely for `kind: sandbox`.
 
 **Full schema:**
 
@@ -127,17 +175,91 @@ promptArgs: ["-p"]
 readyFile: "/home/agent/nanoclaw/.installed"
 
 # binary: override the agent binary name used in `sbx exec`. When absent, the
-# test uses filepath.Base(Manifest.Binary), which the spec normalizer derives
-# automatically from sandbox.entrypoint.run[0]. Only set this when the
+# test uses filepath.Base(Manifest.Binary), which the spec loader derives
+# automatically from sandbox.entrypoint[0]. Only set this when the
 # entrypoint is a wrapper script whose underlying binary has a different name.
 binary: "claude"
+
+# extractedFromBuiltin: set this only on a kind:sandbox kit whose name is still
+# that of an agent built into sbx. See "Kits that replace a built-in agent".
+extractedFromBuiltin: true
+
+# requiresHostCredentials: sbx secret service name(s) that must already be
+# stored on the host before this kit's agent can be created at all. See
+# "Kits whose agent needs a host-stored credential".
+requiresHostCredentials: ["bedrock"]
+
+# args: values for the arguments spec.yaml declares. Both the TCK layer and
+# e2e install the kit with these — see "Kits that declare `args`" above.
+args:
+  token: "dummy-for-ci"
 ```
+
+#### Kits that replace a built-in agent
+
+sbx refuses to load a kit whose name collides with a built-in agent:
+
+```
+ERROR: agent "kiro" is already registered (built-in agents cannot be overridden by a kit)
+```
+
+The check is unconditional: `sbx` exposes no flag or environment variable to let a kit take
+precedence, and a built-in's deprecated aliases are refused as well. That creates a
+chicken-and-egg when a built-in agent is being moved out into a kit: the kit cannot pass e2e
+until a released `sbx` has dropped the built-in, but the kit is normally reviewed first.
+
+`extractedFromBuiltin: true` breaks the cycle, for a `kind: sandbox` kit only: on that
+specific collision, the test copies the kit to a temp directory, renames it `<name>-e2e`,
+and retries `sbx create` from the copy. The run then covers the same subtests it would
+under the real name.
+
+| Situation | Result |
+|---|---|
+| Collision, flag set | Retries from a temp copy renamed `<name>-e2e`, then runs the same subtests it would under the real name, plus a `NOTICE` that the run used the renamed copy |
+| Collision, flag absent | **FAIL** — almost always a kit that took a built-in's name by accident |
+| No collision, flag set | Runs in full, plus a `NOTICE` that the flag is obsolete if the kit ran under its real name |
+| No collision, no flag | Runs in full (the normal case) |
+| Collision again under the renamed copy | **FAIL** — a genuine misnaming |
+
+It is deliberately narrow: only the collision error triggers the rename-and-retry, every
+other failure still fails, and the flag still self-obsoletes — once the built-in is gone,
+no collision occurs and the test logs the obsolete-flag notice instead. Delete the line
+when you see it. A passing run under the renamed copy does not prove `sbx` accepts the kit
+under its real name; that's proven once a released `sbx` drops the built-in.
+
+#### Kits whose agent needs a host-stored credential
+
+Some agents cannot be created at all unless a credential is already stored on the host via
+`sbx --app-name sbx-kits-contrib-tck secret set <service>`. `aidlc-claude`'s `claude-bedrock`
+affinity is the current example: `sbx create` for that agent needs an AWS profile stored under
+the `bedrock` service, and CI stores no such per-agent cloud credentials.
+
+`requiresHostCredentials: ["bedrock"]` declares that dependency. Before `sbx create` runs, the
+test probes `sbx --app-name sbx-kits-contrib-tck secret ls --service <service> --json` for each
+declared service instead of matching `sbx create`'s failure text — that failure gives no
+indication of a missing credential, so string-matching it would be fragile:
+
+| Situation | Result |
+|---|---|
+| Declared service not stored | `SKIP`, naming the service and the scoped `sbx secret set` command |
+| Declared service stored | Runs in full |
+| Probe fails or is unparseable | **FAIL** |
+
+It is deliberately not a blanket "skip e2e for this kit": only kits that declare the field are
+affected, and only a missing credential produces a skip — every other failure still fails.
+
+Unlike `extractedFromBuiltin`, this does not self-obsolete. The agent keeps needing the
+credential indefinitely, so the entry stays for as long as the kit declares this agent
+affinity — there is no obsolete-flag notice to watch for here.
+
+The check applies to any kit kind — `aidlc-claude` is `kind: mixin` — since it runs before
+`sbx create` regardless of kind.
 
 #### How `binary` is resolved
 
-The spec normalizer sets `Manifest.Binary = sandbox.entrypoint.run[0]` when loading any kit. The e2e test uses `filepath.Base(Manifest.Binary)` as the default binary name. You **do not** need to set `binary:` in `tck.yaml` unless the entrypoint is a wrapper script whose name differs from the real binary:
+The spec loader sets `Manifest.Binary = sandbox.entrypoint[0]` when loading any kit (from `sandbox.entrypoint.run[0]` on the v1 path). The e2e test uses `filepath.Base(Manifest.Binary)` as the default binary name. You **do not** need to set `binary:` in `tck.yaml` unless the entrypoint is a wrapper script whose name differs from the real binary:
 
-| Kit | Entrypoint `run[0]` | Derived binary | `tck.yaml binary` needed? |
+| Kit | Entrypoint `[0]` | Derived binary | `tck.yaml binary` needed? |
 |---|---|---|---|
 | `amp`, `crush`, `junie`, `nanobot`, `pi` | same as kit name | same as kit name | no |
 | `opencode-model-runner` | `opencode` | `opencode` | no |
@@ -146,7 +268,7 @@ The spec normalizer sets `Manifest.Binary = sandbox.entrypoint.run[0]` when load
 | `hermes-agent` | `/usr/local/bin/hermes-start` | `hermes-start` (wrapper) | yes → `hermes` |
 | `openclaw` | `/usr/local/bin/openclaw-start` | `openclaw-start` (wrapper) | yes → `openclaw` |
 
-Do **not** add `binary:` to `spec.yaml` — the normalizer rejects `binary` at the flat manifest level (v1-only field); it must come from `sandbox.entrypoint.run[0]`.
+Do **not** add `binary:` to `spec.yaml` — the loader rejects `binary` at the flat manifest level (v1-only field); it must come from `sandbox.entrypoint[0]`.
 
 #### `promptArgs` reference
 
@@ -174,7 +296,7 @@ cd my-kit
 That's the whole recipe — no manual policy dance. The script:
 
 - Scopes every `sbx` call to `--app-name sbx-kits-contrib-tck`, the same app-name the e2e harness uses internally ([`tck/e2e_test.go:415`](../../../tck/e2e_test.go#L415)). The test daemon's sandboxes, policy, secrets, and cache are isolated from your day-to-day sbx state.
-- Sets the scoped daemon's default network policy to `deny-all` — the same baseline CI uses, so any host your install or startup hooks reach for must be in `network.allowedDomains` or the request is blocked.
+- Sets the scoped daemon's default network policy to `deny-all` — the same baseline CI uses, so any host your install or startup hooks reach for must be in `permissions.network.allow` or the request is blocked.
 - Runs `go test -tags=e2e` with `KIT_UNDER_TEST` exported.
 - On non-zero exit, prints a hint pointing at `sbx --app-name sbx-kits-contrib-tck policy log <sandbox>`.
 
@@ -186,7 +308,7 @@ One-time setup per machine — the scoped daemon has its own credential store:
 sbx --app-name sbx-kits-contrib-tck login
 ```
 
-When the test fails, the recurring fix is the same loop: read the proxy log, add the blocked host to `network.allowedDomains`, re-run.
+When the test fails, the recurring fix is the same loop: read the proxy log, add the blocked host to `permissions.network.allow`, re-run.
 
 ```bash
 APP=sbx-kits-contrib-tck
@@ -194,7 +316,7 @@ sbx --app-name $APP ls                            # find the tck-e2e-* sandbox
 sbx --app-name $APP policy log tck-e2e-<short-uuid>
 ```
 
-Every row under `Blocked requests` is a host your kit reached for under `deny-all`. Add the host (column `HOST`, e.g. `download.docker.com:443`) to `network.allowedDomains` and re-run until the block list is empty *and* the e2e test passes.
+Every row under `Blocked requests` is a host your kit reached for under `deny-all`. Add the host (column `HOST`, e.g. `download.docker.com:443`) to `permissions.network.allow` and re-run until the block list is empty *and* the e2e test passes.
 
 If the scoped daemon ever gets wedged: `sbx --app-name sbx-kits-contrib-tck reset --force` wipes only that daemon's state — your main sbx is untouched.
 
@@ -232,7 +354,7 @@ sbx kit add probe ./my-kit/
 
 Faster iteration loop, but immutable settings (privileged, volumes, tmpfs) won't apply — recreate for those.
 
-## Verifying `caps.network.allow`
+## Verifying `permissions.network.allow`
 
 The proxy enforces allow/deny at request time. The fastest way to surface exactly what your kit reaches for is to run the e2e suite — see [Running e2e](#running-e2e) above. The script applies `deny-all` to the scoped daemon for you.
 
@@ -242,7 +364,7 @@ For ad-hoc probing of a single sandbox without running e2e, `sbx policy log` wor
 sbx policy log <sandbox>
 ```
 
-Every entry in the "Blocked requests" section is a domain your install or startup hook reached for. Add it to `network.allowedDomains` (or accept the block) and re-probe. The repository [README](../../../README.md#declare-every-domain-your-kit-needs) has the hand-built probe-sandbox variant of this recipe.
+Every entry in the "Blocked requests" section is a domain your install or startup hook reached for. Add it to `permissions.network.allow` (or accept the block) and re-probe. The repository [README](../../../README.md#declare-every-domain-your-kit-needs) has the hand-built probe-sandbox variant of this recipe.
 
 ## Common pitfall: "install commands completed" ≠ success
 
@@ -256,12 +378,12 @@ sbx exec probe -- printenv EXPECTED_VAR        # env var set
 
 A broken install pipe can still exit 0 (e.g., `curl | bash` where the curl fails after partial output but bash exits 0 on empty input). Verify outcomes, not exit codes.
 
-## `commands.startup` runs on every container start
+## `setup.startup` runs on every container start
 
 Startup commands run on **every** container start (initial create, stop/start cycles, daemon restarts, host reboots), not just once at creation. Author them to be **idempotent**: use patterns like `apt-get update -qq -y > /dev/null 2>&1 || true &` and `mkdir -p '<dir>'`. Your test should assert the post-start state, not "did the command run exactly once".
 
-See [Pitfalls — `commands.startup` runs on every container start](pitfalls.md#2-commandsstartup-runs-on-every-container-start) for the mechanism.
+See [Pitfalls — `setup.startup` runs on every container start](pitfalls.md#2-setupstartup-runs-on-every-container-start) for the mechanism.
 
 ## CI
 
-The repository's CI runs the TCK on every PR — the matrix tests only the modified kit on PRs that touch a kit directory, and every kit on PRs that touch `tck/` or `spec/`. The `test-kit-e2e` job exercises every detected kit against a real `sbx` CLI, but **is skipped on PRs opened from forks** because the `DOCKERHUB_USERNAME` / `DOCKERHUB_TOKEN` secrets aren't exposed to fork-triggered workflows. Fork contributors are the common case, so you should treat e2e + `deny-all` as a **mandatory local step** before opening the PR — don't rely on a green CI check to mean "e2e passed". See [`.github/workflows/tck.yml`](../../../.github/workflows/tck.yml).
+The repository's CI runs the TCK on every PR — the matrix tests only the modified kit on PRs that touch a kit directory, and every kit on PRs that touch `tck/` or `spec/`. Three e2e legs exercise every detected kit against a real `sbx` CLI: `e2e-release` (latest tagged release, gates the PR via the required `e2e` check), `e2e-nightly` (rolling nightly, informational only — never blocks merge), and `e2e-rc` (latest `sbx-releases` prerelease tagged `*-rcN`, also informational only). All three **are skipped on PRs opened from forks** because the `DOCKERHUB_USERNAME` / `DOCKERHUB_TOKEN` secrets aren't exposed to fork-triggered workflows. Fork contributors are the common case, so you should treat e2e + `deny-all` as a **mandatory local step** before opening the PR — don't rely on a green CI check to mean "e2e passed". See [`.github/workflows/tck.yml`](../../../.github/workflows/tck.yml) and the reusable [`.github/workflows/e2e.yml`](../../../.github/workflows/e2e.yml).

@@ -2,9 +2,11 @@ package spec
 
 import (
 	"fmt"
+	"maps"
 	"path"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/docker/go-units"
@@ -14,29 +16,40 @@ import (
 // must start and end with alphanumeric, 1-64 characters.
 var namePattern = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]{0,62}[a-z0-9])?$`)
 
+// aiFilenamePattern restricts the AI profile name to one portable path component.
+var aiFilenamePattern = regexp.MustCompile(`^[A-Za-z0-9._-]+$`)
+
 // shellIdentifierPattern matches valid shell variable names.
 var shellIdentifierPattern = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 
-// placeholderPattern matches ${...} placeholders in init file content.
-var placeholderPattern = regexp.MustCompile(`\$\{[^}]+\}`)
-
 // lockedPathPattern matches a dotted YAML path: lowercase letter or digit
 // start, then segments of letters/digits separated by single dots, e.g.
-// "agent.image" or "network.allowedDomains". Used only for well-formedness;
-// the consumer that performs the merge decides which paths are meaningful.
+// "sandbox.image" or "permissions.network.allow". Used only for
+// well-formedness; the consumer that performs the merge decides which paths
+// are meaningful.
 var lockedPathPattern = regexp.MustCompile(`^[a-z][a-zA-Z0-9]*(\.[a-z][a-zA-Z0-9]*)*$`)
 
 // octalModePattern matches file mode strings: 3 or 4 octal digits, with an
 // optional leading "0". Accepts "755", "0755", "1777", "01777".
 var octalModePattern = regexp.MustCompile(`^0?[0-7]{3,4}$`)
 
-// supportedPlaceholders lists the placeholders allowed in initFiles content.
-var supportedPlaceholders = map[string]bool{
-	"${WORKDIR}": true,
+// argNamePattern matches a kit-argument name. Hyphens are admitted because
+// authors reach for them in multi-word names; a dot is not, so a name can
+// never be confused with the dotted ${{ kit.args.<name> }} reference that
+// selects it.
+var argNamePattern = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_-]*$`)
+
+// ValidateManifest validates a Manifest for correctness. A sandbox kit must
+// declare a template (image source); use validateManifest with inheritsImage
+// when the artifact supplies its image through the extends chain instead.
+func ValidateManifest(m *Manifest) error {
+	return validateManifest(m, false)
 }
 
-// ValidateManifest validates a Manifest for correctness.
-func ValidateManifest(m *Manifest) error {
+// validateManifest is the extends-aware core. When inheritsImage is true the
+// template-required check for sandbox kinds is skipped, because the artifact
+// resolves its image from its extends parent rather than declaring one.
+func validateManifest(m *Manifest, inheritsImage bool) error {
 	if m.SchemaVersion == "" {
 		return fmt.Errorf("manifest: schemaVersion is required")
 	}
@@ -61,7 +74,11 @@ func ValidateManifest(m *Manifest) error {
 		return fmt.Errorf("manifest: invalid name %q (must be lowercase alphanumeric with hyphens, 1-64 chars)", m.Name)
 	}
 
-	if m.Kind == KindSandbox || m.Kind == KindAgent {
+	if m.AIFilename != "" && (m.AIFilename == "." || m.AIFilename == ".." || !aiFilenamePattern.MatchString(m.AIFilename)) {
+		return fmt.Errorf("manifest: invalid aiFilename %q (must be a filename containing only letters, numbers, dots, underscores, or hyphens)", m.AIFilename)
+	}
+
+	if (m.Kind == KindSandbox || m.Kind == KindAgent) && !inheritsImage {
 		if m.Template == "" {
 			return fmt.Errorf("manifest: template is required for kind %q", KindSandbox)
 		}
@@ -209,23 +226,11 @@ func ValidateCommandsPolicy(c *CommandsPolicy) error {
 		if !strings.HasPrefix(f.Path, "/") {
 			return fmt.Errorf("commands: initFiles[%d].path must be absolute (got %q)", i, f.Path)
 		}
-		if err := validateInitFileContent(i, f.Content); err != nil {
-			return err
-		}
 		if f.Mode != "" && !octalModePattern.MatchString(f.Mode) {
 			return fmt.Errorf("commands: initFiles[%d].mode must be octal (e.g. \"0755\"), got %q", i, f.Mode)
 		}
 	}
 
-	return nil
-}
-
-func validateInitFileContent(index int, content string) error {
-	for _, match := range placeholderPattern.FindAllString(content, -1) {
-		if !supportedPlaceholders[match] {
-			return fmt.Errorf("commands: initFiles[%d].content contains unsupported placeholder %q (supported: ${WORKDIR})", index, match)
-		}
-	}
 	return nil
 }
 
@@ -262,7 +267,10 @@ func ValidateVolumes(volumes []MountSpec) error {
 
 // ValidateArtifact validates a complete Artifact for internal consistency.
 func ValidateArtifact(a *Artifact) error {
-	if err := ValidateManifest(&a.Manifest); err != nil {
+	// A sandbox kit that extends a parent inherits its image, so the leaf
+	// need not declare a template of its own; the image requirement is
+	// satisfied once the extends chain is resolved.
+	if err := validateManifest(&a.Manifest, a.Extends != ""); err != nil {
 		return err
 	}
 	if err := ValidateSecurity(a.Manifest.Security); err != nil {
@@ -271,15 +279,103 @@ func ValidateArtifact(a *Artifact) error {
 	if err := ValidateVolumes(a.Manifest.Volumes); err != nil {
 		return err
 	}
+	if err := ValidateRequires(a.Requires); err != nil {
+		return err
+	}
+	// Base-agent affinity only means something for a mixin (which is layered
+	// onto a base agent). On a kind: sandbox — which IS a base agent — it is
+	// silently ignored at composition time, so reject it here rather than let
+	// an author believe it is enforced.
+	if a.Requires != nil && a.Requires.Agent != "" && a.Manifest.Kind != KindMixin {
+		return fmt.Errorf("requires.agent is only valid for kind %q, not %q — base-agent affinity applies to a mixin layered onto an agent", KindMixin, a.Manifest.Kind)
+	}
+	// kit-spec v2 forbids a mixin from using extends: mixins are minimally
+	// scoped, base-agnostic additions layered onto a base agent, not
+	// single-parent-inheriting kits. To derive from a parent agent, use a
+	// kind: sandbox kit with extends. Gated on schemaVersion "2" so v1 kits
+	// authored before the rule keep validating — the check is additive, never
+	// invalidating a previously-accepted v1 spec.
+	if a.Manifest.SchemaVersion == "2" && a.Manifest.Kind == KindMixin && a.Extends != "" {
+		return fmt.Errorf("kind %q must not set extends (kit-spec v2): mixins are base-agnostic additions; use a kind %q kit with extends to derive from a parent agent", KindMixin, KindSandbox)
+	}
 	if err := ValidateLocked(a.Locked); err != nil {
 		return err
 	}
 	if err := ValidateLicenses(a.Licenses); err != nil {
 		return err
 	}
+	if err := ValidateArgs(a.Args); err != nil {
+		return err
+	}
 	if err := ValidatePublishedPorts(a.PublishedPorts); err != nil {
 		return err
 	}
+	var allowedDomains []string
+	if a.Caps != nil && a.Caps.Network != nil {
+		allowedDomains = a.Caps.Network.Allow
+	}
+
+	// These warning classes are validator-owned: drop every prior instance so
+	// revalidation reflects the artifact's current state, not its history.
+	retained := make([]string, 0, len(a.Warnings))
+	for _, w := range a.Warnings {
+		if strings.HasPrefix(w, uncoveredDomainWarningPrefix) ||
+			strings.HasPrefix(w, inertInjectWarningPrefix) ||
+			strings.HasPrefix(w, apiKeyNameEmptyWarningPrefix) {
+			continue
+		}
+		retained = append(retained, w)
+	}
+	a.Warnings = retained
+
+	// Credentials validate before Environment: a v2 apiKey.proxyManaged: true
+	// copies its name into Environment.ProxyManaged, so an author must see a
+	// malformed name as "apiKey: name ...", not "environment: proxyManaged ...".
+	for i, c := range a.Credentials {
+		// SPEC-v2 §5.4 makes service REQUIRED on every credential entry: it is
+		// the identity the user-side bindings file matches on. For OAuth it
+		// carries what v2 moved off the OAuth block onto the parent
+		// Credential, and both engine entry points reject an empty one at
+		// runtime (the proxy's NewOAuthInterceptorFromConfig, and the
+		// configure hook's "oauth service name cannot be empty").
+		//
+		// §5.4 also specifies a lowercase-kebab charset. That is deliberately
+		// NOT enforced: the v1 fold synthesizes service keys from env-var
+		// names via deriveServiceKey, which keeps underscores for any
+		// multi-word variable (SAMPLE_PROXY_TOKEN -> "sample_proxy"), so
+		// enforcing the pattern would reject v1 kits that load today.
+		if c.Service == "" {
+			return fmt.Errorf("artifact: credentials[%d]: service is required", i)
+		}
+		if err := ValidateApiKey(c.ApiKey, a.Manifest.SchemaVersion); err != nil {
+			return fmt.Errorf("artifact: credentials[%d] (service %q): %w", i, c.Service, err)
+		}
+		if err := ValidateOAuth(c.OAuth); err != nil {
+			return fmt.Errorf("artifact: credentials[%d] (service %q): %w", i, c.Service, err)
+		}
+		if c.ApiKey != nil {
+			// A v2 apiKey with no name is proxy-side-only, a legitimate shape.
+			if c.ApiKey.Name == "" && a.Manifest.SchemaVersion == "2" {
+				a.Warnings = append(a.Warnings, fmt.Sprintf(
+					"%scredentials[%d] (service %q): no in-container environment variable will be set for this credential; set apiKey.name (with proxyManaged: true) if the kit needs the value in-container",
+					apiKeyNameEmptyWarningPrefix, i, c.Service))
+			}
+			for j, inj := range c.ApiKey.Inject {
+				if inj.Domain != "" && !allowListCovers(inj.Domain, allowedDomains) {
+					a.Warnings = append(a.Warnings, fmt.Sprintf(
+						"%scredentials[%d] (service %q) inject[%d].domain %q",
+						uncoveredDomainWarningPrefix, i, c.Service, j, inj.Domain))
+				}
+				// A domain-to-service association with nothing to inject is legitimate too.
+				if inj.Header == "" && inj.Username == "" {
+					a.Warnings = append(a.Warnings, fmt.Sprintf(
+						"%scredentials[%d] (service %q) inject[%d].domain %q: it injects nothing into requests; add header+format or username if you intend to authenticate requests to this domain",
+						inertInjectWarningPrefix, i, c.Service, j, inj.Domain))
+				}
+			}
+		}
+	}
+
 	if err := ValidateEnvironmentPolicy(a.Environment); err != nil {
 		return err
 	}
@@ -303,6 +399,21 @@ func ValidateArtifact(a *Artifact) error {
 		}
 	}
 
+	return nil
+}
+
+// ValidateRequires validates the well-formedness of a kit's composition
+// preconditions. When set, requires.agent must be a valid kit name (the same
+// charset as a Manifest.Name). Whether a given base agent actually satisfies
+// the affinity is decided by the consumer that performs composition. A nil
+// block, or an empty agent, is valid (no affinity declared).
+func ValidateRequires(r *Requires) error {
+	if r == nil || r.Agent == "" {
+		return nil
+	}
+	if !namePattern.MatchString(r.Agent) {
+		return fmt.Errorf("requires.agent %q is not a valid agent name (must be lowercase alphanumeric with hyphens, 1-64 chars)", r.Agent)
+	}
 	return nil
 }
 
@@ -347,6 +458,177 @@ func ValidateLicenses(licenses []string) error {
 	return nil
 }
 
+// ValidArgName reports whether name is a well-formed kit-argument name.
+//
+// One grammar governs both ends of an argument: the key a kit declares under
+// args and the name a `${{ kit.args.<name> }}` reference selects it by. A
+// consumer that resolves references checks the second against this so the two
+// cannot drift apart and leave a name declarable but unreferenceable.
+func ValidArgName(name string) bool {
+	return argNamePattern.MatchString(name)
+}
+
+// ValidateArgs validates the well-formedness of a kit's argument
+// declarations (see KitArg). Each argument declares exactly one of default or
+// required: an argument with neither would silently substitute an empty
+// string for a value nobody chose, and one with both contradicts itself. A
+// declared default must satisfy the argument's own enum or pattern, so an
+// author's mistake surfaces at kit validate time rather than at someone
+// else's install.
+//
+// Whether a caller-supplied value satisfies the constraint is checked by the
+// consumer that performs the substitution, which necessarily runs before this
+// does — placeholders are replaced before the spec can be decoded.
+//
+// Names are visited in sorted order so a spec with several bad declarations
+// always reports the same one.
+func ValidateArgs(args map[string]KitArg) error {
+	for _, name := range slices.Sorted(maps.Keys(args)) {
+		a := args[name]
+		if !ValidArgName(name) {
+			return fmt.Errorf("args[%q] is not a valid argument name (must start with a letter or underscore, followed by letters, digits, underscores, or hyphens)", name)
+		}
+		switch {
+		case a.Default != nil && a.Required:
+			return fmt.Errorf("args[%q] declares both a default and required: true; an argument with a default is never required", name)
+		case a.Default == nil && !a.Required:
+			return fmt.Errorf("args[%q] must declare either a default or required: true", name)
+		}
+		if len(a.Enum) > 0 && a.Pattern != "" {
+			return fmt.Errorf("args[%q] declares both enum and pattern; an exact set of values makes a pattern redundant", name)
+		}
+
+		seen := make(map[string]struct{}, len(a.Enum))
+		for i, v := range a.Enum {
+			if _, dup := seen[v]; dup {
+				return fmt.Errorf("args[%q].enum[%d] %q is duplicated", name, i, v)
+			}
+			seen[v] = struct{}{}
+		}
+		if a.Pattern != "" {
+			if _, err := compileArgPattern(a.Pattern); err != nil {
+				return fmt.Errorf("args[%q].pattern is not a valid regexp: %w", name, err)
+			}
+		}
+
+		if a.Default != nil {
+			if err := a.ValidateValue(*a.Default); err != nil {
+				return fmt.Errorf("args[%q].default: %w", name, err)
+			}
+		}
+	}
+	return nil
+}
+
+// ValidateValue reports whether v is an acceptable value for the argument,
+// enforcing enum membership or a whole-value pattern match. Consumers call it
+// on a caller-supplied value; ValidateArgs applies it to a declared default.
+//
+// A pattern constrains the whole value: an author writing `[0-9]+` means the
+// value is digits, not that it contains digits somewhere.
+func (a KitArg) ValidateValue(v string) error {
+	if len(a.Enum) > 0 && !slices.Contains(a.Enum, v) {
+		quoted := make([]string, len(a.Enum))
+		for i, e := range a.Enum {
+			quoted[i] = fmt.Sprintf("%q", e)
+		}
+		return fmt.Errorf("%q is not one of %s", v, strings.Join(quoted, ", "))
+	}
+	if a.Pattern == "" {
+		return nil
+	}
+	re, err := compileArgPattern(a.Pattern)
+	if err != nil {
+		return fmt.Errorf("pattern %q is not a valid regexp: %w", a.Pattern, err)
+	}
+	if !re.MatchString(v) {
+		return fmt.Errorf("%q does not match pattern %q", v, a.Pattern)
+	}
+	return nil
+}
+
+// compileArgPattern compiles pat into a whole-value matcher. It compiles pat
+// on its own first so a syntax error is reported against what the author
+// actually wrote, then wraps it in \A(?:...)\z. Anchoring through the engine
+// rather than by inspecting match offsets is what lets an alternation like
+// "a|ab" match the whole value instead of settling for its first branch.
+// Wrapping is safe precisely because pat already compiled: its groups balance,
+// so it cannot escape the wrapper.
+func compileArgPattern(pat string) (*regexp.Regexp, error) {
+	if _, err := regexp.Compile(pat); err != nil {
+		return nil, err
+	}
+	return regexp.Compile(`\A(?:` + pat + `)\z`)
+}
+
+// ValidateApiKey requires inject[].domain, a well-formed header/format pair,
+// and a colon-free username (SPEC-v2 §5.4.1). An empty name and a
+// header/username-less inject are legitimate shapes, warned by ValidateArtifact instead.
+func ValidateApiKey(a *ApiKey, schemaVersion string) error {
+	if a == nil {
+		return nil
+	}
+	if a.Name != "" && !shellIdentifierPattern.MatchString(a.Name) {
+		return fmt.Errorf("apiKey: name %q is not a valid shell identifier (letters, digits, underscores; can't start with a digit)", a.Name)
+	}
+	for j, inj := range a.Inject {
+		if inj.Domain == "" {
+			return fmt.Errorf("apiKey: inject[%d].domain is required", j)
+		}
+		if inj.Format != "" && strings.Count(inj.Format, "%s") != 1 {
+			return fmt.Errorf("apiKey: inject[%d].format must contain exactly one %%s placeholder (got %q)", j, inj.Format)
+		}
+		if inj.Header != "" && inj.Username == "" && inj.Format == "" {
+			return fmt.Errorf("apiKey: inject[%d] sets header but no format, so it injects nothing", j)
+		}
+		if strings.Contains(inj.Username, ":") {
+			return fmt.Errorf("apiKey: inject[%d].username must not contain \":\" (HTTP Basic treats the first colon as the user/password delimiter)", j)
+		}
+	}
+	return nil
+}
+
+// uncoveredDomainWarningPrefix tags a validator-owned warning class so
+// ValidateArtifact can find and drop its own prior instances on revalidation.
+const uncoveredDomainWarningPrefix = "apiKey inject domain not covered by permissions.network.allow: "
+
+// inertInjectWarningPrefix tags the validator-owned warning class for a
+// legitimate but header/username-less inject entry.
+const inertInjectWarningPrefix = "apiKey inject sets neither header nor username: "
+
+// apiKeyNameEmptyWarningPrefix tags the validator-owned warning class for a
+// legitimate but empty v2 apiKey.name.
+const apiKeyNameEmptyWarningPrefix = "apiKey.name is empty: "
+
+// allowListCovers mirrors sbx's runtime enforcement: a port range or other
+// non-numeric, non-"*" port never matches, so it doesn't count as coverage.
+func allowListCovers(domain string, allow []string) bool {
+	for _, entry := range allow {
+		host, port, hasPort := strings.Cut(entry, ":")
+		if hasPort && port != "*" && !isNumericPort(port) {
+			continue
+		}
+		if host == domain {
+			return true
+		}
+		if label, ok := strings.CutPrefix(host, "**."); ok && strings.HasSuffix(domain, "."+label) {
+			return true
+		}
+		if label, ok := strings.CutPrefix(host, "*."); ok {
+			if sub := strings.TrimSuffix(domain, "."+label); sub != domain && sub != "" && !strings.Contains(sub, ".") {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// isNumericPort reports whether s is a valid 0-65535 decimal port.
+func isNumericPort(s string) bool {
+	_, err := strconv.ParseUint(s, 10, 16)
+	return err == nil
+}
+
 // ValidateOAuthPolicy validates the oauth policy if present.
 func ValidateOAuthPolicy(p *OAuthPolicy) error {
 	if p == nil {
@@ -371,8 +653,52 @@ func ValidateOAuthPolicy(p *OAuthPolicy) error {
 		if p.CredentialFile.Path == "" {
 			return fmt.Errorf("artifact: oauth: credentialFile.path is required")
 		}
-		if p.CredentialFile.Template == "" {
-			return fmt.Errorf("artifact: oauth: credentialFile.template is required")
+		if p.CredentialFile.Template == "" && len(p.CredentialFile.Structure) == 0 {
+			return fmt.Errorf("artifact: oauth: credentialFile requires either template or structure")
+		}
+	}
+	return nil
+}
+
+// ValidateOAuth validates a v2 credentials[].oauth block for structural
+// completeness. Same requirements as ValidateOAuthPolicy (its v1
+// counterpart), minus Service — that identity lives on the parent
+// Credential, not on OAuth itself — and with sentinels not required when
+// Passthrough is set: passthrough's whole point is opting out of sentinel
+// masking, so an entry that only routes+refreshes a token without ever
+// substituting a sentinel for it (e.g. resourceHosts-only OAuth routing)
+// legitimately has no sentinels block.
+//
+// Before this existed, neither of these was caught until much later: a
+// missing sentinels block (outside the passthrough case) loads and runs
+// with real OAuth tokens never masked in the sandbox, and a credentialFile
+// with neither template nor structure loads clean and only fails at first
+// `sbx create`, as an opaque engine error with the real cause buried in
+// daemon.log rather than at `sbx kit validate` time.
+func ValidateOAuth(o *OAuth) error {
+	if o == nil {
+		return nil
+	}
+	if o.TokenEndpoint.Host == "" {
+		return fmt.Errorf("oauth: tokenEndpoint.host is required")
+	}
+	if o.TokenEndpoint.Path == "" {
+		return fmt.Errorf("oauth: tokenEndpoint.path is required")
+	}
+	if !o.Passthrough {
+		if o.Sentinels.AccessToken == "" {
+			return fmt.Errorf("oauth: sentinels.accessToken is required")
+		}
+		if o.Sentinels.RefreshToken == "" {
+			return fmt.Errorf("oauth: sentinels.refreshToken is required")
+		}
+	}
+	if o.CredentialFile != nil {
+		if o.CredentialFile.Path == "" {
+			return fmt.Errorf("oauth: credentialFile.path is required")
+		}
+		if o.CredentialFile.Template == "" && len(o.CredentialFile.Structure) == 0 {
+			return fmt.Errorf("oauth: credentialFile requires either template or structure")
 		}
 	}
 	return nil

@@ -1,0 +1,19 @@
+### Open Interpreter — Docker Sandbox profile
+# version pins the profile schema Open Interpreter expects (its own
+# internal OI_VERSION constant, currently "0.2.5" -- unrelated to the
+# installed package version). Without it, Open Interpreter 0.4.x offers to
+# "migrate" the profile on every launch, then crashes with a KeyError doing
+# so (a bug in its own migration code, which assumes profile["version"]
+# exists even when checking for its absence). Confirmed by hand.
+version: "0.2.5"
+# auto_run skips the "approve this code?" prompt — the sandbox provides
+# the isolation that makes this safe to enable.
+auto_run: true
+
+llm:
+  model: "gpt-4o"
+  temperature: 0
+
+computer:
+  # Gives OI a built-in Computer API for file, browser, and OS operations
+  import_computer_api: true

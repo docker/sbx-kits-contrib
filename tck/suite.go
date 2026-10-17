@@ -34,6 +34,12 @@ type Suite struct {
 	// Artifact is the loaded and validated kit artifact.
 	Artifact *spec.Artifact
 
+	// Dir is the kit directory the suite was built from. Assertions that
+	// need kit-supplied expectations (rather than ones derived from the spec)
+	// read them from <Dir>/testdata/. Empty when the suite was built from an
+	// already-loaded artifact rather than a directory.
+	Dir string
+
 	// Image is the container image used for integration tests.
 	Image string
 
@@ -58,6 +64,7 @@ func (s *Suite) RunAll(t *testing.T) {
 		s.RunEnvironmentPolicyTests(t)
 		s.RunCommandsValidationTests(t)
 		s.RunOAuthPolicyTests(t)
+		s.RunMCPRegistrationTests(t)
 
 		// Container tests — single container for all assertions
 		s.RunContainerTests(t)
@@ -127,6 +134,10 @@ func (s *Suite) RunContainerTests(t *testing.T) {
 		s.assertEnvVars(t, ctx, container)
 		s.assertFiles(t, ctx, container)
 		s.assertTmpfs(t, ctx, container)
+
+		// Last: this one seeds and rewrites the agent's MCP config, so it
+		// runs after every assertion that reads the container as provisioned.
+		s.RunMCPMergeTests(t, ctx, container)
 	})
 }
 
@@ -512,6 +523,9 @@ func (s *Suite) RunOAuthPolicyTests(t *testing.T) {
 			})
 
 			t.Run("sentinels", func(t *testing.T) {
+				if oauth.Passthrough {
+					t.Skip("passthrough OAuth declares no sentinels by design; spec.ValidateOAuth exempts it")
+				}
 				require.NotEmpty(t, oauth.Sentinels.AccessToken, "oauth.sentinels.accessToken is required")
 				require.NotEmpty(t, oauth.Sentinels.RefreshToken, "oauth.sentinels.refreshToken is required")
 			})
@@ -562,8 +576,9 @@ func readOutput(t *testing.T, r io.Reader) string {
 	return strings.TrimRight(buf.String(), "\n\r ")
 }
 
-// containerImage returns the image to use for container tests,
-// resolving well-known agent templates for mixins with extends.
+// containerImage returns the image to use for container tests, resolving a
+// well-known agent template for a mixin from either extends or its declared
+// base-agent affinity (requires.agent).
 //
 // After normalize, both v1 `kind: agent` and v2 `kind: sandbox` end up as
 // KindSandbox (spec/normalize.go migrates the v1 alias with a deprecation
@@ -571,13 +586,27 @@ func readOutput(t *testing.T, r io.Reader) string {
 // specs that never wrote `kind: agent`.
 func containerImage(a *spec.Artifact) (string, error) {
 	if a.Manifest.Kind == spec.KindSandbox {
-		if a.Manifest.Template == "" {
-			return "", fmt.Errorf("sandbox artifact %q has no template", a.Manifest.Name)
+		if a.Manifest.Template != "" {
+			return a.Manifest.Template, nil
 		}
-		return a.Manifest.Template, nil
+		// A sandbox may omit template when it inherits its image from an
+		// extends parent — ValidateArtifact allows this, and it is the
+		// recommended shape for a derived agent. Resolve a well-known extends
+		// parent's template; otherwise the author must supply WithImage.
+		if a.Extends != "" {
+			if tmpl, ok := wellKnownTemplates[a.Extends]; ok {
+				return tmpl, nil
+			}
+			return "", fmt.Errorf(
+				"sandbox %q extends unknown agent %q and sets no template; use WithImage to specify the container image",
+				a.Manifest.Name, a.Extends,
+			)
+		}
+		return "", fmt.Errorf("sandbox artifact %q has no template", a.Manifest.Name)
 	}
 
-	// kind=mixin: resolve from extends or default to shell
+	// kind=mixin: extends must resolve to a well-known agent template — an
+	// extends parent the TCK can't resolve is an authoring error.
 	if a.Extends != "" {
 		if tmpl, ok := wellKnownTemplates[a.Extends]; ok {
 			return tmpl, nil
@@ -586,6 +615,17 @@ func containerImage(a *spec.Artifact) (string, error) {
 			"mixin %q extends unknown agent %q; use WithImage to specify the container image",
 			a.Manifest.Name, a.Extends,
 		)
+	}
+
+	// requires.agent affinity: when the target is a well-known agent, run the
+	// container tests in its image so install/startup assertions exercise the
+	// base the mixin is designed for. Otherwise fall back to the shell default
+	// — affinity may name a custom agent whose template the TCK can't resolve,
+	// and the author can still override with WithImage.
+	if a.Requires != nil && a.Requires.Agent != "" {
+		if tmpl, ok := wellKnownTemplates[a.Requires.Agent]; ok {
+			return tmpl, nil
+		}
 	}
 
 	return DefaultShellImage, nil

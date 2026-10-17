@@ -1,0 +1,12 @@
+# Fixture only; no enterprise login is attempted by the TCK.
+args:
+  org: example
+
+# Interactive enterprise sign-in requires a human, so omit promptArgs.
+mcp:
+  configPath: $HOME/.config/devin/mcp_config.json
+  transportKey: url
+  forbiddenKeys:
+    - type
+    - httpUrl
+    - http_headers
