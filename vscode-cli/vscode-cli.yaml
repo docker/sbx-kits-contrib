@@ -16,6 +16,9 @@ description: >-
   VS Code Server features such as `code tunnel` need.
 sourceUrl: https://code.visualstudio.com/docs/editor/command-line
 
+# Lets other kits, such as vscode-tunnel, require the CLI.
+provides: ["vscode-cli"]
+
 args:
   version:
     default: latest
