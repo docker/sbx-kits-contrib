@@ -71,7 +71,7 @@ with a real token in both:
 
 | Hosts | Header the proxy sets | From |
 | --- | --- | --- |
-| `global.rel.tunnels.api.visualstudio.com`, `*.rel.tunnels.api.visualstudio.com` | `Authorization: github client_id=01ab8ac9400c4e429b23 <token>`, the form the CLI uses for the dev tunnels API | This kit, from the `vscode-tunnel` secret |
+| `global.rel.tunnels.api.visualstudio.com`, `*.rel.tunnels.api.visualstudio.com` | `Authorization: github <token>`. The CLI itself sends `github client_id=<VS Code's app> <token>`, which the service rejects for a token from another app such as `gh`; without a `client_id` it accepts a `gh auth token`. | This kit, from the `vscode-tunnel` secret |
 | `api.github.com` | The sandbox's GitHub token. The CLI checks a stored token against `GET /user` before using it, and falls back to the device code login if the check fails. | sbx's built-in GitHub injection, from the `github` secret |
 
 The kit deliberately has no rule for `api.github.com`. Declaring one
