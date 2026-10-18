@@ -74,14 +74,22 @@ SCRIPT
 chmod 0755 /out/usr/local/bin/al
 EOF
 
+# `dotnet` on PATH, for the same reason the launcher is: /usr/local/bin reaches
+# every process, a profile.d PATH export only login shells. A symlink suffices
+# here -- the muxer resolves its own real path and finds the runtimes beside it,
+# so it needs no DOTNET_ROOT. Relative, so it resolves both in the staging tree
+# (which the gate below relies on) and once the overlay lands at /.
+RUN ln -s ../../../opt/al/dotnet/dotnet /out/usr/local/bin/dotnet
+
 # THE GATE. The descriptor publishes `al@<the version arg>`, so the build checks
 # the installed package against it -- from the tool manifest, which records the
 # NuGet version exactly, rather than from altool's own output, which formats its
 # version differently. The package row is matched by its id and its version
 # column compared whole, not as a substring.
 #
-# Both shipped runtime majors are then confirmed present, from the staged
-# host's own list, so a channel that silently installed nothing fails here.
+# Both shipped runtime majors are then confirmed present, from the host's own
+# list as reached through the staged `dotnet` symlink, so a channel that
+# silently installed nothing, or a symlink that resolves nowhere, fails here.
 #
 # Then the staged tool is run once, through the wrapper path and against the
 # staged runtime only (the SDK is deleted first), which is what proves the
@@ -96,7 +104,7 @@ installed="$(/tmp/sdk/dotnet tool list --tool-path /out/opt/al/tools \
   exit 1
 }
 for major in 8 10; do
-  /out/opt/al/dotnet/dotnet --list-runtimes \
+  /out/usr/local/bin/dotnet --list-runtimes \
     | grep -q "^Microsoft.AspNetCore.App ${major}\." || {
     echo "ASP.NET Core ${major}.0 runtime missing from /out/opt/al/dotnet" >&2
     exit 1
@@ -111,8 +119,8 @@ EOF
 # the base's, and nothing under /opt/al should be writable by anyone but root.
 RUN chown -R 0:0 /out
 
-# The overlay: the runtime and altool under /opt/al, and one launcher on PATH,
-# landing on any base. No ENTRYPOINT -- the base workload's launch command
+# The overlay: the runtimes and altool under /opt/al, and `al` and `dotnet` on
+# PATH, landing on any base. No ENTRYPOINT -- the base workload's launch command
 # stays, and the agent runs `al` from the shell.
 FROM scratch
 COPY --from=build /out /

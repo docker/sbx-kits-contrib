@@ -68,7 +68,9 @@ downloaded into your sandbox.** `al.dockerfile` runs at build time:
    overlay that couldn't start fails the build rather than your sandbox.
 
 Only the runtime, the tool and the launcher end up in the overlay. The
-SDK is not shipped: the `dotnet` CLI is not on `PATH` in the sandbox.
+SDK is not shipped: `dotnet` is on `PATH` (a symlink at
+`/usr/local/bin/dotnet` to the shipped host), so `dotnet --list-runtimes`
+and `dotnet app.dll` work, but SDK commands such as `dotnet build` do not.
 
 Building at publish time rather than installing at sandbox creation
 means no per-create download, a failure at the kit's build instead of in
