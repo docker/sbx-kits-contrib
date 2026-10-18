@@ -29,12 +29,28 @@ args:
 
 capabilities:
   # Inject domains have to appear literally in the same phase's allow list,
-  # so they are repeated here even though vscode-cli allows them too.
+  # so each management host is listed beside the wildcard that covers it
+  # (and the `<cluster>-data` relay hosts).
   - type: com.docker.sandbox/network-policy@1
     config:
       runtime:
         allow:
           - global.rel.tunnels.api.visualstudio.com
+          - asse.rel.tunnels.api.visualstudio.com
+          - auc1.rel.tunnels.api.visualstudio.com
+          - aue.rel.tunnels.api.visualstudio.com
+          - aue01.rel.tunnels.api.visualstudio.com
+          - ause1.rel.tunnels.api.visualstudio.com
+          - brs.rel.tunnels.api.visualstudio.com
+          - eun1.rel.tunnels.api.visualstudio.com
+          - euw.rel.tunnels.api.visualstudio.com
+          - inc1.rel.tunnels.api.visualstudio.com
+          - jpe1.rel.tunnels.api.visualstudio.com
+          - uks1.rel.tunnels.api.visualstudio.com
+          - use.rel.tunnels.api.visualstudio.com
+          - use2.rel.tunnels.api.visualstudio.com
+          - usw2.rel.tunnels.api.visualstudio.com
+          - usw3.rel.tunnels.api.visualstudio.com
           - "*.rel.tunnels.api.visualstudio.com"
 
   # Its own service, not `github`, which kits such as copilot already claim.
@@ -44,11 +60,18 @@ capabilities:
   # client_id. Without a client_id it accepts the `gh` token, so the proxy
   # replaces the whole header with that form.
   #
+  # Management hosts only: global plus one per cluster, from
+  # https://global.rel.tunnels.api.visualstudio.com/clusters?api-version=2023-09-27-preview
+  # A `*.rel...` rule would also match the `<cluster>-data.rel...` relay,
+  # whose websocket carries its own `tunnel <token>` header and is
+  # rejected when that is overwritten. A cluster added later needs a line
+  # here.
+  #
   # No rule for api.github.com, where the CLI checks the token before use:
   # the built-in GitHub injection already covers it, and a kit rule there
   # replaced it and left the check unauthenticated.
   - type: com.docker.sandbox/credential@1
-    description: GitHub token, stored on the host; the proxy injects it on dev tunnels API requests.
+    description: GitHub token, stored on the host; the proxy injects it on dev tunnels management API requests.
     config:
       service: vscode-tunnel
       phase: runtime
@@ -58,7 +81,49 @@ capabilities:
           - domain: global.rel.tunnels.api.visualstudio.com
             header: Authorization
             format: "github %s"
-          - domain: "*.rel.tunnels.api.visualstudio.com"
+          - domain: asse.rel.tunnels.api.visualstudio.com
+            header: Authorization
+            format: "github %s"
+          - domain: auc1.rel.tunnels.api.visualstudio.com
+            header: Authorization
+            format: "github %s"
+          - domain: aue.rel.tunnels.api.visualstudio.com
+            header: Authorization
+            format: "github %s"
+          - domain: aue01.rel.tunnels.api.visualstudio.com
+            header: Authorization
+            format: "github %s"
+          - domain: ause1.rel.tunnels.api.visualstudio.com
+            header: Authorization
+            format: "github %s"
+          - domain: brs.rel.tunnels.api.visualstudio.com
+            header: Authorization
+            format: "github %s"
+          - domain: eun1.rel.tunnels.api.visualstudio.com
+            header: Authorization
+            format: "github %s"
+          - domain: euw.rel.tunnels.api.visualstudio.com
+            header: Authorization
+            format: "github %s"
+          - domain: inc1.rel.tunnels.api.visualstudio.com
+            header: Authorization
+            format: "github %s"
+          - domain: jpe1.rel.tunnels.api.visualstudio.com
+            header: Authorization
+            format: "github %s"
+          - domain: uks1.rel.tunnels.api.visualstudio.com
+            header: Authorization
+            format: "github %s"
+          - domain: use.rel.tunnels.api.visualstudio.com
+            header: Authorization
+            format: "github %s"
+          - domain: use2.rel.tunnels.api.visualstudio.com
+            header: Authorization
+            format: "github %s"
+          - domain: usw2.rel.tunnels.api.visualstudio.com
+            header: Authorization
+            format: "github %s"
+          - domain: usw3.rel.tunnels.api.visualstudio.com
             header: Authorization
             format: "github %s"
 

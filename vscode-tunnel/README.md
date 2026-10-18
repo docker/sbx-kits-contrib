@@ -71,8 +71,17 @@ with a real token in both:
 
 | Hosts | Header the proxy sets | From |
 | --- | --- | --- |
-| `global.rel.tunnels.api.visualstudio.com`, `*.rel.tunnels.api.visualstudio.com` | `Authorization: github <token>`. The CLI itself sends `github client_id=<VS Code's app> <token>`, which the service rejects for a token from another app such as `gh`; without a `client_id` it accepts a `gh auth token`. | This kit, from the `vscode-tunnel` secret |
+| `global.rel.tunnels.api.visualstudio.com` and each cluster's management host, such as `euw.rel.tunnels.api.visualstudio.com` | `Authorization: github <token>`. The CLI itself sends `github client_id=<VS Code's app> <token>`, which the service rejects for a token from another app such as `gh`; without a `client_id` it accepts a `gh auth token`. | This kit, from the `vscode-tunnel` secret |
 | `api.github.com` | The sandbox's GitHub token. The CLI checks a stored token against `GET /user` before using it, and falls back to the device code login if the check fails. | sbx's built-in GitHub injection, from the `github` secret |
+
+The cluster hosts are listed one by one, from the service's
+[cluster list](https://global.rel.tunnels.api.visualstudio.com/clusters?api-version=2023-09-27-preview).
+A `*.rel.tunnels.api.visualstudio.com` rule would also match the relay
+hosts (`<cluster>-data.rel...`). The relay websocket carries its own
+`tunnel <token>` header and is rejected with 401 when the proxy overwrites
+it. If Microsoft adds a cluster, add its host to both lists in
+`vscode-tunnel.yaml`; until then, tunnels in that cluster fail with 401 on
+the management API.
 
 The kit deliberately has no rule for `api.github.com`. Declaring one
 replaced the built-in injection there and left the check unauthenticated.
