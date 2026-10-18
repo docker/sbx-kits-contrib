@@ -17,12 +17,16 @@ host.
 
 ## Prerequisites
 
-Store a GitHub token on the host under the `github` service (or the name
-you pass as the `service` arg):
+Store a GitHub token on the host under the `vscode-tunnel` service (or the
+name you pass as the `service` arg):
 
 ```console
-$ sbx secret set -g github -t "$(gh auth token)"
+$ sbx secret set -g vscode-tunnel -t "$(gh auth token)"
 ```
+
+The kit uses its own service rather than `github`: with `github`, requests
+to `api.github.com` from the sandbox went out unauthenticated, and the CLI
+fell back to the device code login.
 
 ## Usage
 
@@ -48,7 +52,7 @@ $ sbx exec <sandbox-name> -- cat /home/agent/.vscode-tunnel.log
 
 | Arg | Default | Purpose |
 | --- | --- | --- |
-| `service` | `github` | Host secret holding the GitHub token. |
+| `service` | `vscode-tunnel` | Host secret holding the GitHub token. |
 | `name` | *(hostname)* | Tunnel name: lowercase letters, digits, and hyphens, at most 20 characters. |
 
 ## How it works
@@ -74,12 +78,7 @@ the last sbx session ends.
 
 ## Composing with other kits
 
-Kit v3 allows one owner per credential service and phase. Kits that
-already claim `github` at runtime, such as `copilot`, `opencode`, or
-`github-clone`, conflict with this one. Store the token under a second
-name and point the kit at it:
-
-```console
-$ sbx secret set -g vscode-tunnel -t "$(gh auth token)"
-$ sbx run ... --kit "...#dir=vscode-tunnel" --kit-arg vscode-tunnel.service=vscode-tunnel <agent>
-```
+Kit v3 allows one owner per credential service and phase. The default
+`vscode-tunnel` service keeps this kit clear of kits that claim `github`,
+such as `copilot`, `opencode`, or `github-clone`. Don't set `service` to
+`github` when you compose with one of them.

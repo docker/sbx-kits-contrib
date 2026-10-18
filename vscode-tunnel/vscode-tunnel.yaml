@@ -20,8 +20,10 @@ sourceUrl: https://code.visualstudio.com/docs/remote/tunnels
 requires: ["vscode-cli"]
 
 args:
+  # Not `github`: with it, api.github.com requests went out unauthenticated,
+  # and it conflicts with kits such as copilot that claim it too.
   service:
-    default: github
+    default: vscode-tunnel
     pattern: '^[a-z0-9]+(-[a-z0-9]+)*$'
     description: Host secret holding the GitHub token the proxy injects
   name:
