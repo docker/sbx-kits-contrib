@@ -20,12 +20,6 @@ sourceUrl: https://code.visualstudio.com/docs/remote/tunnels
 requires: ["vscode-cli"]
 
 args:
-  # Not `github`: with it, api.github.com requests went out unauthenticated,
-  # and it conflicts with kits such as copilot that claim it too.
-  service:
-    default: vscode-tunnel
-    pattern: '^[a-z0-9]+(-[a-z0-9]+)*$'
-    description: Host secret holding the GitHub token the proxy injects
   name:
     default: ""
     pattern: '^[a-z0-9-]{0,20}$'
@@ -43,6 +37,7 @@ capabilities:
           - "*.rel.tunnels.api.visualstudio.com"
           - api.github.com
 
+  # Its own service, not `github`, which kits such as copilot already claim.
   # Inject-only: no `name`, so nothing enters the container. The formats
   # match what the CLI sends (cli/src/auth.rs): the dev tunnels SDK renders
   # a GitHub credential as `github client_id=<VS Code app> <token>`, and the
@@ -50,7 +45,7 @@ capabilities:
   - type: com.docker.sandbox/credential@1
     description: GitHub token, stored on the host; the proxy injects it on dev tunnels API requests and on api.github.com.
     config:
-      service: "${{ kit.args.service }}"
+      service: vscode-tunnel
       phase: runtime
       apiKey:
         proxyManaged: true
@@ -68,14 +63,23 @@ capabilities:
   - type: com.docker.sandbox/lifecycle@1
     config:
       startup:
-        # Every boot: store the sentinel (overwriting any earlier login),
+        # Every boot: wait until the proxy authenticates api.github.com (the
+        # CLI's token check falls back to an unattended device code prompt
+        # otherwise), store the sentinel (overwriting any earlier login),
         # then run the tunnel detached. Both flags skip prompts the CLI
         # would otherwise wait on.
         - command: >-
             set -eu;
+            log="$HOME/.vscode-tunnel.log";
             name=$(printf '%s' "${VSCODE_TUNNEL_NAME:-$(hostname)}" | tr 'A-Z' 'a-z' | tr -c 'a-z0-9-' '-' | cut -c1-20 | sed 's/^-*//; s/-*$//');
-            code tunnel user login --provider github --access-token proxy-managed;
-            exec code tunnel --accept-server-license-terms --name "$name" >"$HOME/.vscode-tunnel.log" 2>&1
+            i=0;
+            until curl -fsS -o /dev/null -H 'Authorization: token proxy-managed' https://api.github.com/user 2>>"$log"; do
+              i=$((i + 1));
+              if [ "$i" -ge 30 ]; then echo "vscode-tunnel: api.github.com/user still unauthenticated after 60s; not starting the tunnel" >>"$log"; exit 1; fi;
+              sleep 2;
+            done;
+            code tunnel user login --provider github --access-token proxy-managed >>"$log" 2>&1;
+            exec code tunnel --accept-server-license-terms --name "$name" >>"$log" 2>&1
           user: "1000"
           background: true
           env: [VSCODE_TUNNEL_NAME]
