@@ -23,9 +23,10 @@ Store a GitHub token on the host under the `vscode-tunnel` service:
 $ sbx secret set -g vscode-tunnel -t "$(gh auth token)"
 ```
 
-The kit uses its own service rather than `github`: with `github`, requests
-to `api.github.com` from the sandbox went out unauthenticated, and the CLI
-fell back to the device code login.
+The kit uses its own service rather than `github`, which kits such as
+`copilot` already claim. The CLI's token check on `api.github.com` still
+relies on the `github` secret through sbx's built-in injection, so keep
+that one set too.
 
 ## Usage
 
@@ -66,12 +67,16 @@ At every boot, a background startup hook:
 3. Runs `code tunnel --accept-server-license-terms --name <name>`.
 
 The CLI sends the placeholder in two places, and the proxy replaces it
-with the real token in both:
+with a real token in both:
 
-| Hosts | Header the proxy sets |
-| --- | --- |
-| `global.rel.tunnels.api.visualstudio.com`, `*.rel.tunnels.api.visualstudio.com` | `Authorization: github client_id=01ab8ac9400c4e429b23 <token>`, the form the CLI uses for the dev tunnels API |
-| `api.github.com` | `Authorization: token <token>`. The CLI checks a stored token against `GET /user` before using it, and falls back to the device code login if the check fails. |
+| Hosts | Header the proxy sets | From |
+| --- | --- | --- |
+| `global.rel.tunnels.api.visualstudio.com`, `*.rel.tunnels.api.visualstudio.com` | `Authorization: github client_id=01ab8ac9400c4e429b23 <token>`, the form the CLI uses for the dev tunnels API | This kit, from the `vscode-tunnel` secret |
+| `api.github.com` | The sandbox's GitHub token. The CLI checks a stored token against `GET /user` before using it, and falls back to the device code login if the check fails. | sbx's built-in GitHub injection, from the `github` secret |
+
+The kit deliberately has no rule for `api.github.com`. Declaring one
+replaced the built-in injection there and left the check unauthenticated.
+Both secrets have to hold a token for the same GitHub account.
 
 The kit also declares `long-running@1`: VS Code connects through the
 tunnel, not through an sbx session, so the sandbox must not auto-stop when
