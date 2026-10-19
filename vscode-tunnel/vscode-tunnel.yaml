@@ -18,7 +18,7 @@ description: >-
   local VS Code without a device code login.
 sourceUrl: https://code.visualstudio.com/docs/remote/tunnels
 
-requires: ["vscode-cli", "deb/curl"]
+requires: ["vscode-cli"]
 
 args:
   name:
