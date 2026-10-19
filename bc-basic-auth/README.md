@@ -18,7 +18,7 @@ Store the credentials on the host under the `microsoft-bc` service as base64-enc
 $ sbx secret set -g microsoft-bc "$(printf '%s:%s' '<username>' '<password>' | base64 | tr -d '\n')"
 ```
 
-The credential is required: sandbox creation fails when the `bc` secret is not
+The credential is required: sandbox creation fails when the `microsoft-bc` secret is not
 available.
 
 ## Usage
