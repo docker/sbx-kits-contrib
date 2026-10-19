@@ -69,7 +69,7 @@ $ sbx exec <sandbox-name> -- cat /home/agent/.vscode-tunnel.log
 
 | Arg | Default | Purpose |
 | --- | --- | --- |
-| `name` | *(hostname)* | Tunnel name: lowercase letters, digits, and hyphens, at most 20 characters. |
+| `name` | *(hostname)* | Tunnel name: lowercase letters, digits, and internal hyphens, at most 20 characters. |
 
 ## How it works
 

@@ -18,12 +18,12 @@ description: >-
   local VS Code without a device code login.
 sourceUrl: https://code.visualstudio.com/docs/remote/tunnels
 
-requires: ["vscode-cli"]
+requires: ["vscode-cli", "deb/curl"]
 
 args:
   name:
     default: ""
-    pattern: '^[a-z0-9-]{0,20}$'
+    pattern: '^$|^[a-z0-9]([a-z0-9-]{0,18}[a-z0-9])?$'
     description: Tunnel name; empty uses the sandbox hostname, cut to 20 characters
     env: VSCODE_TUNNEL_NAME
 
@@ -139,11 +139,20 @@ capabilities:
             set -eu;
             log="$HOME/.vscode-tunnel.log";
             name=$(printf '%s' "${VSCODE_TUNNEL_NAME:-$(hostname)}" | tr 'A-Z' 'a-z' | tr -c 'a-z0-9-' '-' | cut -c1-20 | sed 's/^-*//; s/-*$//');
-            i=0;
-            until curl -fsS -o /dev/null -H 'Authorization: token proxy-managed' https://api.github.com/user 2>>"$log"; do
-              i=$((i + 1));
-              if [ "$i" -ge 30 ]; then echo "vscode-tunnel: api.github.com/user still unauthenticated after 60s; not starting the tunnel" >>"$log"; exit 1; fi;
-              sleep 2;
+            [ -n "$name" ] || name=sandbox;
+            deadline=$(($(date +%s) + 60));
+            fail() { echo "vscode-tunnel: api.github.com/user still unauthenticated after 60s; not starting the tunnel" >>"$log"; exit 1; };
+            while :; do
+              remaining=$((deadline - $(date +%s)));
+              [ "$remaining" -gt 0 ] || fail;
+              request_timeout=$remaining;
+              [ "$request_timeout" -le 5 ] || request_timeout=5;
+              if curl -fsS --connect-timeout "$request_timeout" --max-time "$request_timeout" -o /dev/null -H 'Authorization: token proxy-managed' https://api.github.com/user 2>>"$log"; then break; fi;
+              remaining=$((deadline - $(date +%s)));
+              [ "$remaining" -gt 0 ] || fail;
+              sleep_for=$remaining;
+              [ "$sleep_for" -le 2 ] || sleep_for=2;
+              sleep "$sleep_for";
             done;
             code tunnel user login --provider github --access-token proxy-managed >>"$log" 2>&1;
             exec code tunnel --accept-server-license-terms --name "$name" >>"$log" 2>&1

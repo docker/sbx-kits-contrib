@@ -17,7 +17,6 @@ set -eux
 case "${TARGETARCH:-amd64}" in
   amd64) arch=x64 ;;
   arm64) arch=arm64 ;;
-  arm) arch=armhf ;;
   *) echo "unsupported architecture: ${TARGETARCH}" >&2; exit 1 ;;
 esac
 mkdir -p /out/usr/local/bin
