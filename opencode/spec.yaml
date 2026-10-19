@@ -240,9 +240,7 @@ permissions:
       - "**.githubusercontent.com"
       - codeload.github.com
       # OpenCode resolves language servers, plugins and provider SDK packages
-      # from npm on demand, and `opencode upgrade` reinstalls the agent itself
-      # from the same registry because that is how this image installs it.
-      # Packument and tarball both come from this host.
+      # from npm on demand. Packument and tarball both come from this host.
       - registry.npmjs.org
       # OpenCode's own domains. The apex serves the sign-in and account-console
       # endpoints `/login` hands off to, and the JSON schema its config file

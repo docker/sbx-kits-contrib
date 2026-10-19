@@ -152,9 +152,8 @@ Two things do reach the network on their own, and both are deliberate:
   `OPENCODE_DISABLE_MODELS_FETCH=1` stops it; the picker then falls back to the
   snapshot embedded in the binary.
 - **The update check.** OpenCode looks for a newer version and upgrades itself
-  in place. Because this image installs from npm, both the check and the
-  upgrade go to `registry.npmjs.org`, into a prefix the `agent` user owns, so
-  it works rather than failing halfway. `OPENCODE_DISABLE_AUTOUPDATE=1` turns
+  in place. The official installer puts its binary in an `agent`-owned prefix,
+  so the native updater can replace it. `OPENCODE_DISABLE_AUTOUPDATE=1` turns
   it off, as does `"autoupdate": false` in `opencode.json`.
 
 Neither is disabled by default: the catalog is what keeps the model picker
@@ -245,9 +244,8 @@ is published as an OCI artifact at `docker.io/sbx/opencode-kit` (see
 [Usage](#usage) above). The name is derived from the kit directory and enforced
 repo-wide — see [PUBLISHING.md](../PUBLISHING.md#naming).
 
-Why the image installs OpenCode from npm rather than from the standalone
-installer its README leads with is covered in
-[README.image.md](./README.image.md).
+The image installs OpenCode with its official v2 installer; its installation
+details are covered in [README.image.md](./README.image.md).
 
 ### Building and publishing
 
