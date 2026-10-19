@@ -12,7 +12,7 @@ version: "1.0.0"
 displayName: Azure DevOps MCP
 description: >-
   Wires an Azure DevOps personal access token into the sandbox proxy so the
-  Azure DevOps REST APIs and MCP endpoints authenticate from inside the
+  Azure DevOps REST APIs and local MCP server authenticate from inside the
   sandbox. The token stays on the host.
 
 capabilities:
@@ -28,6 +28,7 @@ capabilities:
           - "*.dev.azure.com"
           - mcp.dev.azure.com
           - vssps.dev.azure.com
+          - almsearch.dev.azure.com
           - "*.visualstudio.com"
           - dc.services.visualstudio.com
           - aka.ms
@@ -36,9 +37,10 @@ capabilities:
           - release-assets.githubusercontent.com
 
   # Inject-only: no `name`, so not even a sentinel enters the container. The
-  # secret holds base64(":<PAT>"), which the proxy sends as Basic auth.
+  # secret holds base64("<email>:<PAT>"), which the proxy sends as Basic auth.
+  # The remote MCP host is deliberately not injected: it requires Entra OAuth.
   - type: com.docker.sandbox/credential@1
-    description: Azure DevOps personal access token, stored on the host as base64 of `:<PAT>`; the proxy injects it as Basic auth on requests to Azure DevOps.
+    description: Azure DevOps personal access token, stored on the host as base64 of `<email>:<PAT>`; the proxy injects it as Basic auth on REST API requests.
     config:
       service: az-devops
       phase: runtime
@@ -47,13 +49,10 @@ capabilities:
           - domain: dev.azure.com
             header: Authorization
             format: "Basic %s"
-          - domain: "*.dev.azure.com"
-            header: Authorization
-            format: "Basic %s"
-          - domain: mcp.dev.azure.com
-            header: Authorization
-            format: "Basic %s"
           - domain: vssps.dev.azure.com
+            header: Authorization
+            format: "Basic %s"
+          - domain: almsearch.dev.azure.com
             header: Authorization
             format: "Basic %s"
           - domain: "*.visualstudio.com"

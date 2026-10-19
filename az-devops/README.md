@@ -18,18 +18,19 @@ managed on the host.
 - An Azure DevOps Personal Access Token (PAT).
 - A sandbox secret `az-devops` available on your host before launching the sandbox.
 
-Create the secret once with a base64-encoded `:<your-PAT>` value.
+Create the secret once with a base64-encoded `<email>:<your-PAT>` value. The
+email can be any nonempty value.
 
 ### Bash (Linux/macOS)
 
 ```console
-$ sbx secret set -g az-devops "$(printf ':%s' "<your-PAT>" | base64 | tr -d '\n')"
+$ sbx secret set -g az-devops "$(printf '%s:%s' "<email>" "<your-PAT>" | base64 | tr -d '\n')"
 ```
 
 ### PowerShell
 
 ```console
-PS C:\> echo "$([System.Convert]::ToBase64String([System.Text.Encoding]::ASCII.GetBytes(":<your-PAT>")))" | sbx secret set -g az-devops
+PS C:\> echo "$([System.Convert]::ToBase64String([System.Text.Encoding]::ASCII.GetBytes("<email>:<your-PAT>")))" | sbx secret set -g az-devops
 ```
 
 ## Usage
@@ -68,34 +69,42 @@ a project-level `.mcp.json`:
    "mcpServers": {
       "azure-devops": {
          "command": "npx",
-         "args": ["-y", "@azure-devops/mcp", "<organization>"]
+         "args": ["-y", "@azure-devops/mcp", "<organization>", "--authentication", "pat"],
+         "env": {
+            "PERSONAL_ACCESS_TOKEN": "cHJveHk6bWFuYWdlZA=="
+         }
       }
    }
 }
 ```
 
-The first launch downloads the server from npm. Its Azure DevOps requests pass
-through the sandbox proxy, which replaces the Basic authorization value with
-the host-managed `az-devops` secret.
+The first launch downloads the server from npm. `PERSONAL_ACCESS_TOKEN` is the
+non-secret base64 encoding of `proxy:managed`; it satisfies the local server's
+PAT-mode startup check. The server sends it as Basic authorization, and the
+sandbox proxy replaces it with the host-managed `az-devops` secret.
+
+The hosted remote MCP server at `mcp.dev.azure.com` is also network-allowed, but
+this kit does not inject a PAT there. The remote server requires Microsoft Entra
+OAuth and does not support PAT authentication; configure that OAuth connection
+in the MCP client separately.
 
 ## How auth works
 
 The kit declares a `com.docker.sandbox/credential@1` capability for the
 `az-devops` service whose `apiKey.inject` rules cover the Azure DevOps hosts
-(`dev.azure.com`, `*.dev.azure.com`, `mcp.dev.azure.com`,
-`vssps.dev.azure.com`, `*.visualstudio.com`). On requests to those hosts the
-proxy injects:
+(`dev.azure.com`, `vssps.dev.azure.com`, `almsearch.dev.azure.com`, and
+`*.visualstudio.com`). On requests to those hosts the proxy injects:
 
 - `Authorization: Basic %s`
 
 The `%s` value comes from a secret with the right name `az-devops`, created
 in the way explained above.
 
-The credential is managed as secret on the host so tools
-inside the sandbox can make calls to Azure DevOps while the real
-credential stays under proxy control for outbound requests. The credential
-is inject-only: no environment variable, not even a placeholder, is set
-inside the sandbox.
+The credential is managed as a secret on the host so tools inside the sandbox
+can make calls to Azure DevOps while the real value stays under proxy control.
+The credential capability itself is inject-only and sets no environment
+variable; the MCP example separately supplies only the non-secret placeholder
+shown above.
 
 ## Network policy
 
@@ -105,6 +114,7 @@ The `runtime` allow list is intentionally narrow and currently includes:
 - `*.dev.azure.com`
 - `mcp.dev.azure.com`
 - `vssps.dev.azure.com`
+- `almsearch.dev.azure.com`
 - `*.visualstudio.com`
 - `dc.services.visualstudio.com`
 - `aka.ms`
@@ -114,9 +124,9 @@ The `runtime` allow list is intentionally narrow and currently includes:
 
 The npm and GitHub hosts let `npx` download the Azure DevOps MCP package and its
 native dependencies.
-`mcp.dev.azure.com` and `vssps.dev.azure.com` are listed explicitly beside
-`*.dev.azure.com` because every credential inject domain has to appear
-literally in the same phase's allow list.
+The exact REST API hosts are listed beside `*.dev.azure.com` because every
+credential inject domain has to appear literally in the same phase's allow
+list. The wildcard grants network access but does not inject credentials.
 
 If your workflow needs additional Azure hosts, fork this kit and extend the
 `runtime` allow list of the `com.docker.sandbox/network-policy@1` capability
