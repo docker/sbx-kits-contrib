@@ -30,61 +30,30 @@ ARG BASE_IMAGE
 # install and the provide together.
 ARG OPENCODE_VERSION
 
-# OpenCode is installed from npm rather than through the standalone
-# `curl https://opencode.ai/install | bash` script its README leads with. Both
-# are first-party and release in lockstep, and the npm route is what suits an
-# image build:
+# The official v2 installer downloads and extracts the platform binary directly
+# from the npm registry. It selects the architecture, libc and x86 AVX2 variant
+# itself, without requiring npm or Node at image build time.
 #
-#   - It resolves nothing through the unauthenticated GitHub releases API, so a
-#     busy shared runner's rate limit cannot fail the build.
-#   - The binary lands in the npm global prefix, which the base image already
-#     exports on PATH. The standalone installer instead drops the binary in
-#     ~/.opencode/bin and appends a PATH line to a shell rc file, which an
-#     exec'd container process never reads — so that route needs PATH or
-#     symlink repair here that this one does not.
-#   - It needs no host the kit does not already have to allow: OpenCode
-#     resolves language servers, plugins and provider SDK packages from
-#     registry.npmjs.org at run time regardless of how it was installed.
-#
-# It also leaves `opencode upgrade` resolving new versions from npm, which is
-# the same host and the same agent-writable prefix, so in-place self-update
-# keeps working.
-#
-# Two things the install line has to get right:
-#
-#   - The published package's bin/opencode.exe is a stub; its postinstall
-#     script replaces it with the platform binary it selects from the package's
-#     optional dependencies, matching architecture, libc and (on x86) AVX2
-#     support. A corepack-managed npm shim does not run lifecycle scripts, so
-#     installing through one would ship the stub and still exit 0. Disabling
-#     the shim first is therefore a correctness step, not tidying — and it is
-#     allowed to fail: on a base whose npm is a distro binary rather than a
-#     corepack shim there is nothing to disable and nothing to remove.
-#   - `--include=optional` restates npm's own default so an inherited
-#     `omit=optional` — from an .npmrc or from NPM_CONFIG_OMIT — cannot leave
-#     the postinstall with no binary to copy.
-#
-# The version spec is exact -- `@opencode/cli@2.0.29`, never a range or a
-# dist-tag -- so what npm resolves is what the descriptor promised. That is
-# what makes the provide's version true of the built image rather than a guess
-# about it.
-#
-# `opencode --version` last, deliberately: the install's exit code says only
-# that npm ran, not that a working binary reached PATH. It also prints the bare
-# version string, so a build log is the record of what the pin resolved to. The
-# npm cache is dropped in the same layer because it holds a second copy of a
-# ~180 MB tarball that nothing reads again.
+# `--no-modify-path` keeps the installer from changing shell startup files. The
+# image owns PATH directly, which also makes the binary available to exec'd
+# processes that never read a shell rc file.
+ENV PATH="/home/agent/.opencode/bin:${PATH}"
+
+# Download before executing so a failed transfer cannot be mistaken for a
+# successful empty shell script. `opencode --version` proves the binary is on
+# the image PATH, not merely that the installer exited successfully.
 RUN <<EOF
 set -eux
 
-(corepack disable npm 2>&1 || echo "no corepack npm shim to disable")
-
-npm install -g "@opencode/cli@${OPENCODE_VERSION}" --include=optional
+curl -fsSL https://opencode.ai/v2/install -o /tmp/opencode-install
+if [ -n "${OPENCODE_VERSION:-}" ]; then
+  bash /tmp/opencode-install --version "${OPENCODE_VERSION}" --no-modify-path
+else
+  bash /tmp/opencode-install --no-modify-path
+fi
+rm -f /tmp/opencode-install
 
 opencode --version
-
-npm cache clean --force
-rm -rf "${HOME}/.npm"
 EOF
 
 # Inherited from the base image, but re-declared deliberately so the value is
