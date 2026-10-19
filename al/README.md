@@ -43,7 +43,7 @@ Once attached, `al` is on `PATH`:
 ```console
 agent@sandbox:~$ al --version
 18.1.43.24897+799e32e9b48e151929e79fa662a5ddd4a2d4ebce
-agent@sandbox:~$ al compile /project:~/my-al-project /packagecachepath:~/my-al-project/.alpackages
+agent@sandbox:~$ al compile /project:"$HOME/my-al-project" /packagecachepath:"$HOME/my-al-project/.alpackages"
 ```
 
 ## How the install works
