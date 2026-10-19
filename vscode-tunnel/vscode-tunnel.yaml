@@ -1,0 +1,157 @@
+# syntax=docker/sandbox-kit:3
+# A VS Code tunnel that starts with the sandbox and logs in through the
+# sandbox credential proxy, as a declaration-only MIXIN on top of vscode-cli.
+# Usage and prerequisites: see README.md in this directory.
+#
+# The CLI is logged in with a sentinel token, so it never starts the device
+# code flow. The proxy swaps the sentinel for the GitHub token stored on the
+# host on the dev tunnels API; sbx's built-in GitHub injection answers the
+# api.github.com check the CLI runs before it uses a stored token. The real
+# token stays on the host.
+schemaVersion: "3"
+kind: mixin
+version: "1.0.0"
+displayName: VS Code Tunnel
+description: >-
+  Starts `code tunnel` at sandbox boot, authenticated with the host's GitHub
+  token through the sandbox proxy, so the sandbox opens from vscode.dev or a
+  local VS Code without a device code login.
+sourceUrl: https://code.visualstudio.com/docs/remote/tunnels
+
+requires: ["vscode-cli"]
+
+args:
+  name:
+    default: ""
+    pattern: '^[a-z0-9-]{0,20}$'
+    description: Tunnel name; empty uses the sandbox hostname, cut to 20 characters
+    env: VSCODE_TUNNEL_NAME
+
+capabilities:
+  # Inject domains have to appear literally in the same phase's allow list,
+  # so each management host is listed beside the wildcard that covers it
+  # (and the `<cluster>-data` relay hosts).
+  - type: com.docker.sandbox/network-policy@1
+    config:
+      runtime:
+        allow:
+          - global.rel.tunnels.api.visualstudio.com
+          - asse.rel.tunnels.api.visualstudio.com
+          - auc1.rel.tunnels.api.visualstudio.com
+          - aue.rel.tunnels.api.visualstudio.com
+          - aue01.rel.tunnels.api.visualstudio.com
+          - ause1.rel.tunnels.api.visualstudio.com
+          - brs.rel.tunnels.api.visualstudio.com
+          - eun1.rel.tunnels.api.visualstudio.com
+          - euw.rel.tunnels.api.visualstudio.com
+          - inc1.rel.tunnels.api.visualstudio.com
+          - jpe1.rel.tunnels.api.visualstudio.com
+          - uks1.rel.tunnels.api.visualstudio.com
+          - use.rel.tunnels.api.visualstudio.com
+          - use2.rel.tunnels.api.visualstudio.com
+          - usw2.rel.tunnels.api.visualstudio.com
+          - usw3.rel.tunnels.api.visualstudio.com
+          - "*.rel.tunnels.api.visualstudio.com"
+
+  # Its own service, not `github`, which kits such as copilot already claim.
+  # Inject-only: no `name`, so nothing enters the container. The CLI sends
+  # `github client_id=<VS Code app> <token>` (cli/src/auth.rs), and the
+  # service rejects a token from another app, such as `gh`, under that
+  # client_id. Without a client_id it accepts the `gh` token, so the proxy
+  # replaces the whole header with that form.
+  #
+  # Management hosts only: global plus one per cluster, from
+  # https://global.rel.tunnels.api.visualstudio.com/clusters?api-version=2023-09-27-preview
+  # A `*.rel...` rule would also match the `<cluster>-data.rel...` relay,
+  # whose websocket carries its own `tunnel <token>` header and is
+  # rejected when that is overwritten. A cluster added later needs a line
+  # here.
+  #
+  # No rule for api.github.com, where the CLI checks the token before use:
+  # the built-in GitHub injection already covers it, and a kit rule there
+  # replaced it and left the check unauthenticated.
+  - type: com.docker.sandbox/credential@1
+    description: GitHub token, stored on the host; the proxy injects it on dev tunnels management API requests.
+    config:
+      service: vscode-tunnel
+      phase: runtime
+      apiKey:
+        proxyManaged: true
+        inject:
+          - domain: global.rel.tunnels.api.visualstudio.com
+            header: Authorization
+            format: "github %s"
+          - domain: asse.rel.tunnels.api.visualstudio.com
+            header: Authorization
+            format: "github %s"
+          - domain: auc1.rel.tunnels.api.visualstudio.com
+            header: Authorization
+            format: "github %s"
+          - domain: aue.rel.tunnels.api.visualstudio.com
+            header: Authorization
+            format: "github %s"
+          - domain: aue01.rel.tunnels.api.visualstudio.com
+            header: Authorization
+            format: "github %s"
+          - domain: ause1.rel.tunnels.api.visualstudio.com
+            header: Authorization
+            format: "github %s"
+          - domain: brs.rel.tunnels.api.visualstudio.com
+            header: Authorization
+            format: "github %s"
+          - domain: eun1.rel.tunnels.api.visualstudio.com
+            header: Authorization
+            format: "github %s"
+          - domain: euw.rel.tunnels.api.visualstudio.com
+            header: Authorization
+            format: "github %s"
+          - domain: inc1.rel.tunnels.api.visualstudio.com
+            header: Authorization
+            format: "github %s"
+          - domain: jpe1.rel.tunnels.api.visualstudio.com
+            header: Authorization
+            format: "github %s"
+          - domain: uks1.rel.tunnels.api.visualstudio.com
+            header: Authorization
+            format: "github %s"
+          - domain: use.rel.tunnels.api.visualstudio.com
+            header: Authorization
+            format: "github %s"
+          - domain: use2.rel.tunnels.api.visualstudio.com
+            header: Authorization
+            format: "github %s"
+          - domain: usw2.rel.tunnels.api.visualstudio.com
+            header: Authorization
+            format: "github %s"
+          - domain: usw3.rel.tunnels.api.visualstudio.com
+            header: Authorization
+            format: "github %s"
+
+  - type: com.docker.sandbox/lifecycle@1
+    config:
+      startup:
+        # Every boot: wait until the proxy authenticates api.github.com (the
+        # CLI's token check falls back to an unattended device code prompt
+        # otherwise), store the sentinel (overwriting any earlier login),
+        # then run the tunnel detached. Both flags skip prompts the CLI
+        # would otherwise wait on.
+        - command: >-
+            set -eu;
+            log="$HOME/.vscode-tunnel.log";
+            name=$(printf '%s' "${VSCODE_TUNNEL_NAME:-$(hostname)}" | tr 'A-Z' 'a-z' | tr -c 'a-z0-9-' '-' | cut -c1-20 | sed 's/^-*//; s/-*$//');
+            i=0;
+            until curl -fsS -o /dev/null -H 'Authorization: token proxy-managed' https://api.github.com/user 2>>"$log"; do
+              i=$((i + 1));
+              if [ "$i" -ge 30 ]; then echo "vscode-tunnel: api.github.com/user still unauthenticated after 60s; not starting the tunnel" >>"$log"; exit 1; fi;
+              sleep 2;
+            done;
+            code tunnel user login --provider github --access-token proxy-managed >>"$log" 2>&1;
+            exec code tunnel --accept-server-license-terms --name "$name" >>"$log" 2>&1
+          user: "1000"
+          background: true
+          env: [VSCODE_TUNNEL_NAME]
+          description: Log in with the proxy sentinel and start the tunnel
+
+  # The tunnel's clients are not sbx sessions, so without this the sandbox
+  # could auto-stop while VS Code is still connected.
+  - type: com.docker.sandbox/long-running@1

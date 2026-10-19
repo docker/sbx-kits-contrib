@@ -1,0 +1,51 @@
+# syntax=docker/sandbox-kit:3
+# The VS Code CLI (`code`), as a MIXIN with an overlay. Usage and
+# prerequisites: see README.md in this directory.
+#
+# The overlay (vscode-cli.dockerfile) ships the CLI. It is content, so it is
+# built into the published layer rather than downloaded at create. The
+# network policy opens what the CLI's VS Code Server features, such as
+# `code tunnel`, reach: the VS Code Server download, the dev tunnels service,
+# the login providers, and the extension marketplace.
+schemaVersion: "3"
+kind: mixin
+version: "${{ kit.args.version }}"
+displayName: VS Code CLI
+description: >-
+  Installs the standalone VS Code CLI (`code`), with the network access its
+  VS Code Server features such as `code tunnel` need.
+sourceUrl: https://code.visualstudio.com/docs/editor/command-line
+
+# Lets other kits, such as vscode-tunnel, require the CLI and records the
+# release the overlay actually carries.
+provides: ["vscode-cli@${{ kit.args.version }}"]
+
+args:
+  version:
+    default: "1.142.0"
+    pattern: '^[0-9]+\.[0-9]+\.[0-9]+$'
+    description: VS Code CLI release to build into the overlay
+    buildArg: VSCODE_VERSION
+
+capabilities:
+  - type: com.docker.sandbox/network-policy@1
+    config:
+      runtime:
+        allow:
+          # The VS Code Server matching the CLI, downloaded on first use;
+          # update.code.visualstudio.com redirects to the CDN.
+          - update.code.visualstudio.com
+          - vscode.download.prss.microsoft.com
+          # Dev tunnels management API and relay. Relay hosts are cluster
+          # scoped (`<cluster>-data.rel.tunnels...`, `*.<cluster>.devtunnels.ms`).
+          - global.rel.tunnels.api.visualstudio.com
+          - "*.rel.tunnels.api.visualstudio.com"
+          - "**.devtunnels.ms"
+          # Tunnel login: GitHub or Microsoft device code flow.
+          - github.com
+          - api.github.com
+          - login.microsoftonline.com
+          # Extensions installed into the remote VS Code Server.
+          - marketplace.visualstudio.com
+          - "*.gallery.vsassets.io"
+          - "*.gallerycdn.vsassets.io"
