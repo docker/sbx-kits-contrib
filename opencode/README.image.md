@@ -9,16 +9,15 @@ Built on `docker/sandbox-templates:shell-docker`: the standard sandbox tool
 chain plus a Docker engine, requesting Docker-in-Docker via
 `com.docker.sandboxes.start-docker=true`. On top of that:
 
-- [`opencode`](https://opencode.ai), installed from the `opencode-ai` package
+- [`opencode`](https://opencode.ai), installed from the `@opencode/cli` package
   into the image's npm global prefix, so the binary resolves as
   `/usr/local/share/npm-global/bin/opencode`
 
 ## Why npm and not the standalone installer
 
 OpenCode's README leads with `curl -fsSL https://opencode.ai/install | bash` and
-lists npm second. Both are published by the OpenCode project and track each
-other — the npm version and the GitHub release tag are the same string — and
-this image takes the npm route because of what it means for a build:
+lists npm second. This image takes the npm route because of what it means for a
+build:
 
 - **No unauthenticated GitHub API call.** The standalone installer resolves the
   latest tag through `api.github.com`, which is rate-limited per IP; on a busy

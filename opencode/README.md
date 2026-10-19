@@ -123,11 +123,11 @@ treat it as a real token.
 
 ### GitHub Copilot as a model provider
 
-OpenCode's `github-copilot` provider reads its token from `auth.json` and sends
-the entry's `refresh` value as the Copilot bearer. A startup hook seeds that
-entry from the `GH_TOKEN` sentinel so the Copilot provider is selectable
-without an interactive sign-in, and the sentinel then rides the `github`
-inject rules above.
+OpenCode v2 stores credentials in its local SQLite database. A startup hook
+seeds the `auth.json` bridge input from the `GH_TOKEN` sentinel, then imports
+that record into the v2 credential store so the Copilot provider is selectable
+without an interactive sign-in. Its refresh value is the Copilot bearer, and
+the sentinel then rides the `github` inject rules above.
 
 The hook runs on **every** container start and is written to be safe there: it
 takes a lock, leaves a malformed or already-refreshed `auth.json` untouched,
@@ -139,11 +139,11 @@ GitHub credential is bound.
 The `openai` service accepts either. An API key takes precedence: when
 `OPENAI_API_KEY` resolves, the OAuth path is skipped outright.
 
-With a ChatGPT subscription bound instead, the kit writes an `openai` entry of
-type `oauth` into `~/.local/share/opencode/auth.json` carrying sentinel access
-and refresh tokens. That entry is what activates OpenCode's built-in Codex auth
+With a ChatGPT subscription bound instead, the kit writes an `openai` OAuth
+entry to `~/.local/share/opencode/auth.json` and imports it into the v2
+credential store on startup. This activates OpenCode's built-in Codex auth
 plugin, which routes requests to the Codex backend on `chatgpt.com` rather than
-to `api.openai.com` — a subscription token is only accepted there. The entry
+to `api.openai.com` — a subscription token is only accepted there. The record
 carries the real expiry, so refreshes go through the intercepted token endpoint
 at `auth.openai.com` and come back re-masked with the same sentinels; the
 container never holds a usable token.
@@ -157,7 +157,7 @@ it, because there is no switch to set.
 Two things do reach the network on their own, and both are deliberate:
 
 - **The model catalog.** OpenCode refreshes its provider and model list —
-  context windows, pricing — from `models.opencode.ai` about hourly.
+  context windows, pricing — from `models.dev` about hourly.
   `OPENCODE_DISABLE_MODELS_FETCH=1` stops it; the picker then falls back to the
   snapshot embedded in the binary.
 - **The update check.** OpenCode looks for a newer version and upgrades itself
@@ -189,21 +189,16 @@ credential above injects into,
 plus the OpenAI OAuth token endpoint and Codex backend host, plus the hosts
 OpenCode reaches on its own: `registry.npmjs.org` for language servers, plugins
 and provider SDK packages; `opencode.ai` and `*.opencode.ai` for the config
-schema, the account console and the model catalog at `models.opencode.ai`; the
-GitHub hosts language-server downloads redirect through; and the apt sources
-the base image ships with, which the startup `apt-get update` fails wholesale
-without.
+schema and account console; `models.dev` for the provider catalog; the GitHub
+hosts language-server downloads redirect through; and the apt sources the base
+image ships with, which the startup `apt-get update` fails wholesale without.
 
 Entries carry no port: a portless pattern matches any port, and pinning the apt
 hosts to `:80` breaks as soon as a mirror answers over HTTPS — with the same
 wholesale `apt-get update` failure.
 
-Two omissions are deliberate:
+One omission is deliberate:
 
-- **`models.dev` is not listed.** OpenCode's help text and log messages name
-  Models.dev as the source of the model catalog, and the data is theirs, but
-  the request goes to `models.opencode.ai` — which the `*.opencode.ai` entry
-  already covers. Adding `models.dev` would allow a host nothing contacts.
 - **Vendor CDNs for three language servers are not listed.** Most of OpenCode's
   language servers come from npm or GitHub releases, both allowed. The
   Terraform, Java and Kotlin servers instead download from HashiCorp's, the
@@ -271,7 +266,7 @@ the kit instead to keep the install and the published `provides` in step:
 
 ```console
 docker buildx build opencode -f opencode/opencode.yaml \
-  --build-arg version=1.18.31 --output type=cacheonly
+  --build-arg version=2.0.29 --output type=cacheonly
 ```
 
 ## Related

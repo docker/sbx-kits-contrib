@@ -64,7 +64,7 @@ ARG OPENCODE_VERSION
 #     `omit=optional` — from an .npmrc or from NPM_CONFIG_OMIT — cannot leave
 #     the postinstall with no binary to copy.
 #
-# The version spec is exact -- `opencode-ai@1.18.31`, never a range or a
+# The version spec is exact -- `@opencode/cli@2.0.29`, never a range or a
 # dist-tag -- so what npm resolves is what the descriptor promised. That is
 # what makes the provide's version true of the built image rather than a guess
 # about it.
@@ -79,7 +79,7 @@ set -eux
 
 (corepack disable npm 2>&1 || echo "no corepack npm shim to disable")
 
-npm install -g "opencode-ai@${OPENCODE_VERSION}" --include=optional
+npm install -g "@opencode/cli@${OPENCODE_VERSION}" --include=optional
 
 opencode --version
 
