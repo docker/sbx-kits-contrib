@@ -416,6 +416,7 @@ setup:
         - |
           set -e
           auth="$HOME/.local/share/opencode/auth.json"
+          mkdir -p "$(dirname "$auth")"
           exec 9>>"$(dirname "$auth")/.credentials-sync.lock"
           flock 9
           if ! existing=$(opencode auth export --standalone); then
@@ -462,13 +463,20 @@ setup:
               {integrationID: $integration, id: ("sbx-" + $integration),
                desired: ([$desired[] | select(.integrationID == $integration)][0])}
               | . as $wanted
-              | ($existing | map(select(.integrationID == $wanted.integrationID))) as $records
-              | ($records | map(select(.active == true)) | .[0]) as $active
-              | {integrationID: $wanted.integrationID, id: $wanted.id, desired: $wanted.desired,
-                 remove: [$records[] | select(managed($wanted)) | .id],
+               | ($existing | map(select(.integrationID == $wanted.integrationID))) as $records
+               | ($records | map(select(.active == true)) | .[0]) as $active
+               | {integrationID: $wanted.integrationID, id: $wanted.id, desired: $wanted.desired,
+                  remove: [$records[] | select(managed($wanted)) | .id],
+                 previousActiveID: (if $active != null and ($active | managed($wanted)) then $active.id else null end),
                  activate: ($wanted.desired != null and $active != null and ($active | managed($wanted)))}
             )'); then
             echo "unable to reconcile OpenCode v2 credentials; leaving them unchanged" >&2
+            exit 0
+          fi
+          if ! removed=$(jq -cn --argjson existing "$existing" --argjson sync "$sync" '
+            [$sync[] as $change | $existing[] |
+              select(.integrationID == $change.integrationID and (.id as $id | $change.remove | index($id)))]'); then
+            echo "unable to save managed OpenCode credentials for rollback" >&2
             exit 0
           fi
           printf '%s\n' "$sync" | jq -r '.[] | .integrationID as $integration | .remove[]? | [$integration, .] | @tsv' |
@@ -477,6 +485,18 @@ setup:
             done
           if [ "$credentials" != "[]" ] && ! printf '%s\n' "$credentials" | opencode auth import --standalone >/dev/null; then
             echo "unable to import sandbox OAuth credentials into OpenCode v2" >&2
+            if [ "$removed" != "[]" ] && ! printf '%s\n' "$removed" | opencode auth import --standalone >/dev/null; then
+              echo "unable to restore managed OpenCode credentials after failed import" >&2
+              exit 1
+            fi
+            if ! printf '%s\n' "$sync" | jq -r '.[] | select(.previousActiveID != null) | [.integrationID, .previousActiveID] | @tsv' |
+              while IFS="$(printf '\t')" read -r integration id; do
+                opencode auth switch "$integration" "$id" --standalone >/dev/null
+              done; then
+              echo "unable to restore the managed OpenCode credential selection after failed import" >&2
+              exit 1
+            fi
+            echo "restored managed OpenCode credentials after failed import" >&2
             exit 0
           fi
           printf '%s\n' "$sync" | jq -r '.[] | select(.activate) | [.integrationID, .id] | @tsv' |
