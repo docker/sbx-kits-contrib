@@ -42,13 +42,13 @@ kind: workload
 version: "${{ kit.args.version }}"
 
 # The OpenCode release the recipe installs, declared once: validated here,
-# handed to the recipe as the npm pin, and expanded into the provide -- so the
-# kit cannot claim a release it does not ship.
+# handed to the recipe as the installer version, and expanded into the provide
+# -- so the kit cannot claim a release it does not ship.
 #
-# HOW THE DEFAULT WAS ESTABLISHED, and how to bump it: the `latest` dist-tag of
-# the npm package the recipe installs, read from
-# https://registry.npmjs.org/@opencode%2fcli/latest -- the same document
-# `@opencode/cli@latest` would have resolved. 2.0.29 at the time of writing.
+# HOW THE DEFAULT WAS ESTABLISHED, and how to bump it: the `latest` dist-tag
+# published for OpenCode, read from
+# https://registry.npmjs.org/@opencode%2fcli/latest. 2.0.29 at the time of
+# writing.
 #
 # WHY PINNED rather than left floating: an unversioned provide takes the
 # descriptor's `version:` as its version at resolution, so `provides:
@@ -147,9 +147,8 @@ capabilities:
           - "*.githubusercontent.com"
           - codeload.github.com
           # OpenCode resolves language servers, plugins and provider SDK
-          # packages from npm on demand, and `opencode upgrade` reinstalls the
-          # agent itself from the same registry because that is how the recipe
-          # installs it. Packument and tarball both come from this host.
+          # packages from npm on demand. Packument and tarball both come from
+          # this host.
           - registry.npmjs.org
           # OpenCode's own domains. The apex serves the sign-in and
           # account-console endpoints `/login` hands off to, and the JSON

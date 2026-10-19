@@ -245,9 +245,8 @@ OCI image, so what v2 split into `docker.io/sbx/opencode-image` and
 from the kit directory and enforced repo-wide — see
 [PUBLISHING.md](../PUBLISHING.md#naming).
 
-Why the recipe installs OpenCode from npm rather than from the standalone
-installer its README leads with is covered in
-[README.image.md](./README.image.md).
+The recipe installs OpenCode with its official v2 installer; its installation
+details are covered in [README.image.md](./README.image.md).
 
 ### Building and publishing
 
