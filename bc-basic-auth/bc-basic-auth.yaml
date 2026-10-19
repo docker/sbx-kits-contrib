@@ -1,0 +1,32 @@
+# syntax=docker/sandbox-kit:3
+schemaVersion: "3"
+kind: mixin
+version: "1.0.0"
+displayName: Business Central authentication
+description: >-
+  Allows access to a Business Central backend and lets the sandbox proxy inject
+  Basic auth credentials for it. The credentials stay on the host.
+
+args:
+  host:
+    required: true
+    pattern: '^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$'
+    description: Hostname of the Business Central backend, e.g. bc.example.com
+
+capabilities:
+  - type: com.docker.sandbox/network-policy@1
+    config:
+      runtime:
+        allow:
+          - "${{ kit.args.host }}"
+
+  - type: com.docker.sandbox/credential@1
+    description: Business Central username and password, stored on the host as base64 of `user:password`; the proxy injects it as Basic auth on requests to the backend.
+    config:
+      service: bc
+      phase: runtime
+      apiKey:
+        inject:
+          - domain: "${{ kit.args.host }}"
+            header: Authorization
+            format: "Basic %s"
