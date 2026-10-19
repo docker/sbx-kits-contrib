@@ -23,7 +23,7 @@ capabilities:
   - type: com.docker.sandbox/credential@1
     description: Business Central username and password, stored on the host as base64 of `user:password`; the proxy injects it as Basic auth on requests to the backend.
     config:
-      service: bc
+      service: microsoft-bc
       phase: runtime
       apiKey:
         inject:

@@ -11,11 +11,11 @@ credential proxy. The username and password stay on the host.
 
 ## Prerequisites
 
-Store the credentials on the host under the `bc` service as base64-encoded
+Store the credentials on the host under the `microsoft-bc` service as base64-encoded
 `username:password`:
 
 ```console
-$ sbx secret set -g bc "$(printf '%s:%s' '<username>' '<password>' | base64 | tr -d '\n')"
+$ sbx secret set -g microsoft-bc "$(printf '%s:%s' '<username>' '<password>' | base64 | tr -d '\n')"
 ```
 
 The credential is required: sandbox creation fails when the `bc` secret is not
@@ -82,5 +82,5 @@ your environment through another kit or a per-sandbox network rule.
 Remove the stored credential when it is no longer needed:
 
 ```console
-$ sbx secret rm -g bc
+$ sbx secret rm -g microsoft-bc
 ```
