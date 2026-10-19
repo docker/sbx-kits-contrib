@@ -477,7 +477,7 @@ capabilities:
                     and ($credential.type == "oauth")
                     and (($credential.refresh | type) == "string")
                     and (($credential.access | type) == "string")
-                    and (($credential.expires | type) == "number" and $credential.expires >= 0 and $credential.expires == floor)
+                    and ($credential.expires | type == "number" and . >= 0 and . == floor)
                   then {
                     id: $id, integrationID: $integration, label: $label, active: true,
                     value: ({type: "oauth", methodID: $method, refresh: $credential.refresh, access: $credential.access, expires: $credential.expires}
@@ -491,11 +491,36 @@ capabilities:
                 exit 0
               fi
               [ "$credentials" != "[]" ] || exit 0
-              opencode auth logout openai sbx-openai --standalone >/dev/null 2>&1 || true
-              opencode auth logout github-copilot sbx-github-copilot --standalone >/dev/null 2>&1 || true
+              if ! existing=$(opencode auth export --standalone); then
+                echo "unable to read OpenCode v2 credentials; leaving them unchanged" >&2
+                exit 0
+              fi
+              if ! sync=$(jq -cn --argjson existing "$existing" --argjson desired "$credentials" '
+                def managed($wanted):
+                  .id == $wanted.id
+                  or (.label == "OAuth" and .integrationID == $wanted.integrationID and .value == $wanted.value);
+                [$desired[] as $wanted |
+                  ($existing | map(select(.integrationID == $wanted.integrationID))) as $records |
+                  ($records | map(select(.active == true)) | .[0]) as $active |
+                  {integrationID: $wanted.integrationID, id: $wanted.id,
+                   remove: [$records[] | select(managed($wanted)) | .id],
+                   activate: ($active != null and ($active | managed($wanted)))}
+                ]'); then
+                echo "unable to reconcile OpenCode v2 credentials; leaving them unchanged" >&2
+                exit 0
+              fi
+              printf '%s\n' "$sync" | jq -r '.[] | .integrationID as $integration | .remove[]? | [$integration, .] | @tsv' |
+                while IFS="$(printf '\t')" read -r integration id; do
+                  opencode auth logout "$integration" "$id" --standalone >/dev/null 2>&1 || true
+                done
               if ! printf '%s\n' "$credentials" | opencode auth import --standalone >/dev/null; then
                 echo "unable to import sandbox OAuth credentials into OpenCode v2" >&2
+                exit 0
               fi
+              printf '%s\n' "$sync" | jq -r '.[] | select(.activate) | [.integrationID, .id] | @tsv' |
+                while IFS="$(printf '\t')" read -r integration id; do
+                  opencode auth switch "$integration" "$id" --standalone >/dev/null
+                done
           user: "agent"
           description: Import sandbox OAuth credentials into OpenCode v2
 
