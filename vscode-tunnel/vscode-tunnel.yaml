@@ -158,7 +158,14 @@ capabilities:
             exec code tunnel --accept-server-license-terms --name "$name" >>"$log" 2>&1
           user: "1000"
           background: true
-          env: [VSCODE_TUNNEL_NAME]
+          env:
+            - VSCODE_TUNNEL_NAME
+            - HTTP_PROXY
+            - HTTPS_PROXY
+            - NO_PROXY
+            - http_proxy
+            - https_proxy
+            - no_proxy
           description: Log in with the proxy sentinel and start the tunnel
 
   # The tunnel's clients are not sbx sessions, so without this the sandbox
