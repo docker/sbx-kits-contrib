@@ -14,7 +14,8 @@ gateway and Data Explorer are published on the host's loopback.
 ## Usage
 
 The kit needs a base whose Docker Engine is already installed, such as the
-`claude` workload, which builds on `docker/sandbox-templates:shell-docker`:
+`claude`, `codex` or `copilot` workload, which builds on
+`docker/sandbox-templates:shell-docker`:
 
 ```console
 sbx run docker.io/sbx/claude:latest --kit docker.io/sbx/cosmos-db-emulator:latest .
