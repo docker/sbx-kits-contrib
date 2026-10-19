@@ -47,7 +47,7 @@ There are two kinds:
 | `workload` | The whole environment: the image the sandbox boots from, including the agent. Replaces v2's `kind: sandbox`. | A full root filesystem. A workload **must** have a recipe. |
 | `mixin` | A delta layered onto a workload: extra tools, credentials, hooks, egress. | An overlay (`FROM scratch`), or no recipe at all for a declaration-only kit. |
 
-This repo ships **32 workloads and 71 mixins**. Every workload except `openhands-canvas` has a `-mixin` sibling declaring the same capabilities in overlay form, so an agent can either *be* the sandbox or be layered onto one; the remaining 40 mixins are standalone tools and integrations. See the [Kit index](#kit-index).
+This repo ships **32 workloads and 74 mixins**. Every workload except `openhands-canvas` has a `-mixin` sibling declaring the same capabilities in overlay form, so an agent can either *be* the sandbox or be layered onto one; the remaining 43 mixins are standalone tools and integrations. See the [Kit index](#kit-index).
 
 ## Anatomy of a kit
 
@@ -204,7 +204,7 @@ A handful of kits genuinely cannot be pinned: an installer whose only channel kn
 
 `provides` is what a kit offers by name; `requires` is a **closed-set** check against everything composed together, so a name nothing provides makes the kit refuse to compose anywhere rather than only where it would really have failed.
 
-v2 could express exactly one dependency — `requires: {agent: <name>}` — so a kit whose hook ran `apt-get` or called `jq` said nothing about needing them and simply failed at create on a base that lacked them. v3 kits can say it, because publishing a `kind: workload` kit reads the built content's dpkg (or apk) database and derives one provide per installed package under `deb/` or `apk/` (SPEC-v3 §9.6). Nineteen mixins here require derived names — `deb/jq`, `deb/dpkg`, `deb/docker-ce`, `deb/openssh-client`:
+v2 could express exactly one dependency — `requires: {agent: <name>}` — so a kit whose hook ran `apt-get` or called `jq` said nothing about needing them and simply failed at create on a base that lacked them. v3 kits can say it, because publishing a `kind: workload` kit reads the built content's dpkg (or apk) database and derives one provide per installed package under `deb/` or `apk/` (SPEC-v3 §9.6). Seventeen mixins here require derived names — `deb/jq`, `deb/dpkg`, `deb/docker-ce`, `deb/openssh-client`:
 
 ```yaml
 requires: ["claude", "deb/jq", "deb/openssl >= 3.5"]
@@ -362,7 +362,7 @@ Note that a fork PR does not receive repository secrets, so any leg needing Dock
 
 ## Kit index
 
-103 kits: 32 workloads and 71 mixins. Every workload except `openhands-canvas` has a `-mixin` sibling that declares the same capabilities in overlay form, so you can either boot the agent as the sandbox or layer it onto one.
+106 kits: 32 workloads and 74 mixins. Every workload except `openhands-canvas` has a `-mixin` sibling that declares the same capabilities in overlay form, so you can either boot the agent as the sandbox or layer it onto one.
 
 ### Workloads
 
@@ -414,6 +414,7 @@ Note that a fork PR does not receive repository secrets, so any leg needing Dock
 | [`code-server`](./code-server) | `claude` | code-server on port 8080 with the Claude Code VS Code extension |
 | [`codex-acp`](./codex-acp) | `codex` | The Codex ACP adapter over stdio |
 | [`codex-app-server`](./codex-app-server) | `codex`, `deb/apt` | sshd plus forwarded host keys, so the Codex Mac GUI can drive `codex app-server` |
+| [`cosmos-db-emulator`](./cosmos-db-emulator) | `deb/curl`, `deb/docker-ce` | The Azure Cosmos DB emulator (vNext, API for NoSQL) on the sandbox's Docker Engine, with the gateway and Data Explorer published on the host loopback |
 | [`docker-tcp`](./docker-tcp) | `deb/curl`, `deb/docker-ce`, `deb/jq`, `deb/procps` | The sandbox's Docker Engine on a TCP port published on the host loopback, so host Docker clients can run containers in it |
 | [`ecc`](./ecc) | `claude` | Everything Claude Code: rules, agents, commands and skills |
 | [`git-ssh-sign`](./git-ssh-sign) | `deb/openssh-client` | Commit signing with the key forwarded from the host's SSH agent |

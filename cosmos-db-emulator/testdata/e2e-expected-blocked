@@ -1,0 +1,5 @@
+# The emulator image's entrypoint runs `tdnf distro-sync` against Microsoft's
+# package repository in the background on every container start. No env var or
+# flag skips it, and the emulator does not wait for it. Allowed, it would
+# upgrade packages under a pinned image tag.
+packages.microsoft.com

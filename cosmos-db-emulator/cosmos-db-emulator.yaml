@@ -1,0 +1,139 @@
+# syntax=docker/sandbox-kit:3
+# The Azure Cosmos DB emulator (vNext, API for NoSQL) as an overlay MIXIN.
+#
+# The emulator ships only as a container image, so it cannot ride the overlay.
+# What the overlay carries is the `cosmos-emulator` helper, and a startup hook
+# uses it to run that image on the Docker Engine inside the sandbox -- the same
+# shape the qemu kit uses for tonistiigi/binfmt.
+# Usage, prerequisites and design notes: see README.md in this directory.
+schemaVersion: "3"
+kind: mixin
+displayName: Azure Cosmos DB emulator
+description: >-
+  Runs the Azure Cosmos DB emulator (vNext, API for NoSQL) on the sandbox's
+  Docker Engine, with the gateway on localhost:8081 and Data Explorer on port
+  1234, and publishes both on the host's loopback. Requires a
+  Docker-in-Docker base.
+sourceUrl: https://github.com/Azure/azure-cosmos-db-emulator-docker
+iconUrl: https://github.com/AzureCosmosDB.png
+
+# No `licenses:`. The overlay is this repository's helper script and a
+# profile.d drop-in, nothing else. The emulator image is pulled from MCR at
+# runtime rather than shipped, and it carries no SPDX identifier this kit could
+# repeat; the MIT licence in the upstream repository covers that repository,
+# not the image.
+
+# The kit's own release number. The emulator has none this kit could take: the
+# image tag below floats by default, and pinning it changes what is pulled at
+# runtime, not anything the overlay ships.
+version: "0.1.0"
+
+# Named after the kit rather than after the emulator, so the version it
+# resolves at -- this descriptor's -- is honestly the kit's. What it promises
+# is the wiring: a Cosmos DB endpoint on localhost:8081, the helper, and the
+# environment variables. Which emulator build answers is the image tag's
+# business.
+provides: ["cosmos-db-emulator"]
+
+# `deb/docker-ce` rather than `deb/docker-ce-cli`: the helper needs a daemon to
+# run the emulator on, and the plain shell base ships the client alone, where
+# `command -v docker` succeeds and `docker info` never will. `deb/curl` is the
+# readiness probe. Both resolve against the Docker-in-Docker bases, which
+# derive one `deb/` name per installed package when they publish.
+#
+# The startup hook's `command -v docker` check stays: resolution covers a
+# composition, and the check still fails clearly on a base reached some other
+# way.
+requires: ["deb/curl", "deb/docker-ce"]
+
+# Both args are runtime choices, not build ones: `env:` puts them in the
+# container's environment, where the startup hook hands them to the helper and
+# the profile.d drop-in builds the endpoint from them. When a running emulator
+# container disagrees with either, the helper recreates it and keeps the data
+# volume.
+args:
+  protocol:
+    default: "http"
+    enum: [http, https]
+    env: COSMOS_EMULATOR_PROTOCOL
+    description: Gateway protocol; the .NET and Java SDKs need https. Data Explorer stays on http
+  # vnext-* only. The repository's other tags are the classic emulator, which
+  # listens on different ports and runs on amd64 alone.
+  imageTag:
+    default: "vnext-latest"
+    pattern: '^vnext-[A-Za-z0-9._-]+$'
+    env: COSMOS_EMULATOR_IMAGE_TAG
+    description: Emulator image tag; pin a dated vnext-EN<yyyymmdd> tag for repeatable runs
+
+capabilities:
+  # One capability per port, as docker-tcp declares its own. `transport` is
+  # left out on purpose: sbx's local runtime reads an omitted transport as
+  # IPv4-only loopback. The host port is still the runtime's to allocate; the
+  # README shows how to pin 8081 and 1234 with `--publish`.
+  - type: com.docker.sandbox/port@1
+    config:
+      name: cosmos-gateway
+      container: 8081
+
+  - type: com.docker.sandbox/port@1
+    config:
+      name: cosmos-explorer
+      container: 1234
+
+  # The whole outbound contract is the image pull, which the in-sandbox Docker
+  # daemon makes from the startup hook -- the runtime phase. It stays open past
+  # boot so `cosmos-emulator start` and `reset` can pull again, for example
+  # after `docker image prune`. MCR serves manifests from mcr.microsoft.com and
+  # redirects layer blobs to a regional *.data.mcr.microsoft.com host.
+  #
+  # Nothing else, on purpose. The helper turns off the emulator's telemetry and
+  # the npm update check Data Explorer's `npm start` would make. The image's
+  # entrypoint also runs `tdnf distro-sync` against packages.microsoft.com in
+  # the background on every start, with no switch to skip it. That stays
+  # blocked: it would upgrade packages under a pinned image tag, and the
+  # emulator does not wait for it. testdata/e2e-expected-blocked lists it.
+  - type: com.docker.sandbox/network-policy@1
+    config:
+      runtime:
+        allow:
+          - mcr.microsoft.com
+          - "*.data.mcr.microsoft.com"
+
+  - type: com.docker.sandbox/lifecycle@1
+    config:
+      startup:
+        # The one hard failure, kept apart from the long-running hook below so it
+        # can fail the start. A non-zero startup command stops the sandbox, which
+        # is right for a composition error the user has to fix, and wrong for
+        # anything slower or flakier than this check.
+        #
+        # No `env:` -- the body reads nothing.
+        - command: [sh, -c, "command -v docker >/dev/null 2>&1 || { echo 'cosmos-db-emulator: docker not found; compose this kit onto a Docker-in-Docker base such as docker.io/docker/sbx-kit-shell' >&2; exit 1; }"]
+          user: "0"
+          description: Fail fast when the base has no Docker Engine
+        # Backgrounded because the first boot pulls a ~0.6 GB image (2.3 GB
+        # unpacked), and every kit's foreground startup hooks share the
+        # sandbox's five-minute start budget. `boot` waits for dockerd, creates
+        # or starts the emulator container, waits for its readiness probe and
+        # records the outcome in /run/cosmos-db-emulator.state, trying up to
+        # three times when dockerd goes away under it (docker-tcp restarts it
+        # on its first boot). It always exits 0, so a slow pull or a broken
+        # emulator never takes the sandbox down; `cosmos-emulator wait` is how
+        # anything that needs the emulator blocks on it. Re-running on every
+        # start is the point: the container, its data volume and, under https,
+        # the volume holding the sandbox's own certificate persist in the
+        # sandbox's Docker, and the helper reuses them.
+        #
+        # DOCKER_HOST for the reason qemu gives: it is how a base points the
+        # CLI at a socket other than /var/run/docker.sock.
+        - command: [sh, -c, "exec /usr/local/bin/cosmos-emulator boot >> /var/log/cosmos-db-emulator.log 2>&1"]
+          user: "0"
+          background: true
+          env: [DOCKER_HOST, COSMOS_EMULATOR_PROTOCOL, COSMOS_EMULATOR_IMAGE_TAG]
+          description: Start the Cosmos DB emulator on the sandbox's Docker Engine
+
+  # No `filename:` -- that is workload-only, and this mixin contributes a body
+  # to whichever agent owns the profile.
+  - type: com.docker.sandbox/agent-context@1
+    config:
+      contentFile: ./cosmos-db-emulator-context.md
