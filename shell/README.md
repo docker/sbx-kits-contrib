@@ -5,20 +5,23 @@
 
 # shell
 
-A sandbox with no agent in it. It is the Docker-in-Docker sandbox template with
-a login shell as its launch command: bash, git, apt, a Docker engine with
-compose and buildx, curl, gh, jq, make, Python 3, Node with npm, and the rest
-of the template's toolchain.
+A sandbox with no agent in it: the hardened Debian 13 shell template with a
+login shell as its launch command. bash, git, apt, a Docker engine with compose
+and buildx, curl, gh, jq, make, gcc, Python 3 and Node with npm.
+
+The descriptor and recipe are the `examples/shell` kit from
+[sandbox-kit-spec](https://github.com/docker/sandbox-kit-spec), published here
+so `sbx` can resolve it by name.
 
 Two things to use it for:
 
 - **A plain sandbox.** Isolated filesystem, isolated network, a Docker engine
   you can break without touching the host.
-- **The base an agent mixin layers onto.** It declares no credentials at all,
-  which is what makes it composable: v3 gives each credential one owner across
-  a composed set, so a base that claimed `anthropic` could not host
-  `claude-mixin`, and a base that claimed `openai` could not host
-  `codex-mixin`. This one claims nothing and hosts all of them.
+- **The base an agent mixin layers onto.** It declares no credentials, which is
+  what makes it composable: v3 gives each credential one owner across a set, so
+  a base that claimed `anthropic` could not host `claude-mixin`, and one that
+  claimed `openai` could not host `codex-mixin`. This one claims nothing and
+  hosts all of them.
 
 ## Usage
 
@@ -40,9 +43,8 @@ sbx run "git+https://github.com/docker/sbx-kits-contrib.git#dir=shell"
 
 ## Provider credentials
 
-This kit declares none. To get the provider API keys the built-in agentless
-sandbox used to carry, compose [`shell-credentials`](../shell-credentials)
-beside it:
+This kit declares none. For the provider API keys an agentless sandbox used to
+carry, compose [`shell-credentials`](../shell-credentials) beside it:
 
 ```console
 sbx run --kit docker.io/sbx/shell-credentials:latest docker.io/sbx/shell:latest
@@ -57,21 +59,31 @@ services.
 
 - **`sbx@1`.** The host launches the image's command and honors the image's
   user.
-- **Network.** `archive.ubuntu.com`, `security.ubuntu.com`, `ports.ubuntu.com`
-  and `download.docker.com`, which are the apt sources the base ships. Nothing
-  else: a sandbox that needs more should say so in its own kit or widen the
-  policy for that sandbox.
-- **A startup hook.** A background `apt-get update`, so `apt-get install` works
-  without a refresh first.
+- **Network.** `deb.debian.org` and `dhi.io`, the apt sources the base ships.
+  Nothing else: a sandbox that needs more should declare it in its own kit or
+  widen the policy for that sandbox.
 - **`AGENTS.md`.** The profile file composed kits write their guidance into. A
   workload owns the filename; a mixin contributes a body without naming one.
 
+No labels: the base already carries `com.docker.sandboxes.flavor=shell` and
+`com.docker.sandboxes.start-docker=true`.
+
+## Installing packages
+
+The base ships an empty apt cache, so refresh it before the first install:
+
+```console
+sudo apt-get update && sudo apt-get install -y <package>
+```
+
+Both apt sources are in the allow list above, so this works under a deny-all
+policy without widening anything.
+
 ## Launch command
 
-`ENTRYPOINT ["bash"]` with `CMD ["-l"]`, so the sandbox opens a login shell:
-`~/.bash_profile` runs, which sources `~/.bashrc`, where the template sets the
-prompt. A v3 workload takes its binary from the entrypoint, so this is stated
-in the image config rather than left to the base's bare `CMD ["bash"]`.
+`ENTRYPOINT ["bash"]` with `CMD ["-l"]`, so the sandbox opens a login shell. A
+v3 workload takes its binary from the entrypoint, so the kit states it rather
+than inheriting the base's `tini -- bash -l`, whose binary would be `tini`.
 
 ## Building
 
@@ -82,10 +94,5 @@ cd .. && sbx kit inspect ./shell                              # what it resolved
 ```
 
 Building through `shell.yaml` is what validates the descriptor: the kit
-frontend checks it during the build and fails on a bad one. Building through
-`shell.dockerfile` produces the image alone and checks nothing the kit
-declares. `sbx kit validate` does not accept a v3 source kit.
-
-`BASE_IMAGE` is overridable, but a re-pointed base must still carry a non-root
-`agent` user with a home, and a Docker engine if the `start-docker` label is to
-mean anything.
+frontend checks it during the build and fails on a bad one. `sbx kit validate`
+does not accept a v3 source kit.

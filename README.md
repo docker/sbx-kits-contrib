@@ -396,7 +396,7 @@ Note that a fork PR does not receive repository secrets, so any leg needing Dock
 | [`paperclip`](./paperclip) | [`paperclip-mixin`](./paperclip-mixin) | Paperclip |
 | [`pi`](./pi) | [`pi-mixin`](./pi-mixin) | Pi |
 | [`picoclaw`](./picoclaw) | [`picoclaw-mixin`](./picoclaw-mixin) | PicoClaw |
-| [`shell`](./shell) | — | An agentless sandbox: the Docker-in-Docker template with a login shell and no agent, and the base an agent mixin layers onto |
+| [`shell`](./shell) | — | A hardened Debian sandbox with a Docker engine, a login shell and no agent: the base an agent mixin layers onto |
 | [`trivy`](./trivy) | [`trivy-mixin`](./trivy-mixin) | Trivy vulnerability scanner |
 | [`vibe`](./vibe) | [`vibe-mixin`](./vibe-mixin) | Mistral Vibe |
 | [`zeroclaw`](./zeroclaw) | [`zeroclaw-mixin`](./zeroclaw-mixin) | ZeroClaw |
