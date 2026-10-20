@@ -11,10 +11,19 @@ displayName: Shell sandbox
 description: An agentless sandbox launched as a login shell, with provider credentials routed by the proxy.
 
 sandbox:
-  # The template itself. Nothing is installed on top, so this kit builds and
-  # publishes no image of its own: a kit directory without a Dockerfile
-  # consumes someone else's image, which scripts/check-image-ref.sh skips.
-  image: docker/sandbox-templates:shell-docker
+  # Built from the Dockerfile beside this spec and published by
+  # .github/workflows/build-and-publish-kits.yml. The image installs no agent,
+  # so it is the sandbox template plus this kit's labels and prompt; owning it
+  # is what lets the kit pin what it ships rather than ride the template's
+  # floating tag.
+  #
+  # This value is the source of truth for what CI builds and publishes: the
+  # workflow reads it from here rather than deriving a name, because a spec is
+  # consumed literally with no interpolation. scripts/check-image-ref.sh
+  # asserts it stays inside the namespace CI can push to. The `-image` suffix
+  # distinguishes the base image from the kit artifact, which is published
+  # under the matching `-kit` name.
+  image: docker.io/sbx/shell-image:latest
   # No `entrypoint:`, and that absence is the kit rather than an oversight. A
   # sandbox kit with no entrypoint declares no binary and sbx launches a shell
   # for it; naming one here would turn this into an agent kit for whatever it
@@ -170,15 +179,14 @@ permissions:
       - openai.com
       - openrouter.ai
       - api.x.ai
-      # `apt-get update` (the startup hook below) refreshes metadata for every
-      # configured apt source, so all of them must be allowed. Measured on this
-      # base, apt 3.2.0: a source whose host answers 403, which is what a
-      # policy-blocked host does, fails the whole refresh with exit 100, while
-      # a host that does not resolve at all only warns and exits 0. The hook
-      # swallows either, so the cost of a missing host lands on a later
-      # `apt-get install`. Ubuntu serves amd64 from archive and security and
-      # arm64 from ports, so all three are listed to keep the kit working on
-      # both architectures.
+      # The apt sources the base ships. The index is baked into this kit's
+      # image at build time, so nothing reaches these at boot, but
+      # `apt-get install` downloads packages from them at runtime and a later
+      # `apt-get update` needs all of them: measured on this base, apt 3.2.0, a
+      # source whose host answers 403, which is what a policy-blocked host
+      # does, fails the whole refresh with exit 100. Ubuntu serves amd64 from
+      # archive and security and arm64 from ports, so all three are listed to
+      # keep the kit working on both architectures.
       - archive.ubuntu.com        # Ubuntu archive (amd64 main)
       - security.ubuntu.com       # Ubuntu security updates (amd64)
       - ports.ubuntu.com          # Ubuntu archive/security (arm64)
@@ -193,17 +201,11 @@ permissions:
       # under a deny-all policy should widen the policy or compose a kit that
       # declares what it needs.
 
-setup:
-  startup:
-    # The base ships an empty apt cache, so without this `apt-get install`
-    # fails with "Unable to locate package" until the user refreshes it.
-    #
-    # The redirects and </dev/null belong on the outer group, not inside a
-    # subshell: a backgrounded job that inherits the exec's pipe write ends
-    # keeps it from reaching EOF, and a slow apt-get then times out the exec.
-    - command: ["sh", "-c", "{ command -v apt-get && apt-get update -qq -y || true; } >/dev/null 2>&1 </dev/null &"]
-      user: "root"
-      description: Update apt package cache in background
+# No `setup:` block. The built-in agent refreshed the apt index with a
+# background startup hook on every boot, because it had no image of its own to
+# bake it into. This kit does, so the refresh happens at build time: one less
+# thing running at launch, and one less reason to reach the network before the
+# session starts.
 
 # No `agentInstructions:`. That block names the AI profile file an agent reads,
 # and this kit installs no agent, so there is nothing here to read one. A

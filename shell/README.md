@@ -6,10 +6,11 @@ buildx, curl, gh, jq, make, Python 3, Node with npm, and the rest of the
 template's toolchain.
 
 This kit is the `shell` agent built into `sbx`, extracted as a kit. Its
-credentials, its launch command and its startup hook are the built-in's, so a
-sandbox created from the kit behaves as `sbx run shell` does, except that it
-reaches only the hosts it declares below rather than whatever the host policy
-grants.
+credentials and its launch command are the built-in's, so a sandbox created
+from the kit behaves as `sbx run shell` does, with two differences: it reaches
+only the hosts it declares below rather than whatever the host policy grants,
+and it refreshes the apt index when its image is built rather than on every
+boot.
 
 ## Usage
 
@@ -65,11 +66,20 @@ unset. On `github.com` the token is sent as Basic auth with the username
 `x-access-token`, because git's smart-HTTP transport rejects Bearer; the other
 GitHub hosts take Bearer.
 
+## Installing packages
+
+`apt-get install` works straight away. The image is built with the apt index
+already refreshed, so there is no `apt-get update` to run first and nothing
+reaching the network at boot to do it for you. CI rebuilds the image nightly,
+so a long-lived pull can still meet a superseded version; apt says so plainly
+and `sudo apt-get update` fixes it.
+
 ## Network
 
 The allow list is the eighteen hosts above plus the four apt sources the base
 ships: `archive.ubuntu.com`, `security.ubuntu.com`, `ports.ubuntu.com` and
-`download.docker.com`.
+`download.docker.com`. Those four are for the packages you install, not for
+the index.
 
 This is the one deliberate difference from the built-in agent, which declares
 no allow list and inherits whatever the host policy grants. A kit cannot do
@@ -89,9 +99,12 @@ or compose a kit that declares what it needs.
 
 No entrypoint, which is the point: a sandbox kit that names no binary gets a
 shell. `command: ["-l"]` makes it a login shell, so `~/.bash_profile` runs and
-sources `~/.bashrc`, where the template sets the prompt.
+sources `~/.bashrc`, where the image sets the prompt.
 
 ## Image
 
-`docker/sandbox-templates:shell-docker`, used as-is. The kit installs nothing,
-so it has no Dockerfile and publishes no image of its own.
+`docker.io/sbx/shell-image`, built from the Dockerfile beside the spec and
+rebuilt nightly by CI. It is `docker/sandbox-templates:shell-docker` plus this
+kit's labels and the login-shell prompt; no agent is installed. Owning the
+image is what lets the kit pin what it ships instead of riding the template's
+floating tag.
