@@ -2,24 +2,44 @@ schemaVersion: "2"
 kind: mixin
 name: t3code
 displayName: T3 Code
-description: Installs the t3 npm package that T3 Code's SSH integration runs inside a sandbox, so the first connection starts a pre-installed server.
+description: Pre-installs the t3 release T3 Code's SSH integration runs inside a sandbox, in the form its launcher consumes, so a matching T3 Code app connects without downloading anything.
+
+args:
+  version:
+    default: "0.1.0"
+    pattern: '^[0-9]+\.[0-9]+\.[0-9]+$'
+    description: "t3 release to pre-install, as published at github.com/pingdotgg/t3code/releases. A T3 Code app on this version connects with no download; a newer app downloads its own release on first connection."
+  telemetry:
+    default: "false"
+    enum: ["true", "false"]
+    description: "Whether the t3 server inside the sandbox sends anonymous usage telemetry. Off by default: the sandbox proxy blocks the telemetry host unless it is allowed, and a server that cannot reach it keeps retrying. Set to true to opt in, and allow us.i.posthog.com:443 in the sandbox's network policy."
+
 agentInstructions:
   content: |
     ## T3 Code
 
-    This sandbox has the `t3` npm package pre-installed and on PATH.
+    This sandbox has the `t3` ${{ kit.args.version }} release pre-installed
+    for T3 Code's SSH integration.
 
-    - T3 Code's remote bootstrap finds `t3` directly instead of falling back
-      to `npx --package t3@latest`, so the first connection does not reach
-      the npm registry.
-    - `t3` installs a platform package that carries prebuilt native modules,
-      `node-pty` among them, so nothing compiles here. Those binaries need
-      `libatomic1`, which this kit installs when the base image lacks it.
+    - T3 Code's remote bootstrap runs the release matching the connecting
+      app from `~/.t3/runtime/versions/<version>/`. Version
+      ${{ kit.args.version }} is already there; a newer app downloads its
+      own release into a sibling directory on first connection.
+    - Those binaries need `libatomic1`, which this kit installs when the base
+      image lacks it.
+    - The t3 server's anonymous usage telemetry is off in this sandbox unless
+      the kit was installed with `telemetry=true`.
 permissions:
   network:
     allow:
-      # Install time: the t3 tarball and its platform package.
-      - registry.npmjs.org:443
+      # Install time: this kit fetches the pinned release archive and its
+      # checksums from GitHub releases. Runtime: T3 Code's remote bootstrap
+      # fetches the same way when a newer app connects. GitHub redirects the
+      # asset download to one of two storage hosts depending on the asset,
+      # so both are listed.
+      - github.com:443
+      - objects.githubusercontent.com:443
+      - release-assets.githubusercontent.com:443
       # libatomic1, on a base image that does not already have it. apt-get
       # update refreshes every configured source, so all of them must be
       # reachable: amd64 uses archive/security, arm64 uses ports.ubuntu.com,
@@ -28,28 +48,78 @@ permissions:
       - security.ubuntu.com:80
       - ports.ubuntu.com:80
       - download.docker.com:443
+environment:
+  variables:
+    # Read by the t3 server at startup. The sandbox proxy does not allow the
+    # telemetry host by default, so leaving this on only produces retries.
+    T3CODE_TELEMETRY_ENABLED: "${{ kit.args.telemetry }}"
 setup:
   install:
     - command: |
         set -euo pipefail
-        command -v npm >/dev/null || { echo "npm not found: this mixin needs a base image with Node.js >= 18 (all standard agent templates ship it)" >&2; exit 1; }
-        if [ -n "${HTTP_PROXY:-}" ]; then
-          npm config set proxy "$HTTP_PROXY"
-        fi
-        if [ -n "${HTTPS_PROXY:-${HTTP_PROXY:-}}" ]; then
-          npm config set https-proxy "${HTTPS_PROXY:-$HTTP_PROXY}"
-        fi
-        # t3's prebuilt binaries link against libatomic1. Install it when the
-        # base image has not already, rather than inheriting it by accident
-        # from some other package's dependencies.
+        # The release is downloaded, verified and unpacked with these. Every
+        # standard template ships them; fail here with a clear message.
+        command -v curl >/dev/null || command -v wget >/dev/null || { echo "curl or wget not found: needed to download the t3 release" >&2; exit 1; }
+        command -v tar >/dev/null || { echo "tar not found: needed to unpack the t3 release" >&2; exit 1; }
+        command -v sha256sum >/dev/null || { echo "sha256sum not found: needed to verify the t3 release" >&2; exit 1; }
+        # t3's binaries link against libatomic1. Install it when the base
+        # image has not already, rather than inheriting it by accident from
+        # some other package's dependencies.
         if ! ldconfig -p 2>/dev/null | grep -q 'libatomic\.so\.1'; then
           export DEBIAN_FRONTEND=noninteractive
           apt-get update
           apt-get install -y --no-install-recommends libatomic1
           rm -rf /var/lib/apt/lists/*
         fi
-        npm install -g t3@latest
-        ln -sf "$(command -v t3)" /usr/local/bin/t3
-        t3 --version || { echo "t3 installed but will not start, see the error above. On a base image without apt-get, install libatomic1 with its own package manager first." >&2; exit 1; }
       user: "0"
-      description: Install the t3 npm package globally
+      description: Install libatomic1 when the base image lacks it; t3's binaries link against it
+    # Stage the pinned release exactly where T3 Code's remote bootstrap looks
+    # for it, as the agent user that bootstrap runs as. The layout, marker
+    # file and version gate mirror the bootstrap's own install, so it treats
+    # this as a completed install and skips the download.
+    - command: |
+        set -euo pipefail
+        T3_VERSION='${{ kit.args.version }}'
+        case "$(uname -m)" in
+          aarch64 | arm64) T3_ARCH="arm64" ;;
+          x86_64 | amd64) T3_ARCH="x64" ;;
+          *) echo "t3 publishes no Linux release for $(uname -m)" >&2; exit 1 ;;
+        esac
+        T3_ARCHIVE="t3-$T3_VERSION-linux-$T3_ARCH.tar.gz"
+        T3_BASE_URL="https://github.com/pingdotgg/t3code/releases/download/v$T3_VERSION"
+        T3_RUNTIME_DIR="${HOME:-/home/agent}/.t3/runtime/versions/$T3_VERSION"
+        if [ -x "$T3_RUNTIME_DIR/t3" ] && [ "$(cat "$T3_RUNTIME_DIR/.install-complete" 2>/dev/null)" = "$T3_VERSION" ]; then
+          echo "t3 $T3_VERSION is already installed at $T3_RUNTIME_DIR"
+          exit 0
+        fi
+        T3_STAGING="$(mktemp -d)"
+        trap 'rm -rf "$T3_STAGING"' EXIT
+        t3_fetch() {
+          if command -v curl >/dev/null 2>&1; then curl -fsSL --connect-timeout 30 --max-time 600 "$1" -o "$2"
+          else wget -q --timeout=30 --tries=1 "$1" -O "$2"
+          fi
+        }
+        t3_fetch "$T3_BASE_URL/SHA256SUMS" "$T3_STAGING/SHA256SUMS"
+        t3_fetch "$T3_BASE_URL/$T3_ARCHIVE" "$T3_STAGING/$T3_ARCHIVE"
+        T3_EXPECTED="$(grep " \*\{0,1\}$T3_ARCHIVE\$" "$T3_STAGING/SHA256SUMS" | cut -d' ' -f1)"
+        T3_ACTUAL="$(sha256sum "$T3_STAGING/$T3_ARCHIVE" | cut -d' ' -f1)"
+        if [ -z "$T3_EXPECTED" ] || [ "$T3_ACTUAL" != "$T3_EXPECTED" ]; then
+          echo "Checksum mismatch for $T3_ARCHIVE" >&2
+          exit 1
+        fi
+        mkdir -p "$T3_STAGING/unpacked"
+        tar -xzf "$T3_STAGING/$T3_ARCHIVE" -C "$T3_STAGING/unpacked" --strip-components=1
+        # Prove the binary runs here (libc, arch, libatomic1) and is the
+        # release the descriptor promises before marking it installed.
+        T3_REPORTED="$("$T3_STAGING/unpacked/t3" --version)"
+        if [ "$T3_REPORTED" != "t3 v$T3_VERSION" ]; then
+          echo "t3 $T3_VERSION does not run on this image or reports '$T3_REPORTED'" >&2
+          exit 1
+        fi
+        printf '%s\n' "$T3_VERSION" > "$T3_STAGING/unpacked/.install-complete"
+        mkdir -p "$(dirname "$T3_RUNTIME_DIR")"
+        rm -rf "$T3_RUNTIME_DIR"
+        mv "$T3_STAGING/unpacked" "$T3_RUNTIME_DIR"
+        echo "Installed t3 $T3_VERSION at $T3_RUNTIME_DIR"
+      user: "1000"
+      description: Pre-install the pinned t3 release where T3 Code's remote bootstrap looks for it
