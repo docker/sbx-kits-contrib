@@ -39,7 +39,19 @@ capabilities:
 
   # This legacy profile is the fallback. An agent mixin can select its
   # discovery destination; every composed Kit contributes guidance there.
-  - type: com.docker.sandbox/agent-context@2
+  #
+  # TODO: restore `agent-context@2`, which is what the upstream kit this file
+  # is copied from declares. Every other line here is upstream's verbatim; this
+  # is the one divergence. No released `sbx` accepts @2 yet, and a kit that
+  # declares it does not resolve at all:
+  #
+  #   error: resolve kits: capabilities[2]: required capability selection
+  #   rejected; unsupported capability type com.docker.sandbox/agent-context@2
+  #
+  # @1 carries the same two fields this kit uses, `filename` and `content`, so
+  # nothing is lost in the meantime. Flip it back once an rc or nightly build
+  # resolves @2.
+  - type: com.docker.sandbox/agent-context@1
     config:
       filename: AGENTS.md
       content: |
