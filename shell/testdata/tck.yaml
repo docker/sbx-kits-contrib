@@ -1,0 +1,4 @@
+# `shell` is still an agent built into sbx, which refuses to load a kit with a
+# built-in's name. The e2e retries from a copy renamed shell-e2e; the flag
+# self-obsoletes once the built-in is gone.
+extractedFromBuiltin: true

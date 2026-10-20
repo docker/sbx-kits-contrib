@@ -1,0 +1,204 @@
+schemaVersion: "2"
+kind: sandbox
+name: shell
+# The KIT's version, not a tool's. This kit installs nothing, so a rebuilt base
+# image does not bump it; it covers the declarations in this file.
+version: "1.0.0"
+displayName: Shell sandbox
+description: |
+  A sandbox with no agent installed: the Docker-in-Docker sandbox template
+  launched as a login shell, with every supported provider credential routable
+  by the sandbox proxy.
+
+sandbox:
+  # The template itself. Nothing is installed on top, so this kit builds and
+  # publishes no image of its own: a kit directory without a Dockerfile
+  # consumes someone else's image, which scripts/check-image-ref.sh skips.
+  image: docker/sandbox-templates:shell-docker
+  # No `entrypoint:`, and that absence is the kit rather than an oversight. A
+  # sandbox kit with no entrypoint declares no binary and sbx launches a shell
+  # for it; naming one here would turn this into an agent kit for whatever it
+  # named. `command` is the argument tail that shell is launched with: `-l`
+  # makes it a login shell, so ~/.bash_profile runs, which sources ~/.bashrc,
+  # where the template sets the prompt.
+  command: ["-l"]
+
+credentials:
+  # Eight provider services, none marked `required: true`. Nothing in this
+  # sandbox needs a provider key to start, so failing `sbx create` on a missing
+  # credential would take away a working environment rather than protect one.
+  # Bind the ones you use and leave the rest.
+  #
+  # Service names are load-bearing beyond this file: they are the keys a host
+  # binds secrets under (`sbx secret set <service>`) and the keys the proxy
+  # routes on. Renaming one here silently detaches it from the host binding.
+  - service: anthropic
+    apiKey:
+      name: ANTHROPIC_API_KEY
+      proxyManaged: true
+      inject:
+        - domain: api.anthropic.com
+          header: x-api-key
+          format: "%s"
+        - domain: claude.ai
+          header: x-api-key
+          format: "%s"
+        - domain: console.anthropic.com
+          header: x-api-key
+          format: "%s"
+  - service: github
+    apiKey:
+      # Named but NOT proxyManaged: the variable is declared without being
+      # populated, so `gh` and `git` see it unset rather than holding a string
+      # that looks like a token. The credential is applied proxy-side on the
+      # hosts below. GH_TOKEN rather than GITHUB_TOKEN because it is the name
+      # `gh` consults first.
+      name: GH_TOKEN
+      inject:
+        - domain: api.github.com
+          header: Authorization
+          format: Bearer %s
+        - domain: copilot.github.com
+          header: Authorization
+          format: Bearer %s
+        # git smart-HTTP rejects Bearer. username makes the proxy send Basic
+        # with that username and the formatted value as the password.
+        - domain: github.com
+          header: Authorization
+          format: "%s"
+          username: x-access-token
+        - domain: raw.githubusercontent.com
+          header: Authorization
+          format: Bearer %s
+  - service: google
+    apiKey:
+      name: GOOGLE_API_KEY
+      proxyManaged: true
+      inject:
+        - domain: aiplatform.googleapis.com
+          header: x-goog-api-key
+          format: "%s"
+        - domain: generativelanguage.googleapis.com
+          header: x-goog-api-key
+          format: "%s"
+        - domain: oauth2.googleapis.com
+          header: x-goog-api-key
+          format: "%s"
+        - domain: vertexai.googleapis.com
+          header: x-goog-api-key
+          format: "%s"
+  - service: mistral
+    apiKey:
+      name: MISTRAL_API_KEY
+      proxyManaged: true
+      inject:
+        - domain: api.mistral.ai
+          header: Authorization
+          format: Bearer %s
+  - service: nebius
+    apiKey:
+      name: NEBIUS_API_KEY
+      proxyManaged: true
+      inject:
+        # Two hosts because the vendor serves this key under two API base URLs
+        # and which one a client is configured for is the client's choice.
+        - domain: api.studio.nebius.com
+          header: Authorization
+          format: Bearer %s
+        - domain: api.tokenfactory.nebius.com
+          header: Authorization
+          format: Bearer %s
+  - service: openai
+    apiKey:
+      name: OPENAI_API_KEY
+      proxyManaged: true
+      inject:
+        - domain: api.openai.com
+          header: Authorization
+          format: Bearer %s
+        - domain: openai.com
+          header: Authorization
+          format: Bearer %s
+  - service: openrouter
+    apiKey:
+      name: OPENROUTER_API_KEY
+      proxyManaged: true
+      inject:
+        - domain: openrouter.ai
+          header: Authorization
+          format: Bearer %s
+  - service: xai
+    apiKey:
+      name: XAI_API_KEY
+      proxyManaged: true
+      inject:
+        - domain: api.x.ai
+          header: Authorization
+          format: Bearer %s
+
+permissions:
+  network:
+    # The built-in agent declares no allow list of its own and inherits
+    # whatever the host policy grants. A kit cannot do that: this repo's e2e
+    # runs every kit under `sbx policy init deny-all`, so the sandbox reaches
+    # exactly what is declared here. The list is therefore the one deliberate
+    # addition to the extracted spec, and it is the minimum that makes the
+    # declarations above mean anything.
+    #
+    # Entries carry no port, which is this repo's house style. A portless
+    # pattern matches any port, which is what the apt hosts at the bottom need:
+    # pinning them to :80 breaks the moment a mirror answers over https and
+    # `apt-get update` then fails wholesale rather than skipping one source.
+    allow:
+      # Every domain a credential above injects into. Required here as well,
+      # not just in the credential block: a domain absent from this list is
+      # unreachable no matter what the credential declares.
+      - api.anthropic.com
+      - claude.ai
+      - console.anthropic.com
+      - api.github.com
+      - copilot.github.com
+      - github.com
+      - raw.githubusercontent.com
+      - aiplatform.googleapis.com
+      - generativelanguage.googleapis.com
+      - oauth2.googleapis.com
+      - vertexai.googleapis.com
+      - api.mistral.ai
+      - api.studio.nebius.com
+      - api.tokenfactory.nebius.com
+      - api.openai.com
+      - openai.com
+      - openrouter.ai
+      - api.x.ai
+      # `apt-get update` (the startup hook below) refreshes metadata for every
+      # configured apt source and returns exit 100 if any one of them fails, so
+      # all of them must be reachable. Ubuntu serves amd64 from archive and
+      # security and arm64 from ports, so all three are listed to keep the kit
+      # working on both architectures.
+      - archive.ubuntu.com        # Ubuntu archive (amd64 main)
+      - security.ubuntu.com       # Ubuntu security updates (amd64)
+      - ports.ubuntu.com          # Ubuntu archive/security (arm64)
+      - download.docker.com       # Docker's apt repo, pre-added by the base
+      #
+      # Deliberately absent: registry.npmjs.org, pypi.org, proxy.golang.org and
+      # every other package index. Installing something into this sandbox is a
+      # thing the user starts, and a kit that allowed those by default would
+      # widen every sandbox's egress for a path most sessions never take.
+
+setup:
+  startup:
+    # The base ships an empty apt cache, so without this `apt-get install`
+    # fails with "Unable to locate package" until the user refreshes it.
+    #
+    # The redirects and </dev/null belong on the outer group, not inside a
+    # subshell: a backgrounded job that inherits the exec's pipe write ends
+    # keeps it from reaching EOF, and a slow apt-get then times out the exec.
+    - command: ["sh", "-c", "{ command -v apt-get && apt-get update -qq -y || true; } >/dev/null 2>&1 </dev/null &"]
+      user: "root"
+      description: Update apt package cache in background
+
+# No `agentInstructions:`. That block names the AI profile file an agent reads,
+# and this kit installs no agent, so there is nothing here to read one. A
+# filename set anyway would have composed kit context written to a file nothing
+# opens.
