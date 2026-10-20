@@ -5,10 +5,10 @@ name: shell
 # image does not bump it; it covers the declarations in this file.
 version: "1.0.0"
 displayName: Shell sandbox
-description: |
-  A sandbox with no agent installed: the Docker-in-Docker sandbox template
-  launched as a login shell, with every supported provider credential routable
-  by the sandbox proxy.
+# One line, not a block scalar: scripts/kit-meta.sh reads this with awk rather
+# than a YAML parser, and hub-overview.yml publishes whatever it reads as the
+# Docker Hub short description. A `|` here reaches the Hub page as a literal.
+description: An agentless sandbox launched as a login shell, with provider credentials routed by the proxy.
 
 sandbox:
   # The template itself. Nothing is installed on top, so this kit builds and
@@ -145,10 +145,9 @@ permissions:
     # addition to the extracted spec, and it is the minimum that makes the
     # declarations above mean anything.
     #
-    # Entries carry no port, which is this repo's house style. A portless
-    # pattern matches any port, which is what the apt hosts at the bottom need:
-    # pinning them to :80 breaks the moment a mirror answers over https and
-    # `apt-get update` then fails wholesale rather than skipping one source.
+    # Entries carry no port. A portless pattern matches any port, which is what
+    # the apt hosts at the bottom need: pinning them to :80 breaks the moment a
+    # mirror answers over https.
     allow:
       # Every domain a credential above injects into. Required here as well,
       # not just in the credential block: a domain absent from this list is
@@ -172,19 +171,25 @@ permissions:
       - openrouter.ai
       - api.x.ai
       # `apt-get update` (the startup hook below) refreshes metadata for every
-      # configured apt source and returns exit 100 if any one of them fails, so
-      # all of them must be reachable. Ubuntu serves amd64 from archive and
-      # security and arm64 from ports, so all three are listed to keep the kit
-      # working on both architectures.
+      # configured apt source, so every source must be reachable or the
+      # packages it carries cannot be installed. The refresh itself still exits
+      # 0 with a warning when a source fails, which is why an unreachable host
+      # shows up later as a failing `apt-get install` rather than at boot.
+      # Ubuntu serves amd64 from archive and security and arm64 from ports, so
+      # all three are listed to keep the kit working on both architectures.
       - archive.ubuntu.com        # Ubuntu archive (amd64 main)
       - security.ubuntu.com       # Ubuntu security updates (amd64)
       - ports.ubuntu.com          # Ubuntu archive/security (arm64)
       - download.docker.com       # Docker's apt repo, pre-added by the base
       #
-      # Deliberately absent: registry.npmjs.org, pypi.org, proxy.golang.org and
-      # every other package index. Installing something into this sandbox is a
-      # thing the user starts, and a kit that allowed those by default would
-      # widen every sandbox's egress for a path most sessions never take.
+      # Deliberately absent: the language package registries (registry.npmjs.org,
+      # pypi.org, proxy.golang.org) and the Docker registry hosts
+      # (registry-1.docker.io, auth.docker.io, production.cloudflare.docker.com)
+      # that `docker pull` needs. The built-in agent declares no allow list at
+      # all, so this list is already a deviation; it stays at the minimum that
+      # makes the declarations in this file work. A sandbox that needs more
+      # under a deny-all policy should widen the policy or compose a kit that
+      # declares what it needs.
 
 setup:
   startup:

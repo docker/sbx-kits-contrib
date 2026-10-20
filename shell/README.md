@@ -11,15 +11,29 @@ sandbox created from the kit behaves as `sbx run shell` does.
 
 ## Usage
 
+A `kind: sandbox` kit is named as the positional, with no `--kit` flag and no
+agent argument:
+
 ```console
-sbx run --kit "docker.io/sbx/shell-kit:latest" shell
+sbx run docker.io/sbx/shell-kit:latest
 ```
 
 Or from a git URL targeting this repo:
 
 ```console
-sbx run --kit "git+https://github.com/docker/sbx-kits-contrib.git#dir=shell" shell
+sbx run "git+https://github.com/docker/sbx-kits-contrib.git#dir=shell"
 ```
+
+Or from a local clone:
+
+```console
+sbx run ./shell/
+```
+
+`sbx run --kit <this kit> shell` does not work, and that is specific to this
+kit: `shell` still names a built-in agent, so the positional resolves to the
+built-in and the kit is then rejected for being a sandbox where a mixin was
+expected.
 
 ## Provider credentials
 
@@ -60,9 +74,14 @@ no allow list and inherits whatever the host policy grants. A kit cannot do
 that: it reaches exactly what it declares, so a credential whose host is not
 listed could never be used.
 
-Package indexes are deliberately absent. Installing something is a thing you
-start, so widen the policy for that sandbox or compose a kit that declares what
-it needs.
+Deliberately absent: the language package registries (npm, PyPI, the Go module
+proxy) and the Docker registry hosts `docker pull` needs
+(`registry-1.docker.io`, `auth.docker.io`,
+`production.cloudflare.docker.com`). The built-in agent declares no allow list
+at all, so the list above is already a deviation, and it stays at the minimum
+that makes this kit's own declarations work. Under a permissive host policy
+none of this restricts you; under `deny-all`, widen the policy for that sandbox
+or compose a kit that declares what it needs.
 
 ## Launch command
 
@@ -74,9 +93,3 @@ sources `~/.bashrc`, where the template sets the prompt.
 
 `docker/sandbox-templates:shell-docker`, used as-is. The kit installs nothing,
 so it has no Dockerfile and publishes no image of its own.
-
-## Testing
-
-```console
-KIT="$PWD/shell" go test ./tck/
-```
