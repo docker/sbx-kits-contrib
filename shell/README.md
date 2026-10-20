@@ -7,7 +7,9 @@ template's toolchain.
 
 This kit is the `shell` agent built into `sbx`, extracted as a kit. Its
 credentials, its launch command and its startup hook are the built-in's, so a
-sandbox created from the kit behaves as `sbx run shell` does.
+sandbox created from the kit behaves as `sbx run shell` does, except that it
+reaches only the hosts it declares below rather than whatever the host policy
+grants.
 
 ## Usage
 

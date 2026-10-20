@@ -1,4 +1,7 @@
-# `shell` is still an agent built into sbx, which refuses to load a kit with a
-# built-in's name. The e2e retries from a copy renamed shell-e2e; the flag
-# self-obsoletes once the built-in is gone.
+# `shell` is still an agent built into sbx. Builds have refused to load a kit
+# named after a built-in, and this flag makes the e2e retry from a copy renamed
+# shell-e2e if this one does. It is insurance rather than a prediction: a kit
+# named `shell` loaded fine on the channels CI used most recently, and the flag
+# only logs a notice when no collision happens. It self-obsoletes once the
+# built-in is gone.
 extractedFromBuiltin: true

@@ -171,12 +171,14 @@ permissions:
       - openrouter.ai
       - api.x.ai
       # `apt-get update` (the startup hook below) refreshes metadata for every
-      # configured apt source, so every source must be reachable or the
-      # packages it carries cannot be installed. The refresh itself still exits
-      # 0 with a warning when a source fails, which is why an unreachable host
-      # shows up later as a failing `apt-get install` rather than at boot.
-      # Ubuntu serves amd64 from archive and security and arm64 from ports, so
-      # all three are listed to keep the kit working on both architectures.
+      # configured apt source, so all of them must be allowed. Measured on this
+      # base, apt 3.2.0: a source whose host answers 403, which is what a
+      # policy-blocked host does, fails the whole refresh with exit 100, while
+      # a host that does not resolve at all only warns and exits 0. The hook
+      # swallows either, so the cost of a missing host lands on a later
+      # `apt-get install`. Ubuntu serves amd64 from archive and security and
+      # arm64 from ports, so all three are listed to keep the kit working on
+      # both architectures.
       - archive.ubuntu.com        # Ubuntu archive (amd64 main)
       - security.ubuntu.com       # Ubuntu security updates (amd64)
       - ports.ubuntu.com          # Ubuntu archive/security (arm64)
