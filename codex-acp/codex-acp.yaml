@@ -19,7 +19,7 @@ kind: mixin
 # The kit's own version, not the version of anything it installs: it is the
 # tag this kit publishes under, and the fallback that versions an unversioned
 # provide at publish. Bump it when this kit's declarations change.
-version: "1.0.0"
+version: "1.1.0"
 
 # MIGRATION NOTE: v2's `requires: {agent: codex}` — a single base-agent
 # affinity matched against a sandbox kit's `name`. v3 has one flat capability
@@ -75,7 +75,7 @@ capabilities:
             if [ -z "$CODEX_PATH" ]; then
               export CODEX_PATH=codex
             fi
-            exec npx -y @agentclientprotocol/codex-acp@1.1.0 "$@"
+            exec npx -y @agentclientprotocol/codex-acp@2.2.2 "$@"
 
   # MIGRATION NOTE: v2's agentInstructions.content moves verbatim into
   # codex-acp-context.md beside this file. `filename` is workload-only in v3 —
