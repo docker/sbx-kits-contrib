@@ -28,7 +28,7 @@ setup:
         if [ -z "$CODEX_PATH" ]; then
           export CODEX_PATH=codex
         fi
-        exec npx -y @agentclientprotocol/codex-acp@1.1.0 "$@"
+        exec npx -y @agentclientprotocol/codex-acp@2.2.2 "$@"
 
 agentInstructions:
   content: |
