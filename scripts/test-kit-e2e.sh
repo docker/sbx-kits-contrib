@@ -259,8 +259,8 @@ credential_services() {
 #   provides   "capability X is provided by more than one kit"
 #   credential "credential (X, runtime) is declared by more than one kit"
 #
-# The second is why `claude` cannot be every mixin's base: 16 agent mixins
-# declare the `anthropic` credential it also declares.
+# The second is why `claude` cannot be every mixin's base: 18 kits here declare
+# the `anthropic` credential it also declares.
 base_conflicts() {
   _desc="$2/$(basename "$2").yaml"
   [ -f "$_desc" ] || _desc="$2/$(basename "$2").yml"
@@ -386,7 +386,7 @@ SKIP: $kit_name requires "$host_conflict", and composing with it is refused.
 Both declare the same capability or credential, and v3 gives each one owner, so
 the kit this mixin asks for is the one kit it cannot sit on. No other workload
 here satisfies the requirement. It needs a base that carries the requirement
-without owning the credential. The `shell` workload owns no credentials, but it
+without owning the credential. The \`shell\` workload owns no credentials, but it
 does not provide what this mixin requires either, so it is not that base.
 
 EOF
@@ -417,10 +417,10 @@ fi
 #   error: agent "claude" is already registered
 #          (built-in agents cannot be overridden by a kit)
 #
-# Eleven workloads here are in that position (claude, codex, cursor, devin,
-# docker-agent, nanobot, openclaw, opencode, opencode-model-runner, picoclaw,
-# zeroclaw), and so is the `claude` base every mixin now composes onto, so
-# without this the collision would take out both halves of the matrix.
+# Ten workloads here are in that position (claude, codex, copilot, cursor,
+# devin, docker-agent, droid, kiro, opencode, shell), and so is the `claude`
+# base every mixin now composes onto, so without this the collision would take
+# out both halves of the matrix.
 #
 # A v3 kit's NAME IS ITS DIRECTORY STEM — the descriptor carries no `name:`
 # field, and the frontend pairs `<stem>.yaml` with `<stem>.dockerfile` by stem.
