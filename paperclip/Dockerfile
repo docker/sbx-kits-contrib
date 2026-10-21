@@ -30,23 +30,10 @@ USER root
 # Some networks block plain-HTTP apt traffic (UA-based filtering).
 RUN sed -i 's|http://|https://|g' /etc/apt/sources.list.d/*.sources /etc/apt/sources.list 2>/dev/null || true
 
-# Node 24 and the pinned paperclipai CLI. The install pulls @paperclipai/server,
-# the built UI, embedded-postgres platform binaries, and sharp prebuilds.
-#
-# Two things here are load-bearing and neither is about paperclip, which
-# accepts node >=20. The install has to run under npm 11: npm 9 (the base's
-# apt package) and npm 10 (bundled with node 22) both crash resolving this
-# tree with "Cannot read properties of null (reading 'edgesOut')" in
-# #loadPeerSet (npm/cli#9787), ever since undici@7.30.1 shipped on
-# 2026-10-15 and jsdom's `undici ^7.21.0` started resolving to it. Node 24
-# bundles npm 11, which resolves the same tree cleanly, and npm 10 gets no
-# further releases. Newer paperclipai releases require node >=24.11 anyway.
-#
-# `hash -r` is what makes the new npm take over. This RUN is one `sh`, and
-# dash remembers where it first found `npm` (/usr/bin/npm, the base's 9.2.0);
-# without the reset the third command runs that npm on the new node and
-# crashes exactly as before, which is what CI showed.
-#
+# The install must run under npm 11: npm 9 (the base's apt package) and
+# npm 10 (node 22's) both crash resolving this tree (npm/cli#9787), so node
+# 24. `hash -r` because this RUN is one sh and dash has already cached the
+# base's /usr/bin/npm; without it the old npm runs on the new node.
 # `n 24` floats to the latest 24.x patch intentionally (security fixes);
 # the shared kit-image pipeline's nightly rebuild catches any drift.
 RUN npm install -g n && n 24 && hash -r && npm install -g "paperclipai@${PAPERCLIP_VERSION}"
