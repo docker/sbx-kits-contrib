@@ -178,14 +178,10 @@ permissions:
       - openai.com
       - openrouter.ai
       - api.x.ai
-      # The apt sources the base ships. The index is baked into this kit's
-      # image at build time, so nothing reaches these at boot, but
-      # `apt-get install` downloads packages from them at runtime and a later
-      # `apt-get update` needs all of them: measured on this base, apt 3.2.0, a
-      # source whose host answers 403, which is what a policy-blocked host
-      # does, fails the whole refresh with exit 100. Ubuntu serves amd64 from
-      # archive and security and arm64 from ports, so all three are listed to
-      # keep the kit working on both architectures.
+      # The apt sources the base ships. `apt-get install` downloads from them
+      # and a blocked source fails `apt-get update` outright, so every source
+      # must be allowed. Ubuntu serves amd64 from archive and security and
+      # arm64 from ports, so all three are listed.
       - archive.ubuntu.com        # Ubuntu archive (amd64 main)
       - security.ubuntu.com       # Ubuntu security updates (amd64)
       - ports.ubuntu.com          # Ubuntu archive/security (arm64)

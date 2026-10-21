@@ -36,11 +36,9 @@ sbx run ./shell/
 `shell` still names a built-in agent, and that limits how this kit can be run
 today. `sbx run --kit <this kit> shell` never works: the positional resolves
 to the built-in and the kit is rejected for being a sandbox where a mixin was
-expected. The forms above work on `sbx` builds that let a kit replace a
-built-in of the same name. The builds CI has run so far (release v0.49.1, rc
-v0.50.0-rc1 and the nightly of 2026-10-20) refuse it with
+expected. Released `sbx` builds also refuse the forms above with
 `agent "shell" is already registered`; on those, run a copy of the kit under
-another name until a build that lets the kit replace the built-in reaches you.
+another name.
 
 ## Provider credentials
 
