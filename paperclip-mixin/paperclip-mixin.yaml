@@ -10,7 +10,7 @@
 schemaVersion: "3"
 displayName: Paperclip (mixin)
 description: >-
-  Paperclip as a mixin — Node 22, the pinned paperclipai CLI and its built UI
+  Paperclip as a mixin — Node 24, the pinned paperclipai CLI and its built UI
   in an overlay, with the Anthropic credential and the published web port.
   Layer it onto a shell base and run `paperclip`.
 
