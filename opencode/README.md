@@ -169,9 +169,19 @@ gateway URL and whose `Authorization` header carries the sentinel token name —
 never a literal token; the proxy substitutes the real one per request. With no
 gateway the hook exits without writing anything.
 
-The hook owns that file outright and rewrites it on every start, so
-configuration you want to survive a restart belongs in a project-level
-`opencode.json` rather than the global one.
+The hook merges into that file: on every start it rewrites only the
+`mcp.mcp-gateway` entry, keeps every other key (including provider settings
+another kit wrote during install), and sets `$schema` only when it is missing,
+`null` or `false`. jq re-serializes the file, so hand formatting is not kept.
+A symlinked `opencode.json` is merged into its target and stays a link.
+
+A file it cannot merge into (not a single JSON object, an `mcp` value that is
+neither an object nor `null`, JSONC with comments, or not a regular file) is
+left untouched, as it is when jq is missing or the merged file cannot be
+written. The hook prints the reason to stderr, which lands in
+`/var/log/sbx-kit-startup.log`, and exits 0 so the rest of startup still runs.
+The hook runs again on every start, so the gateway is registered on the first
+start after the cause is fixed.
 
 ## Network policy
 

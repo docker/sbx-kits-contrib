@@ -54,10 +54,12 @@ ARG OPENCODE_VERSION=""
 #     `omit=optional` — from an .npmrc or from NPM_CONFIG_OMIT — cannot leave
 #     the postinstall with no binary to copy.
 #
-# `opencode --version` last, deliberately: the install's exit code says only
-# that npm ran, not that a working binary reached PATH. The npm cache is
-# dropped in the same layer because it holds a second copy of a ~180 MB
-# tarball that nothing reads again.
+# `opencode --version` after the install, deliberately: the install's exit
+# code says only that npm ran, not that a working binary reached PATH.
+# `jq --version` beside it fails the build on a base image without jq, which
+# the MCP startup hook in spec.yaml needs to merge its entry into
+# opencode.json. The npm cache is dropped in the same layer because it holds a
+# second copy of a ~180 MB tarball that nothing reads again.
 RUN <<EOF
 set -eux
 
@@ -66,6 +68,7 @@ set -eux
 npm install -g "opencode-ai@${OPENCODE_VERSION:-latest}" --include=optional
 
 opencode --version
+jq --version
 
 npm cache clean --force
 rm -rf "${HOME}/.npm"
