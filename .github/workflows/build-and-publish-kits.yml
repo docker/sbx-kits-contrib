@@ -155,10 +155,10 @@ jobs:
         # PUSHED (`isBaseSameAsHead`, src/main.ts at the pinned commit); left
         # empty it falls back to the repository's DEFAULT branch instead, and
         # on any other branch that is a `main...<branch>` diff of everything
-        # the branch has ever added. On `v3` that was 597 files, which matched
-        # the shared filters, so a one-kit commit fanned out across all 107
-        # kits. On `main` the fallback happens to equal the ref being pushed,
-        # which is why the empty value looked correct.
+        # the branch has ever added. On `v3` that matched the shared filters,
+        # so every push rebuilt every kit whatever it touched. On `main` the
+        # fallback happens to equal the ref being pushed, which is why the
+        # empty value looked correct.
         #
         # Naming a branch here is not the racing base rejected above: the match
         # makes the base endpoint `github.event.before`, a SHA fixed by the
