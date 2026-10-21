@@ -180,7 +180,7 @@ rm -rf "${tmp}"
 EOF
 
 FROM base AS tools-minimal
-ARG GH_VERSION="2.102.1"
+ARG GH_MIN_VERSION="2.102.1"
 
 ################################
 # Tools for the minimal images #
@@ -197,7 +197,7 @@ apt-get install -yy --no-install-recommends \
     docker-ce-cli \
     docker-compose-plugin \
     git \
-    gh=${GH_VERSION} \
+    gh \
     jq \
     less \
     lsof \
@@ -211,6 +211,10 @@ apt-get install -yy --no-install-recommends \
     sudo \
     tini \
     unzip
+
+# GitHub's APT index retains only the latest release. Install it, then
+# enforce the first release carrying the refreshed certificate trust.
+dpkg --compare-versions "$(dpkg-query -W -f='${Version}' gh)" ge "${GH_MIN_VERSION}"
 
 apt-get clean
 rm -rf /var/lib/apt/lists/*

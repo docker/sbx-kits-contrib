@@ -3,7 +3,7 @@ kind: sandbox
 name: shell
 # The KIT's version, not a tool's. This kit installs nothing, so a rebuilt base
 # image does not bump it; it covers the declarations in this file.
-version: "1.0.0"
+version: "1.0.1"
 displayName: Shell sandbox
 # One line, not a block scalar: scripts/kit-meta.sh reads this with awk rather
 # than a YAML parser, and hub-overview.yml publishes whatever it reads as the
