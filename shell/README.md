@@ -1,9 +1,9 @@
 # shell
 
-A sandbox with no agent installed. It is the Docker-in-Docker sandbox template
-launched as a login shell: bash, git, apt, a Docker engine with compose and
-buildx, curl, gh, jq, make, Python 3, Node with npm, and the rest of the
-template's toolchain.
+A sandbox with no agent installed, launched as a login shell: bash, git, apt,
+a Docker engine with compose and buildx, curl, gh, jq, make, build tools,
+Python 3, Node with npm, Go, a headless JDK and uv, built from Ubuntu by the
+kit's own recipe.
 
 This kit is the `shell` agent built into `sbx`, extracted as a kit. Its
 credentials and its launch command are the built-in's, so a sandbox created
@@ -33,10 +33,14 @@ Or from a local clone:
 sbx run ./shell/
 ```
 
-`sbx run --kit <this kit> shell` does not work, and that is specific to this
-kit: `shell` still names a built-in agent, so the positional resolves to the
-built-in and the kit is then rejected for being a sandbox where a mixin was
-expected.
+`shell` still names a built-in agent, and that limits how this kit can be run
+today. `sbx run --kit <this kit> shell` never works: the positional resolves
+to the built-in and the kit is rejected for being a sandbox where a mixin was
+expected. The forms above work on `sbx` builds that let a kit replace a
+built-in of the same name. The builds CI has run so far (release v0.49.1, rc
+v0.50.0-rc1 and the nightly of 2026-10-20) refuse it with
+`agent "shell" is already registered`; on those, run a copy of the kit under
+another name until a build that lets the kit replace the built-in reaches you.
 
 ## Provider credentials
 
@@ -104,7 +108,9 @@ sources `~/.bashrc`, where the image sets the prompt.
 ## Image
 
 `docker.io/sbx/shell-image`, built from the Dockerfile beside the spec and
-rebuilt nightly by CI. It is `docker/sandbox-templates:shell-docker` plus this
-kit's labels and the login-shell prompt; no agent is installed. Owning the
-image is what lets the kit pin what it ships instead of riding the template's
-floating tag.
+rebuilt nightly by CI, for `linux/amd64` and `linux/arm64`. The recipe builds
+the whole image from Ubuntu: the toolchain (git, gh, jq, make, build tools,
+Node with npm, Python 3 with pip, Go, a headless JDK, uv), the non-root
+`agent` user with passwordless sudo, and a Docker engine with compose and
+buildx. No agent is installed. Owning the recipe is what lets this image
+become the base other kits build on.

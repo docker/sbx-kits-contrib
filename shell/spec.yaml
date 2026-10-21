@@ -12,10 +12,9 @@ description: An agentless sandbox launched as a login shell, with provider crede
 
 sandbox:
   # Built from the Dockerfile beside this spec and published by
-  # .github/workflows/build-and-publish-kits.yml. The image installs no agent,
-  # so it is the sandbox template plus this kit's labels and prompt; owning it
-  # is what lets the kit pin what it ships rather than ride the template's
-  # floating tag.
+  # .github/workflows/build-and-publish-kits.yml. The image installs no agent:
+  # it is the sandbox toolchain, the `agent` user and a Docker engine, built
+  # from Ubuntu by this kit's own recipe so the kit owns what it ships.
   #
   # This value is the source of truth for what CI builds and publishes: the
   # workflow reads it from here rather than deriving a name, because a spec is
@@ -29,7 +28,7 @@ sandbox:
   # for it; naming one here would turn this into an agent kit for whatever it
   # named. `command` is the argument tail that shell is launched with: `-l`
   # makes it a login shell, so ~/.bash_profile runs, which sources ~/.bashrc,
-  # where the template sets the prompt.
+  # where the image sets the prompt.
   command: ["-l"]
 
 credentials:

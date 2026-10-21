@@ -2,9 +2,9 @@
 
 Base image for the `shell` kit for [Docker Sandboxes](https://docs.docker.com/ai/sandboxes/): a sandbox with no agent installed.
 
-It is built on `docker/sandbox-templates:shell-docker`, which provides bash, git, apt, a Docker engine with compose and buildx, curl, gh, jq, make, Python 3 and Node with npm. On top of that it establishes the login-shell prompt and requests Docker-in-Docker through the standard sandbox image label. No agent is installed, and the image declares no credentials of its own; the kit does that.
+It is built from Ubuntu by the kit's own recipe: bash, git, apt, curl, gh, jq, make, build tools, Node with npm, Python 3 with pip, Go, a headless JDK, uv, the non-root `agent` user with passwordless sudo, and a Docker engine with compose and buildx. It establishes the login-shell prompt and requests Docker-in-Docker through the standard sandbox image label. No agent is installed, and the image declares no credentials of its own; the kit does that.
 
-The base is a floating tag, so the toolchain versions are whatever the base carries at build time.
+Most toolchain versions are whatever Ubuntu's archive carries at build time; the Docker packages come from download.docker.com, and uv and the clipboard bridge are pinned in the recipe. CI rebuilds the image nightly.
 
 ## Kit
 
