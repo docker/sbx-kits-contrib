@@ -186,6 +186,7 @@ permissions:
       - security.ubuntu.com       # Ubuntu security updates (amd64)
       - ports.ubuntu.com          # Ubuntu archive/security (arm64)
       - download.docker.com       # Docker's apt repo, pre-added by the base
+      - cli.github.com            # GitHub CLI's apt repo
       #
       # Deliberately absent: the language package registries (registry.npmjs.org,
       # pypi.org, proxy.golang.org) and the Docker registry hosts

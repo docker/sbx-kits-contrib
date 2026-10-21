@@ -8,12 +8,14 @@
 # diffable, except for two comments reworded to drop private references.
 
 ARG UBUNTU_VERSION="26.04"
-ARG UV_VERSION="0.9.26"
+ARG UV_VERSION="0.13.4"
+ARG GO_VERSION="1.27.3"
 # Pinned release of docker/clipboardbridge — the prebuilt clipboard-bridge
 # binary copied into the base image below. Bump in lockstep with a CI build.
-ARG CLIPBOARD_BRIDGE_VERSION="v0.3.0"
+ARG CLIPBOARD_BRIDGE_VERSION="v0.3.1"
 
 FROM ghcr.io/astral-sh/uv:${UV_VERSION} AS uv
+FROM golang:${GO_VERSION}-bookworm AS go
 
 ##############
 # Base image #
@@ -50,6 +52,11 @@ echo \
     "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu \
     $(. /etc/os-release && echo "${UBUNTU_CODENAME:-$VERSION_CODENAME}") stable" | \
     tee /etc/apt/sources.list.d/docker.list > /dev/null
+curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg \
+    -o /etc/apt/keyrings/githubcli.gpg
+chmod a+r /etc/apt/keyrings/githubcli.gpg
+echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/githubcli.gpg] https://cli.github.com/packages stable main" \
+    > /etc/apt/sources.list.d/github-cli.list
 EOF
 
 # Configure users, sandbox config, and npm
@@ -173,6 +180,7 @@ rm -rf "${tmp}"
 EOF
 
 FROM base AS tools-minimal
+ARG GH_VERSION="2.102.1"
 
 ################################
 # Tools for the minimal images #
@@ -189,7 +197,7 @@ apt-get install -yy --no-install-recommends \
     docker-ce-cli \
     docker-compose-plugin \
     git \
-    gh \
+    gh=${GH_VERSION} \
     jq \
     less \
     lsof \
@@ -218,6 +226,7 @@ USER agent
 ENTRYPOINT ["tini", "--"]
 
 FROM tools-minimal AS tools
+COPY --link --from=go /usr/local/go /usr/local/go
 
 #############################
 # Tools for the full images #
@@ -231,13 +240,14 @@ apt-get install -yy --no-install-recommends \
     bc \
     build-essential \
     default-jdk-headless \
-    golang \
     man-db \
     nodejs \
     npm \
     python3 \
     python3-pip
 
+ln -s /usr/local/go/bin/go /usr/local/bin/go
+ln -s /usr/local/go/bin/gofmt /usr/local/bin/gofmt
 apt-get clean
 rm -rf /var/lib/apt/lists/*
 

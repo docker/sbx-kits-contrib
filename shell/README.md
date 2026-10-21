@@ -78,10 +78,10 @@ and `sudo apt-get update` fixes it.
 
 ## Network
 
-The allow list is the eighteen hosts above plus the four apt sources the base
-ships: `archive.ubuntu.com`, `security.ubuntu.com`, `ports.ubuntu.com` and
-`download.docker.com`. Those four are for the packages you install, not for
-the index.
+The allow list is the eighteen hosts above plus the five apt sources the base
+ships: `archive.ubuntu.com`, `security.ubuntu.com`, `ports.ubuntu.com`,
+`download.docker.com` and `cli.github.com`. These sources support package
+installs and subsequent index refreshes.
 
 This is the one deliberate difference from the built-in agent, which declares
 no allow list and inherits whatever the host policy grants. A kit cannot do
