@@ -1,0 +1,226 @@
+schemaVersion: "1"
+kind: mixin
+name: qdrant-agent
+displayName: Qdrant
+description: "Adds Qdrant vector search to any sandbox agent via the official qdrant-client Python SDK running in-process. No external service required — collections and vectors live in memory for the duration of the sandbox session. Includes fastembed for local embedding generation without an external API, and a vector.py helper covering collection management, upsert, similarity search, and payload filtering."
+
+network:
+  allowedDomains:
+    # Python packages
+    - pypi.org
+    - files.pythonhosted.org
+    - pythonhosted.org
+    # fastembed downloads embedding models from HuggingFace on first use
+    - huggingface.co
+    - hf.co
+    - cdn-lfs.hf.co
+    - cdn-lfs-us-1.hf.co
+    # apt — amd64 and arm64
+    - archive.ubuntu.com
+    - security.ubuntu.com
+    - ports.ubuntu.com
+    - download.docker.com
+
+environment:
+  variables:
+    QDRANT_MODE: "memory"
+
+commands:
+  install:
+    - command: |
+        set -euo pipefail
+        apt-get update && apt-get install -y --no-install-recommends \
+          python3 python3-pip python3-venv ca-certificates && \
+        rm -rf /var/lib/apt/lists/*
+      user: "0"
+      description: "Install Python and system dependencies"
+    - command: |
+        set -euo pipefail
+        python3 -m venv /opt/qdrant-agent
+        /opt/qdrant-agent/bin/pip install --upgrade pip
+        /opt/qdrant-agent/bin/pip install "qdrant-client[fastembed]"
+        echo 'export PATH=/opt/qdrant-agent/bin:$PATH' >> /etc/sandbox-persistent.sh
+        echo 'export PATH=/opt/qdrant-agent/bin:$PATH' >> /etc/profile.d/qdrant-agent.sh
+      user: "0"
+      description: "Install qdrant-client with fastembed in isolated venv at /opt/qdrant-agent"
+
+  initFiles:
+    - path: /home/agent/workspace/vector.py
+      content: |
+        """
+        Qdrant in-process vector search helper for sandbox agents.
+        Runs entirely in memory — no external service required.
+        Uses the same qdrant-client API as a production Qdrant server;
+        swap QdrantClient(":memory:") for QdrantClient(host="your-host")
+        to point at a production instance with no other code changes.
+        """
+        from typing import Any, Dict, List, Optional
+        from qdrant_client import QdrantClient
+        from qdrant_client.models import (
+            Distance,
+            VectorParams,
+            PointStruct,
+            Filter,
+            FieldCondition,
+            MatchValue,
+        )
+
+        # Single shared in-memory client for the sandbox session.
+        # All collections and vectors are lost when the sandbox is removed.
+        _client = QdrantClient(":memory:")
+
+
+        def client() -> QdrantClient:
+            """Return the shared in-memory Qdrant client."""
+            return _client
+
+
+        def create_collection(name: str, vector_size: int, distance: str = "Cosine") -> None:
+            """
+            Create a collection. Idempotent — skips if already exists.
+            distance: "Cosine" | "Dot" | "Euclid"
+            """
+            existing = {c.name for c in _client.get_collections().collections}
+            if name in existing:
+                return
+            _client.create_collection(
+                collection_name=name,
+                vectors_config=VectorParams(
+                    size=vector_size,
+                    distance=getattr(Distance, distance.upper()),
+                ),
+            )
+
+
+        def upsert(collection: str, points: List[Dict[str, Any]]) -> None:
+            """
+            Insert or update points. Each point needs id, vector, and optional payload.
+
+            Example:
+                upsert("docs", [
+                    {"id": 1, "vector": [0.1, 0.2, 0.3], "payload": {"text": "hello"}},
+                ])
+            """
+            _client.upsert(
+                collection_name=collection,
+                points=[
+                    PointStruct(
+                        id=p["id"],
+                        vector=p["vector"],
+                        payload=p.get("payload", {}),
+                    )
+                    for p in points
+                ],
+            )
+
+
+        def search(
+            collection: str,
+            query_vector: List[float],
+            limit: int = 5,
+            payload_filter: Optional[Dict[str, Any]] = None,
+        ) -> List[Dict[str, Any]]:
+            """
+            Similarity search with optional payload filter.
+
+            payload_filter: exact-match filter on payload fields.
+                Example: {"category": "finance"} returns only finance docs.
+
+            Returns list of {"id", "score", "payload"}.
+            """
+            query_filter = None
+            if payload_filter:
+                query_filter = Filter(
+                    must=[
+                        FieldCondition(key=k, match=MatchValue(value=v))
+                        for k, v in payload_filter.items()
+                    ]
+                )
+            results = _client.search(
+                collection_name=collection,
+                query_vector=query_vector,
+                limit=limit,
+                query_filter=query_filter,
+                with_payload=True,
+            )
+            return [{"id": r.id, "score": r.score, "payload": r.payload} for r in results]
+
+
+        def embed(texts: List[str], model: str = "BAAI/bge-small-en-v1.5") -> List[List[float]]:
+            """
+            Generate embeddings locally using fastembed. No API key required.
+            Downloads the model on first call (~40 MB for bge-small-en-v1.5).
+
+            Example:
+                vectors = embed(["hello world", "goodbye world"])
+                upsert("docs", [
+                    {"id": i, "vector": v, "payload": {"text": t}}
+                    for i, (v, t) in enumerate(zip(vectors, texts))
+                ])
+            """
+            from fastembed import TextEmbedding
+            embedder = TextEmbedding(model_name=model)
+            return [list(v) for v in embedder.embed(texts)]
+
+
+        def delete_collection(name: str) -> None:
+            """Delete a collection and all its points."""
+            _client.delete_collection(collection_name=name)
+
+    - path: /home/agent/workspace/QDRANT.md
+      content: |
+        # Qdrant Vector Search Sandbox
+
+        Qdrant runs in-process via qdrant-client. No external service required.
+        All data lives in memory for the duration of the sandbox session.
+
+        Import the vector helper:
+
+            from vector import create_collection, upsert, search, embed, delete_collection
+
+        Create a collection:
+
+            create_collection("documents", vector_size=384, distance="Cosine")
+
+        Common vector sizes:
+            384  — fastembed bge-small-en-v1.5 (built-in, no API key)
+            768  — bge-base-en-v1.5, sentence-transformers
+            1536 — OpenAI text-embedding-3-small
+            3072 — OpenAI text-embedding-3-large
+
+        Generate embeddings locally (no API key, ~40 MB model download on first use):
+
+            vectors = embed(["hello world", "goodbye world"])
+
+        Upsert points:
+
+            upsert("documents", [
+                {"id": 1, "vector": vectors[0], "payload": {"text": "hello world", "category": "greeting"}},
+                {"id": 2, "vector": vectors[1], "payload": {"text": "goodbye world", "category": "farewell"}},
+            ])
+
+        Similarity search:
+
+            results = search("documents", query_vector=vectors[0], limit=5)
+            for r in results:
+                print(r["score"], r["payload"])
+
+        Hybrid search (vector + payload filter):
+
+            results = search(
+                "documents",
+                query_vector=vectors[0],
+                limit=5,
+                payload_filter={"category": "greeting"},
+            )
+
+        Switch to a production Qdrant server with no code changes:
+
+            from qdrant_client import QdrantClient
+            import vector
+            vector._client = QdrantClient(host="your-qdrant-host", port=6333)
+
+        Notes:
+        - All data is lost when the sandbox is removed (in-memory only).
+        - fastembed downloads models to ~/.cache/fastembed on first use.
+        - The qdrant-client API is identical whether using in-memory or a server.
