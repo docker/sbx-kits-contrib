@@ -1,0 +1,39 @@
+schemaVersion: "2"
+kind: mixin
+name: openrouter
+displayName: Claude Code (OpenRouter)
+description: Route Claude Code's API calls to OpenRouter via its Anthropic-compatible endpoint.
+requires:
+  agent: claude
+agentInstructions:
+  content: |
+    ## OpenRouter
+
+    Claude Code's API calls are routed to OpenRouter, an Anthropic-compatible
+    endpoint at `https://openrouter.ai/api`; Anthropic's own API is not used.
+    `OPENROUTER_API_KEY` stays on the host and the proxy injects it on outbound
+    requests, so it never enters the sandbox. Switch models via the
+    `ANTHROPIC_DEFAULT_*_MODEL` variables (any slug from
+    <https://openrouter.ai/models>).
+permissions:
+  network:
+    allow:
+      - openrouter.ai
+credentials:
+  - service: openrouter
+    apiKey:
+      name: OPENROUTER_API_KEY
+      proxyManaged: true
+      inject:
+        - domain: openrouter.ai
+          header: Authorization
+          format: Bearer %s
+environment:
+  variables:
+    ANTHROPIC_API_KEY: ""
+    ANTHROPIC_AUTH_TOKEN: openrouter
+    ANTHROPIC_BASE_URL: https://openrouter.ai/api
+    ANTHROPIC_DEFAULT_HAIKU_MODEL: anthropic/claude-haiku-4.5
+    ANTHROPIC_DEFAULT_OPUS_MODEL: anthropic/claude-opus-4.8
+    ANTHROPIC_DEFAULT_SONNET_MODEL: &subagent anthropic/claude-sonnet-4.6
+    CLAUDE_CODE_SUBAGENT_MODEL: *subagent
