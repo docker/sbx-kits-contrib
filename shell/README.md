@@ -15,8 +15,11 @@ so `sbx` can resolve it by name.
 
 The recipe refreshes certificate trust from DHI's signed apt repository:
 uv 0.13.4, GitHub CLI 2.103.0, pip 26.2.2 (including its virtual-environment
-wheel) and Node 24.22.1, or newer package revisions. It retains the base's
-Go toolchain and clipboard bridge, which already use the patched Go 1.26.10.
+wheel), Node 24.22.1, Docker 29.9.2, Buildx 0.38.1, Compose 5.6.1 and
+containerd 2.4.2-1, or newer package revisions. The Docker and containerd
+binaries are rebuilt with patched Go; updating the installed compiler alone
+does not fix existing binaries. The base's Go toolchain and clipboard bridge
+already use patched Go 1.26.10 and are retained.
 No extra apt repository or standalone binary download is needed.
 
 Two things to use it for:

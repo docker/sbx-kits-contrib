@@ -11,6 +11,11 @@ set -eu
 apt-get update
 apt-get install -y --no-install-recommends \
     ca-certificates \
+    containerd.io \
+    docker-buildx-plugin \
+    docker-ce \
+    docker-ce-cli \
+    docker-compose-plugin \
     gh \
     nodejs-24 \
     python3-pip \
@@ -19,9 +24,15 @@ apt-get install -y --no-install-recommends \
 
 # Accept newer DHI revisions while refusing a stale repository or cache.
 # Refresh the pip wheel too, so newly created virtual environments inherit
-# the fixed vendored certificate bundle.
+# the fixed vendored certificate bundle. Docker and containerd must also
+# be rebuilt with patched Go; updating the installed compiler is insufficient.
 for requirement in \
     ca-certificates=20250419+deb13u1 \
+    containerd.io=2.4.2-1 \
+    docker-buildx-plugin=0.38.1-0 \
+    docker-ce=5:29.9.2-0 \
+    docker-ce-cli=5:29.9.2-0 \
+    docker-compose-plugin=5.6.1-0 \
     gh=2.103.0-0 \
     nodejs-24=24.22.1-0 \
     python3-pip=26.2.2-0 \
