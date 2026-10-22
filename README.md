@@ -47,7 +47,7 @@ There are two kinds:
 | `workload` | The whole environment: the image the sandbox boots from, including the agent. Replaces v2's `kind: sandbox`. | A full root filesystem. A workload **must** have a recipe. |
 | `mixin` | A delta layered onto a workload: extra tools, credentials, hooks, egress. | An overlay (`FROM scratch`), or no recipe at all for a declaration-only kit. |
 
-This repo ships **33 workloads and 76 mixins**. Every workload except `openhands-canvas` and `shell` has a `-mixin` sibling declaring the same capabilities in overlay form, so an agent can either *be* the sandbox or be layered onto one; the remaining 45 mixins are standalone tools and integrations. See the [Kit index](#kit-index).
+This repo ships **34 workloads and 76 mixins**. Every workload except `herdr`, `openhands-canvas` and `shell` has a `-mixin` sibling declaring the same capabilities in overlay form, so an agent can either *be* the sandbox or be layered onto one; the remaining 45 mixins are standalone tools and integrations. See the [Kit index](#kit-index).
 
 ## Anatomy of a kit
 
@@ -362,7 +362,7 @@ Note that a fork PR does not receive repository secrets, so any leg needing Dock
 
 ## Kit index
 
-109 kits: 33 workloads and 76 mixins. Every workload except `openhands-canvas` and `shell` has a `-mixin` sibling that declares the same capabilities in overlay form, so you can either boot the agent as the sandbox or layer it onto one.
+110 kits: 34 workloads and 76 mixins. Every workload except `herdr`, `openhands-canvas` and `shell` has a `-mixin` sibling that declares the same capabilities in overlay form, so you can either boot the agent as the sandbox or layer it onto one.
 
 ### Workloads
 
@@ -383,6 +383,7 @@ Note that a fork PR does not receive repository secrets, so any leg needing Dock
 | [`droid`](./droid) | [`droid-mixin`](./droid-mixin) | Droid |
 | [`grok`](./grok) | [`grok-mixin`](./grok-mixin) | Grok Build |
 | [`gstack`](./gstack) | [`gstack-mixin`](./gstack-mixin) | Claude Code plus Garry's Stack |
+| [`herdr`](./herdr) | — | A hardened Debian sandbox that opens in herdr, a terminal multiplexer for coding agents, with no agent: agent mixins run in its panes |
 | [`hermes-agent`](./hermes-agent) | [`hermes-agent-mixin`](./hermes-agent-mixin) | Hermes Agent |
 | [`junie`](./junie) | [`junie-mixin`](./junie-mixin) | Junie |
 | [`kiro`](./kiro) | [`kiro-mixin`](./kiro-mixin) | Kiro |
