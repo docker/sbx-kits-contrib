@@ -19,13 +19,19 @@ credentials:
   - service: github
     apiKey:
       name: GH_TOKEN
+      # github.com is git over HTTPS: it rejects Bearer and needs Basic with
+      # x-access-token as the username. Local sandboxd re-encodes that host
+      # itself, but cloud sandboxes inject exactly what is declared. Keep a
+      # Bearer entry first: local sandboxd takes the service's auth format
+      # from the first inject entry only.
       inject:
         - domain: api.github.com
           header: Authorization
           format: Bearer %s
         - domain: github.com
           header: Authorization
-          format: Bearer %s
+          username: x-access-token
+          format: "%s"
   - service: copilot
     apiKey:
       # Copilot CLI prioritizes COPILOT_GITHUB_TOKEN over GH_TOKEN/GITHUB_TOKEN,

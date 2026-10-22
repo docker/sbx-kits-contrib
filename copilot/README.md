@@ -20,7 +20,8 @@ requests to its matching hosts, so both must already be present as host
 environment variables before you run the kit:
 
 - `GH_TOKEN` — a classic GitHub PAT (or `gh auth token`) for plain `gh`/git
-  access, sent to `api.github.com` and `github.com`.
+  access, sent to `api.github.com` (Bearer) and `github.com` (Basic with
+  `x-access-token`, which is what git over HTTPS requires).
 - `COPILOT_GITHUB_TOKEN` — a token with Copilot access, sent to Copilot's own
   API hosts (see [How auth works](#how-auth-works)).
 

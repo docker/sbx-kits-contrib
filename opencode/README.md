@@ -69,7 +69,7 @@ boundary either way.
 | Service | Env var | `proxyManaged` | `required` | Injected into |
 |---|---|---|---|---|
 | `anthropic` | `ANTHROPIC_API_KEY` | yes | no | `api.anthropic.com`, `claude.ai`, `console.anthropic.com` (`x-api-key`) |
-| `github` | *(none)* | n/a | no | `api.github.com`, `github.com`, `raw.githubusercontent.com`, `api.githubcopilot.com`, `api.business.githubcopilot.com`, `api.enterprise.githubcopilot.com`, `api.individual.githubcopilot.com`, `copilot.github.com` (`Authorization: Bearer`) |
+| `github` | *(none)* | n/a | no | `api.github.com`, `github.com`, `raw.githubusercontent.com`, `api.githubcopilot.com`, `api.business.githubcopilot.com`, `api.enterprise.githubcopilot.com`, `api.individual.githubcopilot.com`, `copilot.github.com` (`Authorization: Bearer`, except `github.com`: Basic `x-access-token`) |
 | `google` | `GOOGLE_GENERATIVE_AI_API_KEY` | yes | no | `generativelanguage.googleapis.com`, `aiplatform.googleapis.com`, `vertexai.googleapis.com`, `oauth2.googleapis.com` (`x-goog-api-key`) |
 | `groq` | `GROQ_API_KEY` | yes | no | `api.groq.com` (`Authorization: Bearer`) |
 | `openai` | `OPENAI_API_KEY` | yes | no | `api.openai.com`, `openai.com` (`Authorization: Bearer`) — plus OAuth, below |
@@ -93,16 +93,16 @@ Three details behind that table:
 some other agents read, because that is the name OpenCode's Google provider
 looks for.
 
-### Why the GitHub credential is uniformly Bearer
+### Why the GitHub credential mixes Bearer and Basic
 
 OpenCode's GitHub Copilot provider calls the Copilot API, which rejects the
-`token` scheme. The proxy applies a single auth format per service — taken from
-the credential's first `inject` entry — so a mixed list would apply the first
-entry's format to every host anyway and leave the spec describing something
-that does not happen. All eight entries are therefore
-`Authorization: Bearer %s`. GitHub's REST API accepts both schemes, and git
-over HTTPS on `github.com` is re-encoded to Basic auth by the proxy regardless
-of the format named here, so Bearer costs nothing on those hosts. The Copilot
+`token` scheme. GitHub's REST API accepts
+both schemes, so the seven API and Copilot hosts use `Authorization: Bearer %s`.
+`github.com` is the exception: git over HTTPS rejects Bearer and needs Basic
+with `x-access-token` as the username, so that entry sets `username:`. Local
+sandboxd re-encodes `github.com` to Basic itself, but cloud sandboxes inject
+exactly what the spec declares. Keep a Bearer entry first: local sandboxd takes
+the service's auth format from the first `inject` entry only. The Copilot
 host list follows [GitHub's published network
 configuration](https://github.blog/changelog/2026-02-13-network-configuration-changes-for-copilot-coding-agent/).
 

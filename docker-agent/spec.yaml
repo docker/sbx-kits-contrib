@@ -72,13 +72,14 @@ credentials:
       # Bearer sentinel, so every Copilot host must map to this service or the
       # sentinel tunnels through unreplaced.
       #
-      # The proxy applies ONE auth format per service, taken from the first
-      # inject entry, so this list must stay uniform: a mixed list would
-      # silently apply Bearer everywhere anyway and the spec would stop
-      # describing what actually happens. Bearer is the required choice — the
-      # Copilot API rejects the "token" scheme, GitHub's REST API accepts
-      # both, and git over HTTPS on github.com is re-encoded to Basic by the
-      # proxy regardless of the format named here.
+      # Bearer is the required choice for the API hosts — the Copilot API
+      # rejects the "token" scheme, GitHub's REST API accepts both.
+      #
+      # github.com is the exception: git over HTTPS rejects Bearer and needs
+      # Basic with x-access-token as the username. Local sandboxd re-encodes
+      # that host itself, but cloud sandboxes inject exactly what is declared.
+      # Keep a Bearer entry first: local sandboxd takes the service's auth
+      # format from the first inject entry only.
       # https://github.blog/changelog/2026-02-13-network-configuration-changes-for-copilot-coding-agent/
       inject:
         - domain: api.business.githubcopilot.com # Copilot Business
@@ -101,7 +102,8 @@ credentials:
           format: Bearer %s
         - domain: github.com
           header: Authorization
-          format: Bearer %s
+          username: x-access-token
+          format: "%s"
         - domain: raw.githubusercontent.com
           header: Authorization
           format: Bearer %s
