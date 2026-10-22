@@ -6,6 +6,7 @@ import unittest
 
 
 SCRIPT = "/kit/hermes-volume-init.py"
+CREDENTIAL_HOOK = "/kit/files/home/.local/bin/hermes-credential-auth.sh"
 STATE = Path("/home/agent/.hermes/profiles/persistent")
 SEED = Path("/home/agent/.hermes")
 SEEDS = {"config.yaml": ("model: image\n", 0o644), ".env": ("# template\n", 0o600)}
@@ -36,6 +37,38 @@ class VolumeInitTest(unittest.TestCase):
             env={**os.environ, "HERMES_INIT_VOLUME": enabled, "HERMES_HOME": home},
             capture_output=True, text=True, user=user, group=user, extra_groups=[],
         )
+
+    def run_startup(self, anthropic_mode):
+        # The kit's startup order: the root hook, then the credential hook as the agent.
+        self.assertEqual(self.run_hook().returncode, 0)
+        os.chown("/home/agent", 1000, 1000)
+        env = {**os.environ, "HOME": "/home/agent", "HERMES_HOME": str(STATE),
+               "ANTHROPIC_API_KEY": "proxy-managed", "OPENROUTER_API_KEY": "proxy-managed",
+               "SBX_CRED_ANTHROPIC_MODE": anthropic_mode}
+        return subprocess.run(["sh", CREDENTIAL_HOOK], env=env, capture_output=True, text=True,
+                              user=1000, group=1000, extra_groups=[])
+
+    def test_startup_keeps_bound_placeholders_in_profile_env(self):
+        # OPENROUTER_API_KEY carries the sentinel in every row but is never bound, so it never lands.
+        rows = [
+            ("bound placeholder lands once", [], "apikey", ["ANTHROPIC_API_KEY=proxy-managed"]),
+            ("unbound adds nothing", [], "none", []),
+            ("unbound removes the placeholder", ["ANTHROPIC_API_KEY=proxy-managed"], "none", []),
+            ("user value is kept", ["ANTHROPIC_API_KEY=sk-ant-mine"], "apikey", ["ANTHROPIC_API_KEY=sk-ant-mine"]),
+        ]
+        env_file = STATE / ".env"
+        for name, existing, mode, expected in rows:
+            with self.subTest(name):
+                self.assertEqual(self.run_hook().returncode, 0)
+                env_file.write_text("".join(f"{line}\n" for line in [SEEDS[".env"][0].strip(), *existing]))
+                os.chown(env_file, 1000, 1000)
+                os.chmod(env_file, 0o600)
+                for _ in range(2):
+                    result = self.run_startup(mode)
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                lines = env_file.read_text().splitlines()
+                self.assertEqual([line for line in lines if not line.startswith("#")], expected)
+                self.assertEqual(env_file.stat().st_mode & 0o777, 0o600)
 
     def test_fresh_volume_becomes_writable(self):
         result = self.run_hook()

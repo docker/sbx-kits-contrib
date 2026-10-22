@@ -103,6 +103,12 @@ agent user and copies the image's `config.yaml` and `.env` into it when they
 are missing. It refuses a volume that already holds data owned by someone
 else, and it does nothing unless `HERMES_INIT_VOLUME=1`.
 
+Under a profile, Hermes reads provider keys only from the profile's `.env`.
+So on each start, the credential hook writes the proxy placeholder there for
+each bound provider, for example `ANTHROPIC_API_KEY=proxy-managed`. It removes
+that line again when the provider is no longer bound, and it leaves any value
+you wrote yourself alone.
+
 The hook's tests run in a disposable container:
 
 ```console
