@@ -116,10 +116,9 @@ The agent's GitHub-backed model provider calls the Copilot API, which rejects
 the `token` scheme. GitHub's REST API accepts
 both schemes, so the seven API and Copilot hosts use `Authorization: Bearer %s`.
 `github.com` is the exception: git over HTTPS rejects Bearer and needs Basic
-with `x-access-token` as the username, so that entry sets `username:`. Local
-sandboxd re-encodes `github.com` to Basic itself, but cloud sandboxes inject
-exactly what the spec declares. Keep a Bearer entry first: local sandboxd takes
-the service's auth format from the first `inject` entry only. The Copilot
+with `x-access-token` as the username, so that entry sets `username:`. Cloud
+sandboxes inject the declared rule as-is; only local sandboxd rewrites that host
+to Basic itself. The Copilot
 host list follows [GitHub's published network
 configuration](https://github.blog/changelog/2026-02-13-network-configuration-changes-for-copilot-coding-agent/).
 
