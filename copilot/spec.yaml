@@ -8,7 +8,7 @@ name: copilot
 # Published as the vnd.docker.sandbox.kit.version OCI annotation at pack time,
 # and `scripts/check-release-tag.sh` refuses a `copilot/vX.Y.Z` tag that
 # disagrees with it. Bump here first, then tag.
-version: "1.0.0"
+version: "1.0.1"
 displayName: GitHub Copilot
 description: GitHub Copilot CLI, GitHub's agentic coding CLI.
 sandbox:
@@ -19,6 +19,7 @@ credentials:
   - service: github
     apiKey:
       name: GH_TOKEN
+      proxyManaged: true
       inject:
         - domain: api.github.com
           header: Authorization
@@ -33,6 +34,7 @@ credentials:
       # without affecting the broader github secret used for gh/git access.
       # https://docs.github.com/en/copilot/how-tos/set-up/install-copilot-cli
       name: COPILOT_GITHUB_TOKEN
+      proxyManaged: true
       inject:
         # https://github.blog/changelog/2026-02-13-network-configuration-changes-for-copilot-coding-agent/
         - domain: api.business.githubcopilot.com # Copilot Business
@@ -82,7 +84,7 @@ permissions:
       # further hosts (telemetry, self-update, extension registry). Confirm
       # or widen from a live run:
       #
-      #   sbx run --kit ./copilot copilot   # then attempt a prompt
+      #   sbx run ./copilot/                # then attempt a prompt
       #   sbx policy log                    # lists every blocked host + reason
 
 setup:
