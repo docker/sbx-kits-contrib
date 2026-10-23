@@ -435,7 +435,7 @@ Note that a fork PR does not receive repository secrets, so any leg needing Dock
 | [`qemu`](./qemu) | `deb/docker-ce` | QEMU user-mode emulators via binfmt_misc, for cross-arch builds |
 | [`shell-credentials`](./shell-credentials) | — | The eight provider credentials the built-in agentless sandbox declared, for a base that owns none of them |
 | [`smolagents`](./smolagents) | `deb/apt` | Hugging Face smolagents in an isolated virtualenv |
-| [`t3code`](./t3code) | — | The build toolchain T3 Code's SSH integration needs to compile `node-pty` |
+| [`t3code`](./t3code) | — | The pinned `t3` release T3 Code's SSH integration runs, pre-installed where its launcher looks |
 | [`task`](./task) | `deb/dpkg` | The Task CLI, for running Taskfiles |
 | [`vale`](./vale) | `deb/dpkg` | The Vale prose linter from a pinned release |
 
