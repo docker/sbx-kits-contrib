@@ -37,6 +37,7 @@ permissions:
       - security.ubuntu.com:80
       - ports.ubuntu.com:80
       - download.docker.com:443
+      - cli.github.com:443
 environment:
   variables:
     # Read by the t3 server at startup. The sandbox proxy does not allow the

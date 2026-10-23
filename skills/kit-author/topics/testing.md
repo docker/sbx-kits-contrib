@@ -322,7 +322,7 @@ If the scoped daemon ever gets wedged: `sbx --app-name sbx-kits-contrib-tck rese
 
 Common hosts that surface only under `deny-all` (easy to forget):
 
-- `download.docker.com` — pre-added to apt sources on `shell-docker` / `*-docker` templates; any `apt-get update` re-fetches it even if you're installing from Ubuntu's main archive.
+- `download.docker.com` and `cli.github.com` — pre-added to apt sources on both shell bases (and the `*-docker` templates); any `apt-get update` re-fetches them even if you're installing from Ubuntu's main archive.
 - `archive.ubuntu.com` + `security.ubuntu.com` (amd64) **and** `ports.ubuntu.com` (arm64) — list all three so the kit works on both CI (amd64) and Apple Silicon.
 - Registry hosts for each package manager you call: `registry.npmjs.org`, `pypi.org` + `files.pythonhosted.org`, `crates.io` + `static.crates.io`, `proxy.golang.org` + `sum.golang.org`, etc.
 
