@@ -52,7 +52,8 @@ permissions:
       - kiro.dev
       # `apt-get update` (the startup hook below) refreshes metadata for every
       # configured apt source and returns exit 100 if any one of them fails.
-      # The shell-docker base ships three sources, so all three must be
+      # The shell-docker base ships five sources (Ubuntu's archive, security
+      # and ports, Docker's repo, GitHub CLI's repo), so all five must be
       # reachable. Ubuntu serves amd64 from archive/security and arm64 from
       # ports.ubuntu.com, so all three Ubuntu hosts are listed to keep the kit
       # working cross-arch.
@@ -60,6 +61,7 @@ permissions:
       - security.ubuntu.com       # Ubuntu security updates (amd64)
       - ports.ubuntu.com          # Ubuntu archive/security (arm64)
       - download.docker.com       # Docker's apt repo, pre-added by shell-docker
+      - cli.github.com            # GitHub CLI's apt repo, pre-added by the base
       #
       # AWS-backed endpoints Kiro's device-flow auth and chat need, reported
       # in #185. Not publicly documented beyond that. Exact hosts rather than

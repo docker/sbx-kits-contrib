@@ -40,8 +40,9 @@ permissions:
       # every sandbox (best-effort, non-blocking) -- refreshing metadata
       # for every configured apt source, which fails on any one of them
       # even if the kit's own package would come from a different repo.
-      # claude's base image (claude-code-docker) ships three sources, so
-      # all three must be allowed under `deny-all`. Ubuntu hosts amd64
+      # claude's base image (claude-code-docker) ships five sources (Ubuntu's
+      # archive, security and ports, Docker's repo, GitHub CLI's repo), so all
+      # five must be allowed under `deny-all`. Ubuntu hosts amd64
       # packages on archive/security and arm64 packages on ports.ubuntu.com,
       # so all three Ubuntu hosts are listed to keep the kit working
       # cross-arch (CI runs amd64; a real e2e run on arm64 only exercised
@@ -50,6 +51,7 @@ permissions:
       - security.ubuntu.com       # Ubuntu security updates (amd64)
       - ports.ubuntu.com          # Ubuntu archive/security (arm64)
       - download.docker.com       # Docker's apt repo
+      - cli.github.com            # GitHub CLI's apt repo, pre-added by the base
       - registry.npmjs.org
       - '*.npmjs.org'
 setup:
