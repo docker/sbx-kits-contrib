@@ -156,6 +156,7 @@ capabilities:
             {
               "bypassPermissionsModeAccepted": true,
               "hasCompletedOnboarding": true,
+              "hasSeenAutoDefaultNudge": true,
               "projects": {
                   "/": {
                   "hasTrustDialogAccepted": true

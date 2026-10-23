@@ -301,6 +301,7 @@ capabilities:
             printf '%s\n' "{
               \"bypassPermissionsModeAccepted\": true,
               \"hasCompletedOnboarding\": true,
+              \"hasSeenAutoDefaultNudge\": true,
               \"projects\": { $projects }
             }" > /home/agent/.claude.json
             chown agent:agent /home/agent/.claude.json
