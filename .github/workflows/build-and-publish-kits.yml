@@ -67,6 +67,14 @@ on:
     - cron: "0 5 * * *"
   workflow_dispatch: {}
 
+# One run per ref. A new push to a pull request cancels that PR's previous
+# run: two publish matrices from one branch otherwise hit Docker Hub at the
+# same time and the bot account gets throttled (see tck.yml). Pushes to main,
+# the nightly schedule and manual dispatches are never cancelled.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 permissions:
   contents: read
   # Required to mint the GitHub OIDC token that is exchanged for a short-lived
@@ -445,6 +453,13 @@ jobs:
       (needs.shell-docker.result == 'success' || needs.shell-docker.result == 'skipped')
     strategy:
       fail-fast: false
+      # Every leg signs in to Docker Hub and `sbx kit validate` reads the
+      # org's admin settings from Hub. A wide run (every kit) fired 70+ of
+      # those within a minute from one account and Hub throttled it: logins
+      # answered 429 and validates failed with "administrator settings are
+      # unavailable". The cap keeps the rate under that limit (see e2e.yml);
+      # the login and validate steps also retry.
+      max-parallel: 10
       matrix:
         kit: ${{ fromJson(needs.detect-changes.outputs.kits-on-base) }}
     permissions:
@@ -474,6 +489,9 @@ jobs:
       needs.detect-changes.outputs.kits-standalone != ''
     strategy:
       fail-fast: false
+      # Same Hub rate limit as the `kit` job above; the two matrices run at
+      # the same time, so each gets the cap.
+      max-parallel: 10
       matrix:
         kit: ${{ fromJson(needs.detect-changes.outputs.kits-standalone) }}
     permissions:
