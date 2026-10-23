@@ -40,6 +40,67 @@ func TestBuildCreateArgsMixin(t *testing.T) {
 		"kind:mixin must keep composing via --kit, with the base agent and workspace as trailing positionals")
 }
 
+func TestBuildCreateArgsMixinOnDefaultBase(t *testing.T) {
+	got := buildCreateArgs(spec.KindMixin, "/abs/qemu", "e2e-qemu-1234", defaultMixinBase, "/tmp/workspace", nil, "")
+
+	require.Equal(t,
+		[]string{"create", "--kit", "/abs/qemu", "--name", "e2e-qemu-1234", defaultMixinBase, "/tmp/workspace"},
+		got)
+	require.Equal(t, defaultMixinBase, got[len(got)-2],
+		"the OCI reference must land as the agent positional, right before the workspace")
+}
+
+func TestAgentForKit(t *testing.T) {
+	t.Run("sandbox_returns_manifest_name", func(t *testing.T) {
+		a := &spec.Artifact{Manifest: spec.Manifest{Kind: spec.KindSandbox, Name: "kiro"}}
+		require.Equal(t, "kiro", agentForKit(a))
+	})
+
+	t.Run("mixin_with_affinity_returns_required_agent", func(t *testing.T) {
+		a := &spec.Artifact{
+			Manifest: spec.Manifest{Kind: spec.KindMixin, Name: "aidlc-codex"},
+			Requires: &spec.Requires{Agent: "codex"},
+		}
+		require.Equal(t, "codex", agentForKit(a))
+	})
+
+	t.Run("mixin_without_requires_returns_default_base", func(t *testing.T) {
+		t.Setenv(mixinBaseEnv, "")
+		a := &spec.Artifact{Manifest: spec.Manifest{Kind: spec.KindMixin, Name: "qemu"}}
+		require.Equal(t, defaultMixinBase, agentForKit(a))
+	})
+
+	t.Run("mixin_without_requires_honours_env_override", func(t *testing.T) {
+		t.Setenv(mixinBaseEnv, "docker.io/sbx/shell-docker-kit:latest")
+		a := &spec.Artifact{Manifest: spec.Manifest{Kind: spec.KindMixin, Name: "qemu"}}
+		require.Equal(t, "docker.io/sbx/shell-docker-kit:latest", agentForKit(a))
+	})
+
+	t.Run("mixin_requiring_claude_composes_onto_the_base", func(t *testing.T) {
+		t.Setenv(mixinBaseEnv, "")
+		a := &spec.Artifact{
+			Manifest: spec.Manifest{Kind: spec.KindMixin, Name: "aidlc-claude"},
+			Requires: &spec.Requires{Agent: "claude"},
+		}
+		require.Equal(t, defaultMixinBase, agentForKit(a))
+	})
+
+	t.Run("mixin_requiring_claude_honours_env_override", func(t *testing.T) {
+		t.Setenv(mixinBaseEnv, "docker.io/sbx/shell-docker-kit:latest")
+		a := &spec.Artifact{
+			Manifest: spec.Manifest{Kind: spec.KindMixin, Name: "aidlc-claude"},
+			Requires: &spec.Requires{Agent: "claude"},
+		}
+		require.Equal(t, "docker.io/sbx/shell-docker-kit:latest", agentForKit(a))
+	})
+
+	t.Run("mixin_without_requires_ignores_blank_env_override", func(t *testing.T) {
+		t.Setenv(mixinBaseEnv, "  ")
+		a := &spec.Artifact{Manifest: spec.Manifest{Kind: spec.KindMixin, Name: "qemu"}}
+		require.Equal(t, defaultMixinBase, agentForKit(a))
+	})
+}
+
 func TestBuildCreateArgsMixinWithKitArgFlags(t *testing.T) {
 	got := buildCreateArgs(spec.KindMixin, "/abs/aidlc-claude", "e2e-aidlc-1234", "claude", "/tmp/workspace",
 		[]string{"--kit-arg", "aidlc-claude.affinity=bedrock"}, "")
@@ -78,6 +139,34 @@ func TestBuildCreateArgsMixinWithPullPolicy(t *testing.T) {
 		},
 		got,
 		"--pull must follow --name, before the agent/workspace positionals")
+}
+
+func TestShouldFallBackToBuiltin(t *testing.T) {
+	collisionOut := `ERROR: agent "claude" is already registered (` + builtinCollisionMarker + ")"
+	fail := errors.New("exit status 1")
+
+	tests := []struct {
+		name  string
+		kind  string
+		agent string
+		err   error
+		out   string
+		want  bool
+	}{
+		{"mixin on default, collision", spec.KindMixin, defaultMixinBase, fail, collisionOut, true},
+		{"mixin on default, other failure", spec.KindMixin, defaultMixinBase, fail, "ERROR: image pull failed", false},
+		{"mixin on default, no error", spec.KindMixin, defaultMixinBase, nil, collisionOut, false},
+		{"mixin on default, collision names another agent", spec.KindMixin, defaultMixinBase, fail,
+			`ERROR: agent "qemu" is already registered (` + builtinCollisionMarker + ")", false},
+		{"sandbox on default, collision", spec.KindSandbox, defaultMixinBase, fail, collisionOut, false},
+		{"mixin on pinned base, collision", spec.KindMixin, "docker.io/sbx/shell-docker-kit:latest", fail, collisionOut, false},
+		{"mixin on built-in, collision", spec.KindMixin, "claude", fail, collisionOut, false},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			require.Equal(t, tc.want, shouldFallBackToBuiltin(tc.kind, tc.agent, tc.err, tc.out))
+		})
+	}
 }
 
 func TestIsBuiltinCollision(t *testing.T) {

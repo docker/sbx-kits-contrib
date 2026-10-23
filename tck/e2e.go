@@ -361,6 +361,40 @@ func isBuiltinCollision(err error, out string) bool {
 	return err != nil && strings.Contains(out, builtinCollisionMarker)
 }
 
+// defaultMixinBase is what a mixin with no affinity, or affinity to claude, is composed onto.
+// The repo's own published claude kit rather than the built-in name: nightly
+// sbx resolves the built-in to a v3 kit and refuses a v3 agent with a v1/v2
+// mixin in one sandbox, while this v2 kit keeps the composition single-format
+// on every channel. Releases that still register the built-in refuse this kit
+// by name; createSbx falls back to the built-in there. mixinBaseEnv overrides it.
+const defaultMixinBase = "docker.io/sbx/claude-kit:latest"
+
+// mixinBaseEnv lets a CI lane or a developer pin what a mixin with no affinity,
+// or affinity to claude, composes onto (an sbx channel that stops accepting the
+// default), without a code change.
+const mixinBaseEnv = "SBX_E2E_MIXIN_BASE"
+
+// mixinBase returns the base a mixin with no affinity, or affinity to claude, is composed onto.
+func mixinBase() string {
+	if v := strings.TrimSpace(os.Getenv(mixinBaseEnv)); v != "" {
+		return v
+	}
+	return defaultMixinBase
+}
+
+// builtinAgentFallback is the built-in name releases before the kit swap still accept.
+const builtinAgentFallback = "claude"
+
+// shouldFallBackToBuiltin says whether a failed create should be retried on
+// the built-in name: only a mixin with no affinity, or affinity to claude, on
+// the stock default base, and only on the built-in claude's refusal by name. A
+// base pinned through mixinBaseEnv is not swapped out (a pin equal to the
+// default is the default), or a lane would silently test a base it did not pin.
+func shouldFallBackToBuiltin(kind, agent string, err error, out string) bool {
+	return kind == spec.KindMixin && agent == defaultMixinBase && isBuiltinCollision(err, out) &&
+		strings.Contains(out, "agent \""+builtinAgentFallback+"\" is already registered")
+}
+
 // loadKitTCKData reads <kitDir>/testdata/tck.yaml. Returns nil, nil when the
 // file does not exist — callers should skip rather than fail in that case.
 func loadKitTCKData(t *testing.T, kitDir string) *kitTCKData {
@@ -481,7 +515,8 @@ func buildCreateArgs(kind, absKit, name, agent, workspace string, kitArgFlags []
 // t.Cleanup that force-removes it, and returns the sandbox name. A fresh temp
 // dir is used as the workspace.
 // td may be nil (no testdata/tck.yaml); see kitTCKData.ExtractedFromBuiltin for
-// the one failure this retries.
+// the two failures this retries (a sandbox kit shadowed by a built-in, and the
+// default mixin base refused by name).
 func createSbx(t *testing.T, ctx context.Context, absKit, kind, kitName, agent string, td *kitTCKData, appName, pullPolicy string) string {
 	t.Helper()
 	workspace := t.TempDir()
@@ -533,7 +568,7 @@ func createSbx(t *testing.T, ctx context.Context, absKit, kind, kitName, agent s
 	createOut, err := runSbx(t, ctx, appName, buildCreateArgs(kind, absKit, name, agent, workspace, kitArgFlags, pullPolicy)...)
 
 	retried := false
-	if td != nil && td.ExtractedFromBuiltin && isBuiltinCollision(err, createOut) {
+	if kind == spec.KindSandbox && td != nil && td.ExtractedFromBuiltin && isBuiltinCollision(err, createOut) {
 		retried = true
 		agent = e2eRenamedKitName(kitName)
 		parent, mkErr := os.MkdirTemp("", "sbx-e2e-rename-")
@@ -553,10 +588,32 @@ func createSbx(t *testing.T, ctx context.Context, absKit, kind, kitName, agent s
 			buildCreateArgs(kind, dst, name, agent, workspace, kitArgFlags, pullPolicy)...)
 	}
 
+	fellBack := false
+	if shouldFallBackToBuiltin(kind, agent, err, createOut) {
+		fellBack = true
+		tried := agent
+		agent = builtinAgentFallback
+		t.Logf("NOTICE: this sbx build still registers %q as a built-in and refuses the kit %s by "+
+			"name; retrying composed onto the built-in.\n%s", builtinAgentFallback, tried, createOut)
+		createOut, err = runSbx(t, ctx, appName,
+			buildCreateArgs(kind, absKit, name, agent, workspace, kitArgFlags, pullPolicy)...)
+	}
+
 	if isBuiltinCollision(err, createOut) {
+		if fellBack {
+			require.FailNowf(t, "mixin still collides with a built-in agent",
+				"kit %q composed onto the built-in %q still collides with a built-in agent.\n%s",
+				filepath.Base(absKit), agent, createOut)
+		}
 		if retried {
 			require.FailNowf(t, "renamed kit still collides with a built-in agent",
 				"kit %q retried as %q still collides with a built-in agent.\n%s",
+				filepath.Base(absKit), agent, createOut)
+		}
+		if kind == spec.KindMixin {
+			require.FailNowf(t, "mixin base refused by name",
+				"mixin %q composed onto %q was refused by name: sbx registers a built-in agent with that name "+
+					"(the base's, or the mixin's own). Pin another base via SBX_E2E_MIXIN_BASE or rename the kit.\n%s",
 				filepath.Base(absKit), agent, createOut)
 		}
 		// Almost always a kit that has taken a built-in agent's name by mistake.
@@ -569,7 +626,7 @@ func createSbx(t *testing.T, ctx context.Context, absKit, kind, kitName, agent s
 
 	require.NoErrorf(t, err, "sbx create failed (agent=%s):\n%s", agent, createOut)
 
-	if td != nil && td.ExtractedFromBuiltin && !retried {
+	if kind == spec.KindSandbox && td != nil && td.ExtractedFromBuiltin && !retried {
 		t.Logf("NOTICE: kit %q declares `extractedFromBuiltin: true` but hit no built-in "+
 			"collision; if %q is the kit's real name, the flag is obsolete and can be "+
 			"removed from testdata/tck.yaml.", filepath.Base(absKit), kitName)
@@ -610,15 +667,20 @@ func waitForAgentReady(t *testing.T, ctx context.Context, name, readyFile, appNa
 // argument). A mixin that declares base-agent affinity (requires.agent) must
 // be exercised on that agent — composing it onto any other base is a hard
 // error, since affinity is enforced at compose time. Mixins without affinity
-// default to claude.
+// default to defaultMixinBase, see its comment. The claude kit's manifest name
+// is `claude`, so affinity to the built-in is satisfied by the kit, and those
+// mixins otherwise hit the same v3/v2 refusal on nightly.
 func agentForKit(a *spec.Artifact) string {
 	if a.Manifest.Kind == spec.KindSandbox {
 		return a.Manifest.Name
 	}
 	if a.Requires != nil && a.Requires.Agent != "" {
+		if a.Requires.Agent == builtinAgentFallback {
+			return mixinBase()
+		}
 		return a.Requires.Agent
 	}
-	return "claude"
+	return mixinBase()
 }
 
 // sandboxName builds a unique, sbx-name-safe identifier from the kit
