@@ -1,0 +1,97 @@
+schemaVersion: "2"
+kind: mixin
+name: axe
+displayName: axe-core
+description: Deque axe-core accessibility CLI — audits a URL against WCAG with headless Chromium, so agents can score pages served inside the sandbox.
+agentInstructions:
+  content: |
+    ## axe-core
+
+    `axe` is on PATH. It runs axe-core 4.13.0 via @axe-core/playwright
+    against Playwright Chromium. CHROME_PATH points at
+    /usr/local/bin/chromium; don't unset it or PLAYWRIGHT_BROWSERS_PATH.
+
+    Headless only — the sandbox has no display. Chrome is launched with
+    --no-sandbox --disable-dev-shm-usage --disable-gpu.
+
+    - Audit a local server: `axe http://localhost:3000`
+    - Write JSON: `axe http://localhost:3000 --save ./axe-report.json`
+    - Confirm: `axe` with no args prints usage; `chromium --version`
+
+    Exit 0 if there are no violations, 1 if any, 2 on usage or launch
+    errors. External sites fail with a proxy error unless their hosts
+    are in the sandbox network policy; localhost always works.
+permissions:
+  network:
+    allow:
+      # npm packages (install time): @axe-core/playwright, axe-core,
+      # playwright. puppeteer is not used.
+      - registry.npmjs.org:443
+      # Chromium via `playwright install --with-deps chromium` — same
+      # channel as the playwright / lighthouse kits.
+      - cdn.playwright.dev:443
+      - playwright.download.prss.microsoft.com:443
+      - storage.googleapis.com:443
+      # `--with-deps` apt-installs Chromium system libraries.
+      # `apt-get update` refreshes every configured source.
+      - archive.ubuntu.com:80
+      - security.ubuntu.com:80
+      - ports.ubuntu.com:80
+      - download.docker.com:443
+environment:
+  variables:
+    CHROME_PATH: /usr/local/bin/chromium
+    PLAYWRIGHT_BROWSERS_PATH: /opt/ms-playwright
+    NODE_PATH: /usr/local/share/npm-global/lib/node_modules
+setup:
+  install:
+    # @axe-core/cli@4.13.0 depends on chromedriver@latest (unpinned
+    # postinstall fetch) + Selenium, which will not match this
+    # Chromium. We install @axe-core/playwright@4.13.0 + playwright
+    # 1.61.1 (same pin as the playwright kit) and ship a thin `axe`
+    # CLI in files/home/.local/bin/axe. To bump: change both npm
+    # versions here and in agentInstructions / README.
+    - command: |
+        set -euo pipefail
+        command -v npm >/dev/null || { echo "npm not found: this mixin needs a base image with Node.js >= 18 (all standard agent templates ship it)" >&2; exit 1; }
+        if [ -n "${HTTP_PROXY:-}" ]; then
+          npm config set proxy "$HTTP_PROXY"
+          npm config set https-proxy "$HTTP_PROXY"
+        fi
+        AXE_VERSION=4.13.0
+        PLAYWRIGHT_VERSION=1.61.1
+        npm install -g "playwright@${PLAYWRIGHT_VERSION}" "@axe-core/playwright@${AXE_VERSION}"
+        node -e "require('playwright'); require('@axe-core/playwright'); console.log('axe-core playwright ok')"
+        # files/home/.local/bin/axe is the CLI. Link it onto PATH for every
+        # user; the target is injected with the files/ tree (dangling until
+        # then is fine). chmod in startup covers the after-files case.
+        mkdir -p /home/agent/.local/bin
+        ln -sfn /home/agent/.local/bin/axe /usr/local/bin/axe
+      user: "0"
+      description: Install playwright 1.61.1 + @axe-core/playwright v4.13.0 and the axe CLI wrapper
+    - command: |
+        set -euo pipefail
+        export PLAYWRIGHT_BROWSERS_PATH="${PLAYWRIGHT_BROWSERS_PATH:-/opt/ms-playwright}"
+        mkdir -p "$PLAYWRIGHT_BROWSERS_PATH"
+        find_chrome() {
+          find "$PLAYWRIGHT_BROWSERS_PATH" -type f -name chrome ! -path '*headless*' 2>/dev/null | head -1
+        }
+        CHROME_BIN="$(find_chrome || true)"
+        if [ -z "$CHROME_BIN" ]; then
+          npx -y playwright@1.61.1 install --with-deps chromium
+          rm -rf /var/lib/apt/lists/*
+          CHROME_BIN="$(find_chrome || true)"
+        fi
+        if [ -z "$CHROME_BIN" ] || [ ! -x "$CHROME_BIN" ]; then
+          echo "failed to locate Chromium chrome binary under $PLAYWRIGHT_BROWSERS_PATH" >&2
+          exit 1
+        fi
+        ln -sfn "$CHROME_BIN" /usr/local/bin/chromium
+        chmod -R a+rX "$PLAYWRIGHT_BROWSERS_PATH"
+        chromium --version
+      user: "0"
+      description: Install Playwright Chromium into /opt/ms-playwright and symlink /usr/local/bin/chromium
+  startup:
+    - command: ["sh", "-c", "chmod 0755 /home/agent/.local/bin/axe 2>/dev/null || true"]
+      user: "0"
+      description: Ensure the axe CLI wrapper is executable
