@@ -361,6 +361,36 @@ func isBuiltinCollision(err error, out string) bool {
 	return err != nil && strings.Contains(out, builtinCollisionMarker)
 }
 
+// hubThrottledMarker is what sbx prints when Docker Hub throttles the account
+// mid-request: the org's kit policy lives on Hub, and a wide CI run makes many
+// such reads at once. The failure is instant, so a short backoff lets the
+// account recover; anything else fails the test at once.
+const hubThrottledMarker = "administrator settings are unavailable"
+
+func isHubThrottled(err error, out string) bool {
+	return err != nil && strings.Contains(out, hubThrottledMarker)
+}
+
+// runCreate runs one sbx create argv, retrying only a Hub throttle (see
+// hubThrottledMarker) a few times with backoff.
+func runCreate(t *testing.T, ctx context.Context, appName string, args ...string) (string, error) {
+	t.Helper()
+	delay := 15 * time.Second
+	for attempt := 1; ; attempt++ {
+		out, err := runSbx(t, ctx, appName, args...)
+		if !isHubThrottled(err, out) || attempt == 4 {
+			return out, err
+		}
+		t.Logf("NOTICE: Docker Hub throttled this account (attempt %d); retrying sbx create in %s.\n%s", attempt, delay, out)
+		select {
+		case <-ctx.Done():
+			return out, err
+		case <-time.After(delay):
+		}
+		delay *= 2
+	}
+}
+
 // defaultMixinBase is what a mixin with no affinity, or affinity to claude, is composed onto.
 // The repo's own published claude kit rather than the built-in name: nightly
 // sbx resolves the built-in to a v3 kit and refuses a v3 agent with a v1/v2
@@ -565,7 +595,7 @@ func createSbx(t *testing.T, ctx context.Context, absKit, kind, kitName, agent s
 	if td != nil {
 		kitArgFlags = KitArgFlags(kitName, td.Args)
 	}
-	createOut, err := runSbx(t, ctx, appName, buildCreateArgs(kind, absKit, name, agent, workspace, kitArgFlags, pullPolicy)...)
+	createOut, err := runCreate(t, ctx, appName, buildCreateArgs(kind, absKit, name, agent, workspace, kitArgFlags, pullPolicy)...)
 
 	retried := false
 	if kind == spec.KindSandbox && td != nil && td.ExtractedFromBuiltin && isBuiltinCollision(err, createOut) {
@@ -584,7 +614,7 @@ func createSbx(t *testing.T, ctx context.Context, absKit, kind, kitName, agent s
 		t.Logf("NOTICE: kit %q is shadowed by the built-in agent of the same name in this sbx "+
 			"build; retrying from a copy renamed %q.\n%s", filepath.Base(absKit), agent, createOut)
 
-		createOut, err = runSbx(t, ctx, appName,
+		createOut, err = runCreate(t, ctx, appName,
 			buildCreateArgs(kind, dst, name, agent, workspace, kitArgFlags, pullPolicy)...)
 	}
 
@@ -595,7 +625,7 @@ func createSbx(t *testing.T, ctx context.Context, absKit, kind, kitName, agent s
 		agent = builtinAgentFallback
 		t.Logf("NOTICE: this sbx build still registers %q as a built-in and refuses the kit %s by "+
 			"name; retrying composed onto the built-in.\n%s", builtinAgentFallback, tried, createOut)
-		createOut, err = runSbx(t, ctx, appName,
+		createOut, err = runCreate(t, ctx, appName,
 			buildCreateArgs(kind, absKit, name, agent, workspace, kitArgFlags, pullPolicy)...)
 	}
 

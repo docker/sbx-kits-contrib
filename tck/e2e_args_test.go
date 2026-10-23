@@ -189,3 +189,22 @@ func TestIsBuiltinCollision(t *testing.T) {
 		})
 	}
 }
+
+func TestIsHubThrottled(t *testing.T) {
+	const throttled = "error: resolve kits: load kit policy: read kit.allowedSources: administrator settings are unavailable"
+	tests := []struct {
+		name string
+		err  error
+		out  string
+		want bool
+	}{
+		{"failure with the marker", errors.New("exit status 1"), throttled, true},
+		{"failure with other text", errors.New("exit status 1"), "error: kit not found", false},
+		{"success mentioning the marker", nil, throttled, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			require.Equal(t, tt.want, isHubThrottled(tt.err, tt.out))
+		})
+	}
+}
