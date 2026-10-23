@@ -183,6 +183,14 @@ environment:
     HERMES_HOME: /home/agent/.hermes
 setup:
   startup:
+    # Root runs only root-owned code: the image's helper under an isolated system
+    # Python, and nothing at all unless the opt-in is set.
+    - command:
+        - /bin/sh
+        - -c
+        - 'case "${HERMES_INIT_VOLUME:-}" in ""|0) exit 0 ;; esac; exec /usr/bin/python3 -I /usr/local/libexec/hermes-volume-init'
+      user: "0"
+      description: Initialize a fresh state volume at ~/.hermes/profiles/persistent only when HERMES_INIT_VOLUME=1
     # Runs on every container start, ahead of any attach: the credential state
     # is wired at create time and a stop/start can follow a change of host
     # credential, so the env file is recomputed rather than cached.

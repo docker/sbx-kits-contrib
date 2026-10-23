@@ -87,6 +87,9 @@ ENV HERMES_DISABLE_LAZY_INSTALLS=1
 # independent of the kit's files/home/ copy that sandbox.entrypoint uses.
 COPY --chmod=0755 files/home/.local/bin/hermes-start.sh /usr/local/bin/hermes-start
 
+# Root-owned on purpose: the kit's startup hook runs this as root.
+COPY --chmod=0755 hermes-volume-init.py /usr/local/libexec/hermes-volume-init
+
 # Overrides the base's inherited flavor -- left alone it would report
 # "shell" rather than "hermes-agent".
 LABEL com.docker.sandboxes.flavor="hermes-agent"
