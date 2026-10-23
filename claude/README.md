@@ -255,13 +255,13 @@ kit's image preserves from the template the built-in used.
 
 ## Base image
 
-Unlike most kits here — which are `kind: mixin` and layer onto an existing
-`docker/sandbox-templates` image — a `kind: sandbox` kit *is* the whole
-environment, so it names the image the sandbox boots from. This kit builds and
-publishes its own, from the `Dockerfile` in this directory.
+Unlike most kits here — which are `kind: mixin` and layer onto the image of the
+agent they are composed with — a `kind: sandbox` kit *is* the whole environment,
+so it names the image the sandbox boots from. This kit builds and publishes its
+own, from the `Dockerfile` in this directory.
 
 The image is **`docker.io/sbx/claude-image`**, built on
-`docker/sandbox-templates:shell-docker`, so it carries a Docker engine and
+`docker.io/sbx/shell-docker-image`, so it carries a Docker engine and
 requests Docker-in-Docker — matching the agent this kit replaces, which
 resolved to the Docker flavour of its template.
 

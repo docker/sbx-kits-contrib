@@ -101,12 +101,12 @@ The hook is a no-op when MCP is not enabled.
 ## Base image
 
 Unlike most kits here — which are `kind: mixin` or `kind: agent` and layer onto
-an existing `docker/sandbox-templates` image — a `kind: sandbox` kit *is* the
+the image of the agent they are composed with — a `kind: sandbox` kit *is* the
 whole environment, so it names the image the sandbox boots from. This kit builds
 and publishes its own, from the `Dockerfile` and `start.sh` in this directory.
 
 The image is **`docker.io/sbx/kiro-image`**, built on
-`docker/sandbox-templates:shell-docker`, so it carries a Docker engine and
+`docker.io/sbx/shell-docker-image`, so it carries a Docker engine and
 requests Docker-in-Docker.
 
 The `-image` suffix distinguishes the base image from the kit itself: the kit

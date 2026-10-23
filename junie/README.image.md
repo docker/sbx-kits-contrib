@@ -5,7 +5,7 @@ Base image for the Junie kit for
 
 ## Contents
 
-Built on `docker/sandbox-templates:shell` — the standard sandbox toolchain,
+Built on `docker.io/sbx/shell-image` — the standard sandbox toolchain,
 no Docker engine. On top of that:
 
 - [Junie](https://junie.jetbrains.com/), JetBrains' LLM-agnostic coding

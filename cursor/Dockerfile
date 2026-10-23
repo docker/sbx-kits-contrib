@@ -8,7 +8,7 @@
 # would be unreachable without a second kit to consume it.
 #
 # The base is a floating tag, which is why CI also rebuilds on a schedule.
-ARG BASE_IMAGE=docker/sandbox-templates:shell-docker
+ARG BASE_IMAGE=docker.io/sbx/shell-docker-image:latest
 FROM ${BASE_IMAGE}
 
 # Re-declared inside the stage: an ARG defined before the first FROM is a global
@@ -44,8 +44,7 @@ test -x /home/agent/.local/bin/cursor-agent
 EOF
 
 # Inherited from the base image, but re-declared deliberately so the value is
-# owned here rather than depending on inheritance from an image this repository
-# does not own.
+# owned here rather than depending on inheritance.
 #
 # This is a *request* to the runtime, not a description of the image: setting it
 # over a base with no Docker engine yields a sandbox started in Docker mode with
@@ -68,10 +67,6 @@ LABEL com.docker.sandboxes.flavor="cursor"
 # is a floating tag rebuilt nightly, so this is the one place the produced image
 # records what it was actually built on.
 LABEL com.docker.sandboxes.base="${BASE_IMAGE}"
-
-# Note: `com.docker.sandboxes=templates` also appears on this image. It is
-# inherited from the base and is not set here — nothing reads it, and this image
-# is not part of that template family, so it is left alone rather than asserted.
 
 # Absolute, matching spec.yaml's entrypoint, for the same reason: no dependence
 # on PATH. Note this CMD carries no --yolo — the kit's entrypoint supplies it,

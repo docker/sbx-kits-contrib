@@ -5,7 +5,7 @@ Base image for the nanobot kit for
 
 ## Contents
 
-Built on `docker/sandbox-templates:shell` — the standard sandbox toolchain,
+Built on `docker.io/sbx/shell-image` — the standard sandbox toolchain,
 no Docker engine (nanobot-ai's dependency tree has no Docker dependency). On
 top of that:
 

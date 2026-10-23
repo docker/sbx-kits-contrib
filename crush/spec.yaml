@@ -36,7 +36,7 @@ permissions:
       # Crush is baked into the image (see Dockerfile) rather than installed
       # at sandbox-create time, so repo.charm.sh (the apt index and GPG key),
       # the Gemfury-fronted S3 bucket it redirects package downloads to, and
-      # the base template's own apt sources are all install-time-only now --
+      # the base image's own apt sources are all install-time-only now --
       # none of them is a credential inject domain, so none belongs here.
       # What remains below is exactly the provider hosts the credentials
       # block injects into: a credential's inject

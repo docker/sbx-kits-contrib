@@ -13,7 +13,7 @@ licenses:
 
 sandbox:
   # shell-docker already ships Node.js 22 and uv, so nothing else is baked in.
-  image: docker/sandbox-templates:shell-docker
+  image: docker.io/sbx/shell-docker-image:latest
   # Boot straight into Agent Canvas: the launcher starts the server on $PORT and
   # seeds the model into Canvas' settings (Canvas doesn't read the LLM_* env).
   entrypoint:
