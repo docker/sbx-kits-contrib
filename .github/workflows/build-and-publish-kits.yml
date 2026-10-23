@@ -35,6 +35,13 @@ name: Build and publish kits
 #     its base sets — today's bases all carry their own flavor, so forgetting
 #     it usually reports the wrong agent rather than none; the build asserts
 #     this too.
+#   * Two kits are BASES: `shell` publishes docker.io/sbx/shell-image and
+#     `shell-docker` publishes docker.io/sbx/shell-docker-image, built FROM the
+#     shell image. Most other kit images build FROM one of the two. The jobs
+#     below order them shell, then shell-docker, then the kits built on them;
+#     every other kit runs alongside. On a publishing run a base change also
+#     rebuilds the kits whose Dockerfile names that base (found by grep, not
+#     listed). Pull requests build only what changed.
 #
 # Shared coordinates (registry, namespace, rolling tag, platforms) come from
 # repository/organisation variables with documented fallbacks, so retargeting is
@@ -78,8 +85,21 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     outputs:
-      # Kits to rebuild for this event.
-      kits: ${{ steps.collect.outputs.kits }}
+      # Whether the `shell` base kit builds this run.
+      build-shell: ${{ steps.collect.outputs.build-shell }}
+      # Whether the `shell-docker` base kit builds this run (it is FROM the
+      # shell image, so it also builds whenever shell does on a publishing run).
+      build-shell-docker: ${{ steps.collect.outputs.build-shell-docker }}
+      # Kits whose Dockerfile builds on a base, built after the bases.
+      kits-on-base: ${{ steps.collect.outputs.kits-on-base }}
+      # Every other kit this run: mixins with no Dockerfile and images on other
+      # bases. They need neither base, so a base failure does not skip them.
+      kits-standalone: ${{ steps.collect.outputs.kits-standalone }}
+      # The kits this event actually touched, before base propagation. A kit
+      # rebuilt only because its base moved gets a fresh image and no new
+      # artifact: the artifact records the image as `:latest`, so it already
+      # points at the rebuilt image.
+      changed-kits: ${{ steps.collect.outputs.changed-kits }}
       # Every discovered kit, regardless of what changed — the drift check
       # validates all specs, not just the ones touched.
       all: ${{ steps.collect.outputs.all }}
@@ -282,8 +302,48 @@ jobs:
               ;;
           esac
 
-          echo "kits=${kits:-[]}" >> "$GITHUB_OUTPUT"
           echo "Building: ${kits}"
+
+          kits="${kits:-[]}"
+          echo "changed-kits=${kits}" >> "$GITHUB_OUTPUT"
+
+          # Base propagation. The shell-docker image is FROM the shell image and
+          # most kit images are FROM one of the two, so on a run that publishes
+          # (anything but a pull request) a base change rebuilds its dependents
+          # too; otherwise they keep running on yesterday's base until the
+          # nightly. Pull requests build only what changed: nothing is pushed,
+          # so a dependent built here would still pull the published base.
+          # Dependents are found by grepping Dockerfiles for the base reference
+          # rather than listed, for the same reason kits are discovered rather
+          # than listed. `|| true` inside the group keeps a grep with no match
+          # from failing the step under pipefail. A top-level directory with a
+          # Dockerfile but no spec is not a kit and must not become a matrix
+          # leg.
+          if [ "${{ github.event_name }}" != "pull_request" ]; then
+            if echo "${kits}" | jq -e 'any(.[]; . == "shell")' >/dev/null; then
+              deps=$({ grep -l -E '^(ARG BASE_IMAGE=["'"'"']?|FROM )docker\.io/sbx/shell-image(:|@|["'"'"']|$)' -- */Dockerfile || true; } | xargs -r -n1 dirname | jq -R . | jq -sc .)
+              kits=$(jq -nc --argjson a "${kits}" --argjson b "${deps}" --argjson all "${all}" '$a + ($b | map(select(. as $k | $all | index($k)))) + ["shell-docker"] | unique')
+            fi
+            if echo "${kits}" | jq -e 'any(.[]; . == "shell-docker")' >/dev/null; then
+              deps=$({ grep -l -E '^(ARG BASE_IMAGE=["'"'"']?|FROM )docker\.io/sbx/shell-docker-image(:|@|["'"'"']|$)' -- */Dockerfile || true; } | xargs -r -n1 dirname | jq -R . | jq -sc .)
+              kits=$(jq -nc --argjson a "${kits}" --argjson b "${deps}" --argjson all "${all}" '$a + ($b | map(select(. as $k | $all | index($k)))) | unique')
+            fi
+          fi
+          echo "After base propagation: ${kits}"
+
+          # Which kits build on a base at all, on every event (the propagation
+          # above runs only when publishing). The job graph needs the bases only
+          # for these: a base failure must not take the mixin artifacts and the
+          # kits on other bases down with it.
+          on_base=$({ grep -l -E '^(ARG BASE_IMAGE=["'"'"']?|FROM )docker\.io/sbx/shell(-docker)?-image(:|@|["'"'"']|$)' -- */Dockerfile || true; } | xargs -r -n1 dirname | jq -R . | jq -sc .)
+          rest=$(echo "${kits}" | jq -c 'map(select(. != "shell" and . != "shell-docker"))')
+
+          {
+            echo "build-shell=$(echo "${kits}" | jq -c 'any(.[]; . == "shell")')"
+            echo "build-shell-docker=$(echo "${kits}" | jq -c 'any(.[]; . == "shell-docker")')"
+            echo "kits-on-base=$(jq -nc --argjson r "${rest}" --argjson b "${on_base}" '$r | map(select(. as $k | $b | index($k)))')"
+            echo "kits-standalone=$(jq -nc --argjson r "${rest}" --argjson b "${on_base}" '$r | map(select(. as $k | $b | index($k) | not))')"
+          } >> "$GITHUB_OUTPUT"
 
           # Which of this run's kits also build their own image — decides
           # per-kit, in publish-one-kit.yml, whether its `image` job runs at
@@ -332,16 +392,61 @@ jobs:
   # One invocation per kit, each its own job graph: image → artifact → overview.
   # A matrix of three separate jobs would instead make every kit's artifact wait
   # for every kit's image, and let one kit's failure block another kit's publish.
-  kit:
+  #
+  # Four jobs rather than one matrix because the bases are ordered: `shell`
+  # publishes its image and re-points `:latest`, `shell-docker` pulls that, and
+  # the kits built on them pull one or both, so those chain by `needs`;
+  # `kit-standalone` waits on neither. `!cancelled()` plus explicit result
+  # checks let a skipped base pass (it did not change) while a failed base
+  # stops every kit built on either base.
+  shell:
     needs: [detect-changes, verify-spec-refs]
+    if: needs.detect-changes.outputs.build-shell == 'true'
+    permissions:
+      contents: read
+      id-token: write
+    uses: ./.github/workflows/publish-one-kit.yml
+    secrets: inherit
+    with:
+      kit: shell
+      dated: ${{ needs.detect-changes.outputs.dated }}
+      has-image: true
+      publish-artifact: ${{ github.event_name != 'schedule' && contains(fromJson(needs.detect-changes.outputs.changed-kits), 'shell') }}
+
+  shell-docker:
+    needs: [detect-changes, verify-spec-refs, shell]
     if: >-
-      needs.detect-changes.outputs.kits != '[]' &&
-      needs.detect-changes.outputs.kits != 'null' &&
-      needs.detect-changes.outputs.kits != ''
+      !cancelled() &&
+      needs.verify-spec-refs.result == 'success' &&
+      needs.detect-changes.outputs.build-shell-docker == 'true' &&
+      (needs.shell.result == 'success' || needs.shell.result == 'skipped')
+    permissions:
+      contents: read
+      id-token: write
+    uses: ./.github/workflows/publish-one-kit.yml
+    secrets: inherit
+    with:
+      kit: shell-docker
+      dated: ${{ needs.detect-changes.outputs.dated }}
+      has-image: true
+      publish-artifact: ${{ github.event_name != 'schedule' && contains(fromJson(needs.detect-changes.outputs.changed-kits), 'shell-docker') }}
+
+  kit:
+    needs: [detect-changes, verify-spec-refs, shell, shell-docker]
+    # `verify-spec-refs` is checked explicitly because `!cancelled()` turns off
+    # the implicit success check on every need, not just the two bases.
+    if: >-
+      !cancelled() &&
+      needs.verify-spec-refs.result == 'success' &&
+      needs.detect-changes.outputs.kits-on-base != '[]' &&
+      needs.detect-changes.outputs.kits-on-base != 'null' &&
+      needs.detect-changes.outputs.kits-on-base != '' &&
+      (needs.shell.result == 'success' || needs.shell.result == 'skipped') &&
+      (needs.shell-docker.result == 'success' || needs.shell-docker.result == 'skipped')
     strategy:
       fail-fast: false
       matrix:
-        kit: ${{ fromJson(needs.detect-changes.outputs.kits) }}
+        kit: ${{ fromJson(needs.detect-changes.outputs.kits-on-base) }}
     permissions:
       contents: read
       id-token: write
@@ -351,8 +456,33 @@ jobs:
       kit: ${{ matrix.kit }}
       dated: ${{ needs.detect-changes.outputs.dated }}
       has-image: ${{ contains(fromJson(needs.detect-changes.outputs.dockerfile-kits), matrix.kit) }}
-      # Every kit being built publishes its artifact — no allow-list, discovery
-      # is by spec.yaml alone (see the header comment). No `schedule` either — a
-      # kit's content is a pure function of the commit, so a nightly re-push
-      # would only mint a new digest for identical bytes.
-      publish-artifact: ${{ github.event_name != 'schedule' }}
+      # Every kit this event touched publishes its artifact, no allow-list:
+      # discovery is by spec.yaml alone (see the header comment). A kit rebuilt
+      # only by base propagation publishes none: the artifact records the image
+      # as `:latest` and already points at the rebuilt image. No `schedule`
+      # either, since a kit's content is a pure function of the commit, so a
+      # nightly re-push would only mint a new digest for identical bytes.
+      publish-artifact: ${{ github.event_name != 'schedule' && contains(fromJson(needs.detect-changes.outputs.changed-kits), matrix.kit) }}
+
+  # These kits do not build on either base, so they run as soon as the spec
+  # check passes and are unaffected by a base failure.
+  kit-standalone:
+    needs: [detect-changes, verify-spec-refs]
+    if: >-
+      needs.detect-changes.outputs.kits-standalone != '[]' &&
+      needs.detect-changes.outputs.kits-standalone != 'null' &&
+      needs.detect-changes.outputs.kits-standalone != ''
+    strategy:
+      fail-fast: false
+      matrix:
+        kit: ${{ fromJson(needs.detect-changes.outputs.kits-standalone) }}
+    permissions:
+      contents: read
+      id-token: write
+    uses: ./.github/workflows/publish-one-kit.yml
+    secrets: inherit
+    with:
+      kit: ${{ matrix.kit }}
+      dated: ${{ needs.detect-changes.outputs.dated }}
+      has-image: ${{ contains(fromJson(needs.detect-changes.outputs.dockerfile-kits), matrix.kit) }}
+      publish-artifact: ${{ github.event_name != 'schedule' && contains(fromJson(needs.detect-changes.outputs.changed-kits), matrix.kit) }}
