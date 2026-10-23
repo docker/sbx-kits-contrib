@@ -2,6 +2,8 @@ package tck
 
 import (
 	"errors"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/docker/sbx-kits-contrib/spec"
@@ -50,55 +52,80 @@ func TestBuildCreateArgsMixinOnDefaultBase(t *testing.T) {
 		"the OCI reference must land as the agent positional, right before the workspace")
 }
 
+func TestPublishedKitBase(t *testing.T) {
+	repo := t.TempDir()
+	copySpec := func(kit string) {
+		t.Helper()
+		data, err := os.ReadFile(filepath.Join("..", kit, "spec.yaml"))
+		require.NoError(t, err)
+		require.NoError(t, os.MkdirAll(filepath.Join(repo, kit), 0o755))
+		require.NoError(t, os.WriteFile(filepath.Join(repo, kit, "spec.yaml"), data, 0o644))
+	}
+	copySpec("codex")
+	copySpec("qemu")
+
+	t.Run("sandbox_kit_is_published", func(t *testing.T) {
+		base, ok := publishedKitBase(repo, "codex")
+		require.True(t, ok)
+		require.Equal(t, "docker.io/sbx/codex-kit:latest", base)
+	})
+	t.Run("mixin_is_not_a_base", func(t *testing.T) {
+		_, ok := publishedKitBase(repo, "qemu")
+		require.False(t, ok)
+	})
+	t.Run("missing_dir", func(t *testing.T) {
+		_, ok := publishedKitBase(repo, "nosuchagent")
+		require.False(t, ok)
+	})
+	t.Run("agent_with_a_path_separator", func(t *testing.T) {
+		_, ok := publishedKitBase(repo, "../codex")
+		require.False(t, ok)
+		_, ok = publishedKitBase(repo, "codex/x")
+		require.False(t, ok)
+	})
+	t.Run("empty_agent", func(t *testing.T) {
+		_, ok := publishedKitBase(repo, "")
+		require.False(t, ok)
+	})
+}
+
 func TestAgentForKit(t *testing.T) {
-	t.Run("sandbox_returns_manifest_name", func(t *testing.T) {
-		a := &spec.Artifact{Manifest: spec.Manifest{Kind: spec.KindSandbox, Name: "kiro"}}
-		require.Equal(t, "kiro", agentForKit(a))
-	})
-
-	t.Run("mixin_with_affinity_returns_required_agent", func(t *testing.T) {
-		a := &spec.Artifact{
-			Manifest: spec.Manifest{Kind: spec.KindMixin, Name: "aidlc-codex"},
-			Requires: &spec.Requires{Agent: "codex"},
+	repoRoot := filepath.Join("..")
+	mixin := func(requires string) *spec.Artifact {
+		a := &spec.Artifact{Manifest: spec.Manifest{Kind: spec.KindMixin, Name: "some-mixin"}}
+		if requires != "" {
+			a.Requires = &spec.Requires{Agent: requires}
 		}
-		require.Equal(t, "codex", agentForKit(a))
-	})
+		return a
+	}
+	const pinned = "docker.io/sbx/x:latest"
 
-	t.Run("mixin_without_requires_returns_default_base", func(t *testing.T) {
-		t.Setenv(mixinBaseEnv, "")
-		a := &spec.Artifact{Manifest: spec.Manifest{Kind: spec.KindMixin, Name: "qemu"}}
-		require.Equal(t, defaultMixinBase, agentForKit(a))
-	})
-
-	t.Run("mixin_without_requires_honours_env_override", func(t *testing.T) {
-		t.Setenv(mixinBaseEnv, "docker.io/sbx/shell-docker-kit:latest")
-		a := &spec.Artifact{Manifest: spec.Manifest{Kind: spec.KindMixin, Name: "qemu"}}
-		require.Equal(t, "docker.io/sbx/shell-docker-kit:latest", agentForKit(a))
-	})
-
-	t.Run("mixin_requiring_claude_composes_onto_the_base", func(t *testing.T) {
-		t.Setenv(mixinBaseEnv, "")
-		a := &spec.Artifact{
-			Manifest: spec.Manifest{Kind: spec.KindMixin, Name: "aidlc-claude"},
-			Requires: &spec.Requires{Agent: "claude"},
-		}
-		require.Equal(t, defaultMixinBase, agentForKit(a))
-	})
-
-	t.Run("mixin_requiring_claude_honours_env_override", func(t *testing.T) {
-		t.Setenv(mixinBaseEnv, "docker.io/sbx/shell-docker-kit:latest")
-		a := &spec.Artifact{
-			Manifest: spec.Manifest{Kind: spec.KindMixin, Name: "aidlc-claude"},
-			Requires: &spec.Requires{Agent: "claude"},
-		}
-		require.Equal(t, "docker.io/sbx/shell-docker-kit:latest", agentForKit(a))
-	})
-
-	t.Run("mixin_without_requires_ignores_blank_env_override", func(t *testing.T) {
-		t.Setenv(mixinBaseEnv, "  ")
-		a := &spec.Artifact{Manifest: spec.Manifest{Kind: spec.KindMixin, Name: "qemu"}}
-		require.Equal(t, defaultMixinBase, agentForKit(a))
-	})
+	tests := []struct {
+		name         string
+		art          *spec.Artifact
+		env          string
+		wantPosition string
+		wantFallback string
+	}{
+		{"sandbox returns manifest name",
+			&spec.Artifact{Manifest: spec.Manifest{Kind: spec.KindSandbox, Name: "kiro"}}, "", "kiro", ""},
+		{"affinity to a published kit", mixin("codex"), "", "docker.io/sbx/codex-kit:latest", "codex"},
+		{"affinity to an unpublished agent", mixin("nosuchagent"), "", "nosuchagent", ""},
+		{"affinity to claude, no pin", mixin("claude"), "", defaultMixinBase, "claude"},
+		{"affinity to claude, pinned", mixin("claude"), pinned, pinned, ""},
+		{"no affinity, no pin", mixin(""), "", defaultMixinBase, "claude"},
+		{"no affinity, pinned", mixin(""), pinned, pinned, ""},
+		{"no affinity, blank pin", mixin(""), "  ", defaultMixinBase, "claude"},
+		{"affinity to codex ignores the pin", mixin("codex"), pinned, "docker.io/sbx/codex-kit:latest", "codex"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv(mixinBaseEnv, tc.env)
+			gotPos, gotFallback := agentForKit(tc.art, repoRoot)
+			require.Equal(t, tc.wantPosition, gotPos)
+			require.Equal(t, tc.wantFallback, gotFallback)
+		})
+	}
 }
 
 func TestBuildCreateArgsMixinWithKitArgFlags(t *testing.T) {
@@ -143,28 +170,34 @@ func TestBuildCreateArgsMixinWithPullPolicy(t *testing.T) {
 
 func TestShouldFallBackToBuiltin(t *testing.T) {
 	collisionOut := `ERROR: agent "claude" is already registered (` + builtinCollisionMarker + ")"
+	codexOut := `ERROR: agent "codex" is already registered (` + builtinCollisionMarker + ")"
+	const codexKit = "docker.io/sbx/codex-kit:latest"
 	fail := errors.New("exit status 1")
 
 	tests := []struct {
-		name  string
-		kind  string
-		agent string
-		err   error
-		out   string
-		want  bool
+		name     string
+		kind     string
+		agent    string
+		fallback string
+		err      error
+		out      string
+		want     bool
 	}{
-		{"mixin on default, collision", spec.KindMixin, defaultMixinBase, fail, collisionOut, true},
-		{"mixin on default, other failure", spec.KindMixin, defaultMixinBase, fail, "ERROR: image pull failed", false},
-		{"mixin on default, no error", spec.KindMixin, defaultMixinBase, nil, collisionOut, false},
-		{"mixin on default, collision names another agent", spec.KindMixin, defaultMixinBase, fail,
+		{"mixin on default, collision", spec.KindMixin, defaultMixinBase, "claude", fail, collisionOut, true},
+		{"mixin on default, other failure", spec.KindMixin, defaultMixinBase, "claude", fail, "ERROR: image pull failed", false},
+		{"mixin on default, no error", spec.KindMixin, defaultMixinBase, "claude", nil, collisionOut, false},
+		{"mixin on default, collision names another agent", spec.KindMixin, defaultMixinBase, "claude", fail,
 			`ERROR: agent "qemu" is already registered (` + builtinCollisionMarker + ")", false},
-		{"sandbox on default, collision", spec.KindSandbox, defaultMixinBase, fail, collisionOut, false},
-		{"mixin on pinned base, collision", spec.KindMixin, "docker.io/sbx/shell-docker-kit:latest", fail, collisionOut, false},
-		{"mixin on built-in, collision", spec.KindMixin, "claude", fail, collisionOut, false},
+		{"sandbox on default, collision", spec.KindSandbox, defaultMixinBase, "claude", fail, collisionOut, false},
+		{"mixin on pinned base, no fallback", spec.KindMixin, "docker.io/sbx/shell-docker-kit:latest", "", fail, collisionOut, false},
+		{"mixin already on the built-in", spec.KindMixin, "claude", "claude", fail, collisionOut, false},
+		{"mixin on codex kit, collision names codex", spec.KindMixin, codexKit, "codex", fail, codexOut, true},
+		{"mixin on codex kit, collision names claude", spec.KindMixin, codexKit, "codex", fail, collisionOut, false},
+		{"mixin on codex kit, no fallback", spec.KindMixin, codexKit, "", fail, codexOut, false},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			require.Equal(t, tc.want, shouldFallBackToBuiltin(tc.kind, tc.agent, tc.err, tc.out))
+			require.Equal(t, tc.want, shouldFallBackToBuiltin(tc.kind, tc.agent, tc.fallback, tc.err, tc.out))
 		})
 	}
 }
