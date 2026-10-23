@@ -52,7 +52,7 @@ setup:
         mkdir -p /home/agent/.claude
         if [ ! -f /home/agent/.claude/settings.json ]; then
           HELPER=''
-          if [ "${SBX_CRED_ANTHROPIC_MODE:-none}" != none ]; then
+          if [ "${SBX_CRED_ANTHROPIC_MODE:-none}" = apikey ]; then
             HELPER='  "apiKeyHelper": "echo proxy-managed",
         '
           fi

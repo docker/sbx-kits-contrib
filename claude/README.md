@@ -97,9 +97,9 @@ that may not exist.
 
 Without it, the variable is simply not populated, and the sentinel Claude Code
 is meant to send arrives by a different route: a `setup.install` hook writes
-`"apiKeyHelper": "echo proxy-managed"` into `~/.claude/settings.json` whenever a
-credential resolved, and the `inject` rules above swap the real value in at
-request time. The container never holds a usable key either way.
+`"apiKeyHelper": "echo proxy-managed"` into `~/.claude/settings.json` when the
+bound credential is an API key, and the `inject` rules above swap the real
+value in at request time. The container never holds a usable key either way.
 
 ### API key or Claude subscription
 
@@ -117,6 +117,9 @@ The file also carries `primaryApiKey` when the host holds a key minted from the
 subscription, and only then — which is why that file is declared as a template
 rather than the `structure:` map the spec prefers: a declarative map cannot
 express a conditional key.
+
+No `apiKeyHelper` is written for a subscription. Claude Code would otherwise
+run as an API-key session and disable its claude.ai connectors.
 
 ## Telemetry
 
