@@ -107,9 +107,9 @@ that may not exist.
 
 Without it, the variable is simply not populated, and the sentinel Claude Code
 is meant to send arrives by a different route: a lifecycle install hook writes
-`"apiKeyHelper": "echo proxy-managed"` into `~/.claude/settings.json` whenever a
-credential resolved, and the `inject` rules above swap the real value in at
-request time. The container never holds a usable key either way.
+`"apiKeyHelper": "echo proxy-managed"` into `~/.claude/settings.json` when the
+bound credential is an API key, and the `inject` rules above swap the real
+value in at request time. The container never holds a usable key either way.
 
 ### API key or Claude subscription
 
@@ -128,6 +128,9 @@ subscription, and only then. Under v2 that conditional key was why the file had
 to be declared as a Go template rather than a declarative map; v3's
 `credentialFile.structure` expresses it directly — `{{.PrimaryApiKey}}` omits its
 own key when no key is captured — so the kit now declares the map.
+
+No `apiKeyHelper` is written for a subscription. Claude Code would otherwise
+run as an API-key session and disable its claude.ai connectors.
 
 ## Telemetry
 

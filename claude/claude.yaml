@@ -181,11 +181,11 @@ capabilities:
         # environment outranks the OAuth credentials file the block below
         # writes — so a sentinel parked in that variable would shadow a bound
         # subscription on every sandbox, and the session would authenticate as
-        # a console API key that may not exist. The sentinel Claude Code is
-        # meant to send arrives by a different route: `apiKeyHelper` in
-        # ~/.claude/settings.json (seeded by the install hook below) echoes
-        # `proxy-managed`, and the inject rules here swap the real value in at
-        # request time.
+        # a console API key that may not exist. In API-key mode the sentinel
+        # Claude Code is meant to send arrives by a different route:
+        # `apiKeyHelper` in ~/.claude/settings.json (seeded by the install hook
+        # below) echoes `proxy-managed`, and the inject rules here swap the
+        # real value in at request time.
         name: ANTHROPIC_API_KEY
         # All four domains are in this phase's allow list above, so all four
         # rules survive the migration. (The built-in this kit was extracted
@@ -311,13 +311,15 @@ capabilities:
         # Seed ~/.claude/settings.json, branching on the auth mode surfaced via
         # the SBX_CRED_ANTHROPIC_MODE container env var (the engine derives it
         # from the host-side credential signal). apiKeyHelper="echo
-        # proxy-managed" is included only when a credential resolved (mode !=
-        # none); without it Claude Code prompts for /login. settings.json is
-        # kit-managed and rewritten unconditionally on every (re)create, so it
-        # always reflects the current SBX_CRED_ANTHROPIC_MODE (a mode change on
-        # recreate is picked up). Content is deterministic from the mode, so
-        # the rewrite is idempotent. The bypass/trust flags live in
-        # ~/.claude.json (seeded by the root install command above).
+        # proxy-managed" is included only in API-key mode. A subscription signs
+        # in from ~/.claude/.credentials.json, and the helper would make Claude
+        # Code treat it as an API-key session that loses its claude.ai
+        # connectors. settings.json is kit-managed and rewritten
+        # unconditionally on every (re)create, so it always reflects the
+        # current SBX_CRED_ANTHROPIC_MODE (a mode change on recreate is picked
+        # up). Content is deterministic from the mode, so the rewrite is
+        # idempotent. The bypass/trust flags live in ~/.claude.json (seeded by
+        # the root install command above).
         #
         # defaultMode must sit under "permissions": Claude Code reads only
         # permissions.defaultMode and silently ignores the key elsewhere.
@@ -328,7 +330,7 @@ capabilities:
             set -e
             mkdir -p /home/agent/.claude
             HELPER=''
-            if [ "${SBX_CRED_ANTHROPIC_MODE:-none}" != none ]; then
+            if [ "${SBX_CRED_ANTHROPIC_MODE:-none}" = apikey ]; then
               HELPER='  "apiKeyHelper": "echo proxy-managed",
             '
             fi

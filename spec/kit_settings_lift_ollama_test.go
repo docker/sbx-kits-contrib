@@ -45,10 +45,8 @@ func TestClaudeOllamaSettingsLift(t *testing.T) {
 	require.Equal(t, claudeSettingsNone,
 		runSettingsInstallScript(t, ic.Command, "SBX_CRED_ANTHROPIC_MODE="))
 
-	// (c) apikey branch parity: the lifted script is copy-shared across the
-	// claude-family kits, so its apikey path must still produce the
-	// apiKeyHelper oracle even though this kit never sets the mode in a real
-	// container. This guards the shared script contract against drift.
+	// (c) apikey branch parity for the frozen v2 script, which predates the
+	// apikey-only rule. kit_settings_cred_mode_test.go covers the live kits.
 	require.Equal(t, claudeSettingsAPIKey,
 		runSettingsInstallScript(t, ic.Command, "SBX_CRED_ANTHROPIC_MODE=apikey"))
 }
