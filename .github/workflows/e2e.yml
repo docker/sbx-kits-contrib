@@ -89,6 +89,13 @@ jobs:
     # (Docker Hub secrets are not exposed there).
     strategy:
       fail-fast: false
+      # Every leg signs in to Docker Hub and sbx reads the org's admin
+      # settings from Hub on create. A wide matrix (all kits, three lanes)
+      # fired 200+ of those within a minute from one account and Hub
+      # throttled it: logins answered 429 and creates failed with
+      # "administrator settings are unavailable". The cap keeps the
+      # per-lane rate under that limit; the login step also retries.
+      max-parallel: 10
       matrix:
         kit: ${{ fromJson(inputs.kits) }}
     runs-on: ubuntu-latest
