@@ -13,11 +13,14 @@ The descriptor and recipe are the `examples/shell` kit from
 [sandbox-kit-spec](https://github.com/docker/sandbox-kit-spec), published here
 so `sbx` can resolve it by name.
 
-The recipe forward-ports the certificate-trust fixes from shell template
-0.10.0 while retaining DHI: Go 1.27.3, uv 0.13.4, GitHub CLI 2.102.1 or newer, and
-clipboardbridge v0.3.1. It also updates DHI's pip to 26.2.2 to refresh its
-vendored certificate bundle. Go, uv and pip remain DHI-managed packages;
-GitHub CLI uses its signed upstream apt repository.
+The recipe refreshes certificate trust from DHI's signed apt repository:
+uv 0.13.4, GitHub CLI 2.103.0, pip 26.2.2 (including its virtual-environment
+wheel), Node 24.22.1, Docker 29.9.2, Buildx 0.38.1, Compose 5.6.1 and
+containerd 2.4.2-1, or newer package revisions. The Docker and containerd
+binaries are rebuilt with patched Go; updating the installed compiler alone
+does not fix existing binaries. The base's Go toolchain and clipboard bridge
+already use patched Go 1.26.10 and are retained.
+No extra apt repository or standalone binary download is needed.
 
 Two things to use it for:
 
@@ -65,8 +68,7 @@ services.
 
 - **`sbx@1`.** The host launches the image's command and honors the image's
   user.
-- **Network.** `deb.debian.org`, `dhi.io` and `cli.github.com`, the configured
-  apt sources.
+- **Network.** `deb.debian.org` and `dhi.io`, the configured apt sources.
   Nothing else: a sandbox that needs more should declare it in its own kit or
   widen the policy for that sandbox.
 - **`AGENTS.md`.** The profile file composed kits write their guidance into. A
@@ -83,7 +85,7 @@ The base ships an empty apt cache, so refresh it before the first install:
 sudo apt-get update && sudo apt-get install -y <package>
 ```
 
-All three apt sources are in the allow list above, so this works under a deny-all
+Both apt sources are in the allow list above, so this works under a deny-all
 policy without widening anything.
 
 ## Launch command
