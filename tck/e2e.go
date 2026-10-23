@@ -372,13 +372,13 @@ func isHubThrottled(err error, out string) bool {
 }
 
 // runCreate runs one sbx create argv, retrying only a Hub throttle (see
-// hubThrottledMarker) a few times with backoff.
+// hubThrottledMarker) up to four more times with backoff (15s to 2m).
 func runCreate(t *testing.T, ctx context.Context, appName string, args ...string) (string, error) {
 	t.Helper()
 	delay := 15 * time.Second
 	for attempt := 1; ; attempt++ {
 		out, err := runSbx(t, ctx, appName, args...)
-		if !isHubThrottled(err, out) || attempt == 4 {
+		if !isHubThrottled(err, out) || attempt == 5 {
 			return out, err
 		}
 		t.Logf("NOTICE: Docker Hub throttled this account (attempt %d); retrying sbx create in %s.\n%s", attempt, delay, out)
