@@ -27,8 +27,12 @@ agentInstructions:
 permissions:
   network:
     allow:
-      # Install time: the t3 tarball and its platform package.
+      # Install time: the t3 tarball and its platform package from npm, then
+      # the platform binary and its SHA256SUMS from the t3code GitHub release
+      # (github.com redirects release downloads to release-assets).
       - registry.npmjs.org:443
+      - github.com:443
+      - release-assets.githubusercontent.com:443
       # libatomic1, on a base image that does not already have it. apt-get
       # update refreshes every configured source, so all of them must be
       # reachable: amd64 uses archive/security, arm64 uses ports.ubuntu.com,
