@@ -379,15 +379,14 @@ token resolves.
 
 ## Base image
 
-Unlike most kits here — which are `kind: mixin` or `kind: agent` and layer
-onto an existing `docker/sandbox-templates` image — a `kind: sandbox` kit
-*is* the whole environment, so it names the image the sandbox boots from.
-This kit builds and publishes its own, from the `Dockerfile` in this
-directory:
+Unlike a `kind: mixin` kit, which layers onto the image of the agent it is
+composed with, a `kind: sandbox` kit *is* the whole environment, so it names the
+image the sandbox boots from. This kit builds and publishes its own, from the
+`Dockerfile` in this directory:
 
 ```
 docker.io/sbx/openclaw-image
-└── FROM ${BASE_IMAGE}  (defaults to docker/sandbox-templates:shell-docker)
+└── FROM ${BASE_IMAGE}  (defaults to docker.io/sbx/shell-docker-image:latest)
     ├── Node 24 (openclaw 2026.9.3 requires >= 24.16.0 < 25, or >= 26.1.0)
     ├── openclaw @ pinned version   npm global install (+ /usr/local/bin symlink)
     └── /opt/ms-playwright          Chromium + xvfb for the browser tool

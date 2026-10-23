@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1.7
 # Base image for the `hermes-agent` sandbox kit.
-ARG BASE_IMAGE=docker/sandbox-templates:shell
+ARG BASE_IMAGE=docker.io/sbx/shell-image:latest
 FROM ${BASE_IMAGE}
 
 # Re-declared inside the stage: an ARG defined before the first FROM is a global

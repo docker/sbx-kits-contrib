@@ -5,7 +5,7 @@ Base image for the Codex agent kit for
 
 ## Contents
 
-Built on `docker/sandbox-templates:shell-docker`: the standard sandbox tool
+Built on `docker.io/sbx/shell-docker-image`: the standard sandbox tool
 chain plus a Docker engine, requesting Docker-in-Docker via
 `com.docker.sandboxes.start-docker=true`. On top of that:
 

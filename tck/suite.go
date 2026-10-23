@@ -20,8 +20,9 @@ import (
 )
 
 const (
-	// DefaultShellImage is the Docker image used for kind=mixin container tests.
-	DefaultShellImage = "docker/sandbox-templates:shell-docker"
+	// DefaultShellImage is the base for kind=mixin container tests: the superset
+	// image, so a mixin tested here sees every tool either base ships.
+	DefaultShellImage = "docker.io/sbx/shell-docker-image:latest"
 
 	// HomeDir is the agent's home directory inside sandbox containers.
 	HomeDir = "/home/agent"
@@ -633,7 +634,8 @@ func containerImage(a *spec.Artifact) (string, error) {
 
 // wellKnownTemplates maps agent names to their published template images.
 var wellKnownTemplates = map[string]string{
-	"shell":        "docker/sandbox-templates:shell-docker",
+	"shell":        "docker.io/sbx/shell-image:latest",
+	"shell-docker": "docker.io/sbx/shell-docker-image:latest",
 	"claude":       "docker/sandbox-templates:claude-code-docker",
 	"codex":        "docker/sandbox-templates:codex-docker",
 	"copilot":      "docker/sandbox-templates:copilot-docker",

@@ -5,8 +5,8 @@ Base image for the Open Interpreter kit for
 
 ## Contents
 
-Built on `docker/sandbox-templates:shell` — the standard sandbox toolchain,
-no Docker engine (Open Interpreter never shells out to `docker` itself, so
+Built on `docker.io/sbx/shell-image`, the standard sandbox toolchain
+with no Docker engine (Open Interpreter never shells out to `docker` itself, so
 it does not need one). On top of that:
 
 - `gcc` / `python3-dev`, a C compiler for building `psutil` from source on

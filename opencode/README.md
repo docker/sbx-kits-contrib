@@ -229,13 +229,13 @@ kit is picked up rather than written somewhere the agent never looks.
 
 ## Base image
 
-Unlike most kits here — which are `kind: mixin` and layer onto an existing
-`docker/sandbox-templates` image — a `kind: sandbox` kit *is* the whole
-environment, so it names the image the sandbox boots from. This kit builds and
-publishes its own, from the `Dockerfile` in this directory.
+Unlike a `kind: mixin` kit, which layers onto the image of the agent it is
+composed with, a `kind: sandbox` kit *is* the whole environment, so it names the
+image the sandbox boots from. This kit builds and publishes its own, from the
+`Dockerfile` in this directory.
 
 The image is **`docker.io/sbx/opencode-image`**, built on
-`docker/sandbox-templates:shell-docker`, so it carries a Docker engine and
+`docker.io/sbx/shell-docker-image`, so it carries a Docker engine and
 requests Docker-in-Docker — matching the agent this kit replaces, which
 resolved to the Docker flavour of its template.
 
