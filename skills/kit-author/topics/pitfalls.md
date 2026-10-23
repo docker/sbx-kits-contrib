@@ -107,7 +107,7 @@ When debugging "auth header isn't appearing": confirm the user's `~/.config/sbx/
 
 A subtle network trap from the repository README, worth restating here: `apt-get update` re-fetches metadata for every file in `/etc/apt/sources.list[.d/]` — including sources the base template added. If *any* of those returns non-2xx (because it's not in your `permissions.network.allow`), `apt-get` exits non-zero even if the package you want is in a different source.
 
-For kits built on `shell-docker` / `*-docker` templates that means `download.docker.com` and `cli.github.com` (Docker's and GitHub CLI's apt repos, pre-added by the base) need to be in your `permissions.network.allow` even if you're only installing something from Ubuntu's main archive.
+For kits built on either shell base (or a `*-docker` template) that means `download.docker.com` and `cli.github.com` (Docker's and GitHub CLI's apt repos, pre-added by the base) need to be in your `permissions.network.allow` even if you're only installing something from Ubuntu's main archive.
 
 For Ubuntu cross-arch coverage, list all three: `archive.ubuntu.com` and `security.ubuntu.com` (amd64) + `ports.ubuntu.com` (arm64). CI is amd64; many developer Macs are arm64.
 

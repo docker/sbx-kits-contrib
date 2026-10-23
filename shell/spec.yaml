@@ -2,8 +2,9 @@ schemaVersion: "2"
 kind: sandbox
 name: shell
 # The KIT's version, not a tool's. This kit installs nothing, so a rebuilt base
-# image does not bump it; it covers the declarations in this file.
-version: "1.0.1"
+# image does not bump it; it covers the declarations in this file. 2.0.0 marks
+# the image dropping its Docker engine, which the shell-docker kit now carries.
+version: "2.0.0"
 displayName: Shell sandbox
 # One line, not a block scalar: scripts/kit-meta.sh reads this with awk rather
 # than a YAML parser, and hub-overview.yml publishes whatever it reads as the
@@ -13,8 +14,9 @@ description: An agentless sandbox launched as a login shell, with provider crede
 sandbox:
   # Built from the Dockerfile beside this spec and published by
   # .github/workflows/build-and-publish-kits.yml. The image installs no agent:
-  # it is the sandbox toolchain, the `agent` user and a Docker engine, built
-  # from Ubuntu by this kit's own recipe so the kit owns what it ships.
+  # it is the sandbox toolchain and the `agent` user, built from Ubuntu by this
+  # kit's own recipe so the kit owns what it ships. It has no Docker engine;
+  # the shell-docker kit layers one on top of this image.
   #
   # This value is the source of truth for what CI builds and publishes: the
   # workflow reads it from here rather than deriving a name, because a spec is
