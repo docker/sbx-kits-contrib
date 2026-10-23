@@ -5,7 +5,7 @@ Base image for the OpenHands kit for
 
 ## Contents
 
-Built on `docker/sandbox-templates:shell` — the standard sandbox toolchain,
+Built on `docker.io/sbx/shell-image` — the standard sandbox toolchain,
 no Docker engine. This kit runs with `SANDBOX_TYPE=local`, and the OpenHands
 CLI's own workspace setup always resolves to `LocalWorkspace` (a subprocess,
 not a container) regardless of that variable, so there is nothing here that

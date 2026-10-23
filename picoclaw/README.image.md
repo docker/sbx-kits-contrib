@@ -5,7 +5,7 @@ Base image for the PicoClaw kit for
 
 ## Contents
 
-Built on `docker/sandbox-templates:shell` — the standard sandbox toolchain,
+Built on `docker.io/sbx/shell-image` — the standard sandbox toolchain,
 no Docker engine (PicoClaw is an agent CLI plus a channel gateway; neither
 touches a container engine). On top of that:
 

@@ -90,14 +90,14 @@ host-side.
 
 ## Base image
 
-Unlike most kits here — which are `kind: mixin` or `kind: agent` and layer
-onto an existing `docker/sandbox-templates` image — a `kind: sandbox` kit *is*
-the whole environment, so it names the image the sandbox boots from. This kit
-builds and publishes its own, from the `Dockerfile` in this directory:
+Unlike most kits here — which are `kind: mixin` or `kind: agent` and layer onto
+the image of the agent they are composed with — a `kind: sandbox` kit *is* the
+whole environment, so it names the image the sandbox boots from. This kit builds
+and publishes its own, from the `Dockerfile` in this directory:
 
 ```
 docker.io/sbx/junie-image
-└── FROM docker/sandbox-templates:shell
+└── FROM docker.io/sbx/shell-image:latest
     └── junie (upstream's own install.sh, stable channel)
         ENV JUNIE_SKIP_UPDATE_CHECK=1
 ```
