@@ -26,6 +26,7 @@ permissions:
       - security.ubuntu.com:80
       - ports.ubuntu.com:80
       - download.docker.com:443
+      - cli.github.com:443
 setup:
   # `mount` only buys the startup hook's idempotency fast path, so failing to
   # install it must not fail sandbox creation: hence no `set -e`, explicit
