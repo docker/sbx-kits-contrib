@@ -114,6 +114,29 @@ Local OpenAI OAuth enrollment is global; sandbox binding approval controls
 access to that grant and does not create a separate per-sandbox OAuth grant.
 Existing sandboxes do not gain newly registered global secrets automatically.
 
+### Single-account scope and in-sandbox Codex login
+
+This integration supports one Docker-managed ChatGPT OAuth binding. Hermes'
+multiple-Codex-account pool is not supported alongside that binding. This is
+the scope of this adapter, not a claim that Docker universally prohibits
+multiple OAuth identities or custom credential configurations.
+
+The startup conflict check does not disable Hermes' native login/auth-add
+commands while Hermes is running. Tests against 0.21.3 and 0.22.5, with fixture
+OAuth results and network access disabled, establish that a forced native login
+can replace the managed singleton if it receives native tokens. `hermes auth add
+openai-codex` can instead persist an independent pool entry while retaining the
+managed singleton. In either case, the next startup bridge rejects the conflict
+without modifying the stored credentials. It does not reconcile the accounts
+or promote an in-sandbox login into Docker's host secret store.
+
+Actual second-account login, Docker's proxy/header and OAuth-response handling,
+account selection during inference, refresh, and failover remain untested on a
+Docker Sandboxes host. These local tests do not establish which account a live
+request would use. Do not combine native Codex login/auth-add with the managed
+binding; keep credential enrollment and account selection under Docker's host
+controls. Unrelated providers remain separate from this Codex-account restriction.
+
 ### Catalog compatibility
 
 The image adapts two verified Hermes implementations:

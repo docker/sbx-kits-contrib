@@ -59,3 +59,16 @@ catalog-query backport. A fresh v0.22.5 sandbox with the managed gate adapter
 selected gpt-6.1-sol and returned the requested OK response. This confirms that
 account's inference path; it does not establish Astra entitlement, full picker
 coverage, host refresh/revocation, mixin/gateway behavior, or policy negatives.
+
+## Native-account mutation tests (offline)
+
+`test_codex_account_conflicts.py` exercises actual Hermes login and auth-add
+command/store paths against both 0.21.3 and 0.22.5 with simulated OAuth results
+and socket connections forbidden. A forced native login can replace the
+managed singleton; auth-add can persist an independent pool entry while
+retaining it. The next bridge invocation rejects either conflict without
+rewriting credentials. This guard is at startup, not at the point of login.
+These tests do not validate a live second-account OAuth exchange, Docker proxy
+credential/response substitution, request-account identity, failover, or refresh.
+Do not use real second-account credentials in a managed sandbox as an ordinary
+validation step; that needs a separately scoped host test and test accounts.
