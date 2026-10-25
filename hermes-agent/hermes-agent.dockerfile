@@ -144,6 +144,24 @@ ENV HERMES_HOME=/home/agent/.hermes
 # hermes-agent.yaml) because that is what v2 did and it works either way.
 COPY --chown=agent:agent --chmod=0755 files/home/.local/bin/hermes-start.sh /home/agent/.local/bin/hermes-start.sh
 COPY --chown=agent:agent --chmod=0755 files/home/.local/bin/hermes-credential-auth.sh /home/agent/.local/bin/hermes-credential-auth.sh
+COPY --chown=agent:agent --chmod=0755 files/home/.local/bin/hermes-codex-auth.py /home/agent/.local/bin/hermes-codex-auth.py
+# The pinned release queries client_version=0.0.0, which returns the legacy
+# catalog. Backport version negotiation without mixing in the release upgrade.
+COPY --chown=agent:agent --chmod=0755 files/home/.local/bin/hermes-codex-catalog-compat.py /home/agent/.local/bin/hermes-codex-catalog-compat.py
+COPY --chown=agent:agent --chmod=0755 files/home/.local/bin/hermes-managed-catalog-compat.py /home/agent/.local/bin/hermes-managed-catalog-compat.py
+# Older releases use an in-tree venv; PM releases select a generation.
+# Resolve the installed interpreter without syncing or altering credentials.
+RUN set -eu; \
+    kit_python="$HOME/.hermes/hermes-agent/venv/bin/python"; \
+    if [ ! -x "$kit_python" ]; then \
+      bootstrap_py="$("$HOME/.local/bin/hermes" --print-runtime-command | jq -er '.[0]')"; \
+      cd "$HOME/.hermes/hermes-agent"; \
+      kit_python="$("$bootstrap_py" -c 'from pathlib import Path; from pm.environments import project_python; print(project_python(Path.cwd()))')"; \
+    fi; \
+    test -x "$kit_python"; \
+    ln -s "$kit_python" "$HOME/.local/bin/hermes-kit-python"; \
+    "$kit_python" "$HOME/.local/bin/hermes-codex-catalog-compat.py"
+
 
 # A PATH convenience, kept from v2. Its original rationale -- "so the image's
 # own CMD works standalone, independent of the kit's files/home/ copy" -- no
