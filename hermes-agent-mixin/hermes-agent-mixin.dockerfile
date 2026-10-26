@@ -120,7 +120,8 @@ RUN set -eu; \
       kit_python="$("$bootstrap_py" -c 'from pathlib import Path; from pm.environments import project_python; print(project_python(Path.cwd()))')"; \
     fi; \
     test -x "$kit_python"; \
-    ln -s "$kit_python" "$HOME/.local/bin/hermes-kit-python"; \
+    printf '#!/bin/sh\nexec "%s" "$@"\n' "$kit_python" > "$HOME/.local/bin/hermes-kit-python"; \
+    chmod +x "$HOME/.local/bin/hermes-kit-python"; \
     "$kit_python" "$HOME/.local/bin/hermes-codex-catalog-compat.py"
 
 
