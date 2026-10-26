@@ -460,17 +460,28 @@ type stagedEntry struct {
 // followed, leaving the loader something to resolve and check: a relative
 // in-tree target lands inside the copy, an absolute one wherever it points.
 func stageExpandedKit(dir, specName string, specContent []byte, values map[string]string) (string, error) {
-	// The walk below lstats what it is given, so a kit directory that is
-	// itself a symlink would yield one entry and no tree. The loader accepts
-	// such a kit; resolving here keeps staging able to copy it.
-	kitDir, err := filepath.EvalSymlinks(dir)
+	expanded := specContent != nil
+
+	kitDir, entries, err := planKitTree(dir, specName, specContent,
+		func(rel, path string, e *stagedEntry) error {
+			if !strings.HasPrefix(rel, "files/") {
+				return nil
+			}
+			content, err := expandFileContent(path, rel, specName, values)
+			if err != nil {
+				return err
+			}
+			if content != nil {
+				expanded = true
+				e.content = content
+			}
+			return nil
+		})
 	if err != nil {
 		return "", fmt.Errorf("stage expanded kit: %w", err)
 	}
-
-	entries, expanded, err := planStaging(kitDir, specName, specContent, values)
-	if err != nil || !expanded {
-		return "", err
+	if !expanded {
+		return "", nil
 	}
 
 	root, err := os.MkdirTemp("", "tck-kit-args-")
@@ -482,6 +493,30 @@ func stageExpandedKit(dir, specName string, specContent []byte, values map[strin
 		return "", fmt.Errorf("stage expanded kit: %w", err)
 	}
 	return root, nil
+}
+
+// expandFileContent returns path's content with every argument reference
+// substituted, or nil content when nothing was substituted.
+func expandFileContent(path, rel, specName string, values map[string]string) ([]byte, error) {
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	if !bytes.Contains(raw, []byte(refOpen)) {
+		return nil, nil
+	}
+	src := string(raw)
+	out, refs, err := scanArgs(src, values)
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", rel, err)
+	}
+	if err := undeclaredError(rel, refs, values, specName); err != nil {
+		return nil, err
+	}
+	if out == src {
+		return nil, nil
+	}
+	return []byte(out), nil
 }
 
 // removeStaging deletes a staging tree, restoring owner write access on the
@@ -497,22 +532,25 @@ func removeStaging(root string) {
 	_ = os.RemoveAll(root)
 }
 
-// planStaging walks dir, substituting the files/ content an argument reference
-// may appear in and recording every other path for a verbatim copy. expanded
-// reports whether anything — here or in the already-expanded spec file — was
-// actually substituted.
+// planKitTree walks the kit at dir and returns its symlink-resolved root with
+// one stagedEntry per path under it: specContent stands in for the spec file's
+// bytes, and onFile may give any other regular file content of its own.
 //
 // Anything that is neither a regular file, a directory nor a symlink is left
-// out rather than opened: a fifo would block the walk forever, and whether
-// such an entry matters to a kit is the loader's judgement to make.
-func planStaging(dir, specName string, specContent []byte, values map[string]string) (entries []stagedEntry, expanded bool, err error) {
-	expanded = specContent != nil
+// out rather than opened: a fifo would block the walk forever.
+func planKitTree(dir, specName string, specContent []byte, onFile func(rel, path string, e *stagedEntry) error) (root string, entries []stagedEntry, err error) {
+	// A kit root that is itself a symlink would otherwise yield one entry and
+	// no tree, and a spec rewrite would write through to the real kit.
+	root, err = filepath.EvalSymlinks(dir)
+	if err != nil {
+		return "", nil, err
+	}
 
-	err = filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
+	err = filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
-		rel, err := filepath.Rel(dir, path)
+		rel, err := filepath.Rel(root, path)
 		if err != nil {
 			return err
 		}
@@ -530,8 +568,7 @@ func planStaging(dir, specName string, specContent []byte, values map[string]str
 		switch {
 		case rel == specName:
 			// Ahead of the symlink case: a spec file reached through a link
-			// must still be staged as the substituted bytes, not as a link
-			// back to text nothing has substituted.
+			// stages as the given bytes, not as a link back to the text they replace.
 			target, err := os.Stat(path)
 			if err != nil {
 				return err
@@ -545,25 +582,9 @@ func planStaging(dir, specName string, specContent []byte, values map[string]str
 			}
 		case !info.Mode().IsRegular():
 			return nil
-		case strings.HasPrefix(rel, "files/"):
-			raw, err := os.ReadFile(path)
-			if err != nil {
+		case onFile != nil:
+			if err := onFile(rel, path, &entry); err != nil {
 				return err
-			}
-			if !bytes.Contains(raw, []byte(refOpen)) {
-				break
-			}
-			src := string(raw)
-			out, refs, err := scanArgs(src, values)
-			if err != nil {
-				return fmt.Errorf("%s: %w", rel, err)
-			}
-			if err := undeclaredError(rel, refs, values, specName); err != nil {
-				return err
-			}
-			if out != src {
-				expanded = true
-				entry.content = []byte(out)
 			}
 		}
 
@@ -571,9 +592,9 @@ func planStaging(dir, specName string, specContent []byte, values map[string]str
 		return nil
 	})
 	if err != nil {
-		return nil, false, fmt.Errorf("plan the expanded copy of %s: %w", dir, err)
+		return "", nil, err
 	}
-	return entries, expanded, nil
+	return root, entries, nil
 }
 
 func writeStaging(root, kitDir string, entries []stagedEntry) error {

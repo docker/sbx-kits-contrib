@@ -6,7 +6,7 @@ app for managing AI agents at work: a Node.js server + React UI that
 orchestrates a team of agents ("if OpenClaw is an employee, Paperclip is
 the company").
 
-The kit uses a **pre-baked sandbox image**: Node 22 and the pinned
+The kit uses a **pre-baked sandbox image**: Node 24 and the pinned
 `paperclipai` package (server, built UI, embedded PostgreSQL binaries)
 ship inside the image, built on the `claude-code` template so the
 `claude_local` adapter has Claude Code available out of the box. A new
@@ -124,7 +124,7 @@ directory:
 ```
 docker.io/sbx/paperclip-image
 └── FROM docker/sandbox-templates:claude-code
-    ├── Node 22 (paperclip requires >= 20)
+    ├── Node 24 (npm 11 resolves paperclipai's tree; npm 9 and 10 crash on it)
     └── paperclipai @ pinned version   npm global install:
         ├── @paperclipai/server + built React UI
         ├── distro PostgreSQL (not the bundled embedded-postgres, whose

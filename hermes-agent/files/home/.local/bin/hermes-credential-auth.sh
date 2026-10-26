@@ -54,7 +54,7 @@ set -eu
 HOME="${HOME:-/home/agent}"
 
 STATE_DIR="${HERMES_HOME:-$HOME/.hermes}"
-AUTH_ENV_FILE="$STATE_DIR/anthropic-auth.env"
+AUTH_ENV_FILE="$STATE_DIR/credential-auth.env"
 HERMES_BIN="$HOME/.local/bin/hermes"
 # Must match credentials[].oauth.sentinels.accessToken in spec.yaml.
 OAUTH_SENTINEL=sk-ant-oat01-proxy-managed
@@ -97,10 +97,24 @@ else
     openrouter_bound=1
 fi
 
+# Copilot is the inverse case: the spec injects no sentinel for it at all,
+# because Hermes' own validate_copilot_token() rejects anything not prefixed
+# gho_/github_pat_/ghu_ -- "proxy-managed" included -- and would report no
+# token. So when the host did bind it, hand Hermes a placeholder that passes
+# that check; the proxy replaces the Authorization header on the Copilot hosts
+# whatever the placeholder says. Unbound, set nothing, and Hermes finds no
+# Copilot token (the base template's GH_TOKEN fails the same prefix check).
+if [ "${SBX_CRED_COPILOT_MODE:-none}" = none ]; then
+    copilot_bound=0
+else
+    copilot_bound=1
+    printf 'export COPILOT_GITHUB_TOKEN=github_pat_proxy_managed\n' >> "$AUTH_ENV_FILE"
+fi
+
 # `sbx exec` runs a non-login shell, so a scripted call picks this up only when
 # it asks for one (`sbx exec -- sh -lc 'hermes ...'`). The hook stays harmless
-# when the file is absent, which is the case where all three credentials are
-# genuinely bound (or genuinely absent and there is nothing to unset).
+# when the file is absent, which is the case where anthropic/openai/openrouter
+# are all genuinely bound and copilot is not.
 if [ -s "$AUTH_ENV_FILE" ]; then
     if ! grep -qF "$AUTH_ENV_FILE" "$HOME/.profile" 2>/dev/null; then
         printf '[ -f %s ] && . %s\n' "$AUTH_ENV_FILE" "$AUTH_ENV_FILE" >> "$HOME/.profile"
@@ -115,9 +129,13 @@ fi
 # "anthropic/claude-opus-4.6"`. "auto" defers to resolve_provider(), and by
 # this point in the script that can only still land on OpenRouter if the host
 # genuinely bound it (the sentinel fix above ruled out the false positive), so
-# doing nothing is correct in every state except one: an Anthropic OAuth login
+# doing nothing is correct in every state except two: an Anthropic OAuth login
 # with neither OpenAI nor OpenRouter bound, where resolve_provider() has no
-# tier that would ever pick Anthropic. Force it there, and nowhere else.
+# tier that would ever pick Anthropic; and Copilot as the only bound
+# credential, since upstream never auto-selects Copilot at all
+# (_NO_AUTO_DETECT_PROVIDERS in hermes_cli/auth.py). Force it there, and
+# nowhere else. Anthropic wins when both it and Copilot are bound, matching
+# the order the pin had before Copilot existed.
 #
 # Only ever touch the provider/model pair this script could itself have
 # produced -- the template's original values, or the values it sets below.
@@ -128,23 +146,31 @@ if [ -x "$HERMES_BIN" ]; then
     PRISTINE_MODEL='anthropic/claude-opus-4.6'
     OUR_PROVIDER=anthropic
     OUR_MODEL=claude-opus-4-6
+    # gpt-5-mini costs no premium requests and is offered on every Copilot
+    # plan, including Free, so the pin works before the user picks a model.
+    OUR_COPILOT_PROVIDER=copilot
+    OUR_COPILOT_MODEL=gpt-5-mini
 
     current_provider=$("$HERMES_BIN" config get model.provider 2>/dev/null) || current_provider=""
     current_model=$("$HERMES_BIN" config get model.default 2>/dev/null) || current_model=""
 
     provider_is_ours=0
     case "$current_provider" in
-        "$PRISTINE_PROVIDER" | "$OUR_PROVIDER" | "") provider_is_ours=1 ;;
+        "$PRISTINE_PROVIDER" | "$OUR_PROVIDER" | "$OUR_COPILOT_PROVIDER" | "") provider_is_ours=1 ;;
     esac
     model_is_ours=0
     case "$current_model" in
-        "$PRISTINE_MODEL" | "$OUR_MODEL" | "") model_is_ours=1 ;;
+        "$PRISTINE_MODEL" | "$OUR_MODEL" | "$OUR_COPILOT_MODEL" | "") model_is_ours=1 ;;
     esac
 
     if [ "$provider_is_ours" = 1 ] && [ "$model_is_ours" = 1 ]; then
         if [ "$anthropic_cred" != none ] && [ "$openai_bound" = 0 ] && [ "$openrouter_bound" = 0 ]; then
             want_provider=$OUR_PROVIDER
             want_model=$OUR_MODEL
+        elif [ "$copilot_bound" = 1 ] && [ "$anthropic_cred" = none ] \
+            && [ "$openai_bound" = 0 ] && [ "$openrouter_bound" = 0 ]; then
+            want_provider=$OUR_COPILOT_PROVIDER
+            want_model=$OUR_COPILOT_MODEL
         else
             want_provider=$PRISTINE_PROVIDER
             want_model=$PRISTINE_MODEL

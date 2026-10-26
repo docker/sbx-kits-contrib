@@ -4,7 +4,7 @@ name: paperclip
 displayName: Paperclip
 description: Open-source app for managing AI agents at work — Node.js server + React UI orchestrating a team of agents. Uses a pre-baked image so sandboxes start in seconds.
 sandbox:
-  # Pre-baked image: Node 22 + paperclipai @ pinned version (server, built
+  # Pre-baked image: Node 24 + paperclipai @ pinned version (server, built
   # UI, embedded-postgres) on the claude-code template so the claude_local
   # adapter has Claude Code available. Built and published by
   # build-and-publish-kits.yml, the shared kit-image pipeline (see

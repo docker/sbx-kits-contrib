@@ -1,0 +1,514 @@
+schemaVersion: "2"
+kind: sandbox
+name: opencode
+# The KIT's version, not OpenCode's. It covers this spec, the network policy
+# and the setup hooks — the binary inside the image floats (the image build
+# resolves the newest release), so a newer OpenCode does not bump this and this
+# does not track its releases.
+#
+# Published as the vnd.docker.sandbox.kit.version OCI annotation at pack time,
+# and `scripts/check-release-tag.sh` refuses an `opencode/vX.Y.Z` tag that
+# disagrees with it. Bump here first, then tag.
+version: "1.0.0"
+displayName: OpenCode
+description: OpenCode, the open-source terminal coding agent, with every provider credential resolved by the sandbox proxy.
+sandbox:
+  # Built from the Dockerfile beside this spec and published by
+  # .github/workflows/build-and-publish-kits.yml. Carries a Docker engine and
+  # requests Docker-in-Docker, matching the agent this kit replaces.
+  #
+  # This value is the source of truth for what CI builds and publishes: the
+  # workflow reads it from here rather than deriving a name, because spec.yaml
+  # is consumed literally (no env interpolation) and so cannot follow a
+  # variable. scripts/check-image-ref.sh asserts it stays inside the namespace
+  # CI can actually push to.
+  #
+  # The `-image` suffix distinguishes the base image from the kit artifact:
+  # the kit itself is published as `docker.io/sbx/opencode-kit`.
+  image: "docker.io/sbx/opencode-image:latest"
+  # Bare `opencode`, no flags — the launch the agent this kit replaces used.
+  # There is no "skip approvals" flag to add here as there is for the other
+  # agent kits in this repo: OpenCode's approval behaviour is configured in
+  # opencode.json or through OPENCODE_PERMISSION, not on the command line.
+  entrypoint: [opencode]
+
+credentials:
+  # Seven provider services, none marked `required: true`. That is deliberate
+  # and uniform: OpenCode is usable with a locally served model and nothing
+  # bound at all, so failing `sbx create` on a missing credential would take
+  # away a working configuration rather than protect one.
+  #
+  # Service names are load-bearing beyond this file — they are the keys a host
+  # binds secrets under (`sbx secret set <service> …`) and the keys the proxy
+  # routes on. Renaming one here silently detaches it from the host binding.
+  - service: anthropic
+    apiKey:
+      name: ANTHROPIC_API_KEY
+      proxyManaged: true
+      inject:
+        - domain: api.anthropic.com
+          header: x-api-key
+          format: "%s"
+        - domain: claude.ai
+          header: x-api-key
+          format: "%s"
+        - domain: console.anthropic.com
+          header: x-api-key
+          format: "%s"
+  - service: github
+    apiKey:
+      # Empty on purpose: this credential is handled entirely proxy-side, so
+      # no in-container environment variable is set for it. Setting a name
+      # (with proxyManaged) would put a sentinel into the environment that
+      # in-container tooling would read as a real token.
+      name: ""
+      # OpenCode's GitHub Copilot provider calls the Copilot API with a Bearer
+      # token, so every Copilot host must map to this service or the sentinel
+      # tunnels through unreplaced.
+      #
+      # The proxy applies ONE auth format per service, taken from the first
+      # inject entry, so this list must stay uniform: a mixed list would
+      # silently apply Bearer everywhere anyway and the spec would stop
+      # describing what actually happens. Bearer is the required choice — the
+      # Copilot API rejects the "token" scheme, GitHub's REST API accepts
+      # both, and git over HTTPS on github.com is re-encoded to Basic by the
+      # proxy regardless of the format named here.
+      # https://github.blog/changelog/2026-02-13-network-configuration-changes-for-copilot-coding-agent/
+      inject:
+        - domain: api.business.githubcopilot.com # Copilot Business
+          header: Authorization
+          format: Bearer %s
+        - domain: api.enterprise.githubcopilot.com # Copilot Enterprise
+          header: Authorization
+          format: Bearer %s
+        - domain: api.github.com
+          header: Authorization
+          format: Bearer %s
+        - domain: api.githubcopilot.com
+          header: Authorization
+          format: Bearer %s
+        - domain: api.individual.githubcopilot.com # Copilot Pro and Pro+
+          header: Authorization
+          format: Bearer %s
+        - domain: copilot.github.com
+          header: Authorization
+          format: Bearer %s
+        - domain: github.com
+          header: Authorization
+          format: Bearer %s
+        - domain: raw.githubusercontent.com
+          header: Authorization
+          format: Bearer %s
+  - service: google
+    apiKey:
+      # OpenCode's Google provider reads this name, not GOOGLE_API_KEY.
+      name: GOOGLE_GENERATIVE_AI_API_KEY
+      proxyManaged: true
+      inject:
+        - domain: aiplatform.googleapis.com
+          header: x-goog-api-key
+          format: "%s"
+        - domain: generativelanguage.googleapis.com
+          header: x-goog-api-key
+          format: "%s"
+        - domain: oauth2.googleapis.com
+          header: x-goog-api-key
+          format: "%s"
+        - domain: vertexai.googleapis.com
+          header: x-goog-api-key
+          format: "%s"
+  - service: groq
+    apiKey:
+      name: GROQ_API_KEY
+      proxyManaged: true
+      inject:
+        - domain: api.groq.com
+          header: Authorization
+          format: Bearer %s
+  - service: openai
+    apiKey:
+      name: OPENAI_API_KEY
+      proxyManaged: true
+      inject:
+        - domain: api.openai.com
+          header: Authorization
+          format: Bearer %s
+        - domain: openai.com
+          header: Authorization
+          format: Bearer %s
+    # A ChatGPT-subscription token is only accepted at the Codex backend host;
+    # api.openai.com rejects it. The startup bridge imports the rendered
+    # auth.json record into OpenCode v2's credential store; its built-in Codex
+    # auth plugin then rewrites
+    # /v1/responses to chatgpt.com/backend-api/codex/responses and sends the
+    # entry's `access` value as the bearer, which is why the sentinel below is
+    # what reaches the proxy for substitution. The plugin only engages when the
+    # imported credential exists, and the file is only rendered when the host
+    # holds an OAuth token — so `skipIfEnv` keeps the API-key path resolving
+    # OPENAI_API_KEY exactly as before.
+    #
+    # `expires` carries the host token's real expiry, so OpenCode refreshes
+    # through the intercepted token endpoint (which re-masks the response with
+    # these same sentinels) instead of pinning a token it cannot renew.
+    oauth:
+      tokenEndpoint:
+        host: auth.openai.com
+        path: /oauth/token
+      resourceHosts:
+        - chatgpt.com
+      sentinels:
+        accessToken: oai-oat01-proxy-managed
+        refreshToken: oai-ort01-proxy-managed
+      credentialFile:
+        path: "~/.local/share/opencode/auth.json"
+        # Declared as a structure rather than a raw template so the rendered
+        # file is JSON by construction: a placeholder carrying a quote or a
+        # newline cannot break the document.
+        structure:
+          openai:
+            type: oauth
+            access: "{{.AccessToken}}"
+            refresh: "{{.RefreshToken}}"
+            expires: "{{.ExpiresAt}}"
+      skipIfEnv:
+        - OPENAI_API_KEY
+  - service: openrouter
+    apiKey:
+      name: OPENROUTER_API_KEY
+      proxyManaged: true
+      inject:
+        - domain: openrouter.ai
+          header: Authorization
+          format: Bearer %s
+  - service: xai
+    apiKey:
+      name: XAI_API_KEY
+      proxyManaged: true
+      inject:
+        - domain: api.x.ai
+          header: Authorization
+          format: Bearer %s
+
+permissions:
+  network:
+    # Without this block OpenCode has zero allowed domains under a restrictive
+    # egress policy, and even the first prompt fails — nothing it needs, not
+    # even the configured provider's own API, is reachable. This repo's e2e
+    # runs every kit under `sbx policy init deny-all`, so the kit gets exactly
+    # the reachability declared here and nothing more.
+    #
+    # Entries are written without a port: a portless pattern matches any port,
+    # which is what the apt hosts below need — pinning them to :80 breaks the
+    # moment a mirror answers over https, and `apt-get update` then fails
+    # wholesale rather than skipping one source.
+    allow:
+      # Every domain a credential above injects into. Required here as well,
+      # not just in the credential block: a domain absent from this list is
+      # unreachable no matter what the credential declares.
+      - api.anthropic.com
+      - claude.ai
+      - console.anthropic.com
+      - api.business.githubcopilot.com
+      - api.enterprise.githubcopilot.com
+      - api.github.com
+      - api.githubcopilot.com
+      - api.individual.githubcopilot.com
+      - copilot.github.com
+      - github.com
+      - raw.githubusercontent.com
+      - aiplatform.googleapis.com
+      - generativelanguage.googleapis.com
+      - oauth2.googleapis.com
+      - vertexai.googleapis.com
+      - api.groq.com
+      - api.openai.com
+      - openai.com
+      - openrouter.ai
+      - api.x.ai
+      # The OpenAI OAuth token endpoint and the Codex backend host the
+      # subscription bearer is accepted at. Neither is an apiKey inject
+      # domain, so neither is covered by the block above.
+      - auth.openai.com
+      - chatgpt.com
+      # OpenCode's language servers are downloaded on demand. Several come
+      # from GitHub release assets, which 302-redirect to a release-asset
+      # host under githubusercontent.com, and gist content is served from
+      # gist.githubusercontent.com — the exact raw.githubusercontent.com
+      # entry above covers neither, so the whole zone is wildcarded.
+      # Repository archives and gist tarballs come from codeload.github.com,
+      # which is outside that zone again.
+      - "**.githubusercontent.com"
+      - codeload.github.com
+      # OpenCode resolves language servers, plugins and provider SDK packages
+      # from npm on demand. Packument and tarball both come from this host.
+      - registry.npmjs.org
+      # OpenCode's own domains. The apex serves the sign-in and account-console
+      # endpoints `/login` hands off to, and the JSON schema its config file
+      # points at.
+      #
+      # The wildcard covers the model catalog at models.opencode.ai/api.json,
+      # plus account and app endpoints on sibling labels. Models.dev publishes
+      # this data but is not contacted by this version of the CLI.
+      - opencode.ai
+      - "*.opencode.ai"
+      # `apt-get update` (the startup hook below) refreshes metadata for every
+      # configured apt source and returns exit 100 if any one of them fails.
+      # The shell-docker base ships five sources (Ubuntu's archive, security
+      # and ports, Docker's repo, GitHub CLI's repo), so all five must be
+      # reachable. Ubuntu serves amd64 from archive/security and arm64 from
+      # ports.ubuntu.com, so all three Ubuntu hosts are listed to keep the kit
+      # working cross-arch.
+      - archive.ubuntu.com        # Ubuntu archive (amd64 main)
+      - security.ubuntu.com       # Ubuntu security updates (amd64)
+      - ports.ubuntu.com          # Ubuntu archive/security (arm64)
+      - download.docker.com       # Docker's apt repo, pre-added by shell-docker
+      - cli.github.com            # GitHub CLI's apt repo, pre-added by the base
+
+setup:
+  startup:
+    # The redirects and </dev/null belong on the outer group, not inside a
+    # subshell: a backgrounded job that inherits the exec's pipe write ends
+    # keeps it from reaching EOF, and a slow apt-get then times out the exec.
+    - command: ["sh", "-c", "{ command -v apt-get && apt-get update -qq -y || true; } >/dev/null 2>&1 </dev/null &"]
+      user: "root"
+      description: Update apt package cache in background
+    # sandboxd injects MCP_GATEWAY_URL + MCP_SENTINEL_TOKEN_NAME into the
+    # container env when a gateway has been reserved. The sentinel name is not
+    # a credential — the proxy substitutes the real token at request time keyed
+    # by this name. No-op when MCP isn't enabled.
+    #
+    # OpenCode reads MCP server config from ~/.config/opencode/opencode.json,
+    # and other kits can write provider settings into that same file during
+    # install. This step runs on every start after them, so it merges the
+    # mcp-gateway entry into the existing file: the entry is rewritten on every
+    # start, every other key is kept, and `$schema` is added only when it is
+    # missing, null or false. The entry is built in an unquoted heredoc so the
+    # two environment variables expand, then handed to jq as JSON; the
+    # `$schema` in the jq program is inside single quotes, so the shell never
+    # sees it. When opencode.json is a symlink, the merged file replaces the
+    # link's target and the link itself is kept.
+    #
+    # When the gateway cannot be registered (jq is missing, the two variables
+    # do not fit in a JSON string, the path is a symlink to a missing or
+    # non-regular file or is otherwise not a regular file, the content is not
+    # a single JSON object or has an `mcp` value that is neither an object nor
+    # null, for example JSONC with comments, no temp file can be created
+    # beside the config, or the merged file cannot be written), the config is
+    # left untouched, the reason goes to stderr and the step exits 0. A
+    # non-zero exit stops the startup dispatcher, skipping every later startup
+    # command, and for local sandboxes fails the sandbox start, which keeps
+    # failing on each later start while the file stays this way.
+    - command:
+        - sh
+        - -c
+        - |
+          set -e
+          [ -n "$MCP_GATEWAY_URL" ] || exit 0
+          cfg="$HOME/.config/opencode/opencode.json"
+          if ! command -v jq >/dev/null 2>&1; then
+            echo "jq is not installed; MCP gateway not registered in opencode.json" >&2
+            exit 0
+          fi
+          gateway=$(cat <<EOF
+          {
+            "type": "remote",
+            "url": "$MCP_GATEWAY_URL",
+            "enabled": true,
+            "headers": {
+              "Authorization": "Bearer $MCP_SENTINEL_TOKEN_NAME"
+            }
+          }
+          EOF
+          )
+          if ! jq -n --argjson gateway "$gateway" 'empty'; then
+            echo "MCP_GATEWAY_URL or MCP_SENTINEL_TOKEN_NAME does not fit in a JSON string; MCP gateway not registered" >&2
+            exit 0
+          fi
+          # A symlink is resolved so the merge writes its target and the link stays.
+          # mv would nest the config inside a directory and still exit 0, so only a
+          # regular file (or no file at all) is merged into.
+          real=$cfg
+          if [ -L "$cfg" ]; then
+            real=$(readlink -f "$cfg") || real=
+            if [ -z "$real" ] || [ ! -f "$real" ]; then
+              echo "opencode.json is a symlink to a missing or non-regular file; MCP gateway not registered" >&2
+              exit 0
+            fi
+          elif [ -e "$cfg" ] && [ ! -f "$cfg" ]; then
+            echo "opencode.json is not a regular file; MCP gateway not registered" >&2
+            exit 0
+          fi
+          # jq -s reads an empty or blank file as no values, which becomes {}; a
+          # missing file is read from /dev/null for the same result. So the mv
+          # below is the only write to the config path.
+          src=$real
+          [ -e "$real" ] || src=/dev/null
+          if ! merged=$(jq -s --argjson gateway "$gateway" '
+              (if length == 0 then {}
+               elif length == 1 and (.[0] | type) == "object" then .[0]
+               else error("not a single JSON object") end)
+              | ."$schema" //= "https://opencode.ai/config.json"
+              | .mcp["mcp-gateway"] = $gateway' "$src"); then
+            echo "opencode.json is not a single JSON object with an object or null mcp; MCP gateway not registered" >&2
+            exit 0
+          fi
+          # The temp name is unpredictable, so a stale or crashed leftover is never installed.
+          if ! mkdir -p "$(dirname "$real")" || ! tmp=$(mktemp "$real.XXXXXX"); then
+            echo "cannot create a temp file beside opencode.json; MCP gateway not registered" >&2
+            exit 0
+          fi
+          trap 'rm -f "$tmp"' EXIT
+          if ! printf '%s\n' "$merged" > "$tmp" || ! mv -f "$tmp" "$real"; then
+            echo "cannot write opencode.json; MCP gateway not registered" >&2
+            exit 0
+          fi
+      user: "agent"
+      description: Register the sandbox MCP gateway in ~/.config/opencode/opencode.json
+    # The startup bridge imports auth.json's `refresh` value into OpenCode v2's
+    # github-copilot credential, whose plugin sends it as the Copilot Bearer.
+    # The GH_TOKEN sentinel therefore rides the github inject rules above.
+    - command:
+        - sh
+        - -c
+        - |
+          set -e
+          umask 077
+          # Local sandboxes always carry GH_TOKEN and say via the mode var whether a
+          # credential backs it; cloud sets GH_TOKEN only when one does and no mode var.
+          [ -n "${GH_TOKEN:-}" ] || exit 0
+          [ "${SBX_CRED_GITHUB_MODE:-}" != none ] || exit 0
+          auth="$HOME/.local/share/opencode/auth.json"
+          mkdir -p "$(dirname "$auth")"
+          # A canceled start can leave its seed running; retries must recheck auth.json after it finishes.
+          exec 9>>"$(dirname "$auth")/.copilot-seed.lock"
+          flock 9
+          # mv would nest the seed inside a directory here and still exit 0.
+          if [ -e "$auth" ] && [ ! -f "$auth" ]; then
+            echo "auth.json is not a regular file; leaving the GitHub Copilot provider unseeded" >&2
+            exit 0
+          fi
+          # Every start re-fires this seed. One pass keeps an entry that fits OpenCode's Oauth schema and still
+          # carries the token as refresh (so an exchanged access survives), leaves a malformed file alone, and re-seeds the rest.
+          if ! merged=$({ if [ -s "$auth" ]; then cat "$auth"; else echo '{}'; fi; } | jq -s --arg token "$GH_TOKEN" '
+              if length != 1 or (.[0] | type) != "object" then error("auth.json must hold exactly one JSON object")
+              elif (.[0]."github-copilot" | type == "object" and .type == "oauth" and .refresh == $token
+                    and (.access | type) == "string" and (.expires | type == "number" and . >= 0 and . == floor)
+                    and ((has("accountId") | not) or (.accountId | type) == "string")
+                    and ((has("enterpriseUrl") | not) or (.enterpriseUrl | type) == "string")) then empty
+              else .[0] | ."github-copilot" = {type: "oauth", refresh: $token, access: $token, expires: 0} end'); then
+            echo "auth.json is not a single JSON object; leaving the GitHub Copilot provider unseeded" >&2
+            exit 0
+          fi
+          [ -n "$merged" ] || exit 0
+          # The temp name is unpredictable, so a stale or crashed leftover is never installed. The
+          # same uid owns this directory, so no write pattern here is a boundary against a co-resident process.
+          tmp=$(mktemp "$(dirname "$auth")/auth.json.XXXXXX")
+          trap 'rm -f "$tmp"' EXIT
+          printf '%s\n' "$merged" > "$tmp"
+          mv -f "$tmp" "$auth"
+      user: "agent"
+      description: Seed OpenCode's GitHub Copilot provider from the GH_TOKEN sentinel
+    # OpenCode v2 keeps credentials in SQLite, while sandbox OAuth bindings
+    # materialize sentinel-backed tokens in auth.json. Convert only those two
+    # managed records to v2's documented import format on every start; native
+    # OAuth accounts are left for OpenCode's own migration and refresh logic.
+    - command:
+        - sh
+        - -c
+        - |
+          set -e
+          auth="$HOME/.local/share/opencode/auth.json"
+          mkdir -p "$(dirname "$auth")"
+          exec 9>>"$(dirname "$auth")/.credentials-sync.lock"
+          flock 9
+          if ! existing=$(opencode auth export --standalone); then
+            echo "unable to read OpenCode v2 credentials; leaving them unchanged" >&2
+            exit 0
+          fi
+          if [ -e "$auth" ] && [ ! -f "$auth" ]; then
+            echo "auth.json is not a regular file; leaving v2 credentials unchanged" >&2
+            exit 0
+          fi
+          if [ -f "$auth" ]; then
+            if ! credentials=$(jq -c --arg github_token "${GH_TOKEN:-}" '
+            def oauth($integration; $id; $method; $label; $access; $refresh):
+              .[$integration] as $credential |
+              if ($credential | type) == "object"
+                and ($credential.type == "oauth")
+                and ($access != "")
+                and ($credential.access == $access)
+                and ($credential.refresh == $refresh)
+                and (($credential.refresh | type) == "string")
+                and (($credential.access | type) == "string")
+                and ($credential.expires | type == "number" and . >= 0 and . == floor)
+              then {
+                id: $id, integrationID: $integration, label: $label, active: true,
+                value: ({type: "oauth", methodID: $method, refresh: $credential.refresh, access: $credential.access, expires: $credential.expires}
+                  + (if (($credential.accountId | type) == "string") or (($credential.enterpriseUrl | type) == "string")
+                     then {metadata: ({} + (if ($credential.accountId | type) == "string" then {accountID: $credential.accountId} else {} end)
+                                           + (if ($credential.enterpriseUrl | type) == "string" then {enterpriseUrl: $credential.enterpriseUrl} else {} end))}
+                     else {} end))
+              else empty end;
+            [oauth("openai"; "sbx-openai"; "chatgpt-browser"; "Sandbox OpenAI"; "oai-oat01-proxy-managed"; "oai-ort01-proxy-managed"), oauth("github-copilot"; "sbx-github-copilot"; "device"; "Sandbox GitHub Copilot"; $github_token; $github_token)]' "$auth"); then
+              echo "auth.json is not valid OpenCode OAuth data; leaving v2 credentials unchanged" >&2
+              exit 0
+            fi
+          else
+            credentials='[]'
+          fi
+          if ! sync=$(jq -cn --argjson existing "$existing" --argjson desired "$credentials" '
+            def managed($wanted):
+              .id == $wanted.id
+              or ($wanted.desired != null and .label == "OAuth" and .integrationID == $wanted.integrationID and .value == $wanted.desired.value);
+            ["openai", "github-copilot"] | map(
+              . as $integration |
+              {integrationID: $integration, id: ("sbx-" + $integration),
+               desired: ([$desired[] | select(.integrationID == $integration)][0])}
+              | . as $wanted
+               | ($existing | map(select(.integrationID == $wanted.integrationID))) as $records
+               | ($records | map(select(.active == true)) | .[0]) as $active
+               | {integrationID: $wanted.integrationID, id: $wanted.id, desired: $wanted.desired,
+                  remove: [$records[] | select(managed($wanted)) | .id],
+                 previousActiveID: (if $active != null and ($active | managed($wanted)) then $active.id else null end),
+                 activate: ($wanted.desired != null and $active != null and ($active | managed($wanted)))}
+            )'); then
+            echo "unable to reconcile OpenCode v2 credentials; leaving them unchanged" >&2
+            exit 0
+          fi
+          if ! removed=$(jq -cn --argjson existing "$existing" --argjson sync "$sync" '
+            [$sync[] as $change | $existing[] |
+              select(.integrationID == $change.integrationID and (.id as $id | $change.remove | index($id)))]'); then
+            echo "unable to save managed OpenCode credentials for rollback" >&2
+            exit 0
+          fi
+          printf '%s\n' "$sync" | jq -r '.[] | .integrationID as $integration | .remove[]? | [$integration, .] | @tsv' |
+            while IFS="$(printf '\t')" read -r integration id; do
+              opencode auth logout "$integration" "$id" --standalone >/dev/null 2>&1 || true
+            done
+          if [ "$credentials" != "[]" ] && ! printf '%s\n' "$credentials" | opencode auth import --standalone >/dev/null; then
+            echo "unable to import sandbox OAuth credentials into OpenCode v2" >&2
+            if [ "$removed" != "[]" ] && ! printf '%s\n' "$removed" | opencode auth import --standalone >/dev/null; then
+              echo "unable to restore managed OpenCode credentials after failed import" >&2
+              exit 1
+            fi
+            if ! printf '%s\n' "$sync" | jq -r '.[] | select(.previousActiveID != null) | [.integrationID, .previousActiveID] | @tsv' |
+              while IFS="$(printf '\t')" read -r integration id; do
+                opencode auth switch "$integration" "$id" --standalone >/dev/null
+              done; then
+              echo "unable to restore the managed OpenCode credential selection after failed import" >&2
+              exit 1
+            fi
+            echo "restored managed OpenCode credentials after failed import" >&2
+            exit 0
+          fi
+          printf '%s\n' "$sync" | jq -r '.[] | select(.activate) | [.integrationID, .id] | @tsv' |
+            while IFS="$(printf '\t')" read -r integration id; do
+              opencode auth switch "$integration" "$id" --standalone >/dev/null
+            done
+      user: "agent"
+      description: Import sandbox OAuth credentials into OpenCode v2
+
+# OpenCode reads AGENTS.md from the project root every session, so this is the
+# filename composed kit context has to land in for the agent to pick it up.
+agentInstructions:
+  filename: AGENTS.md

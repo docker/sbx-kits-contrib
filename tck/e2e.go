@@ -34,6 +34,9 @@ const sandboxWorkDir = "/home/agent/workspace"
 // with anyone else's.
 type E2EOptions struct {
 	AppName string
+
+	// PullPolicy is passed to `sbx create --pull` when non-empty.
+	PullPolicy string
 }
 
 // RunE2EKit is the single e2e entry point for all kit types. It creates one
@@ -73,11 +76,11 @@ func RunE2EKit(t *testing.T, kitPath string, opts E2EOptions) {
 		_, err = exec.LookPath("sbx")
 		require.NoError(t, err, "sbx must be on PATH; CI installs it from docker/sbx-releases")
 
-		agent := agentForKit(suite.Artifact)
+		agent, fallback := agentForKit(suite.Artifact, filepath.Dir(absKit))
 
 		// Loaded before `sbx create` rather than just before the prompt
 		// subtest: it may declare that a built-in agent still shadows this
-		// kit's name, which changes how a create failure is interpreted.
+		// kit's name, which changes how a create failure is handled.
 		td := loadKitTCKData(t, absKit)
 
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
@@ -85,7 +88,7 @@ func RunE2EKit(t *testing.T, kitPath string, opts E2EOptions) {
 
 		checkHostCredentials(t, ctx, td, opts.AppName)
 
-		name := createSbx(t, ctx, absKit, suite.Artifact.Manifest.Kind, suite.Artifact.Manifest.Name, agent, td, opts.AppName)
+		name := createSbx(t, ctx, absKit, suite.Artifact.Manifest.Kind, suite.Artifact.Manifest.Name, agent, fallback, td, opts.AppName, opts.PullPolicy)
 
 		// Verify kit content landed inside the running container. Files are
 		// re-derived here so `${WORKDIR}` resolves to the real sandbox workdir
@@ -315,26 +318,11 @@ type kitTCKData struct {
 	// (e.g. nanoclaw's nanoclaw-start wraps claude).
 	Binary string `yaml:"binary"`
 
-	// ExtractedFromBuiltin marks a kind:sandbox kit whose name is (still) that
-	// of an agent built into sbx. sbx refuses to load such a kit, failing with
-	// "already registered (built-in agents cannot be overridden by a kit)", so
-	// `sbx create` cannot succeed until a released sbx drops the built-in.
-	//
-	// Setting this to true turns that specific failure into a SKIP instead of a
-	// failure, which lets an extracted kit land and be reviewed in this repo
-	// before the sbx side of the extraction ships. Every other failure mode
-	// still fails.
-	//
-	// It is deliberately narrow, not a blanket "skip e2e":
-	//
-	//  - The skip only triggers on the collision error itself. Once sbx no
-	//    longer registers the built-in, `sbx create` succeeds and the full e2e
-	//    runs — nothing to remember to re-enable.
-	//  - Without this flag the collision is a hard failure, so a kit that
-	//    accidentally takes a built-in's name (a contributor naming a kit
-	//    "claude") is still caught.
-	//  - When the flag is set but creation succeeds, the test logs a notice
-	//    that the flag is now obsolete and should be deleted.
+	// ExtractedFromBuiltin marks a kind:sandbox kit whose name is still that of
+	// an agent built into sbx, which sbx refuses to load. On that collision
+	// alone, the e2e retries from a temp copy renamed `<name>-e2e` and runs the
+	// same subtests it would under the real name; every other failure still
+	// fails, and the flag self-obsoletes.
 	ExtractedFromBuiltin bool `yaml:"extractedFromBuiltin"`
 
 	// RequiresHostCredentials names `sbx secret` service(s) that must already
@@ -363,10 +351,81 @@ type kitTCKData struct {
 //
 //	ERROR: agent "kiro" is already registered (built-in agents cannot be overridden by a kit)
 //
-// This couples to sbx's user-facing error text, so it can break if that wording
-// changes. The failure mode is safe — a reworded message stops matching and the
-// collision becomes an ordinary test failure rather than a silent skip.
+// This couples to sbx's user-facing error text: a reworded message stops
+// matching, turning the collision into an ordinary test failure.
 const builtinCollisionMarker = "built-in agents cannot be overridden by a kit"
+
+// isBuiltinCollision reports whether an `sbx create` failure is sbx refusing a
+// kit whose name a built-in agent already holds.
+func isBuiltinCollision(err error, out string) bool {
+	return err != nil && strings.Contains(out, builtinCollisionMarker)
+}
+
+// hubThrottledMarker is what sbx prints when Docker Hub throttles the account
+// mid-request: the org's kit policy lives on Hub, and a wide CI run makes many
+// such reads at once. The failure is instant, so a short backoff lets the
+// account recover; anything else fails the test at once.
+const hubThrottledMarker = "administrator settings are unavailable"
+
+func isHubThrottled(err error, out string) bool {
+	return err != nil && strings.Contains(out, hubThrottledMarker)
+}
+
+// runCreate runs one sbx create argv, retrying only a Hub throttle (see
+// hubThrottledMarker) up to four more times with backoff (15s to 2m).
+func runCreate(t *testing.T, ctx context.Context, appName string, args ...string) (string, error) {
+	t.Helper()
+	delay := 15 * time.Second
+	for attempt := 1; ; attempt++ {
+		out, err := runSbx(t, ctx, appName, args...)
+		if !isHubThrottled(err, out) || attempt == 5 {
+			return out, err
+		}
+		t.Logf("NOTICE: Docker Hub throttled this account (attempt %d); retrying sbx create in %s.\n%s", attempt, delay, out)
+		select {
+		case <-ctx.Done():
+			return out, err
+		case <-time.After(delay):
+		}
+		delay *= 2
+	}
+}
+
+// defaultMixinBase is what a mixin with no affinity, or affinity to claude, is composed onto.
+// The repo's own published claude kit rather than the built-in name: nightly
+// sbx resolves the built-in to a v3 kit and refuses a v3 agent with a v1/v2
+// mixin in one sandbox, while this v2 kit keeps the composition single-format
+// on every channel. Releases that still register the built-in refuse this kit
+// by name; createSbx falls back to the built-in there. mixinBaseEnv overrides it.
+const defaultMixinBase = "docker.io/sbx/claude-kit:latest"
+
+// mixinBaseEnv lets a CI lane or a developer pin what a mixin with no affinity,
+// or affinity to claude, composes onto (an sbx channel that stops accepting the
+// default), without a code change.
+const mixinBaseEnv = "SBX_E2E_MIXIN_BASE"
+
+// mixinBase returns the base a mixin with no affinity, or affinity to claude, is composed onto.
+func mixinBase() string {
+	if v := strings.TrimSpace(os.Getenv(mixinBaseEnv)); v != "" {
+		return v
+	}
+	return defaultMixinBase
+}
+
+// builtinAgentFallback is both the default affinity and the built-in name that
+// releases before the kit swap still accept.
+const builtinAgentFallback = "claude"
+
+// shouldFallBackToBuiltin says whether a failed create should be retried on
+// the built-in name: only a mixin composed onto a published kit (fallback is
+// set), and only on the built-in's refusal of that name. A base pinned through
+// mixinBaseEnv is not swapped out (agentForKit leaves fallback empty for it, and
+// a pin equal to the default is the default), or a lane would silently test a
+// base it did not pin.
+func shouldFallBackToBuiltin(kind, agent, fallback string, err error, out string) bool {
+	return kind == spec.KindMixin && fallback != "" && agent != fallback && isBuiltinCollision(err, out) &&
+		strings.Contains(out, "agent \""+fallback+"\" is already registered")
+}
 
 // loadKitTCKData reads <kitDir>/testdata/tck.yaml. Returns nil, nil when the
 // file does not exist — callers should skip rather than fail in that case.
@@ -461,19 +520,25 @@ const promptMessage = "what version are you running"
 // buildCreateArgs renders the `sbx create` argv for a kit under test. The
 // shape is kind-aware:
 //
-//   - kind:sandbox: `create <absKit> --name <name> [kit-arg flags] <workspace>`.
+//   - kind:sandbox: `create <absKit> --name <name> [--pull=<policy>] [kit-arg flags] <workspace>`.
 //     Passing the kit's own directory as the positional avoids sbx's
 //     deprecated --kit path entirely, including its built-in-name failure.
-//   - kind:mixin: `create --kit <absKit> --name <name> [kit-arg flags] <agent> <workspace>`,
-//     composing the mixin onto agent (the default agent or its declared
-//     base-agent affinity).
-func buildCreateArgs(kind, absKit, name, agent, workspace string, kitArgFlags []string) []string {
+//   - kind:mixin: `create --kit <absKit> --name <name> [--pull=<policy>] [kit-arg flags] <agent> <workspace>`,
+//     composing the mixin onto agent (the published kit for the mixin's affinity, or
+//     the bare agent name when the repo publishes none).
+func buildCreateArgs(kind, absKit, name, agent, workspace string, kitArgFlags []string, pullPolicy string) []string {
+	var pullFlags []string
+	if pullPolicy != "" {
+		pullFlags = []string{"--pull=" + pullPolicy}
+	}
 	if kind == spec.KindSandbox {
 		args := []string{"create", absKit, "--name", name}
+		args = append(args, pullFlags...)
 		args = append(args, kitArgFlags...)
 		return append(args, workspace)
 	}
 	args := []string{"create", "--kit", absKit, "--name", name}
+	args = append(args, pullFlags...)
 	args = append(args, kitArgFlags...)
 	return append(args, agent, workspace)
 }
@@ -482,8 +547,9 @@ func buildCreateArgs(kind, absKit, name, agent, workspace string, kitArgFlags []
 // t.Cleanup that force-removes it, and returns the sandbox name. A fresh temp
 // dir is used as the workspace.
 // td may be nil (no testdata/tck.yaml); see kitTCKData.ExtractedFromBuiltin for
-// the one failure this tolerates.
-func createSbx(t *testing.T, ctx context.Context, absKit, kind, kitName, agent string, td *kitTCKData, appName string) string {
+// the two failures this retries (a sandbox kit shadowed by a built-in, and a
+// mixin's published base kit refused by name).
+func createSbx(t *testing.T, ctx context.Context, absKit, kind, kitName, agent, fallback string, td *kitTCKData, appName, pullPolicy string) string {
 	t.Helper()
 	workspace := t.TempDir()
 	name := sandboxName(t, absKit)
@@ -531,48 +597,71 @@ func createSbx(t *testing.T, ctx context.Context, absKit, kind, kitName, agent s
 	if td != nil {
 		kitArgFlags = KitArgFlags(kitName, td.Args)
 	}
-	createOut, err := runSbx(t, ctx, appName, buildCreateArgs(kind, absKit, name, agent, workspace, kitArgFlags)...)
+	createOut, err := runCreate(t, ctx, appName, buildCreateArgs(kind, absKit, name, agent, workspace, kitArgFlags, pullPolicy)...)
 
-	// Matches on stdout text alone, so it fires regardless of which
-	// buildCreateArgs shape produced it.
-	if err != nil && strings.Contains(createOut, builtinCollisionMarker) {
-		if td != nil && td.ExtractedFromBuiltin {
-			t.Skipf("kit %q is still shadowed by the built-in %q agent in this sbx build, and "+
-				"declares extractedFromBuiltin: true — skipping e2e.\n"+
-				"This resolves itself once a released sbx drops the built-in; no action needed here.\n%s",
+	retried := false
+	if kind == spec.KindSandbox && td != nil && td.ExtractedFromBuiltin && isBuiltinCollision(err, createOut) {
+		retried = true
+		agent = e2eRenamedKitName(kitName)
+		parent, mkErr := os.MkdirTemp("", "sbx-e2e-rename-")
+		require.NoErrorf(t, mkErr, "create a parent dir for the rename retry copy of %q", absKit)
+		t.Cleanup(func() { removeStaging(parent) })
+		dst := filepath.Join(parent, filepath.Base(absKit))
+		require.NoErrorf(t, copyKitRenamed(absKit, dst, agent),
+			"copy kit %q as %q for the rename retry", absKit, agent)
+
+		// A --kit-arg flag is prefixed with the manifest name, so it follows the rename.
+		kitArgFlags = KitArgFlags(agent, td.Args)
+
+		t.Logf("NOTICE: kit %q is shadowed by the built-in agent of the same name in this sbx "+
+			"build; retrying from a copy renamed %q.\n%s", filepath.Base(absKit), agent, createOut)
+
+		createOut, err = runCreate(t, ctx, appName,
+			buildCreateArgs(kind, dst, name, agent, workspace, kitArgFlags, pullPolicy)...)
+	}
+
+	fellBack := false
+	if shouldFallBackToBuiltin(kind, agent, fallback, err, createOut) {
+		fellBack = true
+		tried := agent
+		agent = fallback
+		t.Logf("NOTICE: this sbx build still registers %q as a built-in and refuses the kit %s by "+
+			"name; retrying composed onto the built-in %q.\n%s", fallback, tried, fallback, createOut)
+		createOut, err = runCreate(t, ctx, appName,
+			buildCreateArgs(kind, absKit, name, agent, workspace, kitArgFlags, pullPolicy)...)
+	}
+
+	if isBuiltinCollision(err, createOut) {
+		if fellBack {
+			require.FailNowf(t, "mixin still collides with a built-in agent",
+				"kit %q composed onto the built-in %q still collides with a built-in agent.\n%s",
 				filepath.Base(absKit), agent, createOut)
 		}
-		// Same error without the declaration: almost always a kit that has
-		// taken a built-in agent's name by mistake. Say so explicitly, since
-		// the raw sbx message does not mention the two ways out.
+		if retried {
+			require.FailNowf(t, "renamed kit still collides with a built-in agent",
+				"kit %q retried as %q still collides with a built-in agent.\n%s",
+				filepath.Base(absKit), agent, createOut)
+		}
+		if kind == spec.KindMixin {
+			require.FailNowf(t, "mixin base refused by name",
+				"mixin %q composed onto %q was refused by name: sbx registers a built-in agent with that name "+
+					"(the base's, or the mixin's own). Pin another base via SBX_E2E_MIXIN_BASE or rename the kit.\n%s",
+				filepath.Base(absKit), agent, createOut)
+		}
+		// Almost always a kit that has taken a built-in agent's name by mistake.
 		require.FailNowf(t, "kit name collides with a built-in agent",
 			"kit %q cannot be loaded because sbx already registers %q as a built-in agent.\n"+
 				"Either rename the kit, or — if this kit is intentionally replacing that built-in — "+
 				"set `extractedFromBuiltin: true` in %s/testdata/tck.yaml.\n%s",
-			filepath.Base(absKit), agent, filepath.Base(absKit), createOut)
+			filepath.Base(absKit), kitName, filepath.Base(absKit), createOut)
 	}
 
 	require.NoErrorf(t, err, "sbx create failed (agent=%s):\n%s", agent, createOut)
 
-	// The kit declared a built-in collision but none happened. Report the
-	// observation without drawing the conclusion: "no collision" has two very
-	// different causes, and only one of them means the flag is obsolete.
-	//
-	//  1. A released sbx dropped the built-in — the flag has done its job and
-	//     should be deleted.
-	//  2. The kit is being run under a different name (an author renaming it
-	//     locally to get past the collision and exercise the real create path).
-	//     The flag is still needed and deleting it would be wrong.
-	//
-	// Nothing here can tell those apart, so an unconditional "remove the flag"
-	// would hand out bad advice in exactly the case authors hit while extracting
-	// a built-in agent.
-	if td != nil && td.ExtractedFromBuiltin {
-		t.Logf("NOTICE: kit %q declares `extractedFromBuiltin: true`, but creating it as "+
-			"agent %q hit no built-in collision. If a released sbx has dropped the built-in, "+
-			"the flag is obsolete and can be removed from testdata/tck.yaml. If this ran under "+
-			"a renamed agent, the flag is still required — leave it.",
-			filepath.Base(absKit), agent)
+	if kind == spec.KindSandbox && td != nil && td.ExtractedFromBuiltin && !retried {
+		t.Logf("NOTICE: kit %q declares `extractedFromBuiltin: true` but hit no built-in "+
+			"collision; if %q is the kit's real name, the flag is obsolete and can be "+
+			"removed from testdata/tck.yaml.", filepath.Base(absKit), kitName)
 	}
 
 	t.Logf("sbx create succeeded for kit %s as sandbox %q (agent=%s)\n%s", absKit, name, agent, createOut)
@@ -603,22 +692,56 @@ func waitForAgentReady(t *testing.T, ctx context.Context, name, readyFile, appNa
 	}
 }
 
-// agentForKit returns the agent label used in log messages and collision
-// diagnostics, and — for kind:mixin only — the positional `sbx create`
-// composes the mixin onto (see buildCreateArgs; a kind:sandbox kit's own
-// directory fills that slot instead, so its label is never sent as an
-// argument). A mixin that declares base-agent affinity (requires.agent) must
-// be exercised on that agent — composing it onto any other base is a hard
-// error, since affinity is enforced at compose time. Mixins without affinity
-// default to claude.
-func agentForKit(a *spec.Artifact) string {
+// publishedKitBase reports whether this repository publishes a kind:sandbox kit
+// named agent, in which case a mixin with that affinity is composed onto the
+// kit's published form rather than the built-in name: nightly sbx resolves the
+// built-in to a v3 kit and refuses a v3 agent with a v1/v2 mixin in one sandbox,
+// while the repo's v2 kit keeps the composition single-format. repoRoot is the
+// directory holding the kit directories. The returned coordinate is this
+// repository's Hub namespace (docker.io/sbx/<agent>-kit), so an importer with its
+// own kit layout should not rely on it.
+func publishedKitBase(repoRoot, agent string) (string, bool) {
+	if agent == "" || strings.ContainsAny(agent, "/:@") {
+		return "", false
+	}
+	a, err := spec.OpenFromDirectory(filepath.Join(repoRoot, agent))
+	if err != nil || a.Manifest.Kind != spec.KindSandbox || a.Manifest.Name != agent {
+		return "", false
+	}
+	return "docker.io/sbx/" + agent + "-kit:latest", true
+}
+
+// agentForKit returns the positional `sbx create` composes the kit onto and, for
+// a mixin composed onto a published kit, the built-in name to fall back to on a
+// build that refuses that kit by name (see buildCreateArgs; a kind:sandbox kit's
+// own directory fills the slot instead, so its label is never sent as an
+// argument). A mixin that declares base-agent affinity (requires.agent) must be
+// exercised on that agent, since affinity is enforced at compose time. It is
+// composed onto the repo's published kit for that agent when one exists, with
+// the built-in name as the fallback. An affinity mixin is therefore exercised
+// against the sibling kit's published `:latest`, not the branch's copy of that
+// kit, the same way the default claude base already works. The default (no affinity) is the claude
+// kit, overridable through mixinBaseEnv; a pinned base has no fallback. repoRoot
+// is the directory holding the kit directories.
+func agentForKit(a *spec.Artifact, repoRoot string) (positional, fallback string) {
 	if a.Manifest.Kind == spec.KindSandbox {
-		return a.Manifest.Name
+		return a.Manifest.Name, ""
 	}
+	agent := builtinAgentFallback
 	if a.Requires != nil && a.Requires.Agent != "" {
-		return a.Requires.Agent
+		agent = a.Requires.Agent
 	}
-	return "claude"
+	if agent == builtinAgentFallback {
+		base := mixinBase()
+		if base != defaultMixinBase {
+			return base, ""
+		}
+		return base, builtinAgentFallback
+	}
+	if base, ok := publishedKitBase(repoRoot, agent); ok {
+		return base, agent
+	}
+	return agent, ""
 }
 
 // sandboxName builds a unique, sbx-name-safe identifier from the kit

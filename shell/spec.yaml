@@ -1,0 +1,209 @@
+schemaVersion: "2"
+kind: sandbox
+name: shell
+# The KIT's version, not a tool's. This kit installs nothing, so a rebuilt base
+# image does not bump it; it covers the declarations in this file.
+version: "1.0.1"
+displayName: Shell sandbox
+# One line, not a block scalar: scripts/kit-meta.sh reads this with awk rather
+# than a YAML parser, and hub-overview.yml publishes whatever it reads as the
+# Docker Hub short description. A `|` here reaches the Hub page as a literal.
+description: An agentless sandbox launched as a login shell, with provider credentials routed by the proxy.
+
+sandbox:
+  # Built from the Dockerfile beside this spec and published by
+  # .github/workflows/build-and-publish-kits.yml. The image installs no agent:
+  # it is the sandbox toolchain, the `agent` user and a Docker engine, built
+  # from Ubuntu by this kit's own recipe so the kit owns what it ships.
+  #
+  # This value is the source of truth for what CI builds and publishes: the
+  # workflow reads it from here rather than deriving a name, because a spec is
+  # consumed literally with no interpolation. scripts/check-image-ref.sh
+  # asserts it stays inside the namespace CI can push to. The `-image` suffix
+  # distinguishes the base image from the kit artifact, which is published
+  # under the matching `-kit` name.
+  image: docker.io/sbx/shell-image:latest
+  # No `entrypoint:`, and that absence is the kit rather than an oversight. A
+  # sandbox kit with no entrypoint declares no binary and sbx launches a shell
+  # for it; naming one here would turn this into an agent kit for whatever it
+  # named. `command` is the argument tail that shell is launched with: `-l`
+  # makes it a login shell, so ~/.bash_profile runs, which sources ~/.bashrc,
+  # where the image sets the prompt.
+  command: ["-l"]
+
+credentials:
+  # Eight provider services, none marked `required: true`. Nothing in this
+  # sandbox needs a provider key to start, so failing `sbx create` on a missing
+  # credential would take away a working environment rather than protect one.
+  # Bind the ones you use and leave the rest.
+  #
+  # Service names are load-bearing beyond this file: they are the keys a host
+  # binds secrets under (`sbx secret set <service>`) and the keys the proxy
+  # routes on. Renaming one here silently detaches it from the host binding.
+  - service: anthropic
+    apiKey:
+      name: ANTHROPIC_API_KEY
+      proxyManaged: true
+      inject:
+        - domain: api.anthropic.com
+          header: x-api-key
+          format: "%s"
+        - domain: claude.ai
+          header: x-api-key
+          format: "%s"
+        - domain: console.anthropic.com
+          header: x-api-key
+          format: "%s"
+  - service: github
+    apiKey:
+      # Named but NOT proxyManaged: the variable is declared without being
+      # populated, so `gh` and `git` see it unset rather than holding a string
+      # that looks like a token. The credential is applied proxy-side on the
+      # hosts below. GH_TOKEN rather than GITHUB_TOKEN because it is the name
+      # `gh` consults first.
+      name: GH_TOKEN
+      inject:
+        - domain: api.github.com
+          header: Authorization
+          format: Bearer %s
+        - domain: copilot.github.com
+          header: Authorization
+          format: Bearer %s
+        # git smart-HTTP rejects Bearer. username makes the proxy send Basic
+        # with that username and the formatted value as the password.
+        - domain: github.com
+          header: Authorization
+          format: "%s"
+          username: x-access-token
+        - domain: raw.githubusercontent.com
+          header: Authorization
+          format: Bearer %s
+  - service: google
+    apiKey:
+      name: GOOGLE_API_KEY
+      proxyManaged: true
+      inject:
+        - domain: aiplatform.googleapis.com
+          header: x-goog-api-key
+          format: "%s"
+        - domain: generativelanguage.googleapis.com
+          header: x-goog-api-key
+          format: "%s"
+        - domain: oauth2.googleapis.com
+          header: x-goog-api-key
+          format: "%s"
+        - domain: vertexai.googleapis.com
+          header: x-goog-api-key
+          format: "%s"
+  - service: mistral
+    apiKey:
+      name: MISTRAL_API_KEY
+      proxyManaged: true
+      inject:
+        - domain: api.mistral.ai
+          header: Authorization
+          format: Bearer %s
+  - service: nebius
+    apiKey:
+      name: NEBIUS_API_KEY
+      proxyManaged: true
+      inject:
+        # Two hosts because the vendor serves this key under two API base URLs
+        # and which one a client is configured for is the client's choice.
+        - domain: api.studio.nebius.com
+          header: Authorization
+          format: Bearer %s
+        - domain: api.tokenfactory.nebius.com
+          header: Authorization
+          format: Bearer %s
+  - service: openai
+    apiKey:
+      name: OPENAI_API_KEY
+      proxyManaged: true
+      inject:
+        - domain: api.openai.com
+          header: Authorization
+          format: Bearer %s
+        - domain: openai.com
+          header: Authorization
+          format: Bearer %s
+  - service: openrouter
+    apiKey:
+      name: OPENROUTER_API_KEY
+      proxyManaged: true
+      inject:
+        - domain: openrouter.ai
+          header: Authorization
+          format: Bearer %s
+  - service: xai
+    apiKey:
+      name: XAI_API_KEY
+      proxyManaged: true
+      inject:
+        - domain: api.x.ai
+          header: Authorization
+          format: Bearer %s
+
+permissions:
+  network:
+    # The built-in agent declares no allow list of its own and inherits
+    # whatever the host policy grants. A kit cannot do that: this repo's e2e
+    # runs every kit under `sbx policy init deny-all`, so the sandbox reaches
+    # exactly what is declared here. The list is therefore the one deliberate
+    # addition to the extracted spec, and it is the minimum that makes the
+    # declarations above mean anything.
+    #
+    # Entries carry no port. A portless pattern matches any port, which is what
+    # the apt hosts at the bottom need: pinning them to :80 breaks the moment a
+    # mirror answers over https.
+    allow:
+      # Every domain a credential above injects into. Required here as well,
+      # not just in the credential block: a domain absent from this list is
+      # unreachable no matter what the credential declares.
+      - api.anthropic.com
+      - claude.ai
+      - console.anthropic.com
+      - api.github.com
+      - copilot.github.com
+      - github.com
+      - raw.githubusercontent.com
+      - aiplatform.googleapis.com
+      - generativelanguage.googleapis.com
+      - oauth2.googleapis.com
+      - vertexai.googleapis.com
+      - api.mistral.ai
+      - api.studio.nebius.com
+      - api.tokenfactory.nebius.com
+      - api.openai.com
+      - openai.com
+      - openrouter.ai
+      - api.x.ai
+      # The apt sources the base ships. `apt-get install` downloads from them
+      # and a blocked source fails `apt-get update` outright, so every source
+      # must be allowed. Ubuntu serves amd64 from archive and security and
+      # arm64 from ports, so all three are listed.
+      - archive.ubuntu.com        # Ubuntu archive (amd64 main)
+      - security.ubuntu.com       # Ubuntu security updates (amd64)
+      - ports.ubuntu.com          # Ubuntu archive/security (arm64)
+      - download.docker.com       # Docker's apt repo, pre-added by the base
+      - cli.github.com            # GitHub CLI's apt repo
+      #
+      # Deliberately absent: the language package registries (registry.npmjs.org,
+      # pypi.org, proxy.golang.org) and the Docker registry hosts
+      # (registry-1.docker.io, auth.docker.io, production.cloudflare.docker.com)
+      # that `docker pull` needs. The built-in agent declares no allow list at
+      # all, so this list is already a deviation; it stays at the minimum that
+      # makes the declarations in this file work. A sandbox that needs more
+      # under a deny-all policy should widen the policy or compose a kit that
+      # declares what it needs.
+
+# No `setup:` block. The built-in agent refreshed the apt index with a
+# background startup hook on every boot, because it had no image of its own to
+# bake it into. This kit does, so the refresh happens at build time: one less
+# thing running at launch, and one less reason to reach the network before the
+# session starts.
+
+# No `agentInstructions:`. That block names the AI profile file an agent reads,
+# and this kit installs no agent, so there is nothing here to read one. A
+# filename set anyway would have composed kit context written to a file nothing
+# opens.

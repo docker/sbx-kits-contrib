@@ -1,16 +1,5 @@
 # TCK configuration for the copilot kit.
 #
-# copilot is still a built-in agent in released sbx builds, and sbx refuses to
-# load a kit whose name collides with a built-in ("built-in agents cannot be
-# overridden by a kit"). This flag turns that one specific `sbx create` failure
-# into a skip, so the kit can land and be reviewed here before the built-in is
-# removed from sbx.
-#
-# Nothing needs re-enabling later: once a released sbx no longer registers the
-# built-in, `sbx create` succeeds, the full e2e runs, and the test logs a notice
-# that this line is obsolete and can be deleted.
-extractedFromBuiltin: true
-#
 # `promptArgs` is deliberately omitted for now, which skips the e2e `prompt`
 # subtest. Unlike kiro (interactive device-flow only, genuinely no
 # non-interactive mode), Copilot CLI likely has a way to answer a prompt
@@ -36,9 +25,14 @@ extractedFromBuiltin: true
 # The forbidden keys are the two wrong answers nearest to hand: `httpUrl` is
 # Gemini's spelling of `url`, and `transport` is the name of the `copilot mcp
 # add` flag rather than a key in the config file (the file spells it `type`).
+#
+# `copilot mcp add` writes user servers into this same file, so the hook has to
+# merge rather than overwrite. preservesSiblings runs it twice against a config
+# that already holds another server and checks that server is still there.
 mcp:
   configPath: $HOME/.copilot/mcp-config.json
   transportKey: url
+  preservesSiblings: true
   forbiddenKeys:
     - httpUrl
     - transport

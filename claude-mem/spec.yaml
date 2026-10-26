@@ -40,6 +40,7 @@ permissions:
       - security.ubuntu.com
       - ports.ubuntu.com
       - download.docker.com
+      - cli.github.com
 ports:
   # The relay below, not the worker itself: a published port has to be served
   # from eth0, and the worker cannot leave loopback without breaking every
@@ -91,13 +92,17 @@ setup:
     # detection for any later npm install the agent or user runs.
     # `--provider claude` is required, not cosmetic: since claude-mem v13.20.0
     # the installer aborts (exit 1) when stdin is not a TTY and no provider is
-    # given, before doing any work. Provisioning runs with stdin detached, so
+    # given, before doing any work. Provisioning runs with no TTY on stdin, so
     # without the flag this step always fails. `claude` points memory at the
     # sandbox's own Anthropic credentials and skips the browser OAuth pairing
     # that the other providers require -- the only choice that can complete
     # unattended. Upstream README still documents the pre-13.20.0 behavior;
     # see https://github.com/thedotmack/claude-mem/issues/3893.
-    - command: npm_config_legacy_peer_deps=true npx -y claude-mem@latest install --provider claude
+    # `</dev/null` is load-bearing too: after creating its sign-in link the
+    # installer waits for a Return key even without a TTY, and a kit hook's
+    # stdin is an open pipe nobody closes, so the install hung until the
+    # create timeout. EOF makes it print "Skipped (non-TTY)" and finish.
+    - command: npm_config_legacy_peer_deps=true npx -y claude-mem@latest install --provider claude </dev/null
       user: "1000"
       description: Install latest claude-mem (plugin, marketplace registration, bun deps)
   startup:
