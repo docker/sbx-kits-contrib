@@ -89,7 +89,17 @@ setup:
     # installer waits for a Return key even without a TTY, and a kit hook's
     # stdin is an open pipe nobody closes, so the install hung until the
     # create timeout. EOF makes it print "Skipped (non-TTY)" and finish.
-    - command: npm_config_legacy_peer_deps=true npx -y claude-mem@latest install --provider claude </dev/null
+    # `env -u NODE_USE_ENV_PROXY` is load-bearing since claude-mem v15: the
+    # sandbox sets NODE_USE_ENV_PROXY=1, so Node 22's built-in fetch routes
+    # through the egress proxy on pooled keep-alive sockets. The v15 installer
+    # leaves those sockets open, so after printing "installed successfully!"
+    # the process spins at full CPU and never exits until the create timeout
+    # kills it (a Node diagnostic report of the hung process shows open proxy
+    # connections holding the event loop). Without the variable the same install
+    # exits 0 in seconds. npm itself still uses the proxy via the
+    # `npm config set` step above. Scoped to this one command so the agent's
+    # own Node processes keep the proxy wiring.
+    - command: env -u NODE_USE_ENV_PROXY npm_config_legacy_peer_deps=true npx -y claude-mem@latest install --provider claude </dev/null
       user: "1000"
       description: Install latest claude-mem (plugin, marketplace registration, bun deps)
   startup:
