@@ -7,6 +7,8 @@ values, the full auth store, process environments, or OAuth response bodies.
 
 Current observations and limits are recorded in [HOST_RESULTS.md](HOST_RESULTS.md).
 Refresh is unresolved; the PR remains draft.
+For independent tasks, contribution instructions and runnable diagnostics, see
+[CONTRIBUTOR_HANDOFF.md](CONTRIBUTOR_HANDOFF.md).
 
 1. Build both kits using `scripts/test-kit.sh` and run each under the repository's
    deny-all E2E setup. Keep release pins unchanged; also repeat runtime tests
