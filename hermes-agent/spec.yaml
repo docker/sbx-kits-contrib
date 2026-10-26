@@ -5,7 +5,7 @@ displayName: Hermes Agent
 description: The self-improving AI agent by Nous Research — creates skills from experience, supports 200+ models via OpenRouter, and runs anywhere
 sandbox:
   # Pre-baked image: Hermes at the latest upstream release, on the shell
-  # template (no Docker engine -- Hermes' default terminal backend is
+  # base image (no Docker engine -- Hermes' default terminal backend is
   # "local", so it does not need one). Built and published by
   # build-and-publish-kits.yml, the shared kit-image pipeline (see
   # ../PUBLISHING.md) -- no bespoke workflow needed, same as

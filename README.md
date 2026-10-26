@@ -161,7 +161,7 @@ A kit's `permissions.network.allow` is its **complete** outbound network contrac
 
 The non-obvious trap is **package managers refreshing every configured source**, not just the one you added:
 
-- `apt-get update` re-fetches metadata for every file in `/etc/apt/sources.list[.d/]` — including sources the base template added. If *any* of those returns non-2xx, `apt-get` exits non-zero even if the package you want is in a different source. For kits built on `shell-docker` / `*-docker` templates that means `download.docker.com` (Docker's apt repo, pre-added by the template) needs to be in your `permissions.network.allow` even if you're only installing something from Ubuntu's main archive.
+- `apt-get update` re-fetches metadata for every file in `/etc/apt/sources.list[.d/]` — including sources the base template added. If *any* of those returns non-2xx, `apt-get` exits non-zero even if the package you want is in a different source. For kits built on `shell-docker` / `*-docker` templates that means `download.docker.com` and `cli.github.com` (Docker's and GitHub CLI's apt repos, pre-added by the base) need to be in your `permissions.network.allow` even if you're only installing something from Ubuntu's main archive.
 - Ubuntu hosts amd64 packages on `archive.ubuntu.com` + `security.ubuntu.com` and arm64 packages on `ports.ubuntu.com`. List all three for cross-arch coverage; CI is amd64, your Mac is likely arm64.
 - `npm install`, `pip install`, `cargo`, `go get`, etc. each have their own registry/mirror hosts — declare them too.
 
@@ -299,7 +299,7 @@ extends: claude
 # ...
 ```
 
-The TCK resolves the parent's template image automatically for well-known agents (shell, claude, codex, copilot, cursor, docker-agent, droid, gemini, kiro, opencode). For other parents, use `WithImage`:
+The TCK resolves the parent's image automatically for well-known agents (shell, shell-docker, claude, codex, copilot, cursor, docker-agent, droid, gemini, kiro, opencode), using the image each kit publishes. For other parents, use `WithImage`:
 
 ```go
 suite, err := tck.NewSuiteFromDir(".", tck.WithImage("my-custom/template:latest"))

@@ -1,16 +1,17 @@
 # shell
 
 A sandbox with no agent installed, launched as a login shell: bash, git, apt,
-a Docker engine with compose and buildx, curl, gh, jq, make, build tools,
+the Docker CLI with compose and buildx, curl, gh, jq, make, build tools,
 Python 3, Node with npm, Go, a headless JDK and uv, built from Ubuntu by the
-kit's own recipe.
+kit's own recipe. No Docker engine: for one, use the `shell-docker` kit, the
+same image with containerd and dockerd on top.
 
 This kit is the `shell` agent built into `sbx`, extracted as a kit. Its
 credentials and its launch command are the built-in's, so a sandbox created
-from the kit behaves as `sbx run shell` does, with two differences: it reaches
-only the hosts it declares below rather than whatever the host policy grants,
-and it refreshes the apt index when its image is built rather than on every
-boot.
+from the kit behaves as `sbx run shell` does, with three differences: it
+reaches only the hosts it declares below rather than whatever the host policy
+grants, it refreshes the apt index when its image is built rather than on
+every boot, and it ships no Docker engine (the `shell-docker` kit does).
 
 ## Usage
 
@@ -39,6 +40,17 @@ to the built-in and the kit is rejected for being a sandbox where a mixin was
 expected. Released `sbx` builds also refuse the forms above with
 `agent "shell" is already registered`; on those, run a copy of the kit under
 another name.
+
+## Docker
+
+The image carries the Docker CLI, compose and buildx, but no engine, so
+`docker` commands need a daemon to talk to. For Docker-in-Docker use the
+`shell-docker` kit, which builds `FROM` this image and adds containerd and
+dockerd:
+
+```console
+sbx run docker.io/sbx/shell-docker-kit:latest
+```
 
 ## Provider credentials
 
@@ -78,15 +90,15 @@ and `sudo apt-get update` fixes it.
 
 ## Network
 
-The allow list is the eighteen hosts above plus the four apt sources the base
-ships: `archive.ubuntu.com`, `security.ubuntu.com`, `ports.ubuntu.com` and
-`download.docker.com`. Those four are for the packages you install, not for
-the index.
+The allow list is the eighteen hosts above plus the five apt sources the base
+ships: `archive.ubuntu.com`, `security.ubuntu.com`, `ports.ubuntu.com`,
+`download.docker.com` and `cli.github.com`. These sources support package
+installs and subsequent index refreshes.
 
-This is the one deliberate difference from the built-in agent, which declares
-no allow list and inherits whatever the host policy grants. A kit cannot do
-that: it reaches exactly what it declares, so a credential whose host is not
-listed could never be used.
+This is the one deliberate addition to the spec over the built-in agent,
+which declares no allow list and inherits whatever the host policy grants. A
+kit cannot do that: it reaches exactly what it declares, so a credential whose
+host is not listed could never be used.
 
 Deliberately absent: the language package registries (npm, PyPI, the Go module
 proxy) and the Docker registry hosts `docker pull` needs
@@ -109,6 +121,7 @@ sources `~/.bashrc`, where the image sets the prompt.
 rebuilt nightly by CI, for `linux/amd64` and `linux/arm64`. The recipe builds
 the whole image from Ubuntu: the toolchain (git, gh, jq, make, build tools,
 Node with npm, Python 3 with pip, Go, a headless JDK, uv), the non-root
-`agent` user with passwordless sudo, and a Docker engine with compose and
-buildx. No agent is installed. Owning the recipe is what lets this image
-become the base other kits build on.
+`agent` user with passwordless sudo, and the Docker CLI with compose and
+buildx. No agent and no Docker engine are installed. Owning the recipe is
+what lets this image become the base other kits build on;
+`docker.io/sbx/shell-docker-image` is the first, adding the engine.

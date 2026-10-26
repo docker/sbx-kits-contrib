@@ -5,8 +5,8 @@ Base image for the ZeroClaw kit for
 
 ## Contents
 
-Built on `docker/sandbox-templates:shell` — the standard sandbox toolchain,
-no Docker engine (ZeroClaw's tool calls run inside the sandbox microVM
+Built on `docker.io/sbx/shell-image`, the standard sandbox toolchain
+with no Docker engine (ZeroClaw's tool calls run inside the sandbox microVM
 already; its own Landlock/Bubblewrap sandboxing is unavailable in-container
 either way). On top of that:
 
