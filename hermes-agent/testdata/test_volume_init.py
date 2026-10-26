@@ -38,11 +38,11 @@ class VolumeInitTest(unittest.TestCase):
             capture_output=True, text=True, user=user, group=user, extra_groups=[],
         )
 
-    def run_startup(self, anthropic_mode):
+    def run_startup(self, anthropic_mode, home=str(STATE)):
         # The kit's startup order: the root hook, then the credential hook as the agent.
         self.assertEqual(self.run_hook().returncode, 0)
         os.chown("/home/agent", 1000, 1000)
-        env = {**os.environ, "HOME": "/home/agent", "HERMES_HOME": str(STATE),
+        env = {**os.environ, "HOME": "/home/agent", "HERMES_HOME": home,
                "ANTHROPIC_API_KEY": "proxy-managed", "OPENROUTER_API_KEY": "proxy-managed",
                "SBX_CRED_ANTHROPIC_MODE": anthropic_mode}
         return subprocess.run(["sh", CREDENTIAL_HOOK], env=env, capture_output=True, text=True,
@@ -51,16 +51,24 @@ class VolumeInitTest(unittest.TestCase):
     def test_startup_keeps_bound_placeholders_in_profile_env(self):
         # OPENROUTER_API_KEY carries the sentinel in every row but is never bound, so it never lands.
         rows = [
-            ("bound placeholder lands once", [], "apikey", ["ANTHROPIC_API_KEY=proxy-managed"]),
-            ("unbound adds nothing", [], "none", []),
-            ("unbound removes the placeholder", ["ANTHROPIC_API_KEY=proxy-managed"], "none", []),
-            ("user value is kept", ["ANTHROPIC_API_KEY=sk-ant-mine"], "apikey", ["ANTHROPIC_API_KEY=sk-ant-mine"]),
+            ("bound placeholder lands once", "", "apikey", ["ANTHROPIC_API_KEY=proxy-managed"]),
+            ("unbound adds nothing", "", "none", []),
+            ("unbound removes the placeholder", "ANTHROPIC_API_KEY=proxy-managed\n", "none", []),
+            ("user value is kept", "ANTHROPIC_API_KEY=sk-ant-mine\n", "apikey", ["ANTHROPIC_API_KEY=sk-ant-mine"]),
+            ("exported user value is kept", "export ANTHROPIC_API_KEY=sk-ant-mine\n", "apikey",
+             ["export ANTHROPIC_API_KEY=sk-ant-mine"]),
+            ("spaced user value is kept", "ANTHROPIC_API_KEY = sk-ant-mine\n", "apikey",
+             ["ANTHROPIC_API_KEY = sk-ant-mine"]),
+            ("missing final newline stays a separate line", "FOO=bar", "apikey",
+             ["FOO=bar", "ANTHROPIC_API_KEY=proxy-managed"]),
+            ("commented-out value still gets the placeholder", "# ANTHROPIC_API_KEY=sk-ant-old\n", "apikey",
+             ["ANTHROPIC_API_KEY=proxy-managed"]),
         ]
         env_file = STATE / ".env"
         for name, existing, mode, expected in rows:
             with self.subTest(name):
                 self.assertEqual(self.run_hook().returncode, 0)
-                env_file.write_text("".join(f"{line}\n" for line in [SEEDS[".env"][0].strip(), *existing]))
+                env_file.write_text(SEEDS[".env"][0] + existing)
                 os.chown(env_file, 1000, 1000)
                 os.chmod(env_file, 0o600)
                 for _ in range(2):
@@ -69,6 +77,14 @@ class VolumeInitTest(unittest.TestCase):
                 lines = env_file.read_text().splitlines()
                 self.assertEqual([line for line in lines if not line.startswith("#")], expected)
                 self.assertEqual(env_file.stat().st_mode & 0o777, 0o600)
+
+    def test_default_home_env_is_not_written(self):
+        os.chown(SEED, 1000, 1000)
+        for home in (str(SEED), f"{SEED}/"):
+            with self.subTest(home=home):
+                result = self.run_startup("apikey", home=home)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual((SEED / ".env").read_text(), SEEDS[".env"][0])
 
     def test_fresh_volume_becomes_writable(self):
         result = self.run_hook()

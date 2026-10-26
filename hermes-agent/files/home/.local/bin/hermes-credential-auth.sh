@@ -117,16 +117,18 @@ sync_profile_placeholder() (
     umask 077
     line="$1=proxy-managed"
     if [ "$2" = 1 ] && [ "$(printenv "$1")" = proxy-managed ]; then
-        grep -q "^$1=" "$PROFILE_ENV" 2>/dev/null || printf '%s\n' "$line" >> "$PROFILE_ENV"
+        grep -Eq "^[[:space:]]*(export[[:space:]]+)?$1[[:space:]]*=" "$PROFILE_ENV" 2>/dev/null && return
+        [ ! -s "$PROFILE_ENV" ] || [ -z "$(tail -c 1 "$PROFILE_ENV")" ] || echo >> "$PROFILE_ENV"
+        printf '%s\n' "$line" >> "$PROFILE_ENV"
     elif grep -qxF "$line" "$PROFILE_ENV" 2>/dev/null; then
         grep -vxF "$line" "$PROFILE_ENV" > "$PROFILE_ENV.tmp" || [ $? -eq 1 ]
         mv "$PROFILE_ENV.tmp" "$PROFILE_ENV"
     fi
 )
 
-# A profile HERMES_HOME reads provider keys only from its own .env, not the process env
-# (testdata/test_volume_init.py pins this); the default home needs nothing written.
-if [ "$STATE_DIR" != "$HOME/.hermes" ]; then
+# Under a profile HERMES_HOME, Hermes reads provider keys only from the profile's .env,
+# not the process env. The default home reads the process env, so it needs nothing written.
+if [ "${STATE_DIR%/}" != "$HOME/.hermes" ]; then
     PROFILE_ENV="$STATE_DIR/.env"
     case "$anthropic_cred" in apikey) anthropic_bound=1 ;; *) anthropic_bound=0 ;; esac
     sync_profile_placeholder ANTHROPIC_API_KEY "$anthropic_bound"
