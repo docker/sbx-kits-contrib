@@ -437,7 +437,7 @@ docker build -t docker.io/sbx/openclaw-image:latest openclaw
 | `authentication_error: x-api-key header is required` | A bearer the proxy does not recognise as its own sentinel is not carried to `api.anthropic.com` — it manages auth on that host. Usually a `claude setup-token` string bound as a custom secret; see [Model provider](#model-provider). |
 | `authentication_error: OAuth access token is invalid` | The bearer sentinel went out unswapped: no OAuth login is stored in the credential store this sandbox was created under, or the login behind it has expired or been revoked. |
 | `auth flow failed (exit 1)` after `/auth` | Interactive login needs a TTY the TUI's subprocess does not get. Credentials belong on the host. |
-| `Sandbox image not found: docker.io/sbx/shell-image:latest. Build or pull it first.` | The first-boot pull of the tool-call image has not landed yet. Check `~/.openclaw/sandbox-image-pull.log`. |
+| `Sandbox image not found: docker.io/sbx/shell-docker-image:latest. Build or pull it first.` | The first-boot pull of the tool-call image has not landed yet. Check `~/.openclaw/sandbox-image-pull.log`. |
 | A newly bound secret changes nothing | Bindings are wired at create time. Create a fresh sandbox. |
 | `remote model catalog refresh failed` on every gateway start | Expected. The catalog host is deliberately outside `network.allow` (see `spec.yaml`); the refresh is warn-only and the gateway reports ready regardless. |
 

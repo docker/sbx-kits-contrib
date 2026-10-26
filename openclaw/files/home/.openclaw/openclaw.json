@@ -10,7 +10,7 @@
         "scope": "session",
         "workspaceAccess": "rw",
         "docker": {
-          "image": "docker.io/sbx/shell-image:latest"
+          "image": "docker.io/sbx/shell-docker-image:latest"
         }
       }
     }
