@@ -348,8 +348,10 @@ image](skills/kit-author/topics/image-publishing.md#choosing-a-base-image).
    `docker.io/sbx/claude-image:latest`); see [Choosing a base
    image](skills/kit-author/topics/image-publishing.md#choosing-a-base-image).
    Only the `-docker` base may carry `com.docker.sandboxes.start-docker="true"`.
-   Agent kit images built on it carry the label too, so a kit on one that runs
-   no containers sets it to `"false"`.
+   Agent kit images built on it carry the label and the engine too, and a kit on
+   one keeps both: overriding the label to `"false"` on an image that ships
+   `dockerd` makes the sandbox fail to start with `docker daemon failed to start
+   inside the sandbox`.
 2. Set `LABEL com.docker.sandboxes.flavor="<kit>"` in it. Nothing derives this
    from the directory name, and leaving it out inherits whatever the base sets —
    with today's bases that is the base's own flavor, so the kit ships under

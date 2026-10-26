@@ -3,8 +3,8 @@
 #
 # Paperclip is a Node.js server + React UI that orchestrates a team of AI
 # agents ("if OpenClaw is an employee, Paperclip is the company"). Agent
-# CLIs run as child processes in the same container — no Docker-in-Docker
-# — so the whole install pre-bakes into one image: the pinned paperclipai
+# CLIs run as child processes in the same container, not in Docker, so the
+# whole install pre-bakes into one image: the pinned paperclipai
 # CLI (which carries @paperclipai/server and the built UI; its bundled
 # embedded-postgres binaries are swapped for distro PostgreSQL below),
 # running on the claude kit's image so the claude_local adapter has
@@ -67,9 +67,6 @@ RUN mkdir -p /home/agent/.paperclip
 # value as an image's `Agent` in the API. So it must be the kit's own name:
 # `paperclip`.
 LABEL com.docker.sandboxes.flavor="paperclip"
-
-# The base requests Docker-in-Docker and this kit runs no containers.
-LABEL com.docker.sandboxes.start-docker="false"
 
 # Informational only — nothing in sbx reads this. Worth setting because the
 # base is a floating tag rebuilt nightly, so this is the one place the

@@ -53,8 +53,10 @@ itself, which is also distributed as an OCI artifact — see
 
 Two bases, both built and published by this repository. A kit that extends an
 agent builds on that agent kit's image (e.g. `docker.io/sbx/claude-image:latest`)
-instead of installing the agent itself. It inherits that image's `start-docker`
-label; set it to `"false"` when the kit runs no containers.
+instead of installing the agent itself. It inherits that image's engine and
+`start-docker` label; leave the label alone, because overriding it to `"false"`
+on an image that ships `dockerd` makes the sandbox fail to start with `docker
+daemon failed to start inside the sandbox`.
 
 | Base | What it is | `start-docker` label |
 |---|---|---|

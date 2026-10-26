@@ -73,9 +73,6 @@ RUN cd /home/agent/.claude/skills/gstack && \
 # `gstack`.
 LABEL com.docker.sandboxes.flavor="gstack"
 
-# The base requests Docker-in-Docker and this kit runs no containers.
-LABEL com.docker.sandboxes.start-docker="false"
-
 # Informational only — nothing in sbx reads this. Worth setting because the
 # base is a floating tag rebuilt nightly, so this is the one place the
 # produced image records what it was actually built on.
