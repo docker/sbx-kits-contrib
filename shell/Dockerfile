@@ -1,19 +1,20 @@
 # syntax=docker/dockerfile:1
 
-# Base image for the `shell` sandbox kit: the sandbox toolchain, the non-root
-# `agent` user and a Docker engine, built here from Ubuntu rather than
-# inherited. Owning the recipe is what lets this image become the base other
-# kits build on; while the shared sandbox template still exists, the stages
-# below are kept identical to its `shell-docker` chain so the two stay
-# diffable, except for two comments reworded to drop private references.
+# Base image for the `shell` sandbox kit: the sandbox toolchain and the
+# non-root `agent` user, built here from Ubuntu rather than inherited. Owning
+# the recipe is what lets this image become the base other kits build on. It
+# ships the Docker CLI but no engine; the `shell-docker` kit layers the engine
+# on top of this image.
 
 ARG UBUNTU_VERSION="26.04"
-ARG UV_VERSION="0.9.26"
+ARG UV_VERSION="0.13.4"
+ARG GO_VERSION="1.27.3"
 # Pinned release of docker/clipboardbridge — the prebuilt clipboard-bridge
 # binary copied into the base image below. Bump in lockstep with a CI build.
-ARG CLIPBOARD_BRIDGE_VERSION="v0.3.0"
+ARG CLIPBOARD_BRIDGE_VERSION="v0.3.1"
 
 FROM ghcr.io/astral-sh/uv:${UV_VERSION} AS uv
+FROM golang:${GO_VERSION}-bookworm AS go
 
 ##############
 # Base image #
@@ -50,6 +51,11 @@ echo \
     "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu \
     $(. /etc/os-release && echo "${UBUNTU_CODENAME:-$VERSION_CODENAME}") stable" | \
     tee /etc/apt/sources.list.d/docker.list > /dev/null
+curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg \
+    -o /etc/apt/keyrings/githubcli.gpg
+chmod a+r /etc/apt/keyrings/githubcli.gpg
+echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/githubcli.gpg] https://cli.github.com/packages stable main" \
+    > /etc/apt/sources.list.d/github-cli.list
 EOF
 
 # Configure users, sandbox config, and npm
@@ -173,6 +179,7 @@ rm -rf "${tmp}"
 EOF
 
 FROM base AS tools-minimal
+ARG GH_MIN_VERSION="2.102.1"
 
 ################################
 # Tools for the minimal images #
@@ -204,6 +211,10 @@ apt-get install -yy --no-install-recommends \
     tini \
     unzip
 
+# GitHub's APT index retains only the latest release. Install it, then
+# enforce the first release carrying the refreshed certificate trust.
+dpkg --compare-versions "$(dpkg-query -W -f='${Version}' gh)" ge "${GH_MIN_VERSION}"
+
 apt-get clean
 rm -rf /var/lib/apt/lists/*
 
@@ -212,12 +223,13 @@ USER agent
 
 # Use tini as PID 1 so processes launched via `docker exec` (e.g. `sbx exec`)
 # get properly reaped instead of accumulating as zombies. Declared here so
-# every downstream template inherits it without each stage repeating it. The
+# every later stage inherits it without each stage repeating it. The
 # container's CMD (`sleep infinity` when sbx runs it, or the CMD below when
 # run standalone) is appended to this ENTRYPOINT by Docker.
 ENTRYPOINT ["tini", "--"]
 
 FROM tools-minimal AS tools
+COPY --link --from=go /usr/local/go /usr/local/go
 
 #############################
 # Tools for the full images #
@@ -231,40 +243,21 @@ apt-get install -yy --no-install-recommends \
     bc \
     build-essential \
     default-jdk-headless \
-    golang \
     man-db \
     nodejs \
     npm \
     python3 \
     python3-pip
 
+ln -s /usr/local/go/bin/go /usr/local/bin/go
+ln -s /usr/local/go/bin/gofmt /usr/local/bin/gofmt
 apt-get clean
 rm -rf /var/lib/apt/lists/*
 
 EOF
 USER agent
 
-#########################################
-# Base for Docker-in-Docker variants    #
-# Installs docker-ce once so the 10     #
-# -docker targets don't each run their  #
-# own apt-get against the same mirror.  #
-#########################################
-FROM tools AS tools-docker
-USER root
-RUN <<EOF
-set -euxo pipefail
-apt-get update
-apt-get install -yy --no-install-recommends \
-    containerd.io \
-    docker-ce
-
-apt-get clean
-rm -rf /var/lib/apt/lists/*
-EOF
-USER agent
-
-FROM tools-docker AS shell
+FROM tools AS shell
 # Configure a cleaner shell prompt: user@sandbox:dirname$
 # Uses \W (directory basename) instead of \w (full path) for readability
 # Ensure login shells also source .bashrc so the prompt applies with "bash -l".
@@ -281,10 +274,6 @@ EOF
 USER root
 RUN apt-get update -qq -y
 USER agent
-
-# A request to the runtime, not a description of the image: privileged mode,
-# a block volume at /var/lib/docker and dockerd at boot.
-LABEL com.docker.sandboxes.start-docker="true"
 
 # sbx reads `flavor` as an agent identifier and surfaces it as an image's
 # Agent, so it names this kit.

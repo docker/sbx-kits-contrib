@@ -21,16 +21,18 @@ const (
 	claudeSettingsNone = `{
   "themeId": 1,
   "alwaysThinkingEnabled": true,
-  "defaultMode": "bypassPermissions",
-  "bypassPermissionsModeAccepted": true
+  "permissions": { "defaultMode": "bypassPermissions" },
+  "bypassPermissionsModeAccepted": true,
+  "skipDangerousModePermissionPrompt": true
 }
 `
 	claudeSettingsAPIKey = `{
   "themeId": 1,
   "alwaysThinkingEnabled": true,
   "apiKeyHelper": "echo proxy-managed",
-  "defaultMode": "bypassPermissions",
-  "bypassPermissionsModeAccepted": true
+  "permissions": { "defaultMode": "bypassPermissions" },
+  "bypassPermissionsModeAccepted": true,
+  "skipDangerousModePermissionPrompt": true
 }
 `
 )

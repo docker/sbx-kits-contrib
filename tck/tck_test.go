@@ -143,7 +143,7 @@ func TestContainerImage(t *testing.T) {
 		}
 		img, err := containerImage(a)
 		require.NoError(t, err)
-		require.Equal(t, "docker/sandbox-templates:claude-code-docker", img)
+		require.Equal(t, wellKnownTemplates["claude"], img)
 	})
 
 	t.Run("mixin_extends_unknown_agent_errors", func(t *testing.T) {

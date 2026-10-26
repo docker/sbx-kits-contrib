@@ -53,7 +53,7 @@ For mixins that `extends:` a non-default parent agent, pass the parent's templat
 suite, err := tck.NewSuiteFromDir(".", tck.WithImage("my-custom/template:latest"))
 ```
 
-The TCK auto-resolves well-known parent agents (shell, claude, codex, copilot, cursor, docker-agent, droid, gemini, kiro, opencode) via their template images.
+The TCK auto-resolves well-known parent agents (shell, shell-docker, claude, codex, copilot, cursor, docker-agent, droid, gemini, kiro, opencode) via the images their kits publish.
 
 ### Kits that declare `args`
 
@@ -322,7 +322,7 @@ If the scoped daemon ever gets wedged: `sbx --app-name sbx-kits-contrib-tck rese
 
 Common hosts that surface only under `deny-all` (easy to forget):
 
-- `download.docker.com` — pre-added to apt sources on `shell-docker` / `*-docker` templates; any `apt-get update` re-fetches it even if you're installing from Ubuntu's main archive.
+- `download.docker.com` and `cli.github.com` — pre-added to apt sources on both shell bases (and the `*-docker` templates); any `apt-get update` re-fetches them even if you're installing from Ubuntu's main archive.
 - `archive.ubuntu.com` + `security.ubuntu.com` (amd64) **and** `ports.ubuntu.com` (arm64) — list all three so the kit works on both CI (amd64) and Apple Silicon.
 - Registry hosts for each package manager you call: `registry.npmjs.org`, `pypi.org` + `files.pythonhosted.org`, `crates.io` + `static.crates.io`, `proxy.golang.org` + `sum.golang.org`, etc.
 

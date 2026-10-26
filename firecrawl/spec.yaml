@@ -44,7 +44,7 @@ setup:
         SDK_VERSION=4.44.0
 
         command -v python3 >/dev/null 2>&1 || {
-          echo "firecrawl kit: python3 not found. Every docker/sandbox-templates image ships python3 and python3-pip; on a custom base image, install them before layering this kit." >&2
+          echo "firecrawl kit: python3 not found. The sbx shell images ship python3 and python3-pip; on a custom base image, install them before layering this kit." >&2
           exit 1
         }
         python3 -m pip --version >/dev/null 2>&1 || {

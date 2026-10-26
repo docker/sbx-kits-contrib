@@ -5,7 +5,7 @@ displayName: QEMU (multi-arch binfmt)
 description: >-
   Registers QEMU user-mode emulators with the kernel's binfmt_misc via Docker
   (tonistiigi/binfmt) so the sandbox can run and build container images for
-  other CPU architectures. Requires a Docker-in-Docker base template.
+  other CPU architectures. Requires a Docker-in-Docker base image.
 
 permissions:
   network:
@@ -20,12 +20,13 @@ permissions:
       - index.docker.io:443
       # apt: install `mount` if the base image lacks it.
       # `apt-get update` refreshes every configured source, so all of the
-      # *-docker template's Ubuntu + Docker apt hosts must be reachable. Ubuntu
+      # base image's Ubuntu + Docker apt hosts must be reachable. Ubuntu
       # serves amd64 from archive/security and arm64 from ports.ubuntu.com.
       - archive.ubuntu.com:80
       - security.ubuntu.com:80
       - ports.ubuntu.com:80
       - download.docker.com:443
+      - cli.github.com:443
 setup:
   # `mount` only buys the startup hook's idempotency fast path, so failing to
   # install it must not fail sandbox creation: hence no `set -e`, explicit
@@ -59,7 +60,7 @@ setup:
           # non-zero exit from a startup command leaves the whole sandbox unable
           # to start — so the rest only warns into the startup log.
           if ! command -v docker >/dev/null 2>&1; then
-            echo "docker not found: the qemu kit needs a Docker-in-Docker base (compose it onto a *-docker template, e.g. docker/sandbox-templates:shell-docker)" >&2
+            echo "docker not found: the qemu kit needs a Docker-in-Docker base (compose it onto a sandbox with a Docker engine, e.g. the shell-docker kit)" >&2
             exit 1
           fi
           # Registration happens inside the binfmt container's own mount

@@ -6,7 +6,7 @@ description: |
   AI software engineering agent. Resolves issues, writes code, runs tests, and opens PRs — all autonomously.
 sandbox:
   # Pre-baked image: OpenHands installed via `uv tool install` at build time
-  # (see the Dockerfile), on the plain `shell` template -- no Docker engine.
+  # (see the Dockerfile), on the plain `shell` base image -- no Docker engine.
   # This kit sets SANDBOX_TYPE=local, and the CLI's own workspace setup
   # resolves to a subprocess-based LocalWorkspace regardless of that
   # variable, so it never needs one. Built and published by

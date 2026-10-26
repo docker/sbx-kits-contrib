@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1
 
-# Base image for the `vibe` sandbox kit: the shell-docker template with
+# Base image for the `vibe` sandbox kit: the shell-docker base image with
 # Mistral Vibe installed from PyPI.
 #
 # Built and pushed as docker.io/sbx/vibe-image by build-and-publish-kits.yml
@@ -9,7 +9,7 @@
 #
 # Build it locally the way the test scripts do:
 #   docker build -t docker.io/sbx/vibe-image:latest ./vibe
-ARG BASE_IMAGE=docker/sandbox-templates:shell-docker
+ARG BASE_IMAGE=docker.io/sbx/shell-docker-image:latest
 FROM ${BASE_IMAGE}
 
 # Re-declared inside the stage: an ARG defined before the first FROM is a global
@@ -21,8 +21,8 @@ ARG BASE_IMAGE
 # pin the image to a known release.
 ARG VIBE_VERSION=latest
 
-# uv ships with the template at /usr/local/bin/uv, and `uv tool install` puts
-# the executables in ~/.local/bin, which is already on the template's PATH --
+# uv ships with the base image at /usr/local/bin/uv, and `uv tool install` puts
+# the executables in ~/.local/bin, which is already on the base image's PATH --
 # so `sandbox.entrypoint` can stay the bare name `vibe`.
 USER agent
 RUN set -ex; \
@@ -32,7 +32,7 @@ RUN set -ex; \
 
 # Requests Docker-in-Docker from the runtime. Inherited from the base image,
 # but re-declared so the value is owned here rather than depending on
-# inheritance from an image this repository does not own.
+# inheritance.
 LABEL com.docker.sandboxes.start-docker="true"
 
 # sbx reads `flavor` as the image's agent identifier and surfaces it in the API,

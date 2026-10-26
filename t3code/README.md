@@ -89,10 +89,13 @@ plus starting a binary that is already there.
 | Domain | Why |
 | --- | --- |
 | `registry.npmjs.org` | npm tarballs for `t3` and its platform package (install time) |
+| `github.com` | the t3 installer fetches the platform binary and its `SHA256SUMS` from the t3code GitHub release |
+| `release-assets.githubusercontent.com` | where github.com redirects release downloads |
 | `archive.ubuntu.com` | Ubuntu apt archive, amd64 |
 | `security.ubuntu.com` | Ubuntu security pocket, amd64, refreshed by the same `apt-get update` |
 | `ports.ubuntu.com` | Ubuntu archive and security for arm64 (Apple Silicon sandboxes) |
 | `download.docker.com` | Docker's apt repo, pre-added by the `*-docker` templates. `apt-get update` refreshes every configured source and fails if any is blocked |
+| `cli.github.com` | GitHub CLI's apt repo, pre-added by the base image; `apt-get update` fails if any configured source is blocked |
 
 ## Cleanup
 

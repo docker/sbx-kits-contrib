@@ -4,7 +4,7 @@ name: claude-ollama
 displayName: Claude Code (Ollama)
 description: Claude Code wired to Ollama Anthropic-compatible API, with configurable model.
 sandbox:
-  image: docker/sandbox-templates:claude-code-docker
+  image: docker.io/sbx/claude-image:latest
   entrypoint:
     - /home/agent/.local/bin/claude-ollama
 agentInstructions:
@@ -28,9 +28,8 @@ environment:
 setup:
   # Phase 4 lifts the former `settings: { containerSettings: { claude: true } }`
   # block into the kit. ~/.claude.json carries only the credential-independent
-  # bypass flags (static init file, native onlyIfMissing idempotency). The
-  # settings.json is seeded in setup.install below. Content SYNCed with the
-  # claude kit.
+  # bypass flags and is written by the first install command below. The
+  # settings.json is seeded by the second. Content SYNCed with the claude kit.
   #
   # This kit declares NO credential service (Ollama is a local model; the
   # claude-ollama wrapper unsets ANTHROPIC_API_KEY and points Claude Code at
@@ -39,6 +38,23 @@ setup:
   # unset → "none" path: settings.json is written WITHOUT apiKeyHelper, which
   # is correct since there is no proxy-managed cloud credential.
   install:
+    # The image ships a ~/.claude.json, so it is overwritten rather than
+    # seeded with onlyIfMissing.
+    - command: |
+        set -e
+        ws="${WORKSPACE_DIR:-/}"
+        esc=$(printf '%s' "$ws" | sed 's/\\/\\\\/g; s/"/\\"/g; s/\t/\\t/g; s/\r/\\r/g')
+        projects="\"/\": { \"hasTrustDialogAccepted\": true }"
+        [ "$ws" = "/" ] || projects="$projects, \"$esc\": { \"hasTrustDialogAccepted\": true }"
+        printf '%s\n' "{
+          \"bypassPermissionsModeAccepted\": true,
+          \"hasCompletedOnboarding\": true,
+          \"hasSeenAutoDefaultNudge\": true,
+          \"projects\": { $projects }
+        }" > /home/agent/.claude.json
+        chown agent:agent /home/agent/.claude.json
+      user: "0"
+      description: Seed Claude bypass/trust flags (root; overwrites image-shipped file)
     # Seed ~/.claude/settings.json early (install runs synchronously before the
     # agent launches). This kit declares no credential service, so
     # SBX_CRED_ANTHROPIC_MODE is never set in the container env and the branch
@@ -59,8 +75,9 @@ setup:
           printf '%s' "{
           \"themeId\": 1,
           \"alwaysThinkingEnabled\": true,
-        ${HELPER}  \"defaultMode\": \"bypassPermissions\",
-          \"bypassPermissionsModeAccepted\": true
+        ${HELPER}  \"permissions\": { \"defaultMode\": \"bypassPermissions\" },
+          \"bypassPermissionsModeAccepted\": true,
+          \"skipDangerousModePermissionPrompt\": true
         }
         " > /home/agent/.claude/settings.json
         fi
@@ -71,19 +88,6 @@ setup:
       user: root
       description: Seed Claude settings.json (none path; no credential service)
   files:
-    - path: /home/agent/.claude.json
-      content: |
-        {
-          "bypassPermissionsModeAccepted": true,
-          "hasCompletedOnboarding": true,
-          "projects": {
-              "/": {
-              "hasTrustDialogAccepted": true
-            }
-          }
-        }
-      onlyIfMissing: true
-      description: Claude bypass flags (mode-independent)
     - path: /home/agent/.local/bin/claude-ollama
       content: |
         #!/usr/bin/env bash
