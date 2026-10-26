@@ -5,6 +5,9 @@ selection. A plain Docker Engine is insufficient to prove host OAuth injection.
 Use an isolated test sandbox and an authorized test account. Never log token
 values, the full auth store, process environments, or OAuth response bodies.
 
+Current observations and limits are recorded in [HOST_RESULTS.md](HOST_RESULTS.md).
+Refresh is unresolved; the PR remains draft.
+
 1. Build both kits using `scripts/test-kit.sh` and run each under the repository's
    deny-all E2E setup. Keep release pins unchanged; also repeat runtime tests
    with the Hermes v0.22.5 release separately, without mixing its upgrade diff.
@@ -33,11 +36,14 @@ values, the full auth store, process environments, or OAuth response bodies.
    gateway restart, and sandbox restart. Trigger Hermes' forced refresh
    through its resolver and assert that both resulting tokens are sentinels.
    Verify the host grant stays usable and no real response token is persisted.
-7. Remove/revoke the binding through the supported host controls, restart, and
-   confirm Docker removes its rendered seed and the adapter removes managed
-   singleton and pool entries. Test OAuth -> API key -> none transitions.
-   If the seed survives revocation, file presence is insufficient: add a
-   reliable host-mode discriminator before shipping.
+7. Remove the host credential in a separate test app and verify actual catalog
+   and inference access is denied. Inspect local cleanup separately: on 0.49.2,
+   global secret deletion plus restart leaves the rendered seed and managed
+   entries present, although catalog/inference are denied. File presence is not
+   proof of current authorization. Do not delete files to make cleanup pass.
+   Resolve the stale-state/mode-discriminator contract before shipping; test
+   OAuth -> API key -> none transitions. Provider-side grant revocation is a
+   separate test, not equivalent to deleting a local host secret.
 8. Run OpenAI API-key inference at api.openai.com; repeat Anthropic API-key and
    OAuth, OpenRouter, and Copilot smoke tests. Test explicit provider/model
    choices survive restarts and credential changes.
@@ -56,9 +62,10 @@ host-secret-store access is introduced by this adapter.
 
 The user confirmed newer-model inference in a fresh old-pin sandbox after the
 catalog-query backport. A fresh v0.22.5 sandbox with the managed gate adapter
-selected gpt-6.1-sol and returned the requested OK response. This confirms that
-account's inference path; it does not establish Astra entitlement, full picker
-coverage, host refresh/revocation, mixin/gateway behavior, or policy negatives.
+selected gpt-6.1-sol and returned the requested OK response. Subsequent
+standalone/mixin catalog, restart, profile, policy and removal tests appear in
+HOST_RESULTS.md, including failed refresh and stale local-state observations.
+Gateway, natural expiry, workspace metadata and broader entitlement remain pending.
 
 ## Native-account mutation tests (offline)
 
