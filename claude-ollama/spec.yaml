@@ -4,7 +4,7 @@ name: claude-ollama
 displayName: Claude Code (Ollama)
 description: Claude Code wired to Ollama Anthropic-compatible API, with configurable model.
 sandbox:
-  image: docker/sandbox-templates:claude-code-docker
+  image: docker.io/sbx/claude-image:latest
   entrypoint:
     - /home/agent/.local/bin/claude-ollama
 agentInstructions:

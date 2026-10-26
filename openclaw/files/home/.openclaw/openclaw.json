@@ -10,7 +10,7 @@
         "scope": "session",
         "workspaceAccess": "rw",
         "docker": {
-          "image": "docker/sandbox-templates:shell-docker"
+          "image": "docker.io/sbx/shell-image:latest"
         }
       }
     }

@@ -51,7 +51,10 @@ itself, which is also distributed as an OCI artifact — see
 
 ## Choosing a base image
 
-Two bases, both built and published by this repository:
+Two bases, both built and published by this repository. A kit that extends an
+agent builds on that agent kit's image (e.g. `docker.io/sbx/claude-image:latest`)
+instead of installing the agent itself. It inherits that image's `start-docker`
+label; set it to `"false"` when the kit runs no containers.
 
 | Base | What it is | `start-docker` label |
 |---|---|---|
@@ -75,8 +78,9 @@ making deliberately rather than by default.
 
 Write the base as `ARG BASE_IMAGE=<base>` followed by `FROM ${BASE_IMAGE}`, as
 every kit here does: the publish workflow finds a base's dependents by
-grepping `*/Dockerfile` for that line, so a kit written that way is rebuilt
-whenever its base is.
+grepping `*/Dockerfile` for that line. Kits on the shell or shell-docker base
+rebuild when the base does; kits on an agent kit's image pick it up on the next
+nightly after the agent image is published.
 
 ## Do not reach for `sandbox.build:`
 

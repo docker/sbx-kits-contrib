@@ -64,11 +64,12 @@ On a publishing run (push, nightly, `workflow_dispatch`) a change to `shell/`
 builds shell, shell-docker and every kit whose Dockerfile names either image;
 a change to `shell-docker/` builds it and its dependents; any other kit change
 builds that kit alone. Dependents are found by grepping `*/Dockerfile` for the
-base reference, not listed. A kit rebuilt only because its base moved gets a
-fresh image and no new artifact: the artifact records the image as `:latest`,
-so it already points at the rebuilt image. Pull requests build only the kits
-they touch, as dry runs; a dependent built in a PR would pull the published
-base, not the one built beside it.
+base reference, not listed. Kits on an agent kit's image are not found this way
+and pick up a new agent image on the next nightly after it is published. A kit
+rebuilt only because its base moved gets a fresh image and no new artifact: the
+artifact records the image as `:latest`, so it already points at the rebuilt
+image. Pull requests build only the kits they touch, as dry runs; a dependent
+built in a PR would pull the published base, not the one built beside it.
 
 The workflow **discovers** kits rather than listing them: any directory with a
 `spec.yaml` is a candidate. Whether one also builds an image is a separate,
@@ -343,9 +344,12 @@ image](skills/kit-author/topics/image-publishing.md#choosing-a-base-image).
 1. Put a `Dockerfile` at the kit root; the kit directory is the build context.
    Build `FROM docker.io/sbx/shell-image:latest` (the toolchain, no Docker
    engine) or `FROM docker.io/sbx/shell-docker-image:latest` (the same plus an
-   engine); see [Choosing a base
+   engine), or on the image of the agent kit it extends (e.g.
+   `docker.io/sbx/claude-image:latest`); see [Choosing a base
    image](skills/kit-author/topics/image-publishing.md#choosing-a-base-image).
    Only the `-docker` base may carry `com.docker.sandboxes.start-docker="true"`.
+   Agent kit images built on it carry the label too, so a kit on one that runs
+   no containers sets it to `"false"`.
 2. Set `LABEL com.docker.sandboxes.flavor="<kit>"` in it. Nothing derives this
    from the directory name, and leaving it out inherits whatever the base sets —
    with today's bases that is the base's own flavor, so the kit ships under

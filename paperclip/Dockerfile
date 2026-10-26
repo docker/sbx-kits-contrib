@@ -7,7 +7,7 @@
 # — so the whole install pre-bakes into one image: the pinned paperclipai
 # CLI (which carries @paperclipai/server and the built UI; its bundled
 # embedded-postgres binaries are swapped for distro PostgreSQL below),
-# running on the claude-code template so the claude_local adapter has
+# running on the claude kit's image so the claude_local adapter has
 # Claude Code available.
 #
 # Built and published by build-and-publish-kits.yml, the shared kit-image
@@ -15,7 +15,7 @@
 # kiro/copilot.
 #
 # The base is a floating tag, which is why CI also rebuilds on a schedule.
-ARG BASE_IMAGE=docker/sandbox-templates:claude-code
+ARG BASE_IMAGE=docker.io/sbx/claude-image:latest
 FROM ${BASE_IMAGE}
 
 # Re-declared inside the stage: an ARG defined before the first FROM is a
@@ -60,13 +60,16 @@ RUN mkdir -p /home/agent/.paperclip
 
 # This OVERRIDES the value inherited from the base image, which describes the
 # base rather than this image. Overriding is not optional: left inherited it
-# would read "claude-code", and sbx would report this image's agent as
-# "claude-code" instead of "paperclip".
+# would read "claude", and sbx would report this image's agent as
+# "claude" instead of "paperclip".
 #
 # sbx reads `flavor` and treats it as an agent identifier — it surfaces the
 # value as an image's `Agent` in the API. So it must be the kit's own name:
 # `paperclip`.
 LABEL com.docker.sandboxes.flavor="paperclip"
+
+# The base requests Docker-in-Docker and this kit runs no containers.
+LABEL com.docker.sandboxes.start-docker="false"
 
 # Informational only — nothing in sbx reads this. Worth setting because the
 # base is a floating tag rebuilt nightly, so this is the one place the
