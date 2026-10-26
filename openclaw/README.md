@@ -450,5 +450,5 @@ sbx exec <sandbox> -- curl -s http://127.0.0.1:18789/healthz
 sbx exec <sandbox> -- sh -lc 'openclaw doctor'   # login shell: sees the auth env file
 ```
 
-See [`docs/recipe-prebaked-image-kit.md`](../docs/recipe-prebaked-image-kit.md)
+See [Publishing a kit's own image](../skills/kit-author/topics/image-publishing.md)
 for the general pattern this kit follows.

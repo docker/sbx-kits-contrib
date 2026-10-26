@@ -166,5 +166,5 @@ sbx exec <sandbox> -- curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:
 sbx exec <sandbox> -- paperclipai doctor
 ```
 
-See [`docs/recipe-prebaked-image-kit.md`](../docs/recipe-prebaked-image-kit.md)
+See [Publishing a kit's own image](../skills/kit-author/topics/image-publishing.md)
 for the general pattern this kit follows.

@@ -100,5 +100,5 @@ $ sbx exec <sandbox> -- /home/agent/.claude/skills/gstack/browse/dist/browse got
 $ sbx exec <sandbox> -- cat <workspace>/.gstack/browse.json   # daemon port + token
 ```
 
-See [`docs/recipe-prebaked-image-kit.md`](../docs/recipe-prebaked-image-kit.md)
+See [Publishing a kit's own image](../skills/kit-author/topics/image-publishing.md)
 for the general pattern this kit follows.

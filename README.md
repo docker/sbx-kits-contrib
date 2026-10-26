@@ -299,7 +299,7 @@ extends: claude
 # ...
 ```
 
-The TCK resolves the parent's template image automatically for well-known agents (shell, claude, codex, copilot, cursor, docker-agent, droid, gemini, kiro, opencode). For other parents, use `WithImage`:
+The TCK resolves the parent's image automatically for well-known agents (shell, shell-docker, claude, codex, copilot, cursor, docker-agent, droid, gemini, kiro, opencode), using the image each kit publishes. For other parents, use `WithImage`:
 
 ```go
 suite, err := tck.NewSuiteFromDir(".", tck.WithImage("my-custom/template:latest"))

@@ -53,7 +53,7 @@ For mixins that `extends:` a non-default parent agent, pass the parent's templat
 suite, err := tck.NewSuiteFromDir(".", tck.WithImage("my-custom/template:latest"))
 ```
 
-The TCK auto-resolves well-known parent agents (shell, claude, codex, copilot, cursor, docker-agent, droid, gemini, kiro, opencode) via their template images.
+The TCK auto-resolves well-known parent agents (shell, shell-docker, claude, codex, copilot, cursor, docker-agent, droid, gemini, kiro, opencode) via the images their kits publish.
 
 ### Kits that declare `args`
 

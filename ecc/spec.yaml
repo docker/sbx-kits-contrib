@@ -40,7 +40,7 @@ permissions:
       # every sandbox (best-effort, non-blocking) -- refreshing metadata
       # for every configured apt source, which fails on any one of them
       # even if the kit's own package would come from a different repo.
-      # claude's base image (claude-code-docker) ships five sources (Ubuntu's
+      # claude's image (docker.io/sbx/claude-image) ships five sources (Ubuntu's
       # archive, security and ports, Docker's repo, GitHub CLI's repo), so all
       # five must be allowed under `deny-all`. Ubuntu hosts amd64
       # packages on archive/security and arm64 packages on ports.ubuntu.com,
