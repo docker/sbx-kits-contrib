@@ -69,9 +69,13 @@ capabilities:
           # `playwright install-deps chromium` apt-installs Chromium's system
           # libraries. `apt-get update` refreshes every configured source, so
           # all template sources must be reachable: Ubuntu hosts amd64 packages
-          # on archive/security and arm64 packages on ports.ubuntu.com, and the
-          # *-docker templates pre-add Docker's apt repo. Install-only: nothing
-          # the agent does reaches apt.
+          # on archive/security and arm64 packages on ports.ubuntu.com, the
+          # Debian (trixie) templates use deb.debian.org (main, updates and
+          # security) plus DHI's apt mirror at dhi.io/deb, and the *-docker
+          # templates pre-add Docker's apt repo. Install-only: nothing the
+          # agent does reaches apt.
+          - deb.debian.org
+          - dhi.io
           - archive.ubuntu.com
           - security.ubuntu.com
           - ports.ubuntu.com

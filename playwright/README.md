@@ -91,6 +91,8 @@ The kit's `network-policy@1` capability is its complete outbound contract — CI
 
 | Domain | Phase | Why |
 | --- | --- | --- |
+| `deb.debian.org` | install | Debian apt archive, updates and security (trixie) — `install-deps` installs Chromium's system libraries |
+| `dhi.io` | install | DHI apt mirror (`dhi.io/deb/debian/main`), a configured source on the Debian-based templates — refreshed by the same `apt-get update` |
 | `archive.ubuntu.com` | install | Ubuntu apt archive, amd64 — `install-deps` installs Chromium's system libraries |
 | `security.ubuntu.com` | install | Ubuntu security pocket, amd64 — refreshed by the same `apt-get update` |
 | `ports.ubuntu.com` | install | Ubuntu archive/security for arm64 (Apple Silicon sandboxes) |
