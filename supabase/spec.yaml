@@ -1,0 +1,168 @@
+# Docker Sandboxes kit: installs the official Supabase CLI (version+digest
+# pinned), pre-wired to a Supabase project's data API (PostgREST/Auth/
+# Storage) via proxy-injected credentials, plus an optional personal access
+# token for the CLI's own platform operations (project link, migrations).
+# Usage/design notes: see README.md.
+schemaVersion: "2"
+kind: mixin
+name: supabase
+version: "1.0.0"
+displayName: Supabase
+description: "Installs the official Supabase CLI, pre-wired to a Supabase project's data API (PostgREST, Auth, Storage) via proxy-injected credentials. Covers both the project's own API key (for REST/SDK calls against your tables) and, optionally, a personal access token for the CLI's platform operations (supabase link, supabase db push)."
+licenses:
+  - Apache-2.0
+
+# The project ref is per-user (every Supabase project has its own
+# <ref>.supabase.co host), so it can't be hardcoded. Substituted into the
+# data-API host, the credential inject domain, and the egress allowlist
+# before decode. Defaults to a placeholder so the kit still validates and
+# installs; set it with:
+#   --kit-arg supabase.project_ref=abcdefghijklmnop
+args:
+  project_ref:
+    default: "your-project-ref"
+    description: >-
+      Your Supabase project ref, the subdomain in
+      https://<project_ref>.supabase.co -- found on the project's API
+      settings page. Defaults to a placeholder; set it or the data-API
+      credential and egress allowlist have no real host to reach.
+    pattern: '^[a-z0-9-]+$'
+
+credentials:
+  # The project's own data-API key (anon or service_role -- your choice,
+  # same credential either way from the kit's perspective). Supabase's
+  # REST/Auth/Storage APIs accept the key on EITHER of two headers
+  # (apikey, or Authorization: Bearer), and different client libraries pick
+  # different ones, so both are declared from the one stored secret.
+  - service: supabase-project
+    description: >-
+      Supabase project API key (anon or service_role) for
+      <project_ref>.supabase.co's data API -- PostgREST, Auth, Storage.
+      Sent as both `apikey: <key>` and `Authorization: Bearer <key>`.
+      Stored on the host; the sandbox only ever sees a placeholder.
+    required: true
+    apiKey:
+      name: SUPABASE_KEY
+      proxyManaged: true
+      inject:
+        - domain: "${{ kit.args.project_ref }}.supabase.co"
+          header: apikey
+          format: "%s"
+        - domain: "${{ kit.args.project_ref }}.supabase.co"
+          header: Authorization
+          format: "Bearer %s"
+  # Optional: a personal access token for the Supabase CLI's own platform
+  # operations (supabase link, supabase db push, supabase projects list),
+  # which talk to the Supabase Management API rather than a project's data
+  # API. Not required -- most agent tasks only need the data-API key above.
+  - service: supabase-access-token
+    description: >-
+      Supabase personal access token (from https://supabase.com/dashboard/account/tokens),
+      used by the CLI's platform commands (supabase link, supabase db push,
+      ...) against api.supabase.com. Not needed for plain data-API access to
+      an already-linked project.
+    required: false
+    apiKey:
+      name: SUPABASE_ACCESS_TOKEN
+      proxyManaged: true
+      inject:
+        - domain: api.supabase.com
+          header: Authorization
+          format: "Bearer %s"
+
+permissions:
+  network:
+    allow:
+      # Install download, pinned release.
+      - github.com
+      - objects.githubusercontent.com
+      - release-assets.githubusercontent.com
+      # pip install path for the official supabase-py client.
+      - pypi.org
+      - files.pythonhosted.org
+      # The user's own project -- the data-API credential's inject domain.
+      - "${{ kit.args.project_ref }}.supabase.co"
+      # The Supabase platform/Management API -- the access-token credential's
+      # inject domain, used only by CLI commands that need it.
+      - api.supabase.com
+
+environment:
+  variables:
+    SUPABASE_URL: "https://${{ kit.args.project_ref }}.supabase.co"
+
+agentInstructions:
+  content: |
+    ## Supabase
+
+    The Supabase CLI (`supabase`) is installed, and this sandbox is wired to
+    the project at `$SUPABASE_URL`. `$SUPABASE_KEY` is a proxy-managed
+    placeholder -- the sbx proxy injects the real project API key (anon or
+    service_role, whichever you stored) on outbound requests to
+    `${{ kit.args.project_ref }}.supabase.co`, on both the `apikey` and
+    `Authorization: Bearer` headers so any client library's convention works.
+
+    The official Python client is installed too:
+
+        from supabase import create_client
+        import os
+        client = create_client(os.environ["SUPABASE_URL"], os.environ["SUPABASE_KEY"])
+        client.table("your_table").select("*").limit(10).execute()
+
+    `~/runbooks/query.py` wraps the same thing as a one-liner:
+    `python3 ~/runbooks/query.py your_table`
+
+    For CLI platform operations (`supabase link`, `supabase db push`,
+    `supabase projects list`) you also need a personal access token stored as
+    the `supabase-access-token` secret -- see README.md. Without it, those
+    specific commands fail with an auth error; plain data-API access above
+    still works.
+
+setup:
+  install:
+    - command: |
+        set -euo pipefail
+        SUPABASE_VERSION=2.121.0
+        ARCH=$(dpkg --print-architecture)
+        case "$ARCH" in
+          amd64) SHA256="f6e10fc4086390ca386127bb4fd1a5e578625f95e7db84255a6bb82a159f973f" ;;
+          arm64) SHA256="c7f58ceeac60c38a6a72d7835e1157f2bcd55b40349964f9234c324b6c4733b8" ;;
+          *) echo "unsupported sandbox arch: $ARCH (expected amd64 or arm64)" >&2; exit 1 ;;
+        esac
+        URL="https://github.com/supabase/cli/releases/download/v${SUPABASE_VERSION}/supabase_${SUPABASE_VERSION}_linux_${ARCH}.deb"
+        curl --proto '=https' --tlsv1.2 -fsSL -o /tmp/supabase.deb "$URL"
+        echo "${SHA256}  /tmp/supabase.deb" | sha256sum -c -
+        dpkg -i /tmp/supabase.deb
+        rm -f /tmp/supabase.deb
+        supabase --version
+      user: "0"
+      description: "Install Supabase CLI v2.121.0, version+digest pinned (.deb)"
+    - command: "pip install --break-system-packages 'supabase>=2.9,<3'"
+      user: "1000"
+      description: "Install the official supabase-py client library"
+  files:
+    - path: /home/agent/runbooks/query.py
+      mode: "0755"
+      description: "Minimal PostgREST query runbook, using the same proxy-injected key as the Python client."
+      content: |
+        #!/usr/bin/env python3
+        """Run a SELECT * LIMIT 10 against a Supabase table.
+
+        Usage: query.py <table_name>
+        """
+        import os
+        import sys
+        import json
+        from supabase import create_client
+
+        def main() -> int:
+            if len(sys.argv) < 2:
+                print(__doc__)
+                return 1
+            table = sys.argv[1]
+            client = create_client(os.environ["SUPABASE_URL"], os.environ["SUPABASE_KEY"])
+            result = client.table(table).select("*").limit(10).execute()
+            print(json.dumps(result.data, indent=2, default=str))
+            return 0
+
+        if __name__ == "__main__":
+            raise SystemExit(main())
