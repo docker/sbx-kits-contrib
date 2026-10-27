@@ -1,0 +1,10 @@
+# TCK configuration for the kimchi kit.
+#
+# promptArgs is deliberately omitted, which skips the e2e `prompt` subtest:
+# `kimchi -p` is a working non-interactive mode, but with no credential bound
+# it exits 1 with "No API key found", and requiresHostCredentials would skip
+# the whole kit e2e on runners without a key rather than just the prompt
+# subtest. env, files, tmpfs, and agentContext still gate the kit.
+#
+# Wire `promptArgs: ["-p"]` if a kimchi credential ever exists on the e2e
+# runner.
