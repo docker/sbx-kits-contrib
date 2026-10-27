@@ -1,0 +1,94 @@
+# syntax=docker/sandbox-kit:3
+# OmO Native on top of the v3 pi workload. The base already ships pi, Node, fd
+# and rg, so this kit only adds the OmO CLI and the policy that CLI needs; the
+# recipe is oh-my-openagent.dockerfile and the workload boots the base's `pi`.
+schemaVersion: "3"
+displayName: OmO Senpi
+description: Pi with the OmO Native CLI installed
+sourceUrl: https://github.com/code-yeongyu/oh-my-openagent
+
+kind: workload
+
+# The kit's own release. It ships no single pinnable tool of its own: pi comes
+# from the base image and OmO is installed from its rolling installer, so there
+# is no upstream version this number could follow.
+version: "1.0.0"
+
+provides: ["oh-my-openagent@1.0.0"]
+
+capabilities:
+  # The host launches the agent rather than running the image entrypoint as PID 1,
+  # and honors the identity the image config declares.
+  - type: com.docker.sandbox/sbx@1
+
+  - type: com.docker.sandbox/network-policy@1
+    config:
+      runtime:
+        allow:
+          # Every domain the anthropic credential injects into.
+          - api.anthropic.com
+          # pi's runtime package installs and startup fetches.
+          - registry.npmjs.org
+          # The oauth block's token-refresh endpoint.
+          - platform.claude.com
+          # OmO's own update and release channel.
+          - get.omo.dev
+
+  # Optional: pi runs unauthenticated and prompts for a key, so a required entry
+  # would fail resolution on a host that never bound one.
+  - type: com.docker.sandbox/credential@1
+    optional: true
+    description: Anthropic API access (API key or claude.ai OAuth)
+    config:
+      service: anthropic
+      phase: runtime
+      apiKey:
+        name: ANTHROPIC_API_KEY
+        proxyManaged: true
+        inject:
+          - {domain: api.anthropic.com, header: x-api-key, format: "%s"}
+      # A host whose stored anthropic credential is an OAuth login needs pi's
+      # native auth store populated with sentinels; an API key still wins.
+      oauth:
+        tokenEndpoint: {host: platform.claude.com, path: /v1/oauth/token}
+        resourceHosts: [api.anthropic.com]
+        sentinels:
+          accessToken: sk-ant-oat01-proxy-managed
+          refreshToken: sk-ant-ort01-proxy-managed
+        credentialFile:
+          path: ~/.pi/agent/auth.json
+          structure:
+            anthropic:
+              type: oauth
+              access: "{{.AccessToken}}"
+              refresh: "{{.RefreshToken}}"
+              expires: "{{.ExpiresAt}}"
+
+  - type: com.docker.sandbox/lifecycle@1
+    config:
+      install:
+        # Config only: OmO and pi are baked into the image. Guarded because npm
+        # rejects an empty url-typed proxy value, and a proxy-less runtime must
+        # still create a sandbox.
+        - command: 'if [ -n "${HTTP_PROXY:-}" ]; then npm config set proxy="$HTTP_PROXY" https-proxy="${HTTPS_PROXY:-$HTTP_PROXY}"; fi'
+          user: "1000"
+          env: [HTTP_PROXY, HTTPS_PROXY]
+          description: Point npm at the sandbox proxy so pi's runtime npm use works in exec contexts
+
+  # The workload's launch argv is `pi`; these verbs append to it.
+  - type: com.docker.sandbox/agent-sessions@1
+    description: Drive pi non-interactively
+    config:
+      prompt: ["-p", "{{.Prompt}}"]
+
+  - type: com.docker.sandbox/agent-context@1
+    config:
+      filename: AGENTS.md
+      contentFile: ./oh-my-openagent-context.md
+
+  # Where pi reads the cross-agent skills tree; the base image already creates
+  # the parent directory as the agent, so a host bind lands on an owned path.
+  - type: com.docker.sandbox/agent-skills@1
+    optional: true
+    config:
+      path: /home/agent/.agents/skills

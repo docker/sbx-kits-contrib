@@ -362,7 +362,7 @@ Note that a fork PR does not receive repository secrets, so any leg needing Dock
 
 ## Kit index
 
-109 kits: 33 workloads and 76 mixins. Every workload except `openhands-canvas` and `shell` has a `-mixin` sibling that declares the same capabilities in overlay form, so you can either boot the agent as the sandbox or layer it onto one.
+111 kits: 34 workloads and 77 mixins. Every workload except `openhands-canvas` and `shell` has a `-mixin` sibling that declares the same capabilities in overlay form, so you can either boot the agent as the sandbox or layer it onto one.
 
 ### Workloads
 
@@ -392,6 +392,7 @@ Note that a fork PR does not receive repository secrets, so any leg needing Dock
 | [`openclaw`](./openclaw) | [`openclaw-mixin`](./openclaw-mixin) | OpenClaw |
 | [`opencode`](./opencode) | [`opencode-mixin`](./opencode-mixin) | OpenCode |
 | [`opencode-model-runner`](./opencode-model-runner) | [`opencode-model-runner-mixin`](./opencode-model-runner-mixin) | OpenCode against Docker Model Runner |
+| [`oh-my-openagent`](./oh-my-openagent) | [`oh-my-openagent-mixin`](./oh-my-openagent-mixin) | Pi with the OmO Native CLI |
 | [`openhands`](./openhands) | [`openhands-mixin`](./openhands-mixin) | OpenHands |
 | [`paperclip`](./paperclip) | [`paperclip-mixin`](./paperclip-mixin) | Paperclip |
 | [`pi`](./pi) | [`pi-mixin`](./pi-mixin) | Pi |

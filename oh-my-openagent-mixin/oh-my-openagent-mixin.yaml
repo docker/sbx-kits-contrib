@@ -1,0 +1,30 @@
+# syntax=docker/sandbox-kit:3
+# The OmO CLI as a mixin: the same tool the workload bakes in, staged as an
+# overlay so it can be added to an agent this repo already ships instead of
+# booting a second environment.
+schemaVersion: "3"
+displayName: OmO Senpi (mixin)
+description: OmO Native CLI overlay for an existing agent kit
+sourceUrl: https://github.com/code-yeongyu/oh-my-openagent
+
+kind: mixin
+
+# The kit's own release. OmO ships from a rolling installer, so there is no
+# upstream version this number could follow.
+version: "1.0.0"
+
+provides: ["oh-my-openagent@1.0.0"]
+
+capabilities:
+  - type: com.docker.sandbox/network-policy@1
+    config:
+      runtime:
+        allow:
+          # OmO's own update and release channel.
+          - get.omo.dev
+
+  # No credential entry: the base agent owns the Anthropic binding, and a mixin
+  # that repeated it would conflict with that owner at composition time.
+  - type: com.docker.sandbox/agent-context@1
+    config:
+      contentFile: ./oh-my-openagent-mixin-context.md
