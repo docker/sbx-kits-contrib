@@ -1,0 +1,31 @@
+# syntax=docker/sandbox-kit:3
+# A Java toolchain as a mixin, for workloads that ship none. The v3 `claude`
+# workload is one: the built-in claude template carried OpenJDK, so a Java
+# project loses Java at the point it adopts kits (docker/sandbox-kit-spec#172).
+#
+# The JDK is copied out of the official eclipse-temurin image rather than
+# installed: a JDK is a relocatable tree, so the overlay is one directory under
+# /opt, leaves no dpkg state behind and lands on any glibc base.
+schemaVersion: "3"
+kind: mixin
+displayName: JDK (Eclipse Temurin)
+description: >-
+  An Eclipse Temurin JDK copied from the official eclipse-temurin image into
+  /opt/java/openjdk, with JAVA_HOME and PATH set. Layer it onto a workload that
+  ships no Java.
+sourceUrl: https://adoptium.net
+licenses: [GPL-2.0-only WITH Classpath-exception-2.0]
+
+version: "${{ kit.args.version }}"
+
+args:
+  version:
+    default: "25.0.4.1"
+    pattern: '^[0-9]+(\.[0-9]+)*$'
+    description: >-
+      Temurin release, as `java -version` reports it. The recipe pairs it with
+      the Temurin build number to form the image tag, and fails the build unless
+      the copied JDK reports exactly this version.
+    buildArg: JDK_VERSION
+
+provides: ["jdk@${{ kit.args.version }}"]
