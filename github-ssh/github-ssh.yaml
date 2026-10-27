@@ -46,6 +46,16 @@ provides: ["github-ssh"]
 requires: ["deb/jq", "deb/openssh-client"]
 
 capabilities:
+  # Forwards the host's SSH agent so the SSH operations this kit pins host
+  # keys for can actually authenticate. Runtime only (that is when git runs),
+  # and bounded to logins against github.com rather than the unrestricted
+  # default, which would let the agent sign in to any reachable server.
+  - type: com.docker.sandbox/ssh-agent@1
+    config:
+      phase: runtime
+      unrestricted: false
+      authenticate: [github.com]
+
   # MIGRATION NOTE: v2 declared one flat allow list (github.com,
   # api.github.com) that applied to the whole sandbox life. v3 scopes egress
   # by phase and an absent phase grants nothing, so the list is split by who

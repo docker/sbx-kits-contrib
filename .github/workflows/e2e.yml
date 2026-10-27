@@ -223,7 +223,7 @@ jobs:
         env:
           KIT: ${{ matrix.kit }}
         run: |
-          if [ "$KIT" = git-ssh-sign ]; then
+          if [ "$KIT" = git-ssh-sign ] || [ "$KIT" = github-ssh ] || [ "$KIT" = gitlab-ssh ]; then
             signing_dir=$(mktemp -d)
             eval "$(ssh-agent -s)"
             trap 'ssh-agent -k >/dev/null; rm -rf "$signing_dir"' EXIT

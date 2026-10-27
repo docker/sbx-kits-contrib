@@ -8,7 +8,7 @@ kind: mixin
 # The kit's own version, not the version of anything it installs: it is the
 # tag this kit publishes under, and the fallback that versions an unversioned
 # provide at publish. Bump it when this kit's declarations change.
-version: "1.0.0"
+version: "1.0.1"
 
 # ~/.ssh/known_hosts is OpenSSH's file, in OpenSSH's format, at OpenSSH's path,
 # and this kit's entire output is that file. §12's floor promises git and curl
@@ -40,6 +40,18 @@ args:
     pattern: '^$|^(ssh-ed25519|ssh-rsa|ecdsa-sha2-nistp256|ecdsa-sha2-nistp384|ecdsa-sha2-nistp521) [A-Za-z0-9+/]+=*$'
 
 capabilities:
+  # Forwards the host's SSH agent so the SSH operations this kit pins host
+  # keys for can actually authenticate. Runtime only (that is when git runs),
+  # and bounded to logins against the configured instance rather than the
+  # unrestricted default, which would let the agent sign in to any reachable
+  # server.
+  - type: com.docker.sandbox/ssh-agent@1
+    config:
+      phase: runtime
+      unrestricted: false
+      authenticate:
+        - ${{ kit.args.host }}
+
   # MIGRATION NOTE: the v2 allow list held one host and applied to every
   # phase; here it is runtime-only. The install hook reaches nothing — that
   # is the whole design, spelled out in its comment below: gitlab.com's
