@@ -8,7 +8,21 @@ kind: mixin
 # The kit's own version, not the version of anything it installs: it is the
 # tag this kit publishes under, and the fallback that versions an unversioned
 # provide at publish. Bump it when this kit's declarations change.
-version: "1.0.0"
+version: "1.1.0"
+
+# A name other kits can order themselves against. Nothing is provided
+# implicitly (SPEC-v3 §5), and the only thing here worth naming is the
+# effect: once this kit's install hook has run, ~/.ssh/known_hosts carries
+# GitHub's host keys. github-clone declares `integrates: ["github-ssh"]` so
+# that, when both are composed, this hook runs first and an SSH clone never
+# races the host-key setup.
+#
+# Unversioned, on purpose: there is no version of anything to state — the
+# kit installs no software, and the host keys it writes are whatever
+# api.github.com/meta publishes that day. An unversioned provide satisfies
+# only an unconstrained `requires`/`integrates` entry (§5.2), which is the
+# honest contract for a kit with no version to promise.
+provides: ["github-ssh"]
 
 # What this kit needs from whatever it composes onto. Both names are derived
 # rather than authored: publishing a workload reads its dpkg database and

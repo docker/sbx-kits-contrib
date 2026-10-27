@@ -8,7 +8,20 @@ kind: mixin
 # The kit's own version, not the version of anything it installs: it is the
 # tag this kit publishes under, and the fallback that versions an unversioned
 # provide at publish. Bump it when this kit's declarations change.
-version: "1.0.0"
+version: "1.1.0"
+
+# An SSH clone (`repo=git@github.com:owner/name.git`) needs GitHub's host
+# keys in ~/.ssh/known_hosts, which the github-ssh kit writes from its own
+# install hook. `integrates` rather than `requires`, because plenty of
+# compositions clone over HTTPS and never layer github-ssh: an absent
+# provider is simply ignored, whereas `requires` would refuse to compose
+# without it (SPEC-v3 §5.3). When github-ssh is present it is ordered
+# before this kit, as with `requires`, so the clone hook below never runs
+# ahead of the host-key setup.
+#
+# Unconstrained: github-ssh's provide is unversioned, and an unversioned
+# provide satisfies only an unconstrained entry (§5.2).
+integrates: ["github-ssh"]
 
 # Args are kit inputs the installer supplies at `sbx run --kit …` time. In
 # v3 they are expanded structurally into the decoded descriptor at create
