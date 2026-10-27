@@ -20,6 +20,8 @@
 #   CACHE_TO          optional            — passed to --cache-to
 #   NO_CACHE          set to any value    — passed as --no-cache
 #   DRY_RUN           set to any value    — build, but publish nothing
+#   SMOKE_COMMAND     optional            — check this CLI before publishing
+#   SMOKE_BASE        default docker/sandbox-templates:shell-docker — mixin base
 #
 # Emits `ref=`, `version=`, `tags=` and `pushed=` on stdout, one per line, so CI
 # can redirect into $GITHUB_OUTPUT. Everything human goes to stderr, which keeps
@@ -29,33 +31,6 @@
 # Exit codes: 0 published (or dry run) · 1 refused or failed · 2 usage error.
 #
 #
-# WHAT THIS REPLACED, AND WHY IT IS SO MUCH SHORTER
-#
-# A v2 kit was a YAML file that POINTED AT an image, so publishing it meant
-# shipping two things to two repositories: the base image (`<kit>-image`, built
-# from the kit's Dockerfile) and the kit artifact (`<kit>-kit`, packed with
-# `sbx kit pack` and pushed with oras). The predecessor of this script existed
-# to manage the second of those and the seams around it — an existence probe
-# so an immutable tag was never overwritten, a keyless Sigstore signature, a
-# digest read-back, and an `oras tag` by digest to move the rolling tag without
-# re-packing (a second pack re-stamps org.opencontainers.image.created and
-# digests differently, which would have given the two tags different
-# attestations for one source).
-#
-# In v3 a kit IS an image. The descriptor rides in the published image's
-# manifest annotation and the layers are its content, so there is exactly one
-# thing to push and `docker buildx build --push` pushes it. Every seam above
-# closes with it: buildx attaches provenance and SBOM as native attestations,
-# and both tags are arguments to ONE invocation, so they cannot be given
-# different content — there is no second push to diverge from the first.
-#
-# The frontend named on the descriptor's first line (`# syntax=docker/sandbox-kit:3`)
-# validates the descriptor as part of the build, which is why nothing here
-# validates anything. A malformed kit fails the build, in the same place a
-# malformed Dockerfile would, rather than in a separate step that could be
-# skipped or could drift from what the frontend actually accepts. BuildKit
-# pulls that frontend itself, so there is no tool to install first.
-
 set -euo pipefail
 
 if [ $# -ne 1 ]; then
@@ -141,28 +116,16 @@ log "tags       : ${tags}"
 log "platforms  : ${PLATFORMS}"
 log "sbom       : ${sbom_enabled}"
 
-# Both tags are arguments to ONE build. Two builds — or one build and a later
-# retag — are how `latest` and `<version>` come to describe different bytes:
-# these kits install from floating channels onto floating bases, so two builds
-# minutes apart legitimately differ. One invocation makes that impossible
-# rather than unlikely.
-#
-# There is no immutable <date>-<sha> tag. v2 published one because its rolling
-# tag had to point somewhere stable and the content was not a function of the
-# commit. v3 tags by the kit's own version instead, which says something a
-# consumer can act on ("this is Claude Code 2.1.267") where a date-and-sha said
-# only when it was built. The trade is deliberate and worth stating plainly:
-# <version> is NOT immutable here. A nightly rebuild re-pushes the same version
-# tag with a fresh base and a fresh install, which is the point of the nightly
-# — pin a digest, not a version, if you need the bytes to hold still.
+# Both release tags are assigned from one build; checked kits publish only
+# after every requested platform passes against that exported content.
 args=(
   buildx build
   "$REPO_ROOT/$kit"
   -f "$descriptor"
   --platform "$PLATFORMS"
   --provenance=true
-  -t "${ref}:${version}"
 )
+tag_args=(-t "${ref}:${version}")
 if [ "$sbom_enabled" = "true" ]; then
   args+=(--sbom="generator=${SBOM_GENERATOR}")
 else
@@ -177,7 +140,7 @@ fi
 # against on every PR. A release is a named point someone chose to pin, which
 # is the opposite of rolling.
 if [ "$MOVE_LATEST" = "true" ]; then
-  args+=(-t "${ref}:${IMAGE_TAG_LATEST}")
+  tag_args+=(-t "${ref}:${IMAGE_TAG_LATEST}")
 fi
 
 # `if`, not `[ … ] && args+=(…)`: the && form's exit status is the failed test's
@@ -188,17 +151,20 @@ if [ -n "$CACHE_FROM" ]; then args+=(--cache-from "$CACHE_FROM"); fi
 if [ -n "$CACHE_TO" ]; then args+=(--cache-to "$CACHE_TO"); fi
 if [ -n "$NO_CACHE" ]; then args+=(--no-cache); fi
 
-# A dry run BUILDS. It is the whole value of the pull-request run: the frontend
-# validates the descriptor during the build and the recipe has to actually
-# work, so a dry run that stopped at "resolved the tag" would let a kit that
-# cannot build report a green publish job and fail on merge — which is the
-# failure this job exists to catch. `type=cacheonly` is what makes that
-# affordable: the image is built and then discarded rather than exported, so
-# nothing is written to a registry and nothing is loaded locally.
-if [ -n "$DRY_RUN" ]; then
-  args+=(--output type=cacheonly)
+layout=""
+SMOKE_COMMAND=${SMOKE_COMMAND:-}
+SMOKE_BASE=${SMOKE_BASE:-docker/sandbox-templates:shell-docker}
+case "$kit" in
+  opencode|opencode-mixin) SMOKE_COMMAND=${SMOKE_COMMAND:-opencode} ;;
+esac
+if [ -n "$SMOKE_COMMAND" ]; then
+  layout=$(mktemp -d)
+  trap 'rm -rf "$layout"' EXIT
+  args+=(--output "type=oci,dest=$layout,tar=false")
+elif [ -n "$DRY_RUN" ]; then
+  args+=("${tag_args[@]}" --output type=cacheonly)
 else
-  args+=(--push)
+  args+=("${tag_args[@]}" --push)
 fi
 
 log ""
@@ -206,6 +172,18 @@ log "==> docker ${args[*]}"
 log ""
 
 docker "${args[@]}"
+
+if [ -n "$SMOKE_COMMAND" ]; then
+  smoke_args=(--layout "$layout" --command "$SMOKE_COMMAND" --platforms "$PLATFORMS"
+    --descriptor "$descriptor" --base "$SMOKE_BASE")
+  if [ -z "$DRY_RUN" ]; then
+    smoke_args+=(--publish "${ref}:${version}")
+    if [ "$MOVE_LATEST" = "true" ]; then
+      smoke_args+=(--publish "${ref}:${IMAGE_TAG_LATEST}")
+    fi
+  fi
+  (cd "$REPO_ROOT" && go run ./tools/kit-smoke "${smoke_args[@]}")
+fi
 
 emit ref "$ref"
 emit version "$version"

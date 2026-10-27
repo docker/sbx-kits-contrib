@@ -10,20 +10,7 @@ name: Publish one kit
 # invocation is its own job graph: kits run end to end in parallel and fail
 # independently.
 #
-# WHAT IT NO LONGER DOES. Under v2 this file drove three jobs per kit — build
-# and push the base image, pack and push the kit artifact, then sync Hub — plus
-# a verification pass that loaded a single-platform build and asserted things
-# about it (a CMD that resolves on PATH, a non-root user, a
-# `com.docker.sandboxes.flavor` naming this kit, a `start-docker=true` claim
-# backed by an actual engine). All of that was the cost of v2's split between a
-# spec and the image it pointed at: two artifacts to publish and keep in step,
-# and a Dockerfile free to contradict the spec describing it.
-#
-# A v3 kit is one image built from one descriptor, and the frontend named on
-# that descriptor's first line validates it during the build and derives the
-# image's configuration from it. So the three jobs collapse into one buildx
-# invocation, and the assertions are gone because the thing they guarded
-# against — a Dockerfile and a spec disagreeing — no longer has two sides.
+# OpenCode publication checks the exported content before assigning tags.
 
 on:
   workflow_call:
@@ -88,6 +75,17 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
+      - name: Free disk for runtime smoke checks
+        if: inputs.kit == 'opencode' || inputs.kit == 'opencode-mixin'
+        run: |
+          sudo rm -rf /usr/local/lib/android /usr/share/dotnet
+          df -h /
+
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        if: inputs.kit == 'opencode' || inputs.kit == 'opencode-mixin'
+        with:
+          go-version-file: go.mod
+
       - uses: docker/setup-qemu-action@1f40c72289eff860ee54a304f1438e3cff362e0a # v4.3.0
 
       - uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4.3.0
@@ -141,12 +139,8 @@ jobs:
         #
         # This step is wiring: credentials above, cache policy below.
         #
-        # On a pull request DRY_RUN makes the script build with
-        # `--output type=cacheonly` instead of `--push`. It still BUILDS, and
-        # that is the point of the PR run — the frontend validates the
-        # descriptor during the build and the recipe has to actually work, so a
-        # dry run that stopped at "resolved a tag" would let a kit that cannot
-        # build report green and fail on merge.
+        # PR builds do not publish. OpenCode also checks the exported CLI on
+        # both architectures, after descriptor validation and installation.
         run: ./scripts/publish-kit.sh "${{ inputs.kit }}" >> "$GITHUB_OUTPUT"
         env:
           # The nightly bypasses the cache. These recipes install their agent

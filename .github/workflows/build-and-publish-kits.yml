@@ -41,16 +41,9 @@ name: Build and publish kits
 #     `verify-versions` job below refuses to build anything until every kit in
 #     the repo satisfies it.
 #
-# Nothing here asserts anything ABOUT the built image. v2 needed a whole
-# verification pass — load a single-platform build, check its CMD is on PATH,
-# check it does not run as root, check `com.docker.sandboxes.flavor` names the
-# right kit — because a Dockerfile could declare anything and a spec's claims
-# about it were unchecked prose. The v3 frontend validates the descriptor as
-# part of the build and derives the image's configuration from it, so those
-# assertions are either enforced at build time or no longer expressible. A
-# malformed kit fails the build, not a separate step that could drift from what
-# the frontend actually accepts. Conformance of the PUBLISHED artifact is
-# tck.yml's job, not this one's.
+# Descriptor validation does not prove that a CLI can run. OpenCode kits
+# export an OCI layout, check both architectures, and publish that checked
+# content. Other kits retain their build-only publication path.
 #
 # Shared coordinates (registry, namespace, rolling tag, platforms) come from
 # repository/organisation variables with documented fallbacks, so retargeting is
@@ -236,6 +229,10 @@ jobs:
             '  - "scripts/discover-kits.sh"' \
             '  - "scripts/kit-version.sh"' \
             '  - "scripts/publish-kit.sh"')
+          shared_filters=$(printf '%s\nsmoke:\n%s\n%s\n%s' "$shared_filters" \
+            '  - "tools/kit-smoke/**"' \
+            '  - "go.mod"' \
+            '  - "go.sum"')
           emit_output "shared-filters" "$shared_filters"
 
       - name: Filter kit changes
@@ -319,6 +316,10 @@ jobs:
                 kits="${all}"
               else
                 kits='${{ steps.filter-kits.outputs.changes }}'
+                if [ "${{ steps.filter-shared.outputs.smoke }}" = "true" ]; then
+                  kits=$(printf '%s' "${kits:-[]}" | jq -c '. + ["opencode", "opencode-mixin"] | unique')
+                fi
+
               fi
               ;;
           esac
