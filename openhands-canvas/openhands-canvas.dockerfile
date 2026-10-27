@@ -34,6 +34,12 @@ RUN set -eux; \
     installed="$(node -p 'require("/usr/local/lib/node_modules/@openhands/agent-canvas/package.json").version')"; \
     [ "$installed" = "$AGENT_CANVAS_VERSION" ]
 
+USER agent
+RUN --network=none command -v agent-canvas \
+    && { output="$(agent-canvas --help 2>&1)"; status=$?; \
+         printf '%s\n' "$output"; test "$status" -eq 0 && test -n "$output"; }
+USER root
+
 # shell-docker's uv has no working uvx. Agent Canvas invokes
 # `uvx --from openhands-agent-server==<ver> agent-server`; `uv tool run`
 # supports that interface.

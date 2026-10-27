@@ -20,6 +20,21 @@ Use this skill when:
 - Packaging, publishing, or consuming kits from OCI or git sources
 - Reviewing kit PRs in this repository
 
+## Verify installed executables
+
+For every kit that installs a CLI, make the build execute its public command
+with a supported, non-interactive flag such as `--version` or `--help`.
+Require a zero exit status and meaningful output; check the pinned version when
+available. An installer or package manager returning success is insufficient.
+This applies to npm, uv, downloaded binaries, and installer scripts alike.
+
+Run the check after creating the final launcher. For a staged mixin, copy its
+payload onto a fresh supported base and run the public command as the runtime
+user, without network access or credentials. Make the exported stage depend on
+that verification stage so BuildKit cannot skip the check. Testing the original
+installation can hide missing files or broken links in the staged overlay.
+Validate every published architecture. Configuration-only kits need no CLI check.
+
 ## References
 
 - **Official docs**: <https://docs.docker.com/ai/sandboxes/customize/kits/>

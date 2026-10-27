@@ -169,8 +169,17 @@ EOF
 
 # The overlay: node, the agent, the browser and the kit's scripts, landing on
 # any base.
-FROM scratch
+FROM ${BASE_IMAGE} AS verified
+USER root
+COPY --from=build /out /out
 COPY --from=build /out /
+USER agent
+RUN --network=none command -v openclaw \
+    && { output="$(openclaw --version 2>&1)"; status=$?; \
+         printf '%s\n' "$output"; test "$status" -eq 0 && test -n "$output"; }
+
+FROM scratch
+COPY --from=verified /out /
 
 # v2's environment.variables. ENV is an additive mixin image-config field, so
 # these values merge into the composed image. They must be declared on this

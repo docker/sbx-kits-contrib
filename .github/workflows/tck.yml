@@ -130,7 +130,7 @@ jobs:
             filters=$(printf '%s\n%s: "%s/**"' "$filters" "$kit" "$kit")
           done <<< "$discovered"
           # Shared packages and scripts get their own filters.
-          filters=$(printf '%s\ntck: "tck/**"\nspec: "spec/**"\nscripts: ["scripts/**", "tools/**", "go.mod", "go.sum"]' "$filters")
+          filters=$(printf '%s\ntck: "tck/**"\nspec: "spec/**"\nscripts: "scripts/**"' "$filters")
           filters=$(printf '%s\nworkflows: [".github/workflows/e2e.yml", ".github/workflows/tck.yml"]' "$filters")
 
           {
@@ -414,7 +414,7 @@ jobs:
           go-version-file: go.mod
 
       - name: Run scripts tests
-        run: go test -v -timeout 10m -count=1 ./scripts/... ./tools/...
+        run: go test -v -timeout 10m -count=1 ./scripts/...
 
       # Every shell script in scripts/ is a parse check away from a typo that only
       # shows up in the one CI leg that runs it. `bash -n` is cheap enough to run

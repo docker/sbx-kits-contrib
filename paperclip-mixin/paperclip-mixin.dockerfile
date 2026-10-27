@@ -167,5 +167,14 @@ EOF
 
 # The overlay: Node, the app, and the kit's scripts, landing on any base. No
 # ENTRYPOINT -- the base workload's launch command stays.
-FROM scratch
+FROM ${BASE_IMAGE} AS verified
+USER root
+COPY --from=build /out /out
 COPY --from=build /out /
+USER agent
+RUN --network=none command -v paperclipai \
+    && { output="$(paperclipai --help 2>&1)"; status=$?; \
+         printf '%s\n' "$output"; test "$status" -eq 0 && test -n "$output"; }
+
+FROM scratch
+COPY --from=verified /out /

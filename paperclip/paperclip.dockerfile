@@ -43,6 +43,11 @@ RUN npm install -g n && n 24 && hash -r && npm install -g "paperclipai@${PAPERCL
 # Pin the binary somewhere always on PATH (startup commands and
 # entrypoints run with a minimal PATH).
 RUN ln -sf "$(npm prefix -g)/bin/paperclipai" /usr/local/bin/paperclipai
+USER agent
+RUN --network=none command -v paperclipai \
+    && { output="$(paperclipai --help 2>&1)"; status=$?; \
+         printf '%s\n' "$output"; test "$status" -eq 0 && test -n "$output"; }
+USER root
 
 # Distro PostgreSQL instead of paperclip's embedded-postgres: the bundled
 # arm64 binaries are linked for 4KB pages and fail to load on the sandbox

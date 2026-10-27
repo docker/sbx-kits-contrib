@@ -203,5 +203,14 @@ EOF
 # /opt and /etc/profile.d are what a mixin landing on an unknown base should
 # prefer, since whatever is at /home/agent may be a mounted volume. No
 # ENTRYPOINT -- the base workload's launch command stays.
-FROM scratch
+FROM ${BASE_IMAGE} AS verified
+USER root
+COPY --from=build /out /out
 COPY --from=build /out /
+USER agent
+RUN --network=none command -v lighthouse \
+    && { output="$(lighthouse --version 2>&1)"; status=$?; \
+         printf '%s\n' "$output"; test "$status" -eq 0 && test -n "$output"; }
+
+FROM scratch
+COPY --from=verified /out /

@@ -122,5 +122,14 @@ EOF
 # and does not have this seam; here the kit's build is the version of record.
 
 # The overlay: node, the package and the launcher, landing on any base.
-FROM scratch
+FROM ${BASE_IMAGE} AS verified
+USER root
+COPY --from=build /out /out
 COPY --from=build /out /
+USER agent
+RUN --network=none command -v opencode \
+    && { output="$(opencode --version 2>&1)"; status=$?; \
+         printf '%s\n' "$output"; test "$status" -eq 0 && test -n "$output"; }
+
+FROM scratch
+COPY --from=verified /out /
