@@ -1,43 +1,47 @@
 # syntax=docker/sandbox-kit:3
-# T3 Code's sandbox prerequisite as a MIXIN: the `t3` CLI, carried as an
-# overlay built by t3code.dockerfile, plus one install hook for the shared
-# library its prebuilt binaries link against. apt cannot travel in an overlay
-# (a layer carries files, not dpkg state), so libatomic1 stays a hook.
+# T3 Code's sandbox prerequisite as a MIXIN: the pinned `t3` release, carried
+# as an overlay built by t3code.dockerfile in the exact layout T3 Code's remote
+# bootstrap consumes, plus two install hooks: one for the shared library the
+# release's binaries link against (apt cannot travel in an overlay; a layer
+# carries files, not dpkg state), and one that points the bootstrap's
+# per-user install directory at the overlay.
 schemaVersion: "3"
 displayName: T3 Code
 description: >-
-  Installs the t3 npm package that T3 Code's SSH integration runs inside a
-  sandbox, so the first connection starts a pre-installed server.
+  Pre-installs the t3 release T3 Code's SSH integration runs inside a sandbox,
+  in the form its launcher consumes, so a matching T3 Code app connects without
+  downloading anything.
 
 kind: mixin
 
 # The `t3` release this kit's overlay carries, by reference to the `version` arg
 # below — SPEC-v3 §4 admits a build-phase arg reference here and expands it at
 # publish, so the version is stated in exactly one place and the publish tag and
-# `org.opencontainers.image.version` name the package rather than a kit release
-# number of their own.
+# `org.opencontainers.image.version` name the t3 release rather than a kit
+# release number of their own.
 version: "${{ kit.args.version }}"
 
-# The `t3` release the recipe installs, declared once: validated here, handed to
-# npm as an exact version, and expanded into `provides` and `version:` — so the
-# kit cannot claim a release its overlay does not carry. The recipe asserts the
-# agreement at build time by asking the installed binary.
+# The `t3` release the recipe pre-installs, declared once: validated here, handed
+# to the recipe as a build arg, and expanded into `provides`, `version:` and the
+# install hook — so the kit cannot claim a release its overlay does not carry.
+# The recipe asserts the agreement at build time by asking the unpacked binary.
 #
-# HOW THE DEFAULT WAS DETERMINED, and how to bump it: the `latest` dist-tag of
-# the npm package the recipe installs, read from
-# `https://registry.npmjs.org/t3/latest` — the same document `t3@latest` was
-# resolving before the pin, so this default is what the unpinned build installed
-# the day it was pinned. 0.0.45 then; re-read that URL to bump.
+# HOW THE DEFAULT WAS DETERMINED, and how to bump it: the newest non-prerelease
+# at github.com/pingdotgg/t3code/releases, with its `v` dropped. Read it with
+#
+#   gh release view --repo pingdotgg/t3code --json tagName --jq .tagName
+#
+# 0.1.0 when this was written. Match it to the T3 Code app release that will
+# connect: the bootstrap looks for the release whose version equals the app's.
 args:
   version:
-    default: "0.0.45"
-    # The shape `t3` publishes. Narrow on purpose: it refuses the dist-tags npm
-    # would also accept in the install spec (`latest` is not a version and cannot
-    # stand in a provide), and everything it accepts is a legal provide version
-    # under SPEC-v3 §5.2. The value carries no leading `v` even though the CLI
-    # prints one; see the recipe's comparison step.
+    default: "0.1.0"
+    # The shape t3 releases carry, without the tag's `v`: SPEC-v3 §5.2 admits
+    # no `v` prefix in a version, so the recipe adds it back to build the
+    # download URL. Narrow on purpose: it refuses prerelease tags such as
+    # `0.1.1-nightly.…`, which are not what a released app asks for.
     pattern: '^[0-9]+\.[0-9]+\.[0-9]+$'
-    description: t3 release to install
+    description: "t3 release to pre-install, as published at github.com/pingdotgg/t3code/releases. A T3 Code app on this version connects with no download; a newer app downloads its own release on first connection."
     buildArg: T3_VERSION
   # The sandbox proxy does not allow the telemetry host by default, so leaving
   # telemetry on only produces retries. v3 has no static env grammar, so the
@@ -49,27 +53,19 @@ args:
     description: "Whether the t3 server inside the sandbox sends anonymous usage telemetry. Off by default: the sandbox proxy blocks the telemetry host unless it is allowed, and a server that cannot reach it keeps retrying. Set to true to opt in, and allow us.i.posthog.com:443 in the sandbox's network policy."
     env: T3CODE_TELEMETRY_ENABLED
 
-# MIGRATION NOTE: this provide was `t3code`, named after the kit, because the
-# recipe asked npm for `t3@latest` and so the kit could not state what version of
-# the tool it carried — the honest name for "a version I cannot vouch for" was
-# not the tool's. Now that the install is pinned, the note left here for exactly
-# this moment applies: the entry names the package the overlay installs and
-# carries its version, which is what a kit writing `requires: ["t3 >= 0.0.42"]`
-# can resolve against. Nothing in this repo required the old name.
+# Names the release the overlay carries, which is what a kit writing
+# `requires: ["t3 >= 0.1.0"]` can resolve against.
 provides: ["t3@${{ kit.args.version }}"]
 
 capabilities:
-  # MIGRATION NOTE: v2's one flat allow list becomes an install phase only.
-  # The remaining hook is an install hook and the agent context is explicit
-  # that the runtime path needs no registry — pre-installing `t3` is precisely
-  # what keeps the first T3 Code connection off the network. An absent runtime
-  # phase grants nothing, which is the intent stated in prose in v2.
+  # The install phase is the libatomic1 hook's apt hosts, and only those. The
+  # release archive is not among them: t3code.dockerfile downloads it at image
+  # build, so it is the builder's traffic, not the sandbox's, and no install
+  # hook fetches anything from GitHub.
   #
-  # MIGRATION NOTE: registry.npmjs.org is gone from this list. It was here for
-  # the `npm install -g t3@latest` hook, which t3code.dockerfile now performs
-  # at image-build time — the tarball is the builder's traffic, not the
-  # sandbox's. The apt hosts stay for the libatomic1 hook, so the install
-  # phase narrows to the one hook that still runs rather than disappearing.
+  # The runtime phase is a different grant: T3 Code's remote bootstrap
+  # downloads a release itself, from the agent's steady state, when the app
+  # that connects is newer than the release this kit carries.
   - type: com.docker.sandbox/network-policy@1
     config:
       install:
@@ -83,14 +79,24 @@ capabilities:
           - security.ubuntu.com
           - ports.ubuntu.com
           - download.docker.com
+      runtime:
+        allow:
+          # SHA256SUMS and t3-<version>-linux-<arch>.tar.gz under
+          # github.com/pingdotgg/t3code/releases/download/. github.com
+          # 302-redirects asset downloads to release-assets.githubusercontent.com
+          # (observed for these assets); objects.githubusercontent.com is the
+          # host GitHub has used for the same redirect and is kept beside it.
+          - github.com
+          - objects.githubusercontent.com
+          - release-assets.githubusercontent.com
 
   - type: com.docker.sandbox/lifecycle@1
     config:
       install:
-        # t3's prebuilt binaries link against libatomic1, which no sandbox
-        # template ships. Installed here, and only when the base lacks it,
-        # because apt cannot travel in an overlay. No `env:`: the body reads
-        # nothing from the environment.
+        # t3's binaries link against libatomic1, which no sandbox template
+        # ships. Installed here, and only when the base lacks it, because apt
+        # cannot travel in an overlay. It runs first: the next hook starts the
+        # binary. No `env:`: the body reads nothing from the environment.
         - command: |
             set -euo pipefail
             if ldconfig -p 2>/dev/null | grep -q 'libatomic\.so\.1'; then
@@ -102,19 +108,50 @@ capabilities:
             apt-get install -y --no-install-recommends libatomic1
             rm -rf /var/lib/apt/lists/*
           user: "0"
-          description: Install libatomic1 when the base image lacks it; t3's prebuilt binaries link against it
+          description: Install libatomic1 when the base image lacks it; t3's binaries link against it
 
-        # MIGRATION NOTE: the second hook, "Install the t3 npm package
-        # globally", is gone — t3code.dockerfile runs that install at image
-        # build instead. Nothing in the hook body needed sandbox-create time:
-        # the two proxy lines existed because a sandbox reaches the registry
-        # through the sandbox's forced proxy (a builder does not, which is why
-        # HTTP_PROXY and HTTPS_PROXY are no longer declared anywhere here),
-        # the `command -v npm` guard turned a Node-less base into a legible
-        # create-time error, and the `ln -sf` is now a symlink in the overlay.
-        # What the kit exists for — `t3` already on PATH so T3 Code's first
-        # connection does not go to the registry — is better served by a layer
-        # than by a hook that has to do it again for every sandbox.
+        # T3 Code's remote bootstrap never looks for `t3` on PATH. It looks for
+        # ~/.t3/runtime/versions/<version>/t3 beside an .install-complete marker
+        # naming that version, and downloads the release when they are absent.
+        # The overlay carries exactly that directory at /opt, outside /home
+        # (whatever is at /home/agent may be a mounted volume that covers the
+        # overlay), so this hook links the bootstrap's path to it, as the agent
+        # user the bootstrap runs as over SSH.
+        #
+        # A symlink rather than a copy: the bootstrap's `[ -x "$dir/t3" ]` and
+        # `cat "$dir/.install-complete"` both follow it, and its `rm -rf "$dir"`
+        # on an install it considers stale removes only the link, never the
+        # overlay. An install already there and complete is left alone; any
+        # other entry at that path is replaced, as the bootstrap would.
+        #
+        # The closing `t3 --version` is the create-time half of the recipe's
+        # gate: it proves the binary starts on this base (libc, libatomic1)
+        # through the path the bootstrap will use, so a broken sandbox fails at
+        # create with a message instead of as a connection timeout in T3 Code.
+        - command: |
+            set -euo pipefail
+            T3_VERSION='${{ kit.args.version }}'
+            T3_OVERLAY_DIR="/opt/t3code/runtime/versions/$T3_VERSION"
+            T3_RUNTIME_DIR="${HOME:-/home/agent}/.t3/runtime/versions/$T3_VERSION"
+            if [ ! -x "$T3_OVERLAY_DIR/t3" ]; then
+              echo "t3 $T3_VERSION is missing from the kit overlay at $T3_OVERLAY_DIR" >&2
+              exit 1
+            fi
+            if [ -x "$T3_RUNTIME_DIR/t3" ] && [ "$(cat "$T3_RUNTIME_DIR/.install-complete" 2>/dev/null)" = "$T3_VERSION" ]; then
+              echo "t3 $T3_VERSION is already installed at $T3_RUNTIME_DIR"
+            else
+              mkdir -p "$(dirname "$T3_RUNTIME_DIR")"
+              rm -rf "$T3_RUNTIME_DIR"
+              ln -sfn "$T3_OVERLAY_DIR" "$T3_RUNTIME_DIR"
+              echo "Linked $T3_RUNTIME_DIR to $T3_OVERLAY_DIR"
+            fi
+            T3_REPORTED="$("$T3_RUNTIME_DIR/t3" --version)"
+            if [ "$T3_REPORTED" != "t3 v$T3_VERSION" ]; then
+              echo "t3 $T3_VERSION does not run on this image or reports '$T3_REPORTED'" >&2
+              exit 1
+            fi
+          user: "1000"
+          description: Point T3 Code's remote bootstrap at the pre-installed t3 release
 
   # No `filename:` — that is workload-only, and this mixin contributes a body
   # to whichever agent owns the profile.
