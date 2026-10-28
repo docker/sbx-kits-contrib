@@ -20,8 +20,9 @@ import (
 )
 
 const (
-	// DefaultShellImage is the Docker image used for kind=mixin container tests.
-	DefaultShellImage = "docker/sandbox-templates:shell-docker"
+	// DefaultShellImage is the base for kind=mixin container tests: the superset
+	// image, so a mixin tested here sees every tool either base ships.
+	DefaultShellImage = "docker.io/sbx/shell-docker-image:latest"
 
 	// HomeDir is the agent's home directory inside sandbox containers.
 	HomeDir = "/home/agent"
@@ -631,18 +632,19 @@ func containerImage(a *spec.Artifact) (string, error) {
 	return DefaultShellImage, nil
 }
 
-// wellKnownTemplates maps agent names to their published template images.
+// wellKnownTemplates maps agent names to the image each agent kit in this repo publishes.
 var wellKnownTemplates = map[string]string{
-	"shell":        "docker/sandbox-templates:shell-docker",
-	"claude":       "docker/sandbox-templates:claude-code-docker",
-	"codex":        "docker/sandbox-templates:codex-docker",
-	"copilot":      "docker/sandbox-templates:copilot-docker",
-	"cursor":       "docker/sandbox-templates:cursor-agent-docker",
-	"docker-agent": "docker/sandbox-templates:docker-agent",
-	"droid":        "docker/sandbox-templates:droid-docker",
-	"gemini":       "docker/sandbox-templates:gemini-docker",
-	"kiro":         "docker/sandbox-templates:kiro-docker",
-	"opencode":     "docker/sandbox-templates:opencode-docker",
+	"shell":        "docker.io/sbx/shell-image:latest",
+	"shell-docker": "docker.io/sbx/shell-docker-image:latest",
+	"claude":       "docker.io/sbx/claude-image:latest",
+	"codex":        "docker.io/sbx/codex-image:latest",
+	"copilot":      "docker.io/sbx/copilot-image:latest",
+	"cursor":       "docker.io/sbx/cursor-image:latest",
+	"docker-agent": "docker.io/sbx/docker-agent-image:latest",
+	"droid":        "docker.io/sbx/droid-image:latest",
+	"gemini":       "docker.io/sbx/gemini-image:latest",
+	"kiro":         "docker.io/sbx/kiro-image:latest",
+	"opencode":     "docker.io/sbx/opencode-image:latest",
 }
 
 func wellKnownAgentNames() []string {

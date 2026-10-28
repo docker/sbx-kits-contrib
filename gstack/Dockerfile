@@ -5,7 +5,7 @@
 # /qa, /browse, ...) plus compiled Bun binaries, including a headless
 # Chromium browse daemon. This image pre-bakes the full install — Bun,
 # the gstack checkout @ pinned SHA with its setup run, and Chromium —
-# on the claude-code template, so a sandbox attaches straight into a
+# on the claude kit's image, so a sandbox attaches straight into a
 # Claude Code session with all skills registered.
 #
 # Built and published by build-and-publish-kits.yml, the shared kit-image
@@ -13,7 +13,7 @@
 # kiro/copilot.
 #
 # The base is a floating tag, which is why CI also rebuilds on a schedule.
-ARG BASE_IMAGE=docker/sandbox-templates:claude-code
+ARG BASE_IMAGE=docker.io/sbx/claude-image:latest
 FROM ${BASE_IMAGE}
 
 # Re-declared inside the stage: an ARG defined before the first FROM is a
@@ -33,8 +33,8 @@ RUN sed -i 's|http://|https://|g' /etc/apt/sources.list.d/*.sources /etc/apt/sou
 RUN curl -fsSL --retry 5 https://bun.sh/install | BUN_INSTALL=/usr/local bash -s "bun-v${BUN_VERSION}"
 
 # Chromium + system deps for the browse daemon, shared system-wide.
-# Playwright has no dependency map for the template's Ubuntu 26.04 yet —
-# override the host platform to 24.04 (same t64 package naming era).
+# Playwright has no dependency map for the base's Ubuntu 26.04 yet, so this
+# overrides the host platform to 24.04 (same t64 package naming era).
 ENV PLAYWRIGHT_BROWSERS_PATH=/opt/playwright-browsers
 ARG TARGETARCH
 RUN apt-get update && \
@@ -65,8 +65,8 @@ RUN cd /home/agent/.claude/skills/gstack && \
 
 # This OVERRIDES the value inherited from the base image, which describes the
 # base rather than this image. Overriding is not optional: left inherited it
-# would read "claude-code", and sbx would report this image's agent as
-# "claude-code" instead of "gstack".
+# would read "claude", and sbx would report this image's agent as
+# "claude" instead of "gstack".
 #
 # sbx reads `flavor` and treats it as an agent identifier — it surfaces the
 # value as an image's `Agent` in the API. So it must be the kit's own name:

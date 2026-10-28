@@ -42,6 +42,7 @@ permissions:
       - security.ubuntu.com       # Ubuntu security updates (amd64)
       - ports.ubuntu.com          # Ubuntu archive/security (arm64)
       - download.docker.com       # Docker's apt repo, pre-added by codex-docker
+      - cli.github.com            # GitHub CLI's apt repo, pre-added by the base
 ports:
   - container: 22
     protocol: tcp

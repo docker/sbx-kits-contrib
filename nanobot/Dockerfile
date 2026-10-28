@@ -2,7 +2,7 @@
 # Base image for the `nanobot` sandbox kit. PyPI stays reachable at
 # runtime regardless of this bake: nanobot's own `cli_apps` tool
 # pip-installs further packages at the agent's own request, enabled by default.
-ARG BASE_IMAGE=docker/sandbox-templates:shell
+ARG BASE_IMAGE=docker.io/sbx/shell-image:latest
 FROM ${BASE_IMAGE}
 
 # Re-declared inside the stage: an ARG defined before the first FROM is a
@@ -23,7 +23,7 @@ USER agent
 WORKDIR /home/agent
 
 # `uv tool install`, not `pip install --break-system-packages`: the
-# template's Python is externally managed (PEP 668); uv builds its own
+# base image's Python is externally managed (PEP 668); uv builds its own
 # isolated venv instead of touching system site-packages.
 #
 # The version is read out of the JSON ADDed above, not re-resolved at RUN

@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1.7
 # Base image for the `hermes-agent` sandbox kit.
-ARG BASE_IMAGE=docker/sandbox-templates:shell
+ARG BASE_IMAGE=docker.io/sbx/shell-image:latest
 FROM ${BASE_IMAGE}
 
 # Re-declared inside the stage: an ARG defined before the first FROM is a global
@@ -29,7 +29,7 @@ ARG HERMES_VERSION=""
 ADD --chmod=644 https://github.com/NousResearch/hermes-agent/releases.atom /tmp/hermes-releases.atom
 
 USER agent
-WORKDIR /home/agent
+WORKDIR /home/agent/workspace
 
 # The tag comes from github.com's own /releases/latest redirect, not from the
 # releases API: unauthenticated api.github.com quota is counted per source IP
@@ -45,9 +45,10 @@ WORKDIR /home/agent
 # --skip-browser/--skip-computer-use drop Playwright and the macOS-only
 # cua-driver fetch -- neither is part of this kit's supported surface.
 #
-# install.sh always installs its `all` extra; `anthropic` is added
-# afterward because this kit wires Anthropic up as a first-class provider,
-# so it can't be left to upstream's lazy-install-at-runtime path.
+# install.sh always installs its `all` extra; `anthropic` is added afterward
+# through Hermes' supported package manager because this kit wires Anthropic up
+# as a first-class provider, so it can't be left to upstream's lazy-install-at-
+# runtime path.
 #
 # `hermes --version` is the build-time gate: a broken release fails the
 # build instead of shipping a non-starting agent.
@@ -64,8 +65,7 @@ RUN set -eu; \
     chmod +x /tmp/hermes-install.sh; \
     /tmp/hermes-install.sh --branch "$tag" --skip-setup --skip-browser --skip-computer-use --non-interactive; \
     rm -f /tmp/hermes-install.sh; \
-    "$HOME/.hermes/bin/uv" pip install --python "$HOME/.hermes/hermes-agent/venv/bin/python" \
-        -e "$HOME/.hermes/hermes-agent[anthropic]"; \
+    "$HOME/.local/bin/hermes" pm install --extra anthropic; \
     "$HOME/.local/bin/hermes" --version
 
 # Everything outside the `all` + `anthropic` extras baked above -- other
@@ -87,6 +87,9 @@ ENV HERMES_DISABLE_LAZY_INSTALLS=1
 # independent of the kit's files/home/ copy that sandbox.entrypoint uses.
 COPY --chmod=0755 files/home/.local/bin/hermes-start.sh /usr/local/bin/hermes-start
 
+# Root-owned on purpose: the kit's startup hook runs this as root.
+COPY --chmod=0755 hermes-volume-init.py /usr/local/libexec/hermes-volume-init
+
 # Overrides the base's inherited flavor -- left alone it would report
 # "shell" rather than "hermes-agent".
 LABEL com.docker.sandboxes.flavor="hermes-agent"
@@ -96,5 +99,5 @@ LABEL com.docker.sandboxes.flavor="hermes-agent"
 LABEL com.docker.sandboxes.base="${BASE_IMAGE}"
 
 USER agent
-WORKDIR /home/agent
+WORKDIR /home/agent/workspace
 CMD ["/usr/local/bin/hermes-start"]

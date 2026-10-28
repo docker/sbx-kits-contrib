@@ -52,5 +52,5 @@ The wrapper script:
 
 **Reference:** [`ollama/ollama` — cmd/launch/claude.go](https://github.com/ollama/ollama/blob/8f39fff70bac0bef2370a6af7020efa29a6a7cad/cmd/launch/claude.go)
 
-Network access is restricted to `localhost:11434` only; no Anthropic API domains are reachable.
+Network access is restricted to `host.docker.internal:11434` only; no Anthropic API domains are reachable.
 

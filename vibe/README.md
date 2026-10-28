@@ -75,4 +75,4 @@ Telemetry and Vibe's self-update are both switched off through `VIBE_ENABLE_TELE
 
 ## Image
 
-The companion image, `docker.io/sbx/vibe-image`, is built from `docker/sandbox-templates:shell-docker` and installs `mistral-vibe` from PyPI with `uv tool install`. Pin a release at build time with `--build-arg VIBE_VERSION=2.25.0`; the default, `latest`, is what CI's nightly rebuild tracks.
+The companion image, `docker.io/sbx/vibe-image`, is built from `docker.io/sbx/shell-docker-image` and installs `mistral-vibe` from PyPI with `uv tool install`. Pin a release at build time with `--build-arg VIBE_VERSION=2.25.0`; the default, `latest`, is what CI's nightly rebuild tracks.

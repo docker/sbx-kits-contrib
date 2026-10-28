@@ -5,7 +5,7 @@ displayName: Pi
 description: Minimal terminal coding agent with extensible tools, skills, and TUI
 sandbox:
   # Pre-baked image: pi at the latest upstream release, on the shell-docker
-  # template. Built and published by build-and-publish-kits.yml, the shared
+  # base image. Built and published by build-and-publish-kits.yml, the shared
   # kit-image pipeline (see ../PUBLISHING.md) -- no bespoke workflow needed,
   # same as openclaw/kiro/copilot. Creating a sandbox no longer waits on an
   # npm install; the pipeline's nightly rebuild keeps pi current (rolling
