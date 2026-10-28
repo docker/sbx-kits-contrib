@@ -1,0 +1,17 @@
+# syntax=docker/sandbox-kit:3
+schemaVersion: "3"
+displayName: OmO Senpi (mixin)
+description: OmO Native CLI overlay for an existing agent kit
+sourceUrl: https://github.com/code-yeongyu/oh-my-openagent
+kind: mixin
+version: "1.0.0"
+provides: ["oh-my-openagent@1.0.0"]
+capabilities:
+  - type: com.docker.sandbox/network-policy@1
+    config:
+      runtime:
+        allow:
+          - get.omo.dev
+  - type: com.docker.sandbox/agent-context@1
+    config:
+      contentFile: oh-my-openagent-mixin/oh-my-openagent-mixin-context.md

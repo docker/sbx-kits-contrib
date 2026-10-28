@@ -1,0 +1,17 @@
+schemaVersion: "2"
+kind: sandbox
+name: oh-my-openagent
+displayName: Oh My OpenAgent
+description: The personal agent kit for OmO environment
+sandbox:
+  image: ghcr.io/yokharian/oh-my-openagent-sbx-kit:latest
+  entrypoint:
+    - zsh
+agentInstructions:
+  filename: AGENTS.md
+permissions:
+  network:
+    allow:
+      - api.anthropic.com
+      - registry.npmjs.org
+      - platform.claude.com

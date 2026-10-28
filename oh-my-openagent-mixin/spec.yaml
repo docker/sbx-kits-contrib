@@ -1,0 +1,7 @@
+schemaVersion: "2"
+kind: mixin
+name: oh-my-openagent-mixin
+requires:
+  agent: oh-my-openagent
+displayName: Oh My OpenAgent Mixin
+description: Local configuration mixin for the OmO agent
