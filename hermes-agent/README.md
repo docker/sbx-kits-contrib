@@ -88,6 +88,54 @@ sbx run --kit ./hermes-agent/ hermes-agent
 Once inside the agent, use `hermes model` to choose a provider and model, then
 start chatting.
 
+## Keeping state on a volume
+
+Hermes keeps sessions, memory and skills in `HERMES_HOME`. By default that is
+`~/.hermes`, which also holds the Hermes install, so a volume can't be mounted
+there. A `HERMES_HOME` outside `~/.hermes` doesn't work either, because Hermes
+then looks for its install under that directory. To keep state on a separate
+volume, mount it at `/home/agent/.hermes/profiles/persistent` and set
+`HERMES_HOME` to that path and `HERMES_INIT_VOLUME=1`. Hermes treats the
+volume as a profile named `persistent`. Volumes are a cloud feature:
+
+```console
+sbx --cloud volume create hermes-state
+sbx --cloud create ./hermes-agent \
+    -e HERMES_HOME=/home/agent/.hermes/profiles/persistent \
+    -e HERMES_INIT_VOLUME=1 \
+    -v hermes-state:/home/agent/.hermes/profiles/persistent
+```
+
+`sbx --cloud stop` refuses a sandbox with a `-v` volume today, so it runs
+until you remove it. Removing it saves the volume, and the next sandbox
+created with the same flags picks up the same state.
+
+Your `-e HERMES_HOME` overrides the kit's default for the startup hooks and
+the agent. Cloud also writes the kit's default into `~/.bashrc`, so an
+interactive `bash` shell in the sandbox needs `export
+HERMES_HOME=/home/agent/.hermes/profiles/persistent` before running `hermes`.
+
+At startup, a root hook hands an empty, root-owned volume to the agent user
+and copies the image's `config.yaml` and `.env` into it when they are missing.
+It refuses a volume that already holds data owned by someone else, such as a
+host directory, and it does nothing unless `HERMES_INIT_VOLUME=1`.
+
+Under a profile, Hermes reads provider keys only from the profile's `.env`.
+So at startup, the credential hook writes the proxy placeholder there for
+each bound provider, for example `ANTHROPIC_API_KEY=proxy-managed`. It removes
+that line again when the provider is no longer bound, and it leaves any value
+you wrote yourself alone, including an `export` line.
+
+The hook's tests run in a disposable container:
+
+```console
+docker run --rm -v "$PWD/hermes-agent:/kit:ro" \
+  --tmpfs /home/agent/.hermes/profiles/persistent python:3.12-slim \
+  python -m unittest /kit/testdata/test_volume_init.py
+docker run --rm -v "$PWD/hermes-agent:/kit:ro" --tmpfs /decoy/persistent \
+  python:3.12-slim python -m unittest /kit/testdata/test_volume_paths.py
+```
+
 ## How auth works
 
 Each entry in the kit's `credentials:` list maps a provider to a domain and the
@@ -134,11 +182,11 @@ What the kit does have to do is get out of the way. `ANTHROPIC_API_KEY` is set
 to the proxy-managed sentinel unconditionally — the injection is declared by
 the kit, not by whether a credential exists — and a non-empty value there
 deliberately shadows any discovered OAuth credential upstream. So
-`hermes-anthropic-auth.sh` runs at every container start and drops the sentinel
+`hermes-credential-auth.sh` runs at every container start and drops the sentinel
 in the two cases where it is wrong: an OAuth login (Hermes should read the
 credential file instead) and no credential at all (otherwise Hermes reports an
 invalid key for a credential that never existed). It writes the decision to
-`~/.hermes/anthropic-auth.env`, which the entrypoint sources; a `~/.profile`
+`~/.hermes/credential-auth.env`, which the entrypoint sources; a `~/.profile`
 hook carries it into `sbx exec -- sh -lc '…'` shells too.
 
 Two things worth knowing: the discriminator is the materialized credential

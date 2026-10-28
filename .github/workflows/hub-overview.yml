@@ -180,10 +180,10 @@ jobs:
         # calls repeated at both the gate below and in "Report what happened",
         # so the two can never silently diverge if this ever changes.
         #
-        # has-dockerfile guards a real, previously-latent bug: most kits boot
-        # from a shared template (docker/sandbox-templates) or a third-party
-        # image (nanoclaw's nanoco/nanoclaw) rather than one built and owned by
-        # the kit itself — kit-meta.sh resolves image-repository from
+        # has-dockerfile guards a real, previously-latent bug: a kit without a
+        # Dockerfile boots from an image this repo publishes for another kit or a
+        # third-party image (nanoclaw's nanoco/nanoclaw) rather than one built
+        # and owned by the kit itself. kit-meta.sh resolves image-repository from
         # sandbox.image regardless of who owns that repository. Without this
         # guard, every one of those kits' matrix legs would try to PATCH the
         # SAME shared (or someone else's) Hub repository with ITS OWN

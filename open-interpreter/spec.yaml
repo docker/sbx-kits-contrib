@@ -61,7 +61,7 @@ permissions:
       - '*.npmjs.org'
       # download.docker.com is pre-added to sources.list.d by this base image
       # even without the `-docker` variant (confirmed by pulling
-      # docker/sandbox-templates:shell and inspecting it directly) --
+      # docker.io/sbx/shell-image and inspecting it directly) --
       # `apt-get update` fails on the first source that doesn't resolve, even
       # if the package OI's code wants comes from elsewhere. Ubuntu hosts
       # amd64 packages on archive/security and arm64 packages on
@@ -71,6 +71,7 @@ permissions:
       - security.ubuntu.com
       - ports.ubuntu.com
       - download.docker.com
+      - cli.github.com
 credentials:
   # Narrow inject domains: only the LLM API hosts that need auth injection.
   # A wildcard here would TLS-intercept all traffic, including code that

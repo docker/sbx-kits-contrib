@@ -188,7 +188,8 @@ permissions:
       - unleash.codeium.com
       # `apt-get update` (the startup hook below) refreshes metadata for every
       # configured apt source and returns exit 100 if any one of them fails.
-      # The shell-docker base ships three sources, so all three must be
+      # The shell-docker base ships five sources (Ubuntu's archive, security
+      # and ports, Docker's repo, GitHub CLI's repo), so all five must be
       # reachable. Ubuntu serves amd64 from archive/security and arm64 from
       # ports.ubuntu.com, so all three Ubuntu hosts are listed to keep the kit
       # working cross-arch.
@@ -196,6 +197,7 @@ permissions:
       - security.ubuntu.com       # Ubuntu security updates (amd64)
       - ports.ubuntu.com          # Ubuntu archive/security (arm64)
       - download.docker.com       # Docker's apt repo, pre-added by shell-docker
+      - cli.github.com            # GitHub CLI's apt repo, pre-added by the base
       #
       # Deliberately absent:
       #
@@ -237,7 +239,7 @@ setup:
     # config.json, which this kit writes separately below and never mixes
     # server entries into.
     #
-    # Note `transport`, not `type` (Codex's and opencode's spelling), not
+    # Note `transport`, not `type` (Claude Code's and opencode's spelling), not
     # `httpUrl` (Gemini's), and not `http_headers` (Codex's spelling of
     # `headers`): all three are wrong answers nearest to hand when editing
     # this, and all three are asserted against in testdata/tck.yaml.

@@ -1,0 +1,10 @@
+# gemini is still a built-in agent in released sbx builds, which refuse a kit
+# with a built-in's name. The e2e retries from a copy renamed gemini-e2e.
+extractedFromBuiltin: true
+
+mcp:
+  configPath: $HOME/.gemini/settings.json
+  transportKey: httpUrl
+  forbiddenKeys:
+    - url
+    - serverUrl
