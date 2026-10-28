@@ -5,8 +5,8 @@ Base image for the Aider kit for
 
 ## Contents
 
-Built on `docker/sandbox-templates:shell` — the standard sandbox toolchain,
-no Docker engine (Aider never shells out to `docker` itself, so it does not
+Built on `docker.io/sbx/shell-image`, the standard sandbox toolchain
+with no Docker engine (Aider never shells out to `docker` itself, so it does not
 need one). On top of that:
 
 - [Aider](https://aider.chat/), installed at a pinned release

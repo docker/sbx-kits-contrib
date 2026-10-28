@@ -5,8 +5,8 @@ Base image for the gstack agent kit for
 
 ## Contents
 
-Built on `docker/sandbox-templates:claude-code`, so Claude Code is
-available out of the box. On top of that:
+Built on `docker.io/sbx/claude-image`, the claude kit's image, so Claude
+Code is available out of the box. On top of that:
 
 - Bun 1.3.10, installed to `/usr/local`
 - Chromium + fonts/system deps under `/opt/playwright-browsers`, for

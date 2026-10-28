@@ -2,7 +2,7 @@
 # Base image for the `openhands` sandbox kit. Baking it also drops the
 # foreground `uv tool upgrade` the kit used to run on every start -- there
 # is nothing to upgrade to in a fixed image, and it blocked the entrypoint.
-ARG BASE_IMAGE=docker/sandbox-templates:shell
+ARG BASE_IMAGE=docker.io/sbx/shell-image:latest
 FROM ${BASE_IMAGE}
 
 # Re-declared inside the stage: an ARG defined before the first FROM is a global
