@@ -1,0 +1,161 @@
+schemaVersion: "2"
+kind: sandbox
+name: oh-my-openagent
+version: "1.0.0"
+displayName: oh-my-openagent
+description: oh-my-openagent, the extension-first coding agent, with provider credentials routed by the Docker Sandboxes proxy.
+
+sandbox:
+  # Built from the Dockerfile beside this spec and published by
+  # .github/workflows/build-and-publish-kits.yml (see ../PUBLISHING.md). The
+  # oh-my-openagent binary is pre-baked into the image, so creating a sandbox
+  # pays no install step.
+  #
+  # The value here is the source of truth for what CI builds and publishes.
+  # scripts/check-image-ref.sh asserts it stays inside a namespace CI can push
+  # to, and reads it literally with no interpolation.
+  image: docker.io/sbx/oh-my-openagent-image:latest
+  # Bare `oh-my-openagent`, no flags. oh-my-openagent reads its configuration
+  # from its own config directory and from the environment, so nothing needs to
+  # be appended on the command line. This makes `oh-my-openagent` the default
+  # entrypoint.
+  entrypoint:
+    - oh-my-openagent
+
+credentials:
+  # Provider credentials resolved by the Docker Sandboxes proxy. Service names
+  # are load-bearing: they are the keys a host binds secrets under (`sbx secret
+  # set <service> …`) and the keys the proxy routes on. None are `required:
+  # true` — an unbound sandbox still boots and oh-my-openagent reports the
+  # missing credential rather than failing `sbx create`, matching the sibling
+  # kits in this repo (pi, kiro, shell, senpi).
+  #
+  # Trimmed to the services oh-my-openagent uses: anthropic for the model API,
+  # github for extensions/Copilot tooling.
+  - service: anthropic
+    description: Anthropic API key, resolved by the Docker Sandboxes proxy
+    required: false
+    apiKey:
+      name: ANTHROPIC_API_KEY
+      proxyManaged: true
+      inject:
+        - domain: api.anthropic.com
+          header: x-api-key
+          format: "%s"
+        # Anthropic OAuth token endpoint (platform.claude.com is declared in
+        # permissions.network.allow as well).
+        - domain: platform.claude.com
+          header: x-api-key
+          format: "%s"
+  - service: github
+    apiKey:
+      name: ""
+      inject:
+        - domain: api.github.com
+          header: Authorization
+          format: Bearer %s
+        - domain: github.com
+          header: Authorization
+          format: Bearer %s
+        - domain: raw.githubusercontent.com
+          header: Authorization
+          format: Bearer %s
+
+permissions:
+  network:
+    # Without this block oh-my-openagent has zero allowed domains under a
+    # restrictive egress policy, and even the first prompt fails — nothing it
+    # needs, not even the configured provider's own API, is reachable. This
+    # repo's e2e runs every kit under `sbx policy init deny-all`, so the kit
+    # gets exactly the reachability declared here and nothing more.
+    #
+    # Entries are written without a port: a portless pattern matches any port.
+    allow:
+      # Every domain a credential above injects into. Required here as well,
+      # not just in the credential block: a domain absent from this list is
+      # unreachable no matter what the credential declares.
+      - api.anthropic.com
+      - platform.claude.com:443   # Anthropic OAuth token endpoint
+      - github.com                 # GitHub extensions / Copilot tooling
+      - api.github.com             # GitHub API
+      - raw.githubusercontent.com  # raw GitHub content
+      # oh-my-openagent installs extensions and tools from npm at runtime, so
+      # the registry must be reachable.
+      - registry.npmjs.org
+
+setup:
+  startup:
+    # The redirects and </dev/null belong on the outer group, not inside a
+    # subshell: a backgrounded job that inherits the exec's pipe write ends
+    # keeps it from reaching EOF, and a slow apt-get then times out the exec.
+    - command: ["sh", "-c", "{ command -v apt-get && apt-get update -qq -y || true; } >/dev/null 2>&1 </dev/null &"]
+      user: "root"
+      description: Update apt package cache in background
+    # sandboxd injects MCP_GATEWAY_URL + MCP_SENTINEL_TOKEN_NAME into the
+    # container env when a gateway has been reserved. The sentinel name is not
+    # a credential — the proxy substitutes the real token at request time keyed
+    # by this name. No-op when MCP isn't enabled.
+    #
+    # oh-my-openagent stores its global settings in
+    # $HOME/.oh-my-openagent/agent/settings.json (overridable via
+    # OH_MY_OpenAGENT_AGENT_DIR). The MCP gateway entry is merged into that
+    # file on every start: the entry is rewritten each time, every other key
+    # is kept.
+    - command:
+        - sh
+        - -c
+        - |
+          set -e
+          [ -n "$MCP_GATEWAY_URL" ] || exit 0
+          cfg="${OH_MY_OpenAGENT_AGENT_DIR:-$HOME/.oh-my-openagent/agent}/settings.json"
+          if ! command -v jq >/dev/null 2>&1; then
+            echo "jq is not installed; MCP gateway not registered in settings.json" >&2
+            exit 0
+          fi
+          gateway=$(cat <<EOF
+          {
+            "type": "remote",
+            "url": "$MCP_GATEWAY_URL",
+            "enabled": true,
+            "headers": {
+              "Authorization": "Bearer $MCP_SENTINEL_TOKEN_NAME"
+            }
+          }
+          EOF
+          )
+          if ! jq -n --argjson gateway "$gateway" 'empty'; then
+            echo "MCP_GATEWAY_URL or MCP_SENTINEL_TOKEN_NAME does not fit in a JSON string; MCP gateway not registered" >&2
+            exit 0
+          fi
+          real=$cfg
+          if [ -L "$cfg" ]; then
+            real=$(readlink -f "$cfg") || real=
+            if [ -z "$real" ] || [ ! -f "$real" ]; then
+              echo "settings.json is a symlink to a missing or non-regular file; MCP gateway not registered" >&2
+              exit 0
+            fi
+          elif [ -e "$cfg" ] && [ ! -f "$cfg" ]; then
+            echo "settings.json is not a regular file; MCP gateway not registered" >&2
+            exit 0
+          fi
+          src=$real
+          [ -e "$real" ] || src=/dev/null
+          if ! merged=$(jq -s --argjson gateway "$gateway" '
+              (if length == 0 then {}
+               elif length == 1 and (.[0] | type) == "object" then .[0]
+               else error("not a single JSON object") end)
+              | .mcp["mcp-gateway"] = $gateway' "$src"); then
+            echo "settings.json is not a single JSON object with an object or null mcp; MCP gateway not registered" >&2
+            exit 0
+          fi
+          if ! mkdir -p "$(dirname "$real")" || ! tmp=$(mktemp "$real.XXXXXX"); then
+            echo "cannot create a temp file beside settings.json; MCP gateway not registered" >&2
+            exit 0
+          fi
+          trap 'rm -f "$tmp"' EXIT
+          if ! printf '%s\n' "$merged" > "$tmp" || ! mv -f "$tmp" "$real"; then
+            echo "cannot write settings.json; MCP gateway not registered" >&2
+            exit 0
+          fi
+      user: "agent"
+      description: Register the sandbox MCP gateway in $OH_MY_OpenAGENT_AGENT_DIR/settings.json
