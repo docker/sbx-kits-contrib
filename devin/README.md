@@ -201,7 +201,7 @@ anything.
 The file is written directly rather than by shelling out to `devin mcp add`,
 which puts the exact key names in the spec where the TCK can pin them
 (`testdata/tck.yaml`). `transport` is Devin's spelling; the three
-asserted-against wrong answers are `type` (Codex's and opencode's), `httpUrl`
+asserted-against wrong answers are `type` (Claude Code's and opencode's), `httpUrl`
 (Gemini's) and `http_headers` (Codex's spelling of `headers`). Devin keeps MCP
 servers in `mcp_config.json` alone — its other settings live in the sibling
 `config.json` — so the file is rewritten whole rather than merged, which is
@@ -279,13 +279,13 @@ path a brand-new sandbox takes.
 
 ## Base image
 
-Unlike most kits here — which are `kind: mixin` and layer onto an existing
-`docker/sandbox-templates` image — a `kind: sandbox` kit *is* the whole
-environment, so it names the image the sandbox boots from. This kit builds and
-publishes its own, from the `Dockerfile` in this directory.
+Unlike a `kind: mixin` kit, which layers onto the image of the agent it is
+composed with, a `kind: sandbox` kit *is* the whole environment, so it names the
+image the sandbox boots from. This kit builds and publishes its own, from the
+`Dockerfile` in this directory.
 
 The image is **`docker.io/sbx/devin-image`**, built on
-`docker/sandbox-templates:shell-docker`, so it carries a Docker engine and
+`docker.io/sbx/shell-docker-image`, so it carries a Docker engine and
 requests Docker-in-Docker.
 
 The `-image` suffix distinguishes the base image from the kit itself: the kit

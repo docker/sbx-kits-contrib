@@ -74,7 +74,6 @@ grep -q "^\[mcp_servers.mcp-gateway\]" "$cfg" && exit 0
 cat >> "$cfg" <<EOF
 
   [mcp_servers.mcp-gateway]
-  type = "http"
   url = "$MCP_GATEWAY_URL"
   [mcp_servers.mcp-gateway.http_headers]
   Authorization = "Bearer $MCP_SENTINEL_TOKEN_NAME"
@@ -145,6 +144,31 @@ func TestMCPExpectationsValidate(t *testing.T) {
 				return
 			}
 			require.ErrorContains(t, err, tc.errText)
+		})
+	}
+}
+
+func TestMCPExpectationsServersKey(t *testing.T) {
+	tests := []struct {
+		name string
+		want mcpExpectations
+		key  string
+	}{
+		{
+			name: "empty_defaults_to_mcpServers",
+			want: mcpExpectations{ConfigPath: "$HOME/.copilot/mcp-config.json"},
+			key:  "mcpServers",
+		},
+		{
+			name: "explicit_key_is_kept",
+			want: mcpExpectations{ConfigPath: "$HOME/.config/opencode/opencode.json", ServersKey: "mcp"},
+			key:  "mcp",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			require.Equal(t, tc.key, tc.want.serversKey())
 		})
 	}
 }
@@ -226,7 +250,7 @@ func TestAssertMCPRegistration(t *testing.T) {
 			ConfigPath:    "$HOME/.codex/config.toml",
 			ConfigFormat:  "toml",
 			TransportKey:  "url",
-			ForbiddenKeys: []string{"headers", "httpUrl"},
+			ForbiddenKeys: []string{"headers", "httpUrl", "type"},
 		})
 	})
 
@@ -290,7 +314,7 @@ func TestAssertMCPRegistration(t *testing.T) {
 		{
 			name:   "toml_forbidden_key_as_assignment",
 			kit:    "codex",
-			script: strings.Replace(tomlScript, "type = \"http\"", "httpUrl = \"x\"", 1),
+			script: strings.Replace(tomlScript, "url = ", "httpUrl = \"x\"\n  url = ", 1),
 			user:   "agent",
 			want: &mcpExpectations{
 				ConfigPath:    "$HOME/.codex/config.toml",
@@ -299,6 +323,19 @@ func TestAssertMCPRegistration(t *testing.T) {
 				ForbiddenKeys: []string{"httpUrl"},
 			},
 			errText: `must not use a toml key "httpUrl"`,
+		},
+		{
+			name:   "toml_forbidden_key_type",
+			kit:    "codex",
+			script: strings.Replace(tomlScript, "url = ", "type = \"http\"\n  url = ", 1),
+			user:   "agent",
+			want: &mcpExpectations{
+				ConfigPath:    "$HOME/.codex/config.toml",
+				ConfigFormat:  "toml",
+				TransportKey:  "url",
+				ForbiddenKeys: []string{"type"},
+			},
+			errText: `must not use a toml key "type"`,
 		},
 		{
 			name:   "json_wrong_transport_key",

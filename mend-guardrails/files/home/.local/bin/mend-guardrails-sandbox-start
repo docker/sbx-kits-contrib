@@ -1,0 +1,115 @@
+#!/bin/sh
+set -eu
+
+export PATH="${HOME}/.local/bin:/usr/local/bin:${PATH:-}"
+
+# SDK reads MEND_KEY. Alias is for hosts that already export another Mend key.
+if [ -z "${MEND_KEY:-}" ] && [ -n "${MEND_GUARDRAILS_KEY:-}" ]; then
+  export MEND_KEY="$MEND_GUARDRAILS_KEY"
+fi
+
+# Point or undo Codex TUI intercept from MEND_GUARDRAILS_INTERCEPT_TUI.
+if command -v mend-guardrails-configure-codex >/dev/null 2>&1; then
+  mend-guardrails-configure-codex || true
+fi
+
+# When TUI intercept is on, ChatGPT subscription auth fights the API provider.
+_intercept="${MEND_GUARDRAILS_INTERCEPT_TUI:-false}"
+case "$_intercept" in
+  true|TRUE|1|yes|YES|on|ON)
+    _codex_home="${CODEX_HOME:-$HOME/.codex}"
+    _auth="$_codex_home/auth.json"
+    if [ -f "$_auth" ]; then
+      if grep -Eqi '"tokens"|chatgpt|id_token|refresh_token' "$_auth" 2>/dev/null; then
+        echo "mend-guardrails: WARNING: ChatGPT-style auth found in $_auth" >&2
+        echo "mend-guardrails: interceptTui=true needs a platform API key with" >&2
+        echo "mend-guardrails: api.responses.write (Writer role / unrestricted key)." >&2
+        echo "mend-guardrails: Use an API model (e.g. gpt-4o-mini), not Sol/Luna-only." >&2
+        echo "mend-guardrails: A fluent model refusal is NOT a Guardrails block." >&2
+      fi
+    fi
+    unset _codex_home _auth
+    ;;
+esac
+unset _intercept
+
+# Kit env points Codex at loopback. The OpenAI SDK also reads OPENAI_BASE_URL
+# as the *upstream*; leaving it set would make this process proxy to itself.
+unset OPENAI_BASE_URL
+# The OpenAI client validates credentials in its constructor, so an unset
+# OPENAI_API_KEY makes every /v1/chat/completions request fail with HTTP 500
+# before any guardrail runs. Keep whatever the sandbox provided (Docker's
+# sentinel) and fall back to a placeholder: the per-request forwarded
+# Authorization header overrides it, and the real key is swapped on the host.
+export OPENAI_API_KEY="${OPENAI_API_KEY:-proxy-managed}"
+
+# This process must use the sandbox HTTP proxy for provider upstream.
+_without_openai_noproxy() {
+  in="${1-},"
+  out=""
+  while [ -n "$in" ]; do
+    p=${in%%,*}
+    rest=${in#"$p"}
+    in=${rest#,}
+    # trim leading/trailing spaces
+    while [ -n "$p" ] && [ "${p# }" != "$p" ]; do
+      p=${p# }
+    done
+    while [ -n "$p" ] && [ "${p% }" != "$p" ]; do
+      p=${p% }
+    done
+    case "$p" in
+      api.openai.com|openai.com|.openai.com|'*.openai.com') continue ;;
+      '') continue ;;
+    esac
+    if [ -n "$out" ]; then
+      out="${out},${p}"
+    else
+      out="${p}"
+    fi
+  done
+  printf '%s' "$out"
+}
+
+if [ -n "${NO_PROXY:-}" ]; then
+  NO_PROXY="$(_without_openai_noproxy "$NO_PROXY")"
+  export NO_PROXY
+fi
+if [ -n "${no_proxy:-}" ]; then
+  no_proxy="$(_without_openai_noproxy "$no_proxy")"
+  export no_proxy
+fi
+
+# Startup does not gate the agent entrypoint. Callers (and mend-guard-text)
+# retry /health. This process *is* the server.
+# Default is online (policy-source api). Local sandbox.json is opt-in and
+# requires offline — the SDK rejects local files in online mode.
+policy_source="${MEND_GUARDRAILS_POLICY_SOURCE:-api}"
+offline="${MEND_GUARDRAILS_OFFLINE:-false}"
+case "$offline" in
+  true|TRUE|1) offline_on=1 ;;
+  *) offline_on=0 ;;
+esac
+case "$policy_source" in
+  local)
+    export MEND_GUARDRAILS_OFFLINE=true
+    ;;
+  api)
+    if [ "$offline_on" -eq 1 ]; then
+      echo "mend-guardrails: policySource=api cannot be combined with offline=true" >&2
+      exit 1
+    fi
+    ;;
+  *)
+    echo "mend-guardrails: unknown MEND_GUARDRAILS_POLICY_SOURCE='$policy_source' (use local or api)" >&2
+    exit 1
+    ;;
+esac
+
+exec mend-guardrails-server \
+  --host 127.0.0.1 \
+  --port 8787 \
+  --policy-dir "${MEND_GUARDRAILS_POLICY_DIR:-/home/agent/.mend-guardrails/policies}" \
+  --default-config "${MEND_GUARDRAILS_DEFAULT_CONFIG_ID:-sandbox}" \
+  --name "${MEND_GUARDRAILS_INSTANCE_NAME:-docker-sandbox}" \
+  --policy-source "$policy_source"

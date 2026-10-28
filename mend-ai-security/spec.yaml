@@ -1,0 +1,138 @@
+schemaVersion: "2"
+kind: mixin
+name: mend-ai-security
+displayName: Mend AI Security
+description: >-
+  Adds the Mend CLI with AI-security scanning to the sandbox: discover AI models,
+  frameworks, and system prompts in the workspace and generate an AI-BOM
+  (AI Bill of Materials) via `mend ai scan`.
+licenses:
+  - Apache-2.0
+
+# No proxy-managed credential is declared on purpose. The Mend CLI performs its
+# own login handshake (email + user key -> token, stored in
+# ~/.mend/config/settings.json). Declaring an apiKey inject on *.mend.io would
+# make the sbx proxy TLS-intercept those hosts to add an Authorization header,
+# which corrupts Mend's login and yields "Unauthorized" inside the sandbox
+# (the same credentials work on the host, where no proxy is in the path).
+# So the kit only opens egress and lets the CLI authenticate itself — see the
+# Authentication section in agentInstructions (and the README) for the details.
+
+permissions:
+  network:
+    allow:
+      - "*.mend.io"            # downloads / saas / api-saas / app / saas-eu (single label)
+      - mend.io                # apex
+
+# No MEND_URL default is set. The Mend CLI treats the mere presence of MEND_URL
+# (without MEND_EMAIL + MEND_USER_KEY) as an incomplete env-var auth attempt and
+# refuses to use a stored `mend auth login` session, failing with "invalid auth
+# environment variable params were set". Since that login flow is the recommended
+# path, the kit leaves MEND_URL unset: `mend auth login` lets you pick the region
+# interactively, and the env-var auth path passes MEND_URL alongside the full
+# credential triplet.
+
+setup:
+  install:
+    # Pick the binary matching the sandbox arch. Mend publishes both
+    # linux_amd64 and linux_arm64 (the arm64 build is undocumented on the
+    # download page but is a real native aarch64 executable). Guarded so
+    # composing this onto a base that already has the CLI is a no-op.
+    - command: 'command -v mend >/dev/null 2>&1 || { case "$(uname -m)" in aarch64|arm64) plat=linux_arm64 ;; *) plat=linux_amd64 ;; esac; curl -fsSL "https://downloads.mend.io/cli/$plat/mend" -o /usr/local/bin/mend && chmod +x /usr/local/bin/mend; }'
+      description: Install the Mend CLI (arch-matched)
+
+agentInstructions:
+  content: |
+    # Mend AI Security
+
+    This sandbox has the Mend CLI (`mend`) installed for AI-aware application
+    security scanning.
+
+    ## Running an AI security scan
+
+    Scan the workspace for AI usage (models, frameworks, system prompts) and
+    produce an AI-BOM:
+
+    ```bash
+    mend ai scan --directory .
+    ```
+
+    Useful flags:
+    - `--directory <path>` / `-d` — directory to scan (defaults to CWD).
+    - `--scope "[Org/][App/][Project]"` / `-s` — where results are recorded.
+    - `--no-upload` — scan locally without uploading to the Mend platform.
+    - `--tags a,b` — attach labels to the scan.
+
+    ### Scanning multiple directories
+
+    `--directory` takes a single path, so scan several repos by looping — one
+    scan per directory. Each directory becomes its own scope/project (auto-
+    detected from that directory's git metadata), which is usually what you want:
+
+    ```bash
+    for d in ~/app-a ~/app-b ~/shared; do
+      mend ai scan --directory "$d"   # each -> its own Mend project
+    done
+    ```
+
+    Mount the extra directories into the sandbox as additional workspaces when
+    you launch it (append `:ro` to keep one read-only):
+
+    ```bash
+    sbx run claude --kit <this-kit> ~/app-a ~/app-b ~/shared:ro
+    ```
+
+    The AI scan also runs automatically as a step after a dependency (SCA) scan:
+
+    ```bash
+    mend dep          # SCA + AI scan
+    ```
+
+    Other scanners on the same CLI: `mend code` (SAST), `mend image` (container).
+
+    ## Authentication
+
+    The CLI authenticates itself (the sbx proxy does NOT inject a credential —
+    it only allows egress to `*.mend.io`). Two ways that work inside the sandbox:
+
+    ### 1. `mend auth login` — manual credentials (recommended for SSO orgs)
+
+    ```bash
+    mend auth login
+    #   Select environment:  https://saas.mend.io
+    #   Authenticate:        Enter credentials manually
+    #   User Email:          <service-user email>
+    #   User Key:            <service-user key>
+    ```
+
+    Use a **Service User** (Mend → Settings → Service Users) rather than a
+    personal key — SSO-enforced orgs typically reject personal user keys with
+    "Unauthorized". The browser-login option does NOT work headless (its
+    `127.0.0.1` callback can't reach the CLI from a host browser), so choose
+    "Enter credentials manually". The token is stored in
+    `~/.mend/config/settings.json`.
+
+    ### 2. Environment variables (service user)
+
+    ```bash
+    sbx run claude --kit <this-kit> \
+      -e MEND_URL="https://saas.mend.io" \
+      -e MEND_EMAIL="<service-user email>" \
+      -e MEND_USER_KEY="<service-user key>" \
+      -e MEND_ORGANIZATION="<org uuid>" .
+    ```
+
+    Pass all four together. `MEND_EMAIL` / `MEND_ORGANIZATION` are not secrets.
+
+    If `MEND_KEY` is set, it is the Guardrails mixin activation key, not CLI
+    login. The CLI still needs `mend auth login` or `MEND_USER_KEY`.
+
+    NOTE: do NOT set `MEND_URL` on its own. The CLI reads the presence of
+    `MEND_URL` as an env-var auth attempt and then requires `MEND_EMAIL` +
+    `MEND_USER_KEY` too; setting `MEND_URL` alone makes even a completed
+    `mend auth login` session fail with "invalid auth environment variable params
+    were set". Use either the full triplet (this section) or `mend auth login`
+    with no `MEND_*` vars set (section 1) — not a lone `MEND_URL`.
+
+    Verify connectivity: `mend connectivity --mend-url="https://saas.mend.io"`
+    (use `--mend-url` for your region rather than relying on the env var).

@@ -67,17 +67,14 @@ no effect here: it's a host-env-driven shortcut that only applies to older,
 non-binding kit schemas, not to this kit's binding-driven credential
 resolution. It's kept for parity with the built-in spec rather than dropped.
 
-> [!IMPORTANT]
-> This kit sets `apiKey.proxyManaged: true` on `FACTORY_API_KEY`, matching
-> most (not all — `copilot`'s credentials notably don't, with no recorded
-> reason) apiKey-based kits in this repo. That makes the engine set the
-> in-container value to a sentinel and have the proxy substitute the real key
-> only on the domains listed above. **This interaction has not been verified
-> end-to-end**: it is not confirmed whether Droid's OAuth device/token-exchange
-> flow still resolves correctly when `FACTORY_API_KEY` holds the sentinel
-> rather than a value the CLI can use directly for anything outside those
-> three domains. If Droid misbehaves with only the OAuth path expected to run,
-> this is the first thing to check.
+> [!NOTE]
+> Unlike most apiKey-based kits here, this kit does not set
+> `apiKey.proxyManaged`. That flag sets `FACTORY_API_KEY` to a sentinel whether
+> or not a credential is bound, which would leave Droid always believing it has
+> a key and stop the OAuth device flow above from ever running. `claude` and
+> `cursor` omit it for the same reason. The proxy still substitutes the real key
+> on the three domains listed above; the kit simply does not advertise a key
+> when none is bound.
 
 ## Network policy
 
@@ -100,13 +97,13 @@ if any configured source is unreachable).
 
 ## Base image
 
-Unlike most kits here — which are `kind: mixin` or `kind: agent` and layer onto
-an existing `docker/sandbox-templates` image — a `kind: sandbox` kit *is* the
-whole environment, so it names the image the sandbox boots from. This kit
-builds and publishes its own, from the `Dockerfile` in this directory.
+Unlike a `kind: mixin` kit, which layers onto the image of the agent it is
+composed with, a `kind: sandbox` kit *is* the whole environment, so it names the
+image the sandbox boots from. This kit builds and publishes its own, from the
+`Dockerfile` in this directory.
 
 The image is **`docker.io/sbx/droid-image`**, built on
-`docker/sandbox-templates:shell-docker`, so it carries a Docker engine and
+`docker.io/sbx/shell-docker-image`, so it carries a Docker engine and
 requests Docker-in-Docker.
 
 The `-image` suffix distinguishes the base image from the kit itself: the kit

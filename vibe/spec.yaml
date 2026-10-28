@@ -20,13 +20,13 @@ args:
     pattern: '^[A-Za-z0-9_-]+$'
 
 sandbox:
-  # Pre-baked image: the shell-docker template plus mistral-vibe from PyPI,
+  # Pre-baked image: the shell-docker base image plus mistral-vibe from PyPI,
   # built and published by build-and-publish-kits.yml, the shared kit-image
   # pipeline (see ../PUBLISHING.md). Creating a sandbox therefore waits on no
   # install, and the pipeline's nightly rebuild keeps Vibe current -- same
   # arrangement as the pi and kiro kits.
   image: docker.io/sbx/vibe-image:latest
-  # `uv tool install` puts the binary in ~/.local/bin, which the template
+  # `uv tool install` puts the binary in ~/.local/bin, which the base image
   # already has on PATH, so the bare name resolves.
   #
   # --trust: the workspace is the user's own project, mounted by sbx, so Vibe's

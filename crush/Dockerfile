@@ -12,7 +12,7 @@
 # hermes-agent/pi/openclaw/kiro/copilot.
 #
 # The base is a floating tag, which is why CI also rebuilds on a schedule.
-ARG BASE_IMAGE=docker/sandbox-templates:shell
+ARG BASE_IMAGE=docker.io/sbx/shell-image:latest
 FROM ${BASE_IMAGE}
 
 # Re-declared inside the stage: an ARG defined before the first FROM is a global
