@@ -5,7 +5,7 @@ displayName: Nanobot
 description: Lightweight personal AI assistant with multi-platform chat and multi-provider LLM support
 sandbox:
   # Pre-baked image: nanobot-ai at the latest upstream PyPI release, on the
-  # plain shell template -- nanobot-ai's dependency tree has no Docker
+  # plain shell base image -- nanobot-ai's dependency tree has no Docker
   # dependency (checked against upstream's pyproject.toml), so the
   # shell-docker variant this kit used to boot from was carrying an engine
   # it never used. Built and published by build-and-publish-kits.yml, the

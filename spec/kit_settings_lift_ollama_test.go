@@ -32,12 +32,14 @@ func TestClaudeOllamaSettingsLift(t *testing.T) {
 	ic := findSettingsInstall(t, a.Commands)
 	require.Contains(t, ic.Command, "SBX_CRED_ANTHROPIC_MODE")
 
-	// No credential service: both unset and explicit =none yield the none
-	// oracle (no apiKeyHelper).
+	// No credential service: every non-apikey mode yields the none oracle (no
+	// apiKeyHelper).
 	require.Equal(t, claudeSettingsNone,
 		runSettingsInstallScript(t, ic.Command, "SBX_CRED_ANTHROPIC_MODE=none"))
 	require.Equal(t, claudeSettingsNone,
 		runSettingsInstallScript(t, ic.Command, "SBX_CRED_ANTHROPIC_MODE="))
+	require.Equal(t, claudeSettingsNone,
+		runSettingsInstallScript(t, ic.Command, "SBX_CRED_ANTHROPIC_MODE=oauth"))
 
 	// (c) apikey branch parity: the lifted script is copy-shared across the
 	// claude-family kits, so its apikey path must still produce the

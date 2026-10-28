@@ -10,7 +10,7 @@
 # openclaw/kiro/copilot.
 #
 # The base is a floating tag, which is why CI also rebuilds on a schedule.
-ARG BASE_IMAGE=docker/sandbox-templates:shell-docker
+ARG BASE_IMAGE=docker.io/sbx/shell-docker-image:latest
 FROM ${BASE_IMAGE}
 
 # Re-declared inside the stage: an ARG defined before the first FROM is a global
@@ -32,7 +32,7 @@ ARG BASE_IMAGE
 # expect `fd`.
 #
 # ripgrep needs no equivalent layer -- pi probes the system for `rg` exactly the
-# same way, and the template already ships /usr/bin/rg. Nothing to add here.
+# same way, and the base image already ships /usr/bin/rg. Nothing to add here.
 #
 # Deliberately placed above the ARG PI_VERSION / ADD section below: every layer
 # after that ADD re-runs whenever upstream publishes a release, and this one has
@@ -62,10 +62,10 @@ ARG PI_VERSION=latest
 # below reads this file as agent.
 USER root
 ADD --chmod=644 https://registry.npmjs.org/@earendil-works%2Fpi-coding-agent/${PI_VERSION} /tmp/pi-latest.json
-# No Node install step: the template already ships Node 22.22.1, which
-# satisfies pi's `engines.node >= 22.19.0`. (openclaw's image has to run
-# `n 22` because openclaw needs a newer minor than the template had at the
-# time -- pi does not.)
+# No Node install step: the base image already ships Node 22.22.1, which
+# satisfies pi's `engines.node >= 22.19.0`. (openclaw's image installs its own
+# Node because openclaw's engine floor has moved past the base image's major --
+# pi's has not.)
 #
 # The version installed is read out of the document ADDed above rather than
 # re-resolved from the registry at RUN time, so what lands in the image is a
@@ -79,11 +79,11 @@ ADD --chmod=644 https://registry.npmjs.org/@earendil-works%2Fpi-coding-agent/${P
 # build rather than being published.
 #
 # The install runs as agent because the global prefix is agent-owned in the
-# template, so installing as agent gets the ownership `pi update --self` and
+# base image, so installing as agent gets the ownership `pi update --self` and
 # `pi install` need (they run as agent inside the sandbox and would otherwise
 # fail on EACCES). Installing as root and chowning afterwards would be worse
 # on both counts: root-owned files land in the tree first, and a recursive
-# chown -- even to the owner the files already have -- copies the template's
+# chown -- even to the owner the files already have -- copies the base image's
 # entire npm tree up into this image's layer, adding megabytes to every
 # nightly rebuild. The kit's old create-time install ran as uid 1000 for the
 # same ownership reason.
@@ -111,8 +111,7 @@ USER root
 RUN ln -sf "$(npm prefix -g)/bin/pi" /usr/local/bin/pi
 
 # Inherited from the base image, but re-declared deliberately so the value is
-# owned here rather than depending on inheritance from an image this repository
-# does not own.
+# owned here rather than depending on inheritance.
 #
 # This is a *request* to the runtime, not a description of the image: setting it
 # over a base with no Docker engine yields a sandbox started in Docker mode with

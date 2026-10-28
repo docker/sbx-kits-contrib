@@ -1,0 +1,30 @@
+# Nightly rebuild for the v3 branch. GitHub runs schedules on the default
+# branch only, so this job dispatches v3's own publish workflow, which then
+# runs with v3's code against v3's checkout. `no-cache=true` asks for the
+# same uncached rebuild the schedule gets on main, because the point of a
+# nightly is drift underneath the pins. Remove when v3 becomes main.
+name: Nightly v3 publish
+
+on:
+  schedule:
+    # One hour after main's own nightly, so the two 98-job fan-outs never
+    # share a Hub login window.
+    - cron: "0 6 * * *"
+  workflow_dispatch: {}
+
+permissions:
+  actions: write
+
+jobs:
+  dispatch:
+    if: github.repository == 'docker/sbx-kits-contrib'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Dispatch build-and-publish-kits.yml on v3
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh workflow run build-and-publish-kits.yml \
+            --repo "$GITHUB_REPOSITORY" --ref v3 -f no-cache=true
+          echo "Dispatched build-and-publish-kits.yml on v3 (no-cache=true)." >> "$GITHUB_STEP_SUMMARY"

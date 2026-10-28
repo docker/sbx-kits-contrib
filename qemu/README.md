@@ -22,7 +22,7 @@ sbx run claude --kit ./qemu/ .
 
 Prerequisites:
 
-- **A Docker-in-Docker base.** This kit shells out to `docker` at startup, so compose it onto a `*-docker` sandbox template (for example `docker/sandbox-templates:shell-docker`). If `docker` isn't on `PATH`, the startup hook fails and `sbx run` / `sbx exec` refuse to start the sandbox (see [What happens when something goes wrong](#what-happens-when-something-goes-wrong)).
+- **A Docker-in-Docker base.** This kit shells out to `docker` at startup, so compose it onto a sandbox whose image ships an engine (for example the [`shell-docker`](../shell-docker) kit, or any kit built on `docker.io/sbx/shell-docker-image`). If `docker` isn't on `PATH`, the startup hook fails and `sbx run` / `sbx exec` refuse to start the sandbox (see [What happens when something goes wrong](#what-happens-when-something-goes-wrong)).
 
 Inside the sandbox:
 
@@ -64,7 +64,7 @@ Registration does not need either of them, so both steps are **best-effort**:
 
 ### What happens when something goes wrong
 
-A `startup` command that exits non-zero stops the sandbox from starting, so the hook fails hard on exactly one thing: **`docker` not being on `PATH`**. `sbx create` prints a warning ending in `kit startup exited with code 1` and still creates the sandbox; `sbx run` and every `sbx exec` then fail with `failed to start sandbox: ... kit startup exited with code 1`, because each of them re-runs the startup hooks first. The startup log is unreachable that way, since reading it needs `sbx exec`. The cause is a base template without Docker-in-Docker; recreate the sandbox on a `*-docker` template (see the prerequisite above).
+A `startup` command that exits non-zero stops the sandbox from starting, so the hook fails hard on exactly one thing: **`docker` not being on `PATH`**. `sbx create` prints a warning ending in `kit startup exited with code 1` and still creates the sandbox; `sbx run` and every `sbx exec` then fail with `failed to start sandbox: ... kit startup exited with code 1`, because each of them re-runs the startup hooks first. The startup log is unreachable that way, since reading it needs `sbx exec`. The cause is a base image without Docker-in-Docker; recreate the sandbox on the `shell-docker` kit or another kit built on `docker.io/sbx/shell-docker-image` (see the prerequisite above). An image with the Docker CLI but no engine, such as the plain `shell` kit, passes this check and instead logs the 60s daemon warning below.
 
 Everything else degrades to a warning and the sandbox starts normally, just without emulation:
 
@@ -89,7 +89,7 @@ Note that `tonistiigi/binfmt --install` exits 0 even when it fails to register a
 | `archive.ubuntu.com` | Ubuntu apt archive, amd64 — `apt-get install mount` |
 | `security.ubuntu.com` | Ubuntu security pocket, amd64 — refreshed by the same `apt-get update` |
 | `ports.ubuntu.com` | Ubuntu archive/security for arm64 (Apple Silicon sandboxes) |
-| `download.docker.com` | Docker's apt repo, pre-added by the `*-docker` templates — `apt-get update` refreshes every configured source and fails if any is blocked |
+| `download.docker.com` | Docker's apt repo, pre-added by both shell bases — `apt-get update` refreshes every configured source and fails if any is blocked |
 
 ## Cleanup
 

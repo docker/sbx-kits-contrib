@@ -55,6 +55,7 @@ permissions:
       - security.ubuntu.com:80
       - ports.ubuntu.com:80
       - download.docker.com:443
+      - cli.github.com:443
 environment:
   variables:
     # chrome-launcher reads CHROME_PATH (LIGHTHOUSE_CHROMIUM_PATH is

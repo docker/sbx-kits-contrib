@@ -59,6 +59,7 @@ permissions:
       - security.ubuntu.com:80
       - ports.ubuntu.com:80
       - download.docker.com:443
+      - cli.github.com:443
 environment:
   variables:
     # Lets `require('@playwright/test')` resolve from the global npm install
