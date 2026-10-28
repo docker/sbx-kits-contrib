@@ -1,0 +1,68 @@
+# Docker Sandboxes kit: the Oh My OpenAgent personal agent for the OmO environment.
+# Runs the oh-my-openagent agent (zsh entrypoint) from a prebuilt image; no image
+# is built by this repo, so PUBLISHING.md's image pipeline does not apply.
+# Consumes the kit artifact (spec + files) via `sbx run --kit …`.
+schemaVersion: "2"
+kind: sandbox
+name: oh-my-openagent
+version: "1.0.0"
+displayName: Oh My OpenAgent
+description: The personal agent kit for the OmO environment — an extensible zsh-based agent with tool skills and TUI.
+
+licenses:
+  - MIT
+
+sandbox:
+  # Built from the Dockerfile beside this spec and published by
+  # .github/workflows/build-and-publish-kits.yml. The `-image` suffix
+  # distinguishes the base image from the kit artifact (`oh-my-openagent-kit`).
+  image: docker.io/sbx/oh-my-openagent-image:latest
+  entrypoint:
+    - zsh
+
+agentInstructions:
+  # AGENTS.md is written into the sandbox at build time by the image; the kit
+  # only needs to point the agent at it. filename form keeps the spec small
+  # since the content lives in the image, not in this repo.
+  filename: AGENTS.md
+
+credentials:
+  - service: anthropic
+    description: >-
+      Anthropic API key used by oh-my-openagent for model calls. Stored on the
+      host; the sbx proxy injects it as the x-api-key header on requests to
+      api.anthropic.com. The sandbox never sees the real key.
+    required: true
+    apiKey:
+      name: ANTHROPIC_API_KEY
+      proxyManaged: true
+      inject:
+        - domain: api.anthropic.com
+          header: x-api-key
+          format: '%s'
+
+permissions:
+  network:
+    # Complete outbound contract under CI's deny-all policy. Every domain the
+    # image or agent reaches for must be listed here; anything absent is blocked.
+    allow:
+      # Anthropic model API — the primary inference endpoint.
+      - api.anthropic.com
+      # npm registry — the agent's runtime installs extensions, skills, and
+      # prompt templates from npm on startup.
+      - registry.npmjs.org
+      # Anthropic OAuth token-refresh endpoint (used when the stored
+      # credential is an OAuth login rather than a raw API key).
+      - platform.claude.com
+
+environment:
+  variables:
+    # Points the agent's runtime at the proxy-injected API base. The sbx
+    # proxy rewrites the x-api-key header; this variable just names the host.
+    OPENAI_BASE_URL: "https://api.anthropic.com"
+
+setup:
+  install:
+    - command: 'true'
+      user: "1000"
+      description: "No install needed — oh-my-openagent is prebuilt into the sandbox image"
