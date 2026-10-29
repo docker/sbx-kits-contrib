@@ -8,7 +8,7 @@ The kit publishes two OCI artifacts:
 | Artifact | Hub repo | What it is |
 |---|---|---|
 | `docker.io/sbx/oh-my-openagent-kit` | the kit (this repo, `oh-my-openagent/`) | `spec.yaml` plus READMEs -- what you reference with `--kit` |
-| `docker.io/sbx/oh-my-openagent-image` | built by CI from `oh-my-openagent/Dockerfile` | the base image, pre-baked with the `oh-my-openagent` binary |
+| `docker.io/sbx/oh-my-openagent-image` | built by CI from `oh-my-openagent/Dockerfile` | the base image, pre-baked with the `omo` binary |
 
 ## Launch
 
@@ -21,14 +21,14 @@ sbx --cloud run oh-my-openagent
 or, for a community kit from Docker Hub:
 
 ```bash
-sbx --cloud run docker.io/sbx/oh-my-openagent-kit:latest oh-my-openagent
+sbx --cloud run docker.io/sbx/oh-my-openagent-kit:latest omo
 ```
 
 The current directory becomes the sandbox workspace, mounted at `/workspace`.
 
 ## Credentials
 
-oh-my-openagent calls provider APIs. Store your key on the host **before** you create
+omo calls provider APIs. Store your key on the host **before** you create
 the sandbox -- it never enters the container raw:
 
 ```bash
@@ -44,7 +44,7 @@ The sandbox receives a sentinel value, not the real key.
 Scripted use:
 
 ```bash
-sbx exec oh-my-openagent -- oh-my-openagent -p "list the failing tests"
+sbx exec oh-my-openagent -- omo -p "list the failing tests"
 ```
 
 Do not authenticate from inside the sandbox -- writing a real token into the
@@ -54,8 +54,8 @@ container defeats the proxy model.
 
 Only these domains are reachable from the sandbox:
 
-- `api.anthropic.com` -- oh-my-openagent's model endpoint (and where the credential is injected)
-- `registry.npmjs.org` -- so oh-my-openagent can install extensions/tools at runtime
+- `api.anthropic.com` -- omo's model endpoint (and where the credential is injected)
+- `registry.npmjs.org` -- so omo can install extensions/tools at runtime
 
 Widen the policy in the web UI under Policies if your workflow needs more.
 
@@ -63,14 +63,14 @@ Widen the policy in the web UI under Policies if your workflow needs more.
 
 `sbx/oh-my-openagent-image` is built on `docker.io/sbx/shell-image`: the standard
 sandbox tool chain (Node, npm, git, ripgrep, ...). On top of that it installs
-Node 24 and the `oh-my-openagent` npm package (plus its platform-specific binary
-package) into the agent-owned global prefix, then symlinks `oh-my-openagent` onto
-`/usr/local/bin`. It runs as the non-root `agent` user with `CMD ["oh-my-openagent"]`.
+Node 24 and the `omo-ai` npm package into the
+agent-owned global prefix, then symlinks `omo` onto `/usr/local/bin`. It runs
+as the non-root `agent` user with `CMD ["omo"]`.
 
 Build args:
 
 - `BASE_IMAGE` -- re-point or digest-pin the base (`docker.io/sbx/shell-image:latest`).
-- `OH_MY_OPENAGENT_VERSION` -- pin a published `oh-my-openagent` version (`5.1.48`, no leading `v`). Left empty, npm resolves `latest`.
+- `OMO_VERSION` -- pin a published `omo-ai` version (`5.1.48`, no leading `v`). Left empty, npm resolves `latest`.
 
 ## Kit vs image
 

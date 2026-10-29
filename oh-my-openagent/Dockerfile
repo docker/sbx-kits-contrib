@@ -2,9 +2,8 @@
 
 # Base image for the `oh-my-openagent` sandbox kit.
 #
-# Pre-bakes `@code-yeongyu/oh-my-openagent` so sandbox creation is fast: the
-# `oh-my-openagent` binary is already on the image and `sbx create` pays no
-# npm install.
+# Pre-bakes `omo-ai` so sandbox creation is fast: the `omo` binary is already
+# on the image and `sbx create` pays no npm install.
 #
 # Built and published by build-and-publish-kits.yml (see ../PUBLISHING.md) --
 # no bespoke workflow needed, same as pi/aider/codex/opencode/senpi.
@@ -18,7 +17,7 @@ FROM ${BASE_IMAGE}
 # would expand to an empty string.
 ARG BASE_IMAGE
 
-# oh-my-openagent's engines require Node >= 24; the shell base ships an older
+# omo's engines require Node >= 24; the shell base ships an older
 # Node, so install Node 24 from NodeSource before installing the agent.
 USER root
 RUN <<'EOF'
@@ -40,25 +39,19 @@ EOF
 USER agent
 WORKDIR /home/agent
 
-# oh-my-openagent is a wrapper that spawns a platform-specific native binary.
-# Install both the wrapper and the matching platform package for TARGETARCH.
+# omo-ai is the OmO native package; it ships the `omo` binary and pulls
+# @code-yeongyu/senpi internally, so no separate platform package is needed.
 ARG TARGETARCH
-ARG OH_MY_OPENAGENT_VERSION=5.1.48
-RUN case "$TARGETARCH" in \
-    amd64) PLATFORM_PKG="oh-my-openagent-linux-x64" ;; \
-    arm64) PLATFORM_PKG="oh-my-openagent-linux-arm64" ;; \
-    *) echo "Unsupported architecture: $TARGETARCH" && exit 1 ;; \
-    esac && \
-    npm install -g "oh-my-openagent@${OH_MY_OPENAGENT_VERSION}" \
-    && npm install -g "${PLATFORM_PKG}@${OH_MY_OPENAGENT_VERSION}" \
-    && oh-my-openagent --version
+ARG OMO_VERSION=5.1.48
+RUN npm install -g "omo-ai@${OMO_VERSION}" \
+    && omo --version
 
 USER root
-RUN ln -sf "$(npm prefix -g)/bin/oh-my-openagent" /usr/local/bin/oh-my-openagent
+RUN ln -sf "$(npm prefix -g)/bin/omo" /usr/local/bin/omo
 
 # Inherited from the base image, but re-declared deliberately so the value is
 # owned here rather than depending on inheritance.
-LABEL com.docker.sandboxes.flavor="oh-my-openagent"
+LABEL com.docker.sandboxes.flavor="omo"
 
 # Informational only -- nothing in sbx reads this. Worth setting because the
 # base is a floating tag rebuilt nightly, so this is the one place the produced
@@ -67,4 +60,4 @@ LABEL com.docker.sandboxes.base="${BASE_IMAGE}"
 
 USER agent
 WORKDIR /home/agent
-CMD [ "oh-my-openagent" ]
+CMD [ "omo" ]
