@@ -41,7 +41,7 @@ version: "${{ kit.args.version }}"
 # HOW THE DEFAULT WAS ESTABLISHED, and how to bump it: the tag that
 # https://github.com/docker/docker-agent/releases/latest redirects to, which is
 # the same document the recipe used to resolve when this arg was left empty.
-# `v1.141.0` at the time of writing. Re-read that redirect to bump:
+# `v1.154.0` at the time of writing. Re-read that redirect to bump:
 #
 #   curl -fsSI -o /dev/null -w '%{redirect_url}\n' \
 #     https://github.com/docker/docker-agent/releases/latest
@@ -50,7 +50,7 @@ version: "${{ kit.args.version }}"
 # downloads
 # https://github.com/docker/docker-agent/releases/download/v<version>/docker-agent-linux-<arch>
 # and then asserts the binary reports this exact version. Note the `v`: SPEC-v3
-# §5.2 versions carry no `v` prefix, so the arg holds `1.141.0` and the recipe
+# §5.2 versions carry no `v` prefix, so the arg holds `1.154.0` and the recipe
 # re-adds the `v` the tag needs. That is a CHANGE OF MEANING from v2, where
 # this arg held the tag itself -- `--build-arg DOCKER_AGENT_VERSION=v1.2.3` is
 # now `1.2.3`.
@@ -88,10 +88,10 @@ version: "${{ kit.args.version }}"
 # The pattern admits a three-segment release and nothing else -- the shape of
 # every docker-agent tag with the `v` stripped. It refuses the empty string the
 # arg used to default to, and it refuses a `v`-prefixed value, which would
-# otherwise produce the un-referenceable `docker-agent@v1.141.0`.
+# otherwise produce the un-referenceable `docker-agent@v1.154.0`.
 args:
   version:
-    default: "1.141.0"
+    default: "1.154.0"
     pattern: '^[0-9]+\.[0-9]+\.[0-9]+$'
     description: >-
       docker-agent release to install, without the tag's `v` prefix.

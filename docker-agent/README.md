@@ -315,7 +315,7 @@ Two build args beyond `BASE_IMAGE`:
       https://github.com/docker/docker-agent/releases/latest
   ```
 
-  The kit's `provides` is versioned from it (`docker-agent@1.141.0`), and so
+  The kit's `provides` is versioned from it (`docker-agent@1.154.0`), and so
   is the descriptor's own `version:` — the same arg reference, expanded at
   publish, so the kit is released as the agent it ships rather than under a
   number of its own. That is a claim with a caveat worth knowing:

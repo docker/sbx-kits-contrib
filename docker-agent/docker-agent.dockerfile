@@ -28,7 +28,7 @@ ARG TARGETARCH
 # value into a versioned provide, so an unset value has to fail the build
 # rather than resolve to whatever the newest release happens to be.
 #
-# It holds a bare version (`1.141.0`), not the tag -- SPEC-v3 §5.2 versions
+# It holds a bare version (`1.154.0`), not the tag -- SPEC-v3 §5.2 versions
 # carry no `v` prefix, and the value has to be referenceable from `provides`.
 # The `v` the tag needs is re-added below.
 #
@@ -75,7 +75,7 @@ test -x /opt/docker-agent/bin/docker-agent
 #
 # `version`, the subcommand -- there is no --version flag, and passing one is
 # an error rather than a fallback. The binary answers `docker-agent version
-# v1.141.0`, so the assertion matches $TAG and not $DOCKER_AGENT_VERSION: the
+# v1.154.0`, so the assertion matches $TAG and not $DOCKER_AGENT_VERSION: the
 # reported string carries the `v`, and `grep -w` would refuse the bare version
 # inside it because `v` is a word character. -F because a version is dots, not
 # a regexp; -w so a declared 1.14.0 cannot be satisfied by an installed
