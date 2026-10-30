@@ -36,7 +36,7 @@ version: "0.1.0"
 provides: ["cosmos-db-emulator"]
 
 # `deb/docker-ce` rather than `deb/docker-ce-cli`: the helper needs a daemon to
-# run the emulator on, and the plain shell base ships the client alone, where
+# run the emulator on, and a base can ship the client alone, where
 # `command -v docker` succeeds and `docker info` never will. `deb/curl` is the
 # readiness probe. Both resolve against the Docker-in-Docker bases, which
 # derive one `deb/` name per installed package when they publish.
@@ -108,7 +108,7 @@ capabilities:
         # anything slower or flakier than this check.
         #
         # No `env:` -- the body reads nothing.
-        - command: [sh, -c, "command -v docker >/dev/null 2>&1 || { echo 'cosmos-db-emulator: docker not found; compose this kit onto a Docker-in-Docker base such as docker.io/docker/sbx-kit-shell' >&2; exit 1; }"]
+        - command: [sh, -c, "command -v docker >/dev/null 2>&1 || { echo 'cosmos-db-emulator: docker not found; compose this kit onto a Docker-in-Docker base such as docker.io/sbx/shell' >&2; exit 1; }"]
           user: "0"
           description: Fail fast when the base has no Docker Engine
         # Backgrounded because the first boot pulls a ~0.6 GB image (2.3 GB

@@ -3,6 +3,11 @@
 # two already use Go 1.26.10, which includes the certificate-trust fix.
 FROM dhi.io/sbx-templates:shell-docker
 
+# The flavor is the kit's name. start-docker is stated here so the claim does
+# not depend on the base.
+LABEL com.docker.sandboxes.flavor="shell" \
+      com.docker.sandboxes.start-docker="true"
+
 # DHI's package repository has the remaining trust fixes ahead of the
 # shell-docker image refresh. Use its existing signed APT sources only.
 USER root

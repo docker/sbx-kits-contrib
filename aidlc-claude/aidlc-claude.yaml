@@ -6,7 +6,7 @@ kind: mixin
 # The kit's own version, not the version of anything it installs: it is the
 # tag this kit publishes under, and the fallback that versions an unversioned
 # provide at publish. Bump it when this kit's declarations change.
-version: "1.0.0"
+version: "1.0.1"
 displayName: AI-DLC Quick Start
 description: Starter Kit for AWS AI-DLC — installs a pinned Bun, clones the latest aidlc-workflows main commit for a fresh project or the commit that project already recorded, and copies its Claude harness into the workspace, merging its settings.json keys and .gitignore rules into the files a project already has.
 
@@ -67,6 +67,7 @@ capabilities:
           - security.ubuntu.com
           - ports.ubuntu.com
           - download.docker.com
+          - cli.github.com          # GitHub CLI apt repo, pre-added by the base
 
   - type: com.docker.sandbox/lifecycle@1
     config:

@@ -2,8 +2,8 @@
 
 Applies to **every** kit in this repo. In the v2 format publishing was a
 question only some kits had to answer, because only some built an image;
-in v3 a kit *is* an image, so every one of the 87 directories here
-publishes the same way.
+in v3 a kit *is* an image, so every kit directory here publishes the
+same way.
 
 ## One artifact, not two
 
@@ -95,11 +95,27 @@ build of the same source could resolve a different base image or a
 different upstream release, and the two tags would then advertise
 different bits — and different attestations — for one commit.
 
+## Build order
+
+`shell` is the base. It builds first because other kits build on it. A kit
+builds on it when a `*.dockerfile` in its directory has a `FROM` or
+`ARG BASE_IMAGE=` line naming `sbx/shell`; `scripts/kit-dependents.sh shell`
+lists them.
+
+On pushes and the nightly, `shell` being built also rebuilds every kit
+that builds on it, after it. Its whole publish job, Hub page sync
+included, must succeed for its dependents to run. A failed `shell` skips
+those kits; kits that do not build on it are unaffected. Pull requests
+build only what changed, as dry runs, so a dependent in a pull request
+builds against the base already published. A release (`release-kit.yml`)
+does not move `latest`, so it does not rebuild dependents.
+
 ## What publishing derives
 
 The frontend does real work between the authored descriptor and the
 published one, and several of the rules a kit has to satisfy only bite
-here. [SPEC-v3 §9](https://github.com/docker/sandbox-kit-spec/blob/main/docs/spec/SPEC-v3.md#9-publishing)
+here.
+[SPEC-v3 §9](https://github.com/docker/sandbox-kit-spec/blob/main/docs/spec/SPEC-v3.md#9-publishing)
 is normative; the short version:
 
 - **Expansion (§9.1).** Build-phase args resolve and every
@@ -342,7 +358,7 @@ logos were copied from the v2 repositories by hand with the same script. See
 
 ## Pre-publish verification
 
-Two layers, and they check different things.
+Three layers, and they check different things.
 
 **The frontend**, during the build, judges the authored descriptor:
 strict decoding, the capability config schemas, args and their patterns,
@@ -367,7 +383,20 @@ kit-tck validate --layout /tmp/k 1.4.2
 
 The last argument is the **tag alone**, not `my-kit:1.4.2`.
 
-Neither layer can see whether the kit *works*. A mixin whose installer
+**`scripts/verify-kit-image.sh`**, against the built image, judges what
+the frontend mostly copies as-is from the recipe (it rejects only a
+workload image with neither `ENTRYPOINT` nor `CMD`). For a `kind: workload` kit it
+asserts that the launch command resolves on `PATH` (or is an absolute path
+a `path:` entry in the kit's descriptor writes), that the image sets a
+non-root user, that the `com.docker.sandboxes.flavor` label equals the
+kit name, and that `start-docker=true` comes with `dockerd`, `docker` and
+`containerd` on `PATH`. Mixins are skipped, and a set kit fails: its
+derived kind is recorded only in the published manifest, which a local
+build does not keep. It runs before every publish,
+dry runs on pull requests included. Run it locally with
+`scripts/verify-kit-image.sh <kit>`.
+
+None of them can see whether the kit *works*. A mixin whose installer
 relocated a launcher but not its payload builds, conforms, and ships a
 dangling symlink; only composing it onto a base and running the tool
 catches that. See [Verifying locally](./README.md#verifying-locally).

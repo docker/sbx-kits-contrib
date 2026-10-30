@@ -129,6 +129,7 @@ are fetched by whoever builds the kit rather than by any sandbox.
 | `security.ubuntu.com` | install | Ubuntu security pocket, amd64 — refreshed by the same `apt-get update` |
 | `ports.ubuntu.com` | install | Ubuntu archive/security for arm64 (Apple Silicon sandboxes) |
 | `download.docker.com` | install | Docker's apt repo, pre-added by the `*-docker` templates — `apt-get update` refreshes every configured source and fails if any is blocked |
+| `cli.github.com` | install | GitHub CLI apt repo, pre-added by the `*-docker` templates, refreshed by the same `apt-get update` |
 
 ## Cleanup
 

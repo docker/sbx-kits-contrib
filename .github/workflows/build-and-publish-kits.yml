@@ -40,17 +40,22 @@ name: Build and publish kits
 #     scripts/kit-version.sh for the four ways of doing that. The
 #     `verify-versions` job below refuses to build anything until every kit in
 #     the repo satisfies it.
+#   * One kit is the BASE: `shell`, built from its upstream template and
+#     published as docker.io/sbx/shell. A kit builds on it when any
+#     `<kit>/*.dockerfile` names it (scripts/kit-dependents.sh has the exact
+#     rules). The jobs below build the base first, then the kits built on it;
+#     every other kit runs alongside. On a publishing run (anything but a pull
+#     request) the base being built also rebuilds the kits found that way, not
+#     a list. Pull requests build only what changed.
 #
-# Nothing here asserts anything ABOUT the built image. v2 needed a whole
-# verification pass — load a single-platform build, check its CMD is on PATH,
-# check it does not run as root, check `com.docker.sandboxes.flavor` names the
-# right kit — because a Dockerfile could declare anything and a spec's claims
-# about it were unchecked prose. The v3 frontend validates the descriptor as
-# part of the build and derives the image's configuration from it, so those
-# assertions are either enforced at build time or no longer expressible. A
-# malformed kit fails the build, not a separate step that could drift from what
-# the frontend actually accepts. Conformance of the PUBLISHED artifact is
-# tck.yml's job, not this one's.
+# The frontend validates the descriptor during the build but copies the
+# recipe's image config as-is, so publish-one-kit.yml runs
+# scripts/verify-kit-image.sh before every publish, dry runs included. For a
+# workload kit it checks that the launch command is on PATH (or is an
+# absolute path a descriptor `path:` entry writes), the user is not
+# root, the `com.docker.sandboxes.flavor` label equals the kit name, and
+# `start-docker=true` implies an engine. Conformance of the PUBLISHED artifact
+# is tck.yml's job, not this one's.
 #
 # Shared coordinates (registry, namespace, rolling tag, platforms) come from
 # repository/organisation variables with documented fallbacks, so retargeting is
@@ -85,6 +90,18 @@ on:
         type: boolean
         default: false
 
+# One run per ref, so runs on a ref publish one at a time: a dependent never
+# builds before its base, and two runs never push `:latest` at once. A new push
+# to a pull request cancels that PR's previous run; running pushes, nightlies
+# and dispatches are never cancelled. GitHub keeps only one pending run per
+# group, so a newer run replaces an older pending one, whatever its trigger
+# (the nightly and the nightly-bridge dispatch included). A replacing push
+# rebuilds only what it changed, so kits only the dropped run covered publish
+# on the next nightly.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 permissions:
   contents: read
   # Required to mint the GitHub OIDC token that is exchanged for a short-lived
@@ -103,7 +120,12 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     outputs:
-      # Kits to rebuild for this event.
+      # Whether the `shell` base builds this run.
+      build-shell: ${{ steps.collect.outputs.build-shell }}
+      # Kits to rebuild for this event that build on the base.
+      kits-on-shell: ${{ steps.collect.outputs.kits-on-shell }}
+      # Every other kit to rebuild. They do not need the base, so a base
+      # failure does not skip them.
       kits: ${{ steps.collect.outputs.kits }}
       # Every discovered kit, regardless of what changed — the version gate
       # below checks all of them, not just the ones touched, because an
@@ -229,13 +251,16 @@ jobs:
           # calls produces no builds, so the publish job does not run at all —
           # not even as a dry run — and the PR that changes the publishing
           # logic is the one PR that never exercises it.
-          shared_filters=$(printf 'shared:\n%s\n%s\n%s\n%s\n%s\n%s' \
+          shared_filters=$(printf 'shared:\n%s\n%s\n%s\n%s\n%s\n%s\n%s\n%s\n%s' \
             '  - ".github/workflows/build-and-publish-kits.yml"' \
             '  - ".github/workflows/publish-one-kit.yml"' \
             '  - ".github/workflows/release-kit.yml"' \
+            '  - "scripts/check-kit-name.sh"' \
             '  - "scripts/discover-kits.sh"' \
+            '  - "scripts/kit-dependents.sh"' \
             '  - "scripts/kit-version.sh"' \
-            '  - "scripts/publish-kit.sh"')
+            '  - "scripts/publish-kit.sh"' \
+            '  - "scripts/verify-kit-image.sh"')
           emit_output "shared-filters" "$shared_filters"
 
       - name: Filter kit changes
@@ -323,8 +348,45 @@ jobs:
               ;;
           esac
 
-          echo "kits=${kits:-[]}" >> "$GITHUB_OUTPUT"
+          kits="${kits:-[]}"
+          echo "Changed: ${kits}"
+
+          # Kits whose recipe builds on the base come from
+          # scripts/kit-dependents.sh, which documents the matching rules.
+          # REGISTRY and IMAGE_NAMESPACE reach it from the workflow env.
+          dependents() { ./scripts/kit-dependents.sh "$1"; }
+          has_kit() { echo "$1" | jq -e --arg k "$2" 'index($k) != null' >/dev/null; }
+
+          # Propagation. A kit built on the base would otherwise keep running
+          # on the previous base until the nightly, so on a run that publishes,
+          # the base being built also rebuilds its dependents. Pull requests
+          # build only what changed: nothing is pushed, so a dependent built
+          # there would pull the published base anyway.
+          if [ "${{ github.event_name }}" != "pull_request" ]; then
+            if has_kit "${kits}" shell; then
+              deps=$(dependents shell)
+              echo "Propagation: shell is building, so its dependents rebuild after it: ${deps}"
+              kits=$(jq -nc --argjson a "${kits}" --argjson b "${deps}" '$a + $b | unique')
+            fi
+          fi
           echo "Building: ${kits}"
+
+          build_shell=false
+          if has_kit "${kits}" shell; then build_shell=true; fi
+
+          # Which kits build on the base, on every event: the job graph orders
+          # only these after it, so a base failure skips them and nothing else.
+          rest=$(jq -c 'map(select(. != "shell"))' <<<"${kits}")
+          split=$(jq -nc --argjson r "${rest}" --argjson s "$(dependents shell)" '
+            ($r | map(select(. as $k | $s | index($k)))) as $shell
+            | ($r | map(select(. as $k | $s | index($k) | not))) as $none
+            | {shell: $shell, none: $none}')
+
+          {
+            echo "build-shell=${build_shell}"
+            echo "kits-on-shell=$(jq -c .shell <<<"${split}")"
+            echo "kits=$(jq -c .none <<<"${split}")"
+          } >> "$GITHUB_OUTPUT"
 
   # Gates the build. Resolves the publish version for EVERY kit in the repo, not
   # just the ones being rebuilt, and fails if any of them has none.
@@ -358,10 +420,56 @@ jobs:
           ./scripts/kit-version.sh --all |
             awk -F'\t' '{ printf "%-32s %-24s %s\n", $1, $2, $3 }'
 
-  # One invocation per kit, each its own job graph: publish → overview. A plain
-  # matrix of two jobs would instead make every kit's overview wait for every
-  # kit's build, and — because `needs` is evaluated per JOB, not per matrix leg
-  # — one kit's build failure would skip the overview sync for all of them.
+  # Each kit is its own job graph, called once per kit, so kits fail
+  # independently. The base is a separate job rather than a matrix leg because
+  # the kits built on it must wait for it. `!cancelled()` plus explicit result
+  # checks let a skipped base pass (it did not build) while a failed or
+  # cancelled base skips the kits built on it; they also replace the implicit
+  # success check on every need, hence `verify-versions` is checked by hand. The
+  # base's result is its whole publish job, Hub page sync included.
+  shell:
+    needs: [detect-changes, verify-versions]
+    if: needs.detect-changes.outputs.build-shell == 'true'
+    permissions:
+      contents: read
+      id-token: write
+    uses: ./.github/workflows/publish-one-kit.yml
+    secrets: inherit
+    with:
+      kit: shell
+      no-cache: ${{ github.event_name == 'workflow_dispatch' && inputs.no-cache }}
+
+  kit-on-shell:
+    needs: [detect-changes, verify-versions, shell]
+    if: >-
+      !cancelled() &&
+      needs.verify-versions.result == 'success' &&
+      needs.detect-changes.outputs.kits-on-shell != '[]' &&
+      needs.detect-changes.outputs.kits-on-shell != 'null' &&
+      needs.detect-changes.outputs.kits-on-shell != '' &&
+      (needs.shell.result == 'success' || needs.shell.result == 'skipped')
+    strategy:
+      # One kit's failure must not stop the others: these builds pull from
+      # independent upstreams, and one vendor's bad release should cost one
+      # stale kit, not a night's worth of rebuilds.
+      fail-fast: false
+      # Every leg signs in to Docker Hub, and a wide run fires dozens of those
+      # within a minute from one account, which Hub throttles. The `kit` and
+      # `kit-on-shell` matrices run at the same time and each has its own cap.
+      max-parallel: 4
+      matrix:
+        kit: ${{ fromJson(needs.detect-changes.outputs.kits-on-shell) }}
+    permissions:
+      contents: read
+      id-token: write
+    uses: ./.github/workflows/publish-one-kit.yml
+    secrets: inherit
+    with:
+      kit: ${{ matrix.kit }}
+      no-cache: ${{ github.event_name == 'workflow_dispatch' && inputs.no-cache }}
+
+  # These kits do not build on the base, so they run as soon as the version
+  # gate passes and a base failure does not touch them.
   kit:
     needs: [detect-changes, verify-versions]
     if: >-
@@ -369,10 +477,9 @@ jobs:
       needs.detect-changes.outputs.kits != 'null' &&
       needs.detect-changes.outputs.kits != ''
     strategy:
-      # One kit's failure must not stop the others: these builds pull from ~87
-      # independent upstreams, and one vendor's bad release should cost one
-      # stale kit, not a night's worth of rebuilds.
       fail-fast: false
+      # Independent of `kit-on-shell`'s cap; see there for why it is capped.
+      max-parallel: 10
       matrix:
         kit: ${{ fromJson(needs.detect-changes.outputs.kits) }}
     permissions:

@@ -60,7 +60,7 @@ docker_up() { timeout 10 docker info >/dev/null 2>&1; }
 
 need_docker() {
   command -v docker >/dev/null 2>&1 ||
-    die "docker not found; this kit needs a Docker-in-Docker base such as docker.io/docker/sbx-kit-shell"
+    die "docker not found; this kit needs a Docker-in-Docker base such as docker.io/sbx/shell"
   docker_up || die "the Docker daemon is not reachable: $(docker info 2>&1 >/dev/null | tail -n 1)"
 }
 

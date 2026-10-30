@@ -96,4 +96,8 @@ ENV LLM_MODEL="anthropic/claude-opus-4-8" \
 # image config; sbx@1 requires a non-empty resolvable user.
 USER agent
 WORKDIR /home/agent/workspace
+
+# Overrides the base's flavor: sbx reads it as the image's agent.
+LABEL com.docker.sandboxes.flavor="openhands-canvas"
+
 ENTRYPOINT ["/usr/local/bin/openhands-canvas-launch"]

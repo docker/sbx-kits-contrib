@@ -5,11 +5,12 @@
 
 # shell
 
-A sandbox with no agent in it: the hardened Debian 13 shell template with a
-login shell as its launch command. bash, git, apt, a Docker engine with compose
-and buildx, curl, gh, jq, make, gcc, Python 3 and Node with npm.
+A sandbox with no agent in it: DHI's hardened Debian 13 shell-docker template
+with a login shell as its launch command. bash, git, apt, a Docker engine with
+compose and buildx, curl, gh, jq, make, gcc, Python 3 and Node with npm. sbx
+starts the engine when the sandbox starts.
 
-The descriptor and recipe are the `examples/shell` kit from
+The descriptor derives from the `examples/shell` kit in
 [sandbox-kit-spec](https://github.com/docker/sandbox-kit-spec), published here
 so `sbx` can resolve it by name.
 
@@ -68,14 +69,15 @@ services.
 
 - **`sbx@1`.** The host launches the image's command and honors the image's
   user.
-- **Network.** `deb.debian.org` and `dhi.io`, the configured apt sources.
-  Nothing else: a sandbox that needs more should declare it in its own kit or
-  widen the policy for that sandbox.
+- **No network.** Everything ships in the image, so the kit grants no egress.
+  A kit that runs `apt-get` declares the apt sources (`deb.debian.org`,
+  `dhi.io`) itself; for an interactive sandbox, widen its policy.
 - **`AGENTS.md`.** The profile file composed kits write their guidance into. A
   workload owns the filename; a mixin contributes a body without naming one.
 
-No labels: the base already carries `com.docker.sandboxes.flavor=shell` and
-`com.docker.sandboxes.start-docker=true`.
+Labels: the recipe sets `com.docker.sandboxes.flavor=shell` and
+`com.docker.sandboxes.start-docker=true`, which is what makes sbx start the
+Docker engine.
 
 ## Installing packages
 

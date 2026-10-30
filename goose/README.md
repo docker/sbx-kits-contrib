@@ -34,22 +34,22 @@ its own launch command.
 ## Usage
 
 A mixin lands on a workload, so name one. The plain shell workload Docker publishes,
-`docker/sbx-kit-shell:1.0.0`, is the simplest base:
+`docker.io/sbx/shell:latest`, is the simplest base:
 
 ```console
-sbx run docker/sbx-kit-shell:1.0.0 --kit "docker.io/sbx/goose:latest" .
+sbx run docker.io/sbx/shell:latest --kit "docker.io/sbx/goose:latest" .
 ```
 
 Or from a git URL targeting this repo:
 
 ```console
-sbx run docker/sbx-kit-shell:1.0.0 --kit "git+https://github.com/docker/sbx-kits-contrib.git#dir=goose" .
+sbx run docker.io/sbx/shell:latest --kit "git+https://github.com/docker/sbx-kits-contrib.git#dir=goose" .
 ```
 
 Or with a local clone of this repo:
 
 ```console
-sbx run docker/sbx-kit-shell:1.0.0 --kit ./goose/ .
+sbx run docker.io/sbx/shell:latest --kit ./goose/ .
 ```
 
 The trailing `.` is the workspace the sandbox mounts. The base keeps its own launch
@@ -81,7 +81,7 @@ goose refuses to start without both a provider and a model, so the kit seeds
 
 ```console
 sbx secret set openai
-sbx run docker/sbx-kit-shell:1.0.0 --kit ./goose/ . --kit-arg provider=openai --kit-arg model=<model>
+sbx run docker.io/sbx/shell:latest --kit ./goose/ . --kit-arg provider=openai --kit-arg model=<model>
 ```
 
 A provider other than `anthropic` needs its own model name as well: the default model is an
@@ -139,7 +139,7 @@ sandbox cannot see. The test account worked without it. If requests are rejected
 without it, pass the `account_id` from your host's `~/.codex/auth.json`:
 
 ```console
-sbx run docker/sbx-kit-shell:1.0.0 --kit ./goose/ . --kit-arg provider=chatgpt_codex \
+sbx run docker.io/sbx/shell:latest --kit ./goose/ . --kit-arg provider=chatgpt_codex \
   --kit-arg model=<model> --kit-arg chatgptAccountId=<account_id>
 ```
 

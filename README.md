@@ -290,6 +290,8 @@ The frontend validates during the build, so building *is* validating. `--output 
 cd my-kit && docker buildx build . -f my-kit.yaml --output type=cacheonly
 ```
 
+For a workload, also run `scripts/verify-kit-image.sh my-kit`. It builds the image and checks its launch binary, non-root user, flavor label and, when `start-docker` is set, the engine, which the frontend does not. Set `VERIFY_PLATFORM=linux/arm64` on an arm64 host.
+
 ### Run it
 
 No registry needed — `sbx` builds a local kit on the fly:

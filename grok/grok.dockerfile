@@ -96,6 +96,9 @@ RUN set -eux; \
       exit 1; \
     }
 
+# Overrides the base's flavor: sbx reads it as the image's agent.
+LABEL com.docker.sandboxes.flavor="grok"
+
 # v2's `sandbox.entrypoint`, in the slot OCI already owns for launch config —
 # the v3 descriptor carries none. `--yolo` auto-approves tool calls (the
 # sandbox itself is the safety boundary) and `--no-auto-update` disables the

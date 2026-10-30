@@ -97,6 +97,7 @@ The kit's `network-policy@1` capability is its complete outbound contract — CI
 | `security.ubuntu.com` | install | Ubuntu security pocket, amd64 — refreshed by the same `apt-get update` |
 | `ports.ubuntu.com` | install | Ubuntu archive/security for arm64 (Apple Silicon sandboxes) |
 | `download.docker.com` | install | Docker's apt repo, pre-added by the `*-docker` templates — `apt-get update` refreshes every configured source and fails if any is blocked |
+| `cli.github.com` | install | GitHub CLI apt repo, pre-added by the `*-docker` templates; refreshed by the same `apt-get update` |
 | `cdn.playwright.dev` | runtime | Playwright's primary browser-binary CDN, for a project that pins a different Playwright version and fetches its own build |
 | `playwright.download.prss.microsoft.com` | runtime | Documented fallback CDN Playwright rotates to on primary failure |
 | `storage.googleapis.com` | runtime | Google's Chrome-for-Testing bucket, where `cdn.playwright.dev` redirects for amd64 Chromium |

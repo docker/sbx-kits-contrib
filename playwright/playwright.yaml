@@ -72,7 +72,7 @@ capabilities:
           # on archive/security and arm64 packages on ports.ubuntu.com, the
           # Debian (trixie) templates use deb.debian.org (main, updates and
           # security) plus DHI's apt mirror at dhi.io/deb, and the *-docker
-          # templates pre-add Docker's apt repo. Install-only: nothing the
+          # templates pre-add Docker's apt repo and the GitHub CLI's. Install-only: nothing the
           # agent does reaches apt.
           - deb.debian.org
           - dhi.io
@@ -80,6 +80,7 @@ capabilities:
           - security.ubuntu.com
           - ports.ubuntu.com
           - download.docker.com
+          - cli.github.com
       runtime:
         allow:
           # The three browser-download hosts, which the v2 comment called out as

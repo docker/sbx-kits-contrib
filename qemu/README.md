@@ -91,10 +91,12 @@ The kit's `network-policy@1` capability is its complete outbound contract — CI
 | `auth.docker.io` | runtime | Docker Hub token endpoint for the pull |
 | `production.cloudflare.docker.com` | runtime | Docker Hub layer-blob CDN |
 | `index.docker.io` | runtime | Legacy Docker Hub index some client flows still touch |
+| `tuf-repo-cdn.sigstore.dev` | runtime | Sigstore TUF CDN the engine contacts while pulling `tonistiigi/binfmt` |
 | `archive.ubuntu.com` | install | Ubuntu apt archive, amd64 — `apt-get install mount` |
 | `security.ubuntu.com` | install | Ubuntu security pocket, amd64 — refreshed by the same `apt-get update` |
 | `ports.ubuntu.com` | install | Ubuntu archive/security for arm64 (Apple Silicon sandboxes) |
 | `download.docker.com` | install | Docker's apt repo, pre-added by the `*-docker` templates — `apt-get update` refreshes every configured source and fails if any is blocked |
+| `cli.github.com` | install | GitHub CLI apt repo, pre-added by the `*-docker` templates, refreshed by the same `apt-get update` |
 
 ## Cleanup
 

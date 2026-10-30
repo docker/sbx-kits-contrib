@@ -105,6 +105,7 @@ capabilities:
           - security.ubuntu.com
           - ports.ubuntu.com
           - download.docker.com
+          - cli.github.com
 
   # No credential@1: enterprise auth uses a durable key in the container.
   # The managed proxy handoff cannot validate enterprise credentials yet

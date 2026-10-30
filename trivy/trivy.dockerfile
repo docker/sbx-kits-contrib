@@ -78,6 +78,9 @@ RUN set -eu; \
 # -- the one sbx@1 asks the host to honor -- is `agent`, as it was in v2.
 USER agent
 
+# Overrides the base's flavor: sbx reads it as the image's agent.
+LABEL com.docker.sandboxes.flavor="trivy"
+
 # v2's sandbox.entrypoint: drop into bash with trivy on PATH and the
 # workspace as cwd. Run `trivy fs .` to scan. Setting ENTRYPOINT also clears
 # the CMD inherited from the base, so nothing is appended to it.
