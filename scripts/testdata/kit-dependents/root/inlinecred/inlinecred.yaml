@@ -1,0 +1,6 @@
+# syntax=docker/sandbox-kit:3
+name: inlinecred
+build: |
+  ARG BASE_IMAGE=sbx/shell-credentials
+  FROM sbx/shell-credentials
+labels: x

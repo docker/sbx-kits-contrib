@@ -171,8 +171,10 @@ in `publish-kit.sh`; `KIT_ROOT` overrides the directory holding
 
 ## `kit-dependents.sh`: which kits build on a base?
 
-Prints, as a JSON array, the discovered kits that have a `<kit>/*.dockerfile`
-building `FROM` or `ARG BASE_IMAGE=` on `<registry>/<namespace>/<base>`.
+Prints, as a JSON array, the discovered kits whose recipe builds `FROM` or
+`ARG BASE_IMAGE=` on `<registry>/<namespace>/<base>`. The recipe is the
+descriptor's inline `build:` block, the file its `dockerfile:` field names, or
+any `<kit>/*.dockerfile`.
 `build-and-publish-kits.yml` uses it to rebuild dependents after their base.
 
 ```bash

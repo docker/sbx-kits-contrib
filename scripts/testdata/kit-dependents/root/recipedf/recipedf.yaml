@@ -1,0 +1,3 @@
+# syntax=docker/sandbox-kit:3
+name: recipedf
+dockerfile: "recipe/Dockerfile" # explicit recipe
