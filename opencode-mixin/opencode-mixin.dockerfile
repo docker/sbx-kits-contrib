@@ -8,7 +8,7 @@
 # that is where the corepack hazard below is real and where the `--version`
 # gate means something. Keeping the base verbatim is also what makes the
 # platform binary npm's postinstall selects match the bases this composes onto.
-ARG BASE_IMAGE=docker.io/sbx/shell
+ARG BASE_IMAGE=docker.io/sbx/shell:latest
 FROM ${BASE_IMAGE} AS build
 
 # The kit's `version` arg arriving as a build arg -- opencode-mixin.yaml

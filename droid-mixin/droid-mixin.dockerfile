@@ -11,7 +11,7 @@
 # so the absolute paths are already correct when the overlay lands. Installing
 # under a staging HOME and moving the tree afterwards would leave them
 # pointing at a directory that does not exist in the composed sandbox.
-FROM docker.io/sbx/shell AS build
+FROM docker.io/sbx/shell:latest AS build
 
 # Supplied by the descriptor's `version` arg, which owns the default and the
 # accepted shape. No default here on purpose: the descriptor expands this same

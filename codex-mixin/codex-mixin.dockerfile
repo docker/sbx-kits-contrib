@@ -8,7 +8,7 @@
 # cannot be fully relocated by pointing it somewhere else, so the shape the
 # guide prescribes applies: run the unmodified install on the workload's base,
 # then copy the specific resulting paths into the overlay.
-ARG BASE_IMAGE=docker.io/sbx/shell
+ARG BASE_IMAGE=docker.io/sbx/shell:latest
 FROM ${BASE_IMAGE} AS build
 USER root
 

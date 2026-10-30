@@ -135,7 +135,7 @@ The recipe is an ordinary Dockerfile. For a workload it builds a root filesystem
 
 ```dockerfile
 # syntax=docker/dockerfile:1
-ARG BASE_IMAGE=docker.io/sbx/shell
+ARG BASE_IMAGE=docker.io/sbx/shell:latest
 FROM ${BASE_IMAGE} AS build
 ARG MY_TOOL_VERSION
 RUN install-the-thing "${MY_TOOL_VERSION}"

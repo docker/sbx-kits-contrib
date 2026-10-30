@@ -17,7 +17,7 @@
 # provides/requires name kit capabilities, and no base workload provides an
 # entry for its language runtimes. The workload kit (../pi) is the
 # self-contained alternative.
-ARG BASE_IMAGE=docker.io/sbx/shell
+ARG BASE_IMAGE=docker.io/sbx/shell:latest
 FROM ${BASE_IMAGE} AS build
 
 USER root

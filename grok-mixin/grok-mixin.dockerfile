@@ -14,7 +14,7 @@
 #
 # It runs as `agent` with HOME at /home/agent, the sandbox runtime's own home,
 # so the paths the installer bakes are already correct when the overlay lands.
-FROM docker.io/sbx/shell AS build
+FROM docker.io/sbx/shell:latest AS build
 
 # THE PIN. The kit's `version` arg arrives as this build arg: grok-mixin.yaml
 # validates its shape and expands the same value into `provides` and into its

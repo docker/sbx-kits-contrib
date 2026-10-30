@@ -51,7 +51,7 @@ itself, which is also distributed as an OCI artifact — see
 
 ## Choosing a base image
 
-Build new kits on `docker.io/sbx/shell`, this repository's own base (kit
+Build new kits on `docker.io/sbx/shell:latest`, this repository's own base (kit
 `shell/`): Debian 13 with the Docker engine, and apt sources `deb.debian.org`
 and `dhi.io`. It carries the `com.docker.sandboxes.start-docker="true"` label,
 so Docker starts for a workload built on it. Some existing kits still build on
@@ -62,6 +62,11 @@ engine (CI checks this, see [Pre-publish verification](../../../PUBLISHING.md#pr
 and state the label in your own Dockerfile rather than relying on the base's.
 When converting an existing kit on a templates base, preserve the base it
 already had rather than change behavior on a guess.
+
+Pinning a base by digest or version is normally the better practice. This
+repository uses `docker.io/sbx/shell:latest` on purpose: CI builds `shell`
+first and rebuilds every kit that builds on it whenever `shell` changes and
+every night, so the floating tag is what keeps those kits on the current base.
 
 ## Do not reach for `sandbox.build:`
 

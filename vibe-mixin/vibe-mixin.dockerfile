@@ -11,7 +11,7 @@
 # install on the workload's own base, with HOME already at /home/agent (the
 # sandbox runtime's own home, so the baked paths are correct when the overlay
 # lands), then copy the specific resulting paths into a scratch overlay.
-ARG BASE_IMAGE=docker.io/sbx/shell
+ARG BASE_IMAGE=docker.io/sbx/shell:latest
 FROM ${BASE_IMAGE} AS build
 
 # The kit's `version` arg arriving as a build arg -- vibe-mixin.yaml declares

@@ -9,7 +9,7 @@
 # The base is the repository's own shell image, which carries the platform
 # floor (bash, the agent user, git, a CA store) a workload is expected to
 # stand on, and a Docker engine.
-FROM docker.io/sbx/shell
+FROM docker.io/sbx/shell:latest
 
 # The platform floor's user, restated rather than inherited: the install below
 # has to run as the agent (v2's hook said `user: "1000"`), and sbx@1 wants the

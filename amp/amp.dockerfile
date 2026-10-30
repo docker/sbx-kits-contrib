@@ -7,7 +7,7 @@
 #
 # The base is the repository's own shell base, which carries a Docker engine
 # and the agent user.
-FROM docker.io/sbx/shell
+FROM docker.io/sbx/shell:latest
 
 # The platform floor's user, restated rather than inherited: sbx@1 requires
 # the image config to declare a non-empty user for the host to honor, and an

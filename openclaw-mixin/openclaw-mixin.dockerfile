@@ -19,7 +19,7 @@
 # makes. The hook runs the playwright-core that ships inside the openclaw
 # package, through the /usr/local/bin/openclaw-playwright link staged below, so
 # the libraries match the pinned Chromium.
-ARG BASE_IMAGE=docker.io/sbx/shell
+ARG BASE_IMAGE=docker.io/sbx/shell:latest
 FROM ${BASE_IMAGE} AS build
 
 ARG OPENCLAW_VERSION

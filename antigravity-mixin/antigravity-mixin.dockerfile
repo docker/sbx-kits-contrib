@@ -19,7 +19,7 @@
 # bundle it launches, so copying bin alone risks an overlay of launchers with
 # nothing behind them. The per-user prefix is the smallest boundary that is
 # certain to contain both.
-ARG BASE_IMAGE=docker.io/sbx/shell
+ARG BASE_IMAGE=docker.io/sbx/shell:latest
 FROM ${BASE_IMAGE} AS build
 
 USER agent

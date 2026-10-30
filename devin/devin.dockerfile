@@ -14,7 +14,7 @@
 # Docker-in-Docker detail never reaches the user.
 #
 # The base is a floating tag, which is why CI also rebuilds on a schedule.
-ARG BASE_IMAGE=docker.io/sbx/shell
+ARG BASE_IMAGE=docker.io/sbx/shell:latest
 FROM ${BASE_IMAGE}
 
 # Re-declared inside the stage: an ARG defined before the first FROM is a

@@ -20,7 +20,7 @@
 # It runs as `agent` with HOME at /home/agent, the sandbox runtime's own home,
 # so the paths the installer and `setup` bake are already correct when the
 # overlay lands.
-ARG BASE_IMAGE=docker.io/sbx/shell
+ARG BASE_IMAGE=docker.io/sbx/shell:latest
 FROM ${BASE_IMAGE} AS build
 
 # The launcher the user resolves as `kiro`: it checks authentication state and

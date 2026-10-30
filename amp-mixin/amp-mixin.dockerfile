@@ -27,7 +27,7 @@
 # The workload (../amp) deliberately does NOT relocate: it owns its root
 # filesystem, so the faithful thing there is the install v2's hook performed,
 # under the agent's own home.
-ARG BASE_IMAGE=docker.io/sbx/shell
+ARG BASE_IMAGE=docker.io/sbx/shell:latest
 FROM ${BASE_IMAGE} AS build
 
 # THE PIN. The kit's `version` arg arrives as this build arg: amp-mixin.yaml
