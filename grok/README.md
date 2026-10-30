@@ -74,15 +74,14 @@ a stored session takes precedence over the optional API key.
 ## How the install works
 
 Grok Build's installer (`x.ai/cli/install.sh`) only symlinks `grok` onto an
-existing, writable `PATH` directory — either `~/.local/bin` or
-`/usr/local/bin` — it never creates one. `~/.local/bin` is on `PATH` already
-via the `shell-docker` base image, but the image never creates the
-directory itself, so on a fresh container the installer would silently fall
-back to appending `~/.bashrc`, which a non-interactive kit entrypoint never
-sources. The recipe works around this by `mkdir -p ~/.local/bin` before
-running the installer, and then gates on `grok` really being there, so a
-change of prefix upstream fails the build instead of shipping an image with no
-agent in it.
+existing, writable `PATH` directory (either `~/.local/bin` or
+`/usr/local/bin`); it never creates one. `~/.local/bin` is on `PATH` and
+exists in the `docker.io/sbx/shell` base image, but without it the installer
+would silently fall back to appending `~/.bashrc`, which a non-interactive
+kit entrypoint never sources. The recipe guards this with
+`mkdir -p ~/.local/bin` before running the installer, and then gates on `grok`
+really being there, so a change of prefix upstream fails the build instead of
+shipping an image with no agent in it.
 
 The install runs as the `agent` user (uid 1000), so the CLI lands at
 `~/.grok/bin/grok` with the `PATH` symlink at `~/.local/bin/grok` — the same

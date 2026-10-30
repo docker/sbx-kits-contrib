@@ -9,7 +9,7 @@
 # before any phase the policy scopes.
 #
 # The base is a floating tag, which is why CI also rebuilds on a schedule.
-ARG BASE_IMAGE=docker/sandbox-templates:shell-docker
+ARG BASE_IMAGE=docker.io/sbx/shell
 FROM ${BASE_IMAGE}
 
 # Re-declared inside the stage: an ARG defined before the first FROM is a global
@@ -28,6 +28,13 @@ ARG BASE_IMAGE
 # manifest it fetches itself. That is why the descriptor's provide is
 # unversioned -- see antigravity.yaml for the full argument and for what
 # upstream would have to change to make a pin possible.
+# xdg-open is what BROWSER names below. The base does not ship xdg-utils, so the
+# kit installs it.
+USER root
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends xdg-utils \
+ && rm -rf /var/lib/apt/lists/* \
+ && command -v xdg-open
 USER agent
 # The CDN sometimes answers with a body that is not the script (two runs in one
 # morning, minutes apart from a good one), so the fetch checks for a shebang
@@ -48,7 +55,7 @@ RUN set -eu; \
 
 # v2's environment.variables, in the slot OCI already owns for static env.
 # agy shells out to the browser opener for its Google sign-in; xdg-open is
-# what the template ships.
+# what the xdg-utils package installed above provides.
 ENV BROWSER=xdg-open
 
 # A request to the runtime, not a description of the image: the base carries a
@@ -58,7 +65,7 @@ LABEL com.docker.sandboxes.start-docker="true"
 
 # OVERRIDES the value inherited from the base image, which describes the base
 # rather than this image. Not optional: sbx reads `flavor` as the image's agent
-# identifier, and left inherited it would report "shell-docker".
+# identifier, and left inherited it would report "shell".
 LABEL com.docker.sandboxes.flavor="antigravity"
 
 # Informational only -- nothing in sbx reads this. Worth setting because the

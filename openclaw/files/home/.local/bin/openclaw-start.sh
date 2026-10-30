@@ -11,11 +11,11 @@
 # points at the logs rather than starting a second bootstrap to find out.
 set -e
 
-# Same reason openclaw-gateway-up.sh does this, and since the Node 24 bump the
-# stakes are higher: /usr/local/bin/openclaw is a `#!/usr/bin/env node`
-# launcher, and the template still ships Node 22 at /usr/bin/node, which
-# openclaw now refuses to run on. Inheriting a /usr/bin-first PATH used to be
-# harmless here; now it would fail the TUI while the gateway stayed green.
+# Same reason openclaw-gateway-up.sh does this, and the stakes are higher:
+# /usr/local/bin/openclaw is a `#!/usr/bin/env node` launcher, and a base can
+# ship an older Node at /usr/bin/node than the one the overlay installs in
+# /usr/local/bin, which openclaw refuses to run on. Inheriting a /usr/bin-first
+# PATH would fail the TUI while the gateway stayed green.
 PATH="/usr/local/bin:/usr/bin:/bin:$PATH"
 export PATH
 

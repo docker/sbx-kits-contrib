@@ -9,7 +9,7 @@
 # The tree lands at a stable /opt path with a /usr/local/bin shim: an overlay
 # that wrote into /home/agent would land inside whatever the base (or a mounted
 # volume) has already put there.
-ARG BASE_IMAGE=docker/sandbox-templates:shell-docker
+ARG BASE_IMAGE=docker.io/sbx/shell
 FROM ${BASE_IMAGE} AS build
 USER root
 

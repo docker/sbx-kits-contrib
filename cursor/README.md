@@ -15,8 +15,7 @@ Cursor was previously a built-in `sbx` agent, run as `sbx run cursor`. This kit
 replaces that. A v3 workload's layers *are* the sandbox's root filesystem, so
 the kit is its own image: the content recipe is
 [`cursor.dockerfile`](./cursor.dockerfile) beside the descriptor, built on
-`docker/sandbox-templates:shell-docker` rather than tracking the
-`docker/sandbox-templates` release train.
+`docker.io/sbx/shell` rather than tracking a prebuilt agent template.
 
 Prefer Cursor layered onto something else rather than as the whole sandbox? See
 [`cursor-mixin`](../cursor-mixin/), which makes the same declarations as an
@@ -194,9 +193,9 @@ The `network-policy@1` capability's `runtime.allow` list mirrors every host the
 credential injects into or routes to, plus `downloads.cursor.com` (where the
 recipe fetches the pinned release package from, and where `cursor-agent`
 self-updates from), plus
-the apt sources the base image ships with (needed because the startup hook runs
-`apt-get update`, which fails wholesale if any configured source is
-unreachable).
+the apt sources the base image ships with (`deb.debian.org` and `dhi.io`,
+needed because the startup hook runs `apt-get update`, which fails wholesale
+if any configured source is unreachable).
 
 Everything sits in the `runtime` phase and the `install` phase is absent, which
 grants nothing there. That is not an oversight: v3 scopes egress by phase and
@@ -239,7 +238,7 @@ Unlike a mixin, which layers onto whatever it lands on, a `kind: workload` kit
 image config carries the launch contract. So this kit builds that filesystem
 itself, from [`cursor.dockerfile`](./cursor.dockerfile) beside the descriptor.
 
-The recipe builds on `docker/sandbox-templates:shell-docker`, so the result
+The recipe builds on `docker.io/sbx/shell` (Debian 13), so the result
 carries a Docker engine and requests Docker-in-Docker.
 
 There is one artifact rather than two. Under v2 this kit named a separately

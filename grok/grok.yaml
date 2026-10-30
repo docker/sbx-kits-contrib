@@ -1,8 +1,8 @@
 # syntax=docker/sandbox-kit:3
 # Migration of the v2 `grok` sandbox kit (spec.yaml, schemaVersion "2").
-# v2 shipped no Dockerfile — it pointed sandbox.image straight at a published
+# v2 shipped no Dockerfile: it pointed sandbox.image straight at a published
 # template and installed the agent from a setup hook. A v3 workload's layers
-# ARE its root filesystem, so grok.dockerfile now states that image as its
+# ARE its root filesystem, so grok.dockerfile now names the shell base in its
 # `FROM`, carries v2's sandbox.entrypoint, and performs the install v2 left to
 # create time. That last part is why this kit declares no lifecycle hook and
 # no install-phase egress; see the MIGRATION NOTEs below.

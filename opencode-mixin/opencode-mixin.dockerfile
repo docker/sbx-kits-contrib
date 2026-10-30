@@ -8,7 +8,7 @@
 # that is where the corepack hazard below is real and where the `--version`
 # gate means something. Keeping the base verbatim is also what makes the
 # platform binary npm's postinstall selects match the bases this composes onto.
-ARG BASE_IMAGE=docker/sandbox-templates:shell-docker
+ARG BASE_IMAGE=docker.io/sbx/shell
 FROM ${BASE_IMAGE} AS build
 
 # The kit's `version` arg arriving as a build arg -- opencode-mixin.yaml
@@ -97,11 +97,9 @@ EOF
 # No node is copied out. The package's bin entry resolves to a native ELF that
 # links only libc, libpthread and libdl, so the overlay needs no runtime --
 # verified by composing this overlay onto a node-free ubuntu:24.04, where
-# `opencode --version` reports 1.18.31. Copying the template's node would also
-# be worse than useless: Debian's /usr/bin/node is a small launcher linked
-# against libnode.so.127, which a bare copy cannot resolve, and /usr/local/bin
-# precedes /usr/bin on PATH -- so it would shadow a working node on any base
-# that has one with a broken one.
+# `opencode --version` reports 1.18.31. Copying the build base's node would
+# also be worse than useless: /usr/local/bin precedes /usr/bin on PATH, so a
+# copied node would shadow a working node on any base that has one.
 USER root
 RUN mkdir -p /out/opt /out/usr/local/bin \
  && cp -a /opt/opencode /out/opt/opencode \

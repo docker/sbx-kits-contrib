@@ -8,7 +8,7 @@
 # Docker-in-Docker detail never reaches the user.
 #
 # The base is a floating tag, which is why CI also rebuilds on a schedule.
-ARG BASE_IMAGE=docker/sandbox-templates:shell-docker
+ARG BASE_IMAGE=docker.io/sbx/shell
 FROM ${BASE_IMAGE}
 
 # Re-declared inside the stage: an ARG defined before the first FROM is a global
@@ -108,14 +108,14 @@ ENV DOCKER_AGENT_AUTO_UPDATE="1" \
 # unscoped rather than vendor-prefixed, so it applies to anything else in the
 # sandbox that reads it -- that direction is fail-closed, and this is the only
 # knob the agent offers. Only the exact string "false" disables it.
+# LANG is C.UTF-8 because docker.io/sbx/shell has no en_US locale.
 ENV TERM="xterm-256color" \
     COLORTERM="truecolor" \
-    LANG="en_US.UTF-8" \
+    LANG="C.UTF-8" \
     TELEMETRY_ENABLED="false"
 
 # Inherited from the base image, but re-declared deliberately so the value is
-# owned here rather than depending on inheritance from an image this repository
-# does not own.
+# owned here rather than depending on inheritance.
 #
 # This is a *request* to the runtime, not a description of the image: setting it
 # over a base with no Docker engine yields a sandbox started in Docker mode with
@@ -133,8 +133,8 @@ LABEL com.docker.sandboxes.start-docker="true"
 
 # Both of the labels below OVERRIDE values inherited from the base image, which
 # describe the base rather than this image. Overriding is not optional for
-# `flavor`: left inherited it would read "shell-docker", and sbx would report
-# this image's agent as "shell-docker".
+# `flavor`: left inherited it would read "shell", and sbx would report
+# this image's agent as "shell".
 #
 # sbx reads `flavor` and treats it as an agent identifier -- it surfaces the value
 # as an image's `Agent` in the API, and separately uses it (with any `-docker`

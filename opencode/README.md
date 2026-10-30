@@ -13,7 +13,7 @@ the sandbox proxy resolves per request.
 `opencode` was previously a built-in `sbx` agent, run as `sbx run opencode`.
 This kit replaces that, and its content is built from
 [`opencode.dockerfile`](./opencode.dockerfile) in this directory rather than by
-the `docker/sandbox-templates` release train.
+a shared template image.
 
 A mixin variant lives in [`../opencode-mixin`](../opencode-mixin), for layering
 the same agent onto a shell base instead.
@@ -190,7 +190,8 @@ OpenCode reaches on its own: `registry.npmjs.org` for language servers, plugins
 and provider SDK packages; `opencode.ai` and `*.opencode.ai` for the config
 schema, account console and model catalog at `models.opencode.ai`; the GitHub
 hosts language-server downloads redirect through; and the apt sources the base
-image ships with, which the startup `apt-get update` fails wholesale without.
+image ships with, `deb.debian.org` and `dhi.io`, which the startup
+`apt-get update` fails wholesale without.
 
 Entries carry no port: a portless pattern matches any port, and pinning the apt
 hosts to `:80` breaks as soon as a mirror answers over HTTPS — with the same
@@ -231,13 +232,13 @@ kit is picked up rather than written somewhere the agent never looks.
 ## Base image
 
 Unlike a `kind: mixin` kit, which layers onto an existing
-`docker/sandbox-templates` image, a `kind: workload` kit's layers *are* the root
+image, a `kind: workload` kit's layers *are* the root
 filesystem — so this kit carries the whole environment, built from
 [`opencode.dockerfile`](./opencode.dockerfile) in this directory.
 
-It builds on `docker/sandbox-templates:shell-docker`, so it carries a Docker
-engine and requests Docker-in-Docker — matching the agent this kit replaces,
-which resolved to the Docker flavour of its template.
+It builds on `docker.io/sbx/shell`, so it carries a Docker engine and requests
+Docker-in-Docker, matching the agent this kit replaces, which resolved to the
+Docker flavour of its template.
 
 There is no longer a separate `-image` artifact: in v3 a kit *is* an ordinary
 OCI image, so what v2 split into `docker.io/sbx/opencode-image` and

@@ -35,26 +35,42 @@ provides: ["openclaw@${{ kit.args.version }}"]
 # hosts in the runtime policy below, exist for the same reason.
 #
 # `deb/docker-ce` rather than `deb/docker-ce-cli` because the daemon is the
-# part that matters: the plain `shell` template carries the client alone, where
-# the bootstrap's `command -v docker` guard succeeds and every `docker` call
-# then fails against a socket nothing is listening on. That guard cannot tell
-# the two apart; this entry can.
+# part that matters: a base carrying the client alone passes the bootstrap's
+# `command -v docker` guard and then fails every `docker` call against a socket
+# nothing is listening on. That guard cannot tell the two apart; this entry can.
 #
 # The name is derived, not authored: publishing a workload reads its dpkg
-# database and states one entry per installed package (SPEC-v3 §9.6), so the
-# *-docker templates provide it and the plain ones do not — which is exactly
-# the line this kit needs drawn. The standalone `openclaw` workload declares
-# nothing here because it owns its base.
+# database and states one entry per installed package (SPEC-v3 §9.6), so
+# docker.io/sbx/shell provides it and a client-only base does not, which is
+# exactly the line this kit needs drawn. The standalone `openclaw` workload
+# declares nothing here because it owns its base.
 requires: ["deb/docker-ce"]
 
 capabilities:
   # The agent's own egress rides with the kit that ships the agent: the base
-  # grants nothing for services it does not carry. Runtime-only, like the
-  # workload -- the install happens at build, and the one hook here is a
-  # startup hook, which runs in the runtime phase. Entries are portless (the
-  # contrib house style) where v2 wrote `host:443`.
+  # grants nothing for services it does not carry. The agent's own list is
+  # runtime-only, like the workload's -- the install happens at build, and the
+  # gateway hook is a startup hook, which runs in the runtime phase. The only
+  # install-phase egress is the apt hook's. Entries are portless (the contrib
+  # house style) where v2 wrote `host:443`.
   - type: com.docker.sandbox/network-policy@1
     config:
+      install:
+        allow:
+          # `playwright install-deps chromium` (the install hook below)
+          # apt-installs Chromium's shared libraries. `apt-get update`
+          # refreshes every configured source and a mixin lands on any base, so
+          # this covers both families: Ubuntu hosts amd64 on archive/security
+          # and arm64 on ports, the -docker Ubuntu bases add Docker's and the
+          # GitHub CLI's repos, and Debian bases use deb.debian.org plus DHI's
+          # mirror at dhi.io. Install-only: nothing the agent does reaches apt.
+          - deb.debian.org
+          - dhi.io
+          - archive.ubuntu.com
+          - security.ubuntu.com
+          - ports.ubuntu.com
+          - download.docker.com
+          - cli.github.com
       runtime:
         allow:
           # Every domain the anthropic credential injects into; v3 validates
@@ -142,6 +158,36 @@ capabilities:
 
   - type: com.docker.sandbox/lifecycle@1
     config:
+      install:
+        # Chromium's shared libraries. The overlay carries the browser tree,
+        # and apt packages cannot travel in one, so this runs at create against
+        # the composed base's own apt, as the playwright kit does. It runs the
+        # playwright-core inside the openclaw package, so the libraries match
+        # the pinned Chromium. HTTP_PROXY and HTTPS_PROXY are declared because
+        # hook environments are deny-by-default and apt takes the sandbox's
+        # forced proxy from them. `install-deps` exits 0 on a platform
+        # Playwright has no map for, so the hook then checks that the shipped
+        # Chromium resolves every library and fails the create if not.
+        - command: |
+            set -eu
+            node /usr/local/bin/openclaw-playwright install-deps chromium
+            rm -rf /var/lib/apt/lists/*
+            # POSIX sh (dash on the bases): no here-strings. Playwright's
+            # browser paths have no spaces, so word splitting is safe.
+            bins=$(find /opt/ms-playwright -type f \( -name chrome -o -name chrome-headless-shell \))
+            [ -n "$bins" ] || { echo "openclaw-mixin: no Chromium binary under /opt/ms-playwright" >&2; exit 1; }
+            for bin in $bins; do
+              libs=$(ldd "$bin")
+              if missing=$(printf '%s\n' "$libs" | grep 'not found'); then
+                echo "openclaw-mixin: $bin has unresolved libraries after install-deps:" >&2
+                echo "$missing" >&2
+                echo "openclaw-mixin: the composed base is not a platform Playwright maps, or apt was blocked." >&2
+                exit 1
+              fi
+            done
+          user: "0"
+          env: [HTTP_PROXY, HTTPS_PROXY]
+          description: Install Chromium's shared libraries via apt, which the overlay cannot carry
       startup:
         # Brings the gateway up with the container rather than on attach, so
         # the published port answers and `sbx exec <sandbox> -- openclaw ...`

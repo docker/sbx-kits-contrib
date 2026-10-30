@@ -5,9 +5,9 @@ Base image for the OpenClaw agent kit for
 
 ## Contents
 
-Built on `docker/sandbox-templates:shell-docker`. On top of that:
+Built on `docker.io/sbx/shell` (Debian 13). On top of that:
 
-- Node 24 (OpenClaw 2026.9.3 requires >= 24.16.0 < 25, or >= 26.1.0)
+- Node 24 from the base (OpenClaw 2026.9.3 requires >= 24.16.0 < 25, or >= 26.1.0)
 - `openclaw`, installed globally at a pinned version
 - Chromium + headless deps for OpenClaw's browser tool, under
   `PLAYWRIGHT_BROWSERS_PATH=/opt/ms-playwright`

@@ -87,9 +87,8 @@ capabilities:
   # installed at image build (see docker-agent-mixin.dockerfile), and this kit
   # declares no hooks at all.
   #
-  # MIGRATION NOTE: v2's allow list also carried archive.ubuntu.com,
-  # security.ubuntu.com, ports.ubuntu.com and download.docker.com, for the apt
-  # cache-refresh hook. Both the hosts and the hook stay with the workload:
+  # MIGRATION NOTE: v2's allow list also carried the apt mirror hosts, for the
+  # apt cache-refresh hook. Both the hosts and the hook stay with the workload:
   # they describe the base image's package sources, which an overlay does not
   # own and cannot know.
   #

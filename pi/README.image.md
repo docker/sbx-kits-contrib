@@ -5,7 +5,7 @@ Base image for the pi agent kit for
 
 ## Contents
 
-Built on `docker/sandbox-templates:shell-docker`: the standard sandbox tool
+Built on `docker.io/sbx/shell`: Debian 13 with the standard sandbox tool
 chain plus a Docker engine, requesting Docker-in-Docker via
 `com.docker.sandboxes.start-docker=true`. On top of that:
 
@@ -16,8 +16,8 @@ chain plus a Docker engine, requesting Docker-in-Docker via
   symlink for the canonical name — without it pi downloads a binary from
   GitHub releases on first use, which a locked-down sandbox blocks
 - no ripgrep layer — pi probes the system for `rg` just as it does for `fd`,
-  and the template already ships it
-- no Node layer — the template already ships Node 22.22.1, and pi requires
+  and the base already ships it
+- no Node layer: the base already ships Node 24, and pi requires
   `>= 22.19.0`
 
 The npm global prefix stays owned by `agent`, so `pi install` and

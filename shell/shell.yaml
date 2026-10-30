@@ -10,7 +10,7 @@ description: >-
 sourceUrl: https://github.com/docker/sandbox-kit-spec
 
 kind: workload
-version: "1.0.3"
+version: "1.0.4"
 
 # No explicit provides: APT-managed tools, including the trust-fix
 # upgrades in the recipe, are inferred from dpkg as deb/<package>@<version>

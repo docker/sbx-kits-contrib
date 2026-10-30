@@ -17,7 +17,7 @@ kind: mixin
 
 # The KIT's version, and the fallback publishing uses for the unversioned
 # provide below.
-version: "1.0.0"
+version: "1.0.1"
 
 # DELIBERATELY UNVERSIONED, matching ../antigravity -- the two run the same
 # vendor installer, so neither can pin what the other cannot. In short:

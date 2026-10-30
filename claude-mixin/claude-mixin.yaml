@@ -75,9 +75,8 @@ capabilities:
   # The apt hosts are the exception worth reading twice: they are here because
   # the background `apt-get update` startup hook refreshes metadata for every
   # configured source and fails wholesale on any one of them. A base with
-  # different apt sources needs its own entries; these are the three Ubuntu
-  # hosts (amd64 from archive/security, arm64 from ports) and Docker's repo that
-  # this family's shell-docker base ships.
+  # different apt sources needs its own entries; these are the Debian 13 and
+  # DHI sources the sbx/shell base ships.
   #
   # Portless throughout, this repo's house style: a portless pattern matches any
   # port, which is what the apt hosts need — pinning them to :80 breaks the
@@ -103,12 +102,16 @@ capabilities:
           # /remote-control and /teleport relay: the agent keeps a WebSocket
           # open here so claude.ai and the mobile app can drive this session.
           - bridge.claudeusercontent.com
-          # The apt sources the background `apt-get update` refreshes.
-          - archive.ubuntu.com        # Ubuntu archive (amd64 main)
-          - security.ubuntu.com       # Ubuntu security updates (amd64)
-          - ports.ubuntu.com          # Ubuntu archive/security (arm64)
-          - download.docker.com       # Docker's apt repo, pre-added by shell-docker
-          - cli.github.com            # GitHub CLI apt repo, pre-added by the base
+          # The composed workload's apt sources, which the background
+          # `apt-get update` refreshes: Debian/DHI on docker.io/sbx/shell,
+          # Ubuntu plus Docker and GitHub CLI on docker/sandbox-templates.
+          - deb.debian.org            # Debian archive and security
+          - dhi.io                    # DHI Debian package repository
+          - archive.ubuntu.com        # Ubuntu archive
+          - security.ubuntu.com       # Ubuntu security
+          - ports.ubuntu.com          # Ubuntu arm64 archive
+          - download.docker.com       # Docker apt repository
+          - cli.github.com            # GitHub CLI apt repository
           #
           # Deliberately absent: telemetry and error-reporting hosts (the
           # overlay turns both off at the source), and registry.npmjs.org plus

@@ -12,8 +12,8 @@ gateway, and authenticates through Kiro's interactive device flow.
 
 Kiro was previously a built-in `sbx` agent, run as `sbx run kiro`. This kit
 replaces that, and is backed by a base image built from the
-[`kiro.dockerfile`](./kiro.dockerfile) in this directory rather than by the
-`docker/sandbox-templates` release train.
+[`kiro.dockerfile`](./kiro.dockerfile) in this directory rather than by a
+shared template image.
 
 The declarations live in [`kiro.yaml`](./kiro.yaml); the recipe beside it is
 found by the filename-stem convention. To layer Kiro onto a shell base you
@@ -74,8 +74,9 @@ bare word instead *replaces* the defaults, which is why
 ## Network policy
 
 The `network-policy@1` capability covers Kiro's own hosts and the apt sources
-the base image ships with (needed because the startup hook runs `apt-get
-update`, which fails wholesale if any configured source is unreachable).
+the base image ships with, `deb.debian.org` and `dhi.io` (needed because the
+startup hook runs `apt-get update`, which fails wholesale if any configured
+source is unreachable).
 
 Kiro needs **two** hosts, not one: `cli.kiro.dev` serves the install/update
 script, which then fetches the versioned binary from
@@ -132,7 +133,7 @@ the image the sandbox boots from. This kit builds and publishes its own, from
 [`kiro.dockerfile`](./kiro.dockerfile) and `start.sh` in this directory.
 
 The image is **`docker.io/sbx/kiro-image`**, built on
-`docker/sandbox-templates:shell-docker`, so it carries a Docker engine and
+`docker.io/sbx/shell`, so it carries a Docker engine and
 requests Docker-in-Docker.
 
 The `-image` suffix distinguishes the base image from the kit itself: the kit

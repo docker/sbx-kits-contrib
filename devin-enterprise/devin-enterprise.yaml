@@ -100,12 +100,10 @@ capabilities:
           # explicit update reaches them.
           - cli.devin.ai
           - static.devin.ai
-          # apt sources shipped by the shell-docker base image.
-          - archive.ubuntu.com
-          - security.ubuntu.com
-          - ports.ubuntu.com
-          - download.docker.com
-          - cli.github.com
+          # apt sources shipped by the sbx/shell base image: Debian 13
+          # (trixie) and the DHI package repository.
+          - deb.debian.org
+          - dhi.io
 
   # No credential@1: enterprise auth uses a durable key in the container.
   # The managed proxy handoff cannot validate enterprise credentials yet

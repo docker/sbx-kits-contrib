@@ -129,7 +129,9 @@ fi
 # absent -- it never pulls -- and this sandbox has its own empty image store, so
 # pull it here. Backgrounded: the gateway should not wait on it, and a tool call
 # before it lands fails until it does.
-SANDBOX_TOOL_IMAGE=docker/sandbox-templates:shell-docker
+# OpenClaw runs `sleep infinity` with no --entrypoint; the shell base execs the
+# command it is given, so that works.
+SANDBOX_TOOL_IMAGE=docker.io/sbx/shell:latest
 SANDBOX_TOOL_IMAGE_WANTED=no
 if command -v docker >/dev/null 2>&1 && ! docker image inspect "$SANDBOX_TOOL_IMAGE" >/dev/null 2>&1; then
     SANDBOX_TOOL_IMAGE_WANTED=yes

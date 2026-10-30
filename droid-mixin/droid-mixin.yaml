@@ -94,14 +94,16 @@ capabilities:
           - api.workos.com
           # For the apt startup hook below, which refreshes metadata for every
           # configured source and returns exit 100 if any one of them fails.
-          # All three Ubuntu hosts are listed because Ubuntu serves amd64 from
-          # archive/security and arm64 from ports, and this kit does not know
-          # which base it will land on.
-          - archive.ubuntu.com        # Ubuntu archive (amd64 main)
-          - security.ubuntu.com       # Ubuntu security updates (amd64)
-          - ports.ubuntu.com          # Ubuntu archive/security (arm64)
-          - download.docker.com       # Docker's apt repo, on the shell-docker family
-          - cli.github.com            # GitHub CLI apt repo, on the shell-docker family
+          # The composed workload's apt sources: Debian/DHI on
+          # docker.io/sbx/shell, Ubuntu plus Docker and GitHub CLI on
+          # docker/sandbox-templates.
+          - deb.debian.org            # Debian archive and security mirrors
+          - dhi.io                    # DHI apt repo
+          - archive.ubuntu.com        # Ubuntu archive
+          - security.ubuntu.com       # Ubuntu security
+          - ports.ubuntu.com          # Ubuntu arm64 archive
+          - download.docker.com       # Docker apt repository
+          - cli.github.com            # GitHub CLI apt repository
 
   # Droid cannot authenticate at all without this service. Required, not
   # optional: v2 set `required: true`, and v3's default is required, so the

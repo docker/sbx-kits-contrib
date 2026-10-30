@@ -13,8 +13,9 @@ a whole sandbox of its own.
 
 A `kind: mixin` kit carrying the Antigravity CLI as a filesystem delta, with
 the same declarations the workload makes — the proxy-managed Gemini
-credential, the Google and Antigravity runtime allow list, `BROWSER=xdg-open`,
-and both startup hooks (API-key mode selection and MCP-gateway registration).
+credential, the Google and Antigravity runtime allow list, `BROWSER=xdg-open`
+(with the `xdg-open` scripts it names), and both startup hooks (API-key mode
+selection and MCP-gateway registration).
 
 Google's `install.sh` resolves its target from a manifest it fetches itself
 and offers no staging prefix, so `antigravity-mixin.dockerfile` runs the

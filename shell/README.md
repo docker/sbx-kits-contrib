@@ -7,7 +7,7 @@
 
 A sandbox with no agent in it: DHI's hardened Debian 13 shell-docker template
 with a login shell as its launch command. bash, git, apt, a Docker engine with
-compose and buildx, curl, gh, jq, make, gcc, Python 3 and Node with npm. sbx
+compose and buildx, curl, gh, jq, make, gcc, Python 3, and Node with npm. sbx
 starts the engine when the sandbox starts.
 
 The descriptor derives from the `examples/shell` kit in
@@ -90,11 +90,17 @@ sudo apt-get update && sudo apt-get install -y <package>
 Both apt sources are in the allow list above, so this works under a deny-all
 policy without widening anything.
 
+## Login shell
+
+`agent`'s login shell is `/bin/bash` (the base sets `/bin/sh`). `SHELL` is not
+set by the image.
+
 ## Launch command
 
-`ENTRYPOINT ["bash"]` with `CMD ["-l"]`, so the sandbox opens a login shell. A
-v3 workload takes its binary from the entrypoint, so the kit states it rather
-than inheriting the base's `tini -- bash -l`, whose binary would be `tini`.
+`ENTRYPOINT ["bash", "-c", "exec \"$@\"", "bash"]` with `CMD ["bash", "-l"]`:
+a plain run opens a login shell, and a command given to `docker run` is exec'd
+as is. A v3 workload takes its binary from the entrypoint, so the kit states it
+rather than inheriting the base's `tini -- bash -l`, whose binary would be `tini`.
 
 ## Building
 

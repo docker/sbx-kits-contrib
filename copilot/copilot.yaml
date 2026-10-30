@@ -115,19 +115,15 @@ capabilities:
           - github.com
           # `apt-get update` (the startup hook below) refreshes metadata for
           # every configured apt source and returns exit 100 if any one of them
-          # fails. The shell-docker base configures Ubuntu, Docker and GitHub
-          # CLI apt sources, so all of them must be reachable. Ubuntu serves amd64 from archive/security and arm64
-          # from ports.ubuntu.com, so all three Ubuntu hosts are listed to keep
-          # the kit working cross-arch.
+          # fails. The sbx/shell base configures Debian 13 (trixie) from
+          # deb.debian.org and the DHI package repository from dhi.io, so both
+          # must be reachable.
           #
           # These sit in `runtime` rather than `install` because the hook that
           # needs them is a startup hook, and startup hooks run at boot — in the
           # runtime phase, after v3 closes the install grants.
-          - archive.ubuntu.com        # Ubuntu archive (amd64 main)
-          - security.ubuntu.com       # Ubuntu security updates (amd64)
-          - ports.ubuntu.com          # Ubuntu archive/security (arm64)
-          - download.docker.com       # Docker's apt repo, pre-added by shell-docker
-          - cli.github.com            # GitHub CLI apt repo, pre-added by the base
+          - deb.debian.org            # Debian archive and security
+          - dhi.io                    # DHI Debian package repository
           #
           # TODO(copilot-extraction): the domains above are the ones the
           # credential block already declared; they have not been verified
