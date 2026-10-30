@@ -2,8 +2,8 @@
 
 Applies to **every** kit in this repo. In the v2 format publishing was a
 question only some kits had to answer, because only some built an image;
-in v3 a kit *is* an image, so every one of the 87 directories here
-publishes the same way.
+in v3 a kit *is* an image, so every kit directory here publishes the
+same way.
 
 ## One artifact, not two
 
@@ -97,27 +97,25 @@ different bits — and different attestations — for one commit.
 
 ## Build order
 
-`shell` and `shell-docker` are bases. Both build on DHI images and never
-on each other, so they build first and in parallel; a base built `FROM`
-another base would not be ordered after it. A kit builds on a base when a
-`*.dockerfile` in its directory has a `FROM` or `ARG BASE_IMAGE=` line
-naming `sbx/shell` or `sbx/shell-docker`; `scripts/kit-dependents.sh <base>`
+`shell` is the base. It builds first because other kits build on it. A kit
+builds on it when a `*.dockerfile` in its directory has a `FROM` or
+`ARG BASE_IMAGE=` line naming `sbx/shell`; `scripts/kit-dependents.sh shell`
 lists them.
 
-On pushes and the nightly, a base being built also rebuilds every kit
-that builds on it, after it, and a kit waits only for the base it uses. A
-base's whole publish job, Hub page sync included, must succeed for its
-dependents to run. A failed base skips those kits; kits that do not build
-on a base are unaffected. Pull requests build only what changed,
-as dry runs, so a dependent in a pull request builds against the base
-already published. A release (`release-kit.yml`) does not move `latest`,
-so it does not rebuild dependents.
+On pushes and the nightly, `shell` being built also rebuilds every kit
+that builds on it, after it. Its whole publish job, Hub page sync
+included, must succeed for its dependents to run. A failed `shell` skips
+those kits; kits that do not build on it are unaffected. Pull requests
+build only what changed, as dry runs, so a dependent in a pull request
+builds against the base already published. A release (`release-kit.yml`)
+does not move `latest`, so it does not rebuild dependents.
 
 ## What publishing derives
 
 The frontend does real work between the authored descriptor and the
 published one, and several of the rules a kit has to satisfy only bite
-here. [SPEC-v3 §9](https://github.com/docker/sandbox-kit-spec/blob/main/docs/spec/SPEC-v3.md#9-publishing)
+here.
+[SPEC-v3 §9](https://github.com/docker/sandbox-kit-spec/blob/main/docs/spec/SPEC-v3.md#9-publishing)
 is normative; the short version:
 
 - **Expansion (§9.1).** Build-phase args resolve and every
@@ -386,12 +384,15 @@ kit-tck validate --layout /tmp/k 1.4.2
 The last argument is the **tag alone**, not `my-kit:1.4.2`.
 
 **`scripts/verify-kit-image.sh`**, against the built image, judges what
-the frontend copies as-is from the recipe. For a `kind: workload` kit it
+the frontend mostly copies as-is from the recipe (it rejects only a
+workload image with neither `ENTRYPOINT` nor `CMD`). For a `kind: workload` kit it
 asserts that the launch command resolves on `PATH` (or is an absolute path
 a `path:` entry in the kit's descriptor writes), that the image sets a
 non-root user, that the `com.docker.sandboxes.flavor` label equals the
 kit name, and that `start-docker=true` comes with `dockerd`, `docker` and
-`containerd` on `PATH`. Mixins are skipped. It runs before every publish,
+`containerd` on `PATH`. Mixins are skipped, and a set kit fails: its
+derived kind is recorded only in the published manifest, which a local
+build does not keep. It runs before every publish,
 dry runs on pull requests included. Run it locally with
 `scripts/verify-kit-image.sh <kit>`.
 

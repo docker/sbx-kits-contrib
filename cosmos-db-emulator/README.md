@@ -32,8 +32,8 @@ Or with a local clone of this repo:
 sbx run ./copilot --kit ./cosmos-db-emulator .
 ```
 
-Any other Docker-in-Docker base works the same way, such as the shell workload with
-a Docker engine, `docker.io/sbx/shell-docker:latest`. The kit requires `deb/docker-ce`
+Any other Docker-in-Docker base works the same way, such as the shell
+workload, `docker.io/sbx/shell:latest`. The kit requires `deb/docker-ce`
 and `deb/curl`, and a startup hook stops the sandbox from starting, saying why,
 if `docker` is still missing.
 

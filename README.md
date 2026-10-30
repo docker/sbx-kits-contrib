@@ -47,7 +47,7 @@ There are two kinds:
 | `workload` | The whole environment: the image the sandbox boots from, including the agent. Replaces v2's `kind: sandbox`. | A full root filesystem. A workload **must** have a recipe. |
 | `mixin` | A delta layered onto a workload: extra tools, credentials, hooks, egress. | An overlay (`FROM scratch`), or no recipe at all for a declaration-only kit. |
 
-This repo ships **34 workloads and 76 mixins**. Every workload except `openhands-canvas`, `shell` and `shell-docker` has a `-mixin` sibling declaring the same capabilities in overlay form, so an agent can either *be* the sandbox or be layered onto one; the remaining 45 mixins are standalone tools and integrations. See the [Kit index](#kit-index).
+This repo ships **33 workloads and 76 mixins**. Every workload except `openhands-canvas` and `shell` has a `-mixin` sibling declaring the same capabilities in overlay form, so an agent can either *be* the sandbox or be layered onto one; the remaining 45 mixins are standalone tools and integrations. See the [Kit index](#kit-index).
 
 ## Anatomy of a kit
 
@@ -290,7 +290,7 @@ The frontend validates during the build, so building *is* validating. `--output 
 cd my-kit && docker buildx build . -f my-kit.yaml --output type=cacheonly
 ```
 
-For a workload, also run `scripts/verify-kit-image.sh my-kit`. It builds the image and checks its launch binary, non-root user and flavor label, which the frontend does not. Set `VERIFY_PLATFORM=linux/arm64` on an arm64 host.
+For a workload, also run `scripts/verify-kit-image.sh my-kit`. It builds the image and checks its launch binary, non-root user, flavor label and, when `start-docker` is set, the engine, which the frontend does not. Set `VERIFY_PLATFORM=linux/arm64` on an arm64 host.
 
 ### Run it
 
@@ -364,7 +364,7 @@ Note that a fork PR does not receive repository secrets, so any leg needing Dock
 
 ## Kit index
 
-110 kits: 34 workloads and 76 mixins. Every workload except `openhands-canvas`, `shell` and `shell-docker` has a `-mixin` sibling that declares the same capabilities in overlay form, so you can either boot the agent as the sandbox or layer it onto one.
+109 kits: 33 workloads and 76 mixins. Every workload except `openhands-canvas` and `shell` has a `-mixin` sibling that declares the same capabilities in overlay form, so you can either boot the agent as the sandbox or layer it onto one.
 
 ### Workloads
 
@@ -398,8 +398,7 @@ Note that a fork PR does not receive repository secrets, so any leg needing Dock
 | [`paperclip`](./paperclip) | [`paperclip-mixin`](./paperclip-mixin) | Paperclip |
 | [`pi`](./pi) | [`pi-mixin`](./pi-mixin) | Pi |
 | [`picoclaw`](./picoclaw) | [`picoclaw-mixin`](./picoclaw-mixin) | PicoClaw |
-| [`shell`](./shell) | — | A hardened Debian sandbox with a login shell and no agent or Docker engine: the base an agent mixin layers onto |
-| [`shell-docker`](./shell-docker) | — | `shell` plus a Docker engine |
+| [`shell`](./shell) | — | A hardened Debian sandbox with a Docker engine, a login shell and no agent: the base an agent mixin layers onto |
 | [`trivy`](./trivy) | [`trivy-mixin`](./trivy-mixin) | Trivy vulnerability scanner |
 | [`vibe`](./vibe) | [`vibe-mixin`](./vibe-mixin) | Mistral Vibe |
 | [`zeroclaw`](./zeroclaw) | [`zeroclaw-mixin`](./zeroclaw-mixin) | ZeroClaw |

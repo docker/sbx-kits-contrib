@@ -26,7 +26,7 @@ version: "0.1.0"
 provides: ["docker-tcp"]
 
 # The engine and the tools the startup hook drives it with, all of which the
-# shell-docker base provides by construction.
+# shell base provides by construction.
 requires: ["deb/curl", "deb/docker-ce", "deb/jq", "deb/procps"]
 
 capabilities:

@@ -16,9 +16,13 @@
 #   4. if label com.docker.sandboxes.start-docker is "true", dockerd, docker
 #      and containerd resolve on PATH.
 # A `kind: mixin` kit is skipped: its image is an overlay, not a launchable one.
+# A `kind: set` kit fails: a set's derived kind is recorded only in the
+# published manifest's descriptor annotation, which `--load` does not keep,
+# and the authored `kind:` is all this script reads.
 #
-# Why: the kit frontend copies the recipe's image config as-is and checks none
-# of this, so a Dockerfile that forgets a label or runs as root builds fine.
+# Why: the kit frontend copies the recipe's image config as-is (it rejects only
+# a workload with neither ENTRYPOINT nor CMD), so a Dockerfile that forgets a
+# label or runs as root builds fine.
 #
 # Environment:
 #   IMAGE      optional           check this image, skip the build and the cleanup
@@ -55,13 +59,18 @@ if [ ! -f "$descriptor" ]; then
   exit 2
 fi
 
-# Only a top-level `kind:` counts; the value may be single- or double-quoted or carry a comment.
+# Only a top-level `kind:` counts; the value may be single- or
+# double-quoted or carry a comment.
 kind=$(sed -n "s/^kind:[[:space:]]*[\"']\{0,1\}\([A-Za-z]*\)[\"']\{0,1\}[[:space:]]*\(#.*\)\{0,1\}\$/\1/p" "$descriptor" | head -n 1)
 case "$kind" in
   workload) ;;
   mixin)
     echo "verify-kit-image: $kit is kind 'mixin', not workload; skipping"
     exit 0
+    ;;
+  set)
+    echo "FAIL $kit: kind: set is not verified yet"
+    exit 1
     ;;
   *)
     echo "FAIL $kit: kind: '${kind:-(none)}' in $(basename "$descriptor") is neither workload nor mixin"
@@ -107,9 +116,10 @@ if [ -z "$launch" ]; then
   bad "launch binary: image sets neither ENTRYPOINT nor CMD"
 elif docker run --rm --entrypoint sh "$img" -c 'command -v "$1" >/dev/null' _ "$launch" >/dev/null 2>&1; then
   echo "verify-kit-image: launch binary '$launch' resolves on PATH"
-# Exact absolute path only: a `files:` entry writes it at create time, so it is absent from the image.
+# Exact absolute path only: a `files:` entry writes it at create time,
+# so it is absent from the image.
 elif [ "${launch#/}" != "$launch" ] &&
-  grep -Eq "^[[:space:]]*-?[[:space:]]*path:[[:space:]]*[\"']?$(printf '%s' "$launch" | sed 's/[][\.*^$/+?(){}|]/\\&/g')[\"']?[[:space:]]*(#.*)?$" "$descriptor"; then
+  grep -Eq "^[[:space:]]*-?[[:space:]]*path:[[:space:]]*[\"']?$(printf '%s' "$launch" | sed 's/[][\.*^$+?(){}|]/\\&/g')[\"']?[[:space:]]*(#.*)?$" "$descriptor"; then
   echo "verify-kit-image: launch binary '$launch' is written by a path: entry in $(basename "$descriptor")"
 else
   bad "launch binary: '$launch' does not resolve on PATH and no path: entry in $(basename "$descriptor") writes it"

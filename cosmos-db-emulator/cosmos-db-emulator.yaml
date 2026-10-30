@@ -108,7 +108,7 @@ capabilities:
         # anything slower or flakier than this check.
         #
         # No `env:` -- the body reads nothing.
-        - command: [sh, -c, "command -v docker >/dev/null 2>&1 || { echo 'cosmos-db-emulator: docker not found; compose this kit onto a Docker-in-Docker base such as docker.io/sbx/shell-docker' >&2; exit 1; }"]
+        - command: [sh, -c, "command -v docker >/dev/null 2>&1 || { echo 'cosmos-db-emulator: docker not found; compose this kit onto a Docker-in-Docker base such as docker.io/sbx/shell' >&2; exit 1; }"]
           user: "0"
           description: Fail fast when the base has no Docker Engine
         # Backgrounded because the first boot pulls a ~0.6 GB image (2.3 GB

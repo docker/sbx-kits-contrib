@@ -3,14 +3,14 @@ schemaVersion: "3"
 displayName: Shell
 author: "Docker, Inc."
 description: >-
-  A plain shell sandbox on the shell template: bash, git, apt, plus common
-  CLI tooling (curl, gh, jq, make, gcc, Python, Node). The base workload agent
-  mixins layer onto; it ships no agent, no Docker engine and declares no
-  credentials.
+  A plain shell sandbox on DHI's shell-docker template: bash, git, apt, a
+  Docker engine with compose and buildx that sbx starts automatically, plus
+  common CLI tooling (curl, gh, jq, make, gcc, Python, Node). The base workload
+  agent mixins layer onto; it ships no agent and declares no credentials.
 sourceUrl: https://github.com/docker/sandbox-kit-spec
 
 kind: workload
-version: "1.1.0"
+version: "1.0.3"
 
 # No explicit provides: APT-managed tools, including the trust-fix
 # upgrades in the recipe, are inferred from dpkg as deb/<package>@<version>
@@ -22,7 +22,7 @@ capabilities:
   # the image config declares instead of assuming one.
   - type: com.docker.sandbox/sbx@1
 
-  # Apt sources on the shell template (Debian trixie / DHI):
+  # Apt sources on DHI's shell-docker template (Debian trixie / DHI):
   #   deb.debian.org/debian, deb.debian.org/debian-security, dhi.io/deb/...
   - type: com.docker.sandbox/network-policy@1
     config:
@@ -48,7 +48,7 @@ capabilities:
     config:
       filename: AGENTS.md
       content: |
-        This is a plain shell sandbox on the shell template: bash, git,
-        apt, curl, gh, jq, make, gcc, Python 3, and Node/npm. It has no
-        Docker engine; that is in the shell-docker kit. Install more with
+        This is a plain shell sandbox on DHI's shell-docker template: bash, git,
+        apt, a Docker engine (compose/buildx) that sbx starts for you,
+        curl, gh, jq, make, gcc, Python 3, and Node/npm. Install more with
         apt; composed kits list their own capabilities below.

@@ -6,23 +6,25 @@ name: Publish one kit
 # this as a two-job matrix (publish → overview) in the caller would make every
 # kit's overview wait for every kit's build — and because `needs` is evaluated
 # per JOB rather than per leg, a single failing build would skip the overview
-# sync for all 87. Called once per kit from build-and-publish-kits.yml, each
+# sync for every kit. Called once per kit from build-and-publish-kits.yml, each
 # invocation is its own job graph: kits run end to end in parallel and fail
 # independently.
 #
 # A v3 kit is one image built from one descriptor, so publishing is one buildx
 # invocation. The frontend named on the descriptor's first line validates the
-# descriptor during that build, but it copies the recipe's image config as-is
-# and checks none of the image's launch contract. So a workload kit is built and
-# asserted first (scripts/verify-kit-image.sh): a launch binary that resolves on
-# PATH (or is an absolute path the descriptor's `path:` entries write), a non-root user, a `com.docker.sandboxes.flavor` naming this kit, and a
-# `start-docker=true` claim backed by an engine. Mixin kits are skipped.
+# descriptor during that build and rejects a workload image with neither
+# ENTRYPOINT nor CMD, but it copies the rest of the recipe's image config as-is.
+# So a workload kit is built and asserted first (scripts/verify-kit-image.sh):
+# a launch binary that resolves on PATH (or is an absolute path the
+# descriptor's `path:` entries write), a non-root user, a
+# `com.docker.sandboxes.flavor` naming this kit, and a `start-docker=true`
+# claim backed by an engine. Mixin kits are skipped.
 
 on:
   workflow_call:
     inputs:
       no-cache:
-        description: Rebuild without the layer cache; the caller sets it for scheduled and nightly-bridge runs.
+        description: Rebuild without the layer cache; the caller sets it only on workflow_dispatch; scheduled runs bypass the cache regardless.
         type: boolean
         required: false
         default: false

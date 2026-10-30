@@ -4,8 +4,8 @@
 # Usage:
 #   scripts/kit-dependents.sh <base>
 #
-#   scripts/kit-dependents.sh shell          # for example: ["claude","goose"]
-#   scripts/kit-dependents.sh shell-docker   # for example: []
+#   scripts/kit-dependents.sh shell   # the kits built on it, e.g. ["a","b"], or []
+#   scripts/kit-dependents.sh goose   # a kit nothing builds on: []
 #
 # A kit depends on <base> when any `<kit>/*.dockerfile` has a line that names
 # <registry>/<namespace>/<base> as a `FROM` image or as an `ARG BASE_IMAGE=`
@@ -13,8 +13,9 @@
 #   * leading whitespace, and `FROM --platform=<anything> <image>`;
 #   * a single or double quote after `ARG BASE_IMAGE=`;
 #   * the registry prefix, which also accepts `index.docker.io/` when the
-#     registry is docker.io or index.docker.io. With no prefix (`sbx/shell`) the image resolves to
-#     docker.io, so that form counts only for those two registries.
+#     registry is docker.io or index.docker.io. With no prefix
+#     (`sbx/shell`) the image resolves to docker.io, so that form
+#     counts only for those two registries.
 # The image name must end at `:`, `@`, a quote, whitespace or the end of the
 # line, so `sbx/shell` never matches `sbx/shell-docker` or `sbx/shell-credentials`.
 #
@@ -54,7 +55,7 @@ IMAGE_NAMESPACE=${IMAGE_NAMESPACE:-sbx}
 export KIT_ROOT
 kits=$("$SCRIPT_DIR/discover-kits.sh") || exit 1
 
-escape() { printf '%s' "$1" | sed 's/[][\.^$*+?(){}|/]/\\&/g'; }
+escape() { printf '%s' "$1" | sed 's/[][\.^$*+?(){}|]/\\&/g'; }
 ns=$(escape "$IMAGE_NAMESPACE")
 reg=$(escape "$REGISTRY")
 name=$(escape "$base")

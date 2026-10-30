@@ -5,10 +5,10 @@
 
 # shell
 
-A sandbox with no agent in it: the hardened Debian 13 shell template with a
-login shell as its launch command. bash, git, apt, curl, gh, jq, make, gcc,
-Python 3 and Node with npm. It has no Docker engine; for one, use
-`docker.io/sbx/shell-docker`.
+A sandbox with no agent in it: DHI's hardened Debian 13 shell-docker template
+with a login shell as its launch command. bash, git, apt, a Docker engine with
+compose and buildx, curl, gh, jq, make, gcc, Python 3 and Node with npm. sbx
+starts the engine when the sandbox starts.
 
 The descriptor derives from the `examples/shell` kit in
 [sandbox-kit-spec](https://github.com/docker/sandbox-kit-spec), published here
@@ -16,14 +16,17 @@ so `sbx` can resolve it by name.
 
 The recipe refreshes certificate trust from DHI's signed apt repository:
 uv 0.13.4, GitHub CLI 2.103.0, pip 26.2.2 (including its virtual-environment
-wheel) and Node 24.22.1, or newer package revisions. The base's Go toolchain
-and clipboard bridge already use patched Go 1.26.10 and are retained.
+wheel), Node 24.22.1, Docker 29.9.2, Buildx 0.38.1, Compose 5.6.1 and
+containerd 2.4.2-1, or newer package revisions. The Docker and containerd
+binaries are rebuilt with patched Go; updating the installed compiler alone
+does not fix existing binaries. The base's Go toolchain and clipboard bridge
+already use patched Go 1.26.10 and are retained.
 No extra apt repository or standalone binary download is needed.
 
 Two things to use it for:
 
-- **A plain sandbox.** Isolated filesystem, isolated network, a system you
-  can break without touching the host.
+- **A plain sandbox.** Isolated filesystem, isolated network, a Docker engine
+  you can break without touching the host.
 - **The base an agent mixin layers onto.** It declares no credentials, which is
   what makes it composable: v3 gives each credential one owner across a set, so
   a base that claimed `anthropic` could not host `claude-mixin`, and one that
@@ -72,8 +75,9 @@ services.
 - **`AGENTS.md`.** The profile file composed kits write their guidance into. A
   workload owns the filename; a mixin contributes a body without naming one.
 
-Labels: the recipe sets `com.docker.sandboxes.flavor=shell` and no
-`com.docker.sandboxes.start-docker`, so no Docker engine starts.
+Labels: the recipe sets `com.docker.sandboxes.flavor=shell` and
+`com.docker.sandboxes.start-docker=true`, which is what makes sbx start the
+Docker engine.
 
 ## Installing packages
 

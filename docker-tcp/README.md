@@ -17,17 +17,16 @@ containers **inside the sandbox**.
 ## Usage
 
 The kit needs a base whose Docker Engine is already installed, such as the
-Docker engine workload, `shell-docker` (plain `shell` has no engine, so the
-kit does not resolve on it):
+shell workload:
 
 ```console
-sbx run --kit docker.io/sbx/docker-tcp:latest docker.io/sbx/shell-docker:latest
+sbx run --kit docker.io/sbx/docker-tcp:latest docker.io/sbx/shell:latest
 ```
 
 Or from a git URL targeting this repo:
 
 ```console
-sbx run --kit "git+https://github.com/docker/sbx-kits-contrib.git#dir=docker-tcp" docker.io/sbx/shell-docker:latest
+sbx run --kit "git+https://github.com/docker/sbx-kits-contrib.git#dir=docker-tcp" docker.io/sbx/shell:latest
 ```
 
 The published host port is ephemeral. `sbx create` prints it, and `sbx ports`
@@ -43,7 +42,7 @@ To pin the host port instead, publish it yourself; an explicit binding for the
 container port replaces the kit's ephemeral one:
 
 ```console
-sbx create --kit ./docker-tcp --publish 127.0.0.1:2375:2375/tcp4 docker.io/sbx/shell-docker:latest /path/to/workspace
+sbx create --kit ./docker-tcp --publish 127.0.0.1:2375:2375/tcp4 docker.io/sbx/shell:latest /path/to/workspace
 ```
 
 ## Depending on it

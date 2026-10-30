@@ -40,20 +40,19 @@ name: Build and publish kits
 #     scripts/kit-version.sh for the four ways of doing that. The
 #     `verify-versions` job below refuses to build anything until every kit in
 #     the repo satisfies it.
-#   * Two kits are BASES: `shell` and `shell-docker`, each built from its own
-#     upstream template and published as docker.io/sbx/shell and
-#     docker.io/sbx/shell-docker. A kit builds on a base when any
+#   * One kit is the BASE: `shell`, built from its upstream template and
+#     published as docker.io/sbx/shell. A kit builds on it when any
 #     `<kit>/*.dockerfile` names it (scripts/kit-dependents.sh has the exact
-#     rules). The jobs below build the bases first, then the kits built on
-#     them, each after only the base it uses; every other kit runs alongside.
-#     On a publishing run (anything but a pull request) a base being built also
-#     rebuilds the kits found that way, not a list. Pull requests build only
-#     what changed.
+#     rules). The jobs below build the base first, then the kits built on it;
+#     every other kit runs alongside. On a publishing run (anything but a pull
+#     request) the base being built also rebuilds the kits found that way, not
+#     a list. Pull requests build only what changed.
 #
 # The frontend validates the descriptor during the build but copies the
 # recipe's image config as-is, so publish-one-kit.yml runs
 # scripts/verify-kit-image.sh before every publish, dry runs included. For a
-# workload kit it checks that the launch command is on PATH, the user is not
+# workload kit it checks that the launch command is on PATH (or is an
+# absolute path a descriptor `path:` entry writes), the user is not
 # root, the `com.docker.sandboxes.flavor` label equals the kit name, and
 # `start-docker=true` implies an engine. Conformance of the PUBLISHED artifact
 # is tck.yml's job, not this one's.
@@ -93,10 +92,12 @@ on:
 
 # One run per ref, so runs on a ref publish one at a time: a dependent never
 # builds before its base, and two runs never push `:latest` at once. A new push
-# to a pull request cancels that PR's previous run; pushes, the nightly and
-# manual dispatches are never cancelled. GitHub keeps only one pending run per
-# group, so when two pushes queue behind a running one the older pending run is
-# dropped, and kits only it changed publish on the next nightly.
+# to a pull request cancels that PR's previous run; running pushes, nightlies
+# and dispatches are never cancelled. GitHub keeps only one pending run per
+# group, so a newer run replaces an older pending one, whatever its trigger
+# (the nightly and the nightly-bridge dispatch included). A replacing push
+# rebuilds only what it changed, so kits only the dropped run covered publish
+# on the next nightly.
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
@@ -121,15 +122,10 @@ jobs:
     outputs:
       # Whether the `shell` base builds this run.
       build-shell: ${{ steps.collect.outputs.build-shell }}
-      # Whether the `shell-docker` base builds this run.
-      build-shell-docker: ${{ steps.collect.outputs.build-shell-docker }}
-      # Kits to rebuild for this event that build on a base. Three disjoint
-      # lists, so a kit is built once and waits only for the base(s) it uses.
+      # Kits to rebuild for this event that build on the base.
       kits-on-shell: ${{ steps.collect.outputs.kits-on-shell }}
-      kits-on-shell-docker: ${{ steps.collect.outputs.kits-on-shell-docker }}
-      kits-on-both: ${{ steps.collect.outputs.kits-on-both }}
-      # Every other kit to rebuild. They need neither base, so a base failure
-      # does not skip them.
+      # Every other kit to rebuild. They do not need the base, so a base
+      # failure does not skip them.
       kits: ${{ steps.collect.outputs.kits }}
       # Every discovered kit, regardless of what changed — the version gate
       # below checks all of them, not just the ones touched, because an
@@ -355,51 +351,40 @@ jobs:
           kits="${kits:-[]}"
           echo "Changed: ${kits}"
 
-          # Kits whose recipe builds on a base come from
+          # Kits whose recipe builds on the base come from
           # scripts/kit-dependents.sh, which documents the matching rules.
           # REGISTRY and IMAGE_NAMESPACE reach it from the workflow env.
           dependents() { ./scripts/kit-dependents.sh "$1"; }
           has_kit() { echo "$1" | jq -e --arg k "$2" 'index($k) != null' >/dev/null; }
 
-          # Propagation. A kit built on a base would otherwise keep running on
-          # the previous base until the nightly, so on a run that publishes a
-          # base being built also rebuilds its dependents. Pull requests build
-          # only what changed: nothing is pushed, so a dependent built there
-          # would pull the published base anyway.
+          # Propagation. A kit built on the base would otherwise keep running
+          # on the previous base until the nightly, so on a run that publishes,
+          # the base being built also rebuilds its dependents. Pull requests
+          # build only what changed: nothing is pushed, so a dependent built
+          # there would pull the published base anyway.
           if [ "${{ github.event_name }}" != "pull_request" ]; then
-            for base in shell shell-docker; do
-              if has_kit "${kits}" "${base}"; then
-                deps=$(dependents "${base}")
-                echo "Propagation: ${base} is building, so its dependents rebuild after it: ${deps}"
-                kits=$(jq -nc --argjson a "${kits}" --argjson b "${deps}" '$a + $b | unique')
-              fi
-            done
+            if has_kit "${kits}" shell; then
+              deps=$(dependents shell)
+              echo "Propagation: shell is building, so its dependents rebuild after it: ${deps}"
+              kits=$(jq -nc --argjson a "${kits}" --argjson b "${deps}" '$a + $b | unique')
+            fi
           fi
           echo "Building: ${kits}"
 
           build_shell=false
-          build_shell_docker=false
           if has_kit "${kits}" shell; then build_shell=true; fi
-          if has_kit "${kits}" shell-docker; then build_shell_docker=true; fi
 
-          # Which kits build on a base, on every event: the job graph orders
-          # only these after the bases, so a base failure skips them and
-          # nothing else. Split by base so a kit waits only for the base it
-          # uses; a kit using both is in the third list and nowhere else.
-          rest=$(jq -c 'map(select(. != "shell" and . != "shell-docker"))' <<<"${kits}")
-          split=$(jq -nc --argjson r "${rest}" --argjson s "$(dependents shell)" --argjson d "$(dependents shell-docker)" '
-            ($r | map(select(. as $k | ($s | index($k)) and ($d | index($k))))) as $both
-            | ($r | map(select(. as $k | ($s | index($k)) and ($d | index($k) | not)))) as $shell
-            | ($r | map(select(. as $k | ($s | index($k) | not) and ($d | index($k))))) as $docker
-            | ($r | map(select(. as $k | ($s | index($k) | not) and ($d | index($k) | not)))) as $none
-            | {shell: $shell, docker: $docker, both: $both, none: $none}')
+          # Which kits build on the base, on every event: the job graph orders
+          # only these after it, so a base failure skips them and nothing else.
+          rest=$(jq -c 'map(select(. != "shell"))' <<<"${kits}")
+          split=$(jq -nc --argjson r "${rest}" --argjson s "$(dependents shell)" '
+            ($r | map(select(. as $k | $s | index($k)))) as $shell
+            | ($r | map(select(. as $k | $s | index($k) | not))) as $none
+            | {shell: $shell, none: $none}')
 
           {
             echo "build-shell=${build_shell}"
-            echo "build-shell-docker=${build_shell_docker}"
             echo "kits-on-shell=$(jq -c .shell <<<"${split}")"
-            echo "kits-on-shell-docker=$(jq -c .docker <<<"${split}")"
-            echo "kits-on-both=$(jq -c .both <<<"${split}")"
             echo "kits=$(jq -c .none <<<"${split}")"
           } >> "$GITHUB_OUTPUT"
 
@@ -436,14 +421,12 @@ jobs:
             awk -F'\t' '{ printf "%-32s %-24s %s\n", $1, $2, $3 }'
 
   # Each kit is its own job graph, called once per kit, so kits fail
-  # independently. The two bases are separate jobs rather than matrix legs
-  # because the kits built on them must wait for them: `shell` and
-  # `shell-docker` do not build on each other, so they run in parallel. Each
-  # `kit-on-*` job needs only the base(s) its kits use. `!cancelled()` plus
-  # explicit result checks let a skipped base pass (it did not build) while a
-  # failed or cancelled base skips the kits built on it; they also replace the
-  # implicit success check on every need, hence `verify-versions` is checked by
-  # hand. A base's result is its whole publish job, Hub page sync included.
+  # independently. The base is a separate job rather than a matrix leg because
+  # the kits built on it must wait for it. `!cancelled()` plus explicit result
+  # checks let a skipped base pass (it did not build) while a failed or
+  # cancelled base skips the kits built on it; they also replace the implicit
+  # success check on every need, hence `verify-versions` is checked by hand. The
+  # base's result is its whole publish job, Hub page sync included.
   shell:
     needs: [detect-changes, verify-versions]
     if: needs.detect-changes.outputs.build-shell == 'true'
@@ -456,18 +439,6 @@ jobs:
       kit: shell
       no-cache: ${{ github.event_name == 'workflow_dispatch' && inputs.no-cache }}
 
-  shell-docker:
-    needs: [detect-changes, verify-versions]
-    if: needs.detect-changes.outputs.build-shell-docker == 'true'
-    permissions:
-      contents: read
-      id-token: write
-    uses: ./.github/workflows/publish-one-kit.yml
-    secrets: inherit
-    with:
-      kit: shell-docker
-      no-cache: ${{ github.event_name == 'workflow_dispatch' && inputs.no-cache }}
-
   kit-on-shell:
     needs: [detect-changes, verify-versions, shell]
     if: >-
@@ -478,15 +449,13 @@ jobs:
       needs.detect-changes.outputs.kits-on-shell != '' &&
       (needs.shell.result == 'success' || needs.shell.result == 'skipped')
     strategy:
-      # One kit's failure must not stop the others: these builds pull from ~87
+      # One kit's failure must not stop the others: these builds pull from
       # independent upstreams, and one vendor's bad release should cost one
       # stale kit, not a night's worth of rebuilds.
       fail-fast: false
       # Every leg signs in to Docker Hub, and a wide run fires dozens of those
-      # within a minute from one account, which Hub throttles. The four kit
-      # matrices run at the same time, so the cap is shared per run: 20 logins
-      # split as `kit` 10, `kit-on-shell` 4, `kit-on-shell-docker` 4 and
-      # `kit-on-both` 2.
+      # within a minute from one account, which Hub throttles. The `kit` and
+      # `kit-on-shell` matrices run at the same time and each has its own cap.
       max-parallel: 4
       matrix:
         kit: ${{ fromJson(needs.detect-changes.outputs.kits-on-shell) }}
@@ -499,57 +468,7 @@ jobs:
       kit: ${{ matrix.kit }}
       no-cache: ${{ github.event_name == 'workflow_dispatch' && inputs.no-cache }}
 
-  kit-on-shell-docker:
-    needs: [detect-changes, verify-versions, shell-docker]
-    if: >-
-      !cancelled() &&
-      needs.verify-versions.result == 'success' &&
-      needs.detect-changes.outputs.kits-on-shell-docker != '[]' &&
-      needs.detect-changes.outputs.kits-on-shell-docker != 'null' &&
-      needs.detect-changes.outputs.kits-on-shell-docker != '' &&
-      (needs.shell-docker.result == 'success' || needs.shell-docker.result == 'skipped')
-    strategy:
-      fail-fast: false
-      # Share of the per-run Hub login cap; see `kit-on-shell`.
-      max-parallel: 4
-      matrix:
-        kit: ${{ fromJson(needs.detect-changes.outputs.kits-on-shell-docker) }}
-    permissions:
-      contents: read
-      id-token: write
-    uses: ./.github/workflows/publish-one-kit.yml
-    secrets: inherit
-    with:
-      kit: ${{ matrix.kit }}
-      no-cache: ${{ github.event_name == 'workflow_dispatch' && inputs.no-cache }}
-
-  # Kits whose recipes name both bases wait for both.
-  kit-on-both:
-    needs: [detect-changes, verify-versions, shell, shell-docker]
-    if: >-
-      !cancelled() &&
-      needs.verify-versions.result == 'success' &&
-      needs.detect-changes.outputs.kits-on-both != '[]' &&
-      needs.detect-changes.outputs.kits-on-both != 'null' &&
-      needs.detect-changes.outputs.kits-on-both != '' &&
-      (needs.shell.result == 'success' || needs.shell.result == 'skipped') &&
-      (needs.shell-docker.result == 'success' || needs.shell-docker.result == 'skipped')
-    strategy:
-      fail-fast: false
-      # Share of the per-run Hub login cap; see `kit-on-shell`.
-      max-parallel: 2
-      matrix:
-        kit: ${{ fromJson(needs.detect-changes.outputs.kits-on-both) }}
-    permissions:
-      contents: read
-      id-token: write
-    uses: ./.github/workflows/publish-one-kit.yml
-    secrets: inherit
-    with:
-      kit: ${{ matrix.kit }}
-      no-cache: ${{ github.event_name == 'workflow_dispatch' && inputs.no-cache }}
-
-  # These kits do not build on either base, so they run as soon as the version
+  # These kits do not build on the base, so they run as soon as the version
   # gate passes and a base failure does not touch them.
   kit:
     needs: [detect-changes, verify-versions]
@@ -559,7 +478,7 @@ jobs:
       needs.detect-changes.outputs.kits != ''
     strategy:
       fail-fast: false
-      # Share of the per-run Hub login cap; see `kit-on-shell`.
+      # Independent of `kit-on-shell`'s cap; see there for why it is capped.
       max-parallel: 10
       matrix:
         kit: ${{ fromJson(needs.detect-changes.outputs.kits) }}
