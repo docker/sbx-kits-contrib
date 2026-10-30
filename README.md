@@ -47,7 +47,7 @@ There are two kinds:
 | `workload` | The whole environment: the image the sandbox boots from, including the agent. Replaces v2's `kind: sandbox`. | A full root filesystem. A workload **must** have a recipe. |
 | `mixin` | A delta layered onto a workload: extra tools, credentials, hooks, egress. | An overlay (`FROM scratch`), or no recipe at all for a declaration-only kit. |
 
-This repo ships **33 workloads and 76 mixins**. Every workload except `openhands-canvas` and `shell` has a `-mixin` sibling declaring the same capabilities in overlay form, so an agent can either *be* the sandbox or be layered onto one; the remaining 45 mixins are standalone tools and integrations. See the [Kit index](#kit-index).
+This repo ships **33 workloads and 78 mixins**. Every workload except `openhands-canvas` and `shell` has a `-mixin` sibling declaring the same capabilities in overlay form, so an agent can either *be* the sandbox or be layered onto one; the remaining 47 mixins are standalone tools and integrations. See the [Kit index](#kit-index).
 
 ## Anatomy of a kit
 
@@ -364,7 +364,7 @@ Note that a fork PR does not receive repository secrets, so any leg needing Dock
 
 ## Kit index
 
-109 kits: 33 workloads and 76 mixins. Every workload except `openhands-canvas` and `shell` has a `-mixin` sibling that declares the same capabilities in overlay form, so you can either boot the agent as the sandbox or layer it onto one.
+111 kits: 33 workloads and 78 mixins. Every workload except `openhands-canvas` and `shell` has a `-mixin` sibling that declares the same capabilities in overlay form, so you can either boot the agent as the sandbox or layer it onto one.
 
 ### Workloads
 
@@ -428,12 +428,14 @@ Note that a fork PR does not receive repository secrets, so any leg needing Dock
 | [`gitlab`](./gitlab) | `deb/dpkg` | The GitLab CLI (`glab`) with proxy-injected token auth |
 | [`gitlab-ssh`](./gitlab-ssh) | `deb/openssh-client` | GitLab SSH host keys in `known_hosts` |
 | [`goose`](./goose) | — | goose, the open-source AI agent from Block, with proxy-managed provider credentials and a ChatGPT login |
+| [`jdk`](./jdk) | — | An Eclipse Temurin JDK copied from the official image, with `JAVA_HOME` set |
 | [`kernel`](./kernel) | — | Cloud-hosted Chromium with stealth, managed auth and session replay |
 | [`lighthouse`](./lighthouse) | — | The Lighthouse CLI with headless Chromium, for auditing pages served in-sandbox |
 | [`mise`](./mise) | `deb/dpkg` | mise-en-place, the polyglot dev-tool version manager, with shell activation |
 | [`neovim`](./neovim) | `deb/dpkg` | Neovim at a pinned release, with a bundled `~/.config/nvim` |
 | [`packages-through-sfw`](./packages-through-sfw) | — | Routes npm and pip through Socket Firewall Free |
 | [`playwright`](./playwright) | — | The Playwright toolchain with Chromium on a shared system browsers path |
+| [`python`](./python) | — | CPython from python-build-standalone plus uv, with PyPI allowed at runtime |
 | [`qemu`](./qemu) | `deb/docker-ce` | QEMU user-mode emulators via binfmt_misc, for cross-arch builds |
 | [`shell-credentials`](./shell-credentials) | — | The eight provider credentials the built-in agentless sandbox declared, for a base that owns none of them |
 | [`smolagents`](./smolagents) | `deb/apt` | Hugging Face smolagents in an isolated virtualenv |
