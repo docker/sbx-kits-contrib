@@ -35,20 +35,17 @@ credentials is genuinely bound.
 ## The pinned release
 
 The release is pinned rather than resolved at build time. The descriptor's
-`version` arg carries upstream's release tag without its leading `v`, the recipe
-checks out exactly that tag with upstream's own `scripts/install.sh`, and the kit
-publishes `provides: ["hermes-agent@<version>"]` plus a top-level `version:` from
-the same arg — so a kit asking for `hermes-agent >= 2026.9` can resolve against
-it.
+`version` arg carries upstream's release tag without its leading `v`, and the
+recipe checks out that tag with upstream's `scripts/install.sh`. The kit publishes
+the same value as `hermes-agent@<version>` and as its top-level `version:`. The
+current default is `0.22.5`, matching upstream's `v0.22.5` release, so consumers
+that need this release should require `hermes-agent >= 0.22.5`.
 
-Hermes reports two numbers and only one of them is selectable. `hermes --version`
-opens with `Hermes Agent v<package version> (<release date>)`: the package
-version (`hermes_cli.__version__`) moves on its own and no installer input picks
-it, while the parenthesised release date is upstream's stamp for the tag. The pin
-is that tag, and the build fails unless the installed CLI reports it in that
-field.
-
-To bump, take the newest stable tag and drop its `v`:
+Hermes reports both a package version and a release date, for example
+`Hermes Agent v0.22.5 (2026.9.24)`. Newer releases use package-version tags such
+as `v0.22.5`; older releases used date-based tags such as `v2026.9.24`. The build
+checks that the installed CLI reports the requested version in the matching
+field. To bump the pin, use the newest stable tag and remove its leading `v`:
 
 ```console
 curl -fsSI -o /dev/null -w '%{redirect_url}\n' \

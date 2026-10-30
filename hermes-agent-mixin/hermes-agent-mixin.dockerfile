@@ -1,14 +1,10 @@
 # syntax=docker/dockerfile:1.7
 # Overlay recipe for the hermes-agent mixin.
 #
-# Hermes installs itself as a Python virtualenv: scripts/install.sh clones the
-# project and `uv pip install -e` wires it up, which bakes absolute
-# interpreter paths into every console-script shebang and into the editable
-# install's own path records. There is no --prefix that relocates that
-# afterwards, so this takes the shape the guide prescribes for an
-# unrelocatable install — the workload's own base as a build stage, the
-# unmodified install run on it, and the specific resulting paths copied into a
-# scratch overlay.
+# Hermes installs a checkout and managed Python environment under ~/.hermes
+# and command launchers under ~/.local/bin. These paths are bound to the
+# installation home, so the mixin builds on the workload base and copies
+# the resulting absolute paths into a scratch overlay without relocation.
 #
 # The install runs as `agent` with HOME at /home/agent, the sandbox runtime's
 # own home, so those baked paths are already correct when the overlay lands.
@@ -55,16 +51,13 @@ WORKDIR /home/agent
 # supported surface; and the `anthropic` extra added afterward because this kit
 # wires Anthropic up as a first-class provider.
 #
-# `hermes --version` is the build-time gate and the pin's check. Its first line is
-# `Hermes Agent v<package version> (<release date>)`, optionally followed by
-# `· upstream <sha>` for a git install, which this is. The package version
-# (0.21.3 at the tag pinned here) is selected by nothing; the parenthesised
-# release date is upstream's `__release_date__`, which for a release tag is the tag
-# minus its `v` -- the identity this kit asked for. So the pin is matched against
-# `(<version>)`, parentheses included, to keep it anchored to that field. The
-# descriptor publishes `hermes-agent@${HERMES_VERSION}`, so a checkout whose stamp
-# disagrees with its tag fails the build rather than shipping an overlay whose
-# provide lies about its content.
+# `hermes --version` gates the build. For a v0.22.5 tag it prints
+# "Hermes Agent v0.22.5 (2026.9.24) ...": package version and release date
+# are separate fields. Previous tags such as v2026.9.24 name the release
+# date instead of the package version. Accept either field for backward
+# compatibility, while anchoring the match to the CLI version banner.
+# The descriptor publishes hermes-agent@${HERMES_VERSION}, so reject a
+# build whose installed CLI reports neither matching version field.
 #
 # The fetch retries because raw.githubusercontent.com answers 429 often enough
 # to red the publish on its own, and a build that dies on someone else's rate
@@ -83,12 +76,11 @@ RUN set -eu; \
     chmod +x /tmp/hermes-install.sh; \
     /tmp/hermes-install.sh --branch "$tag" --skip-setup --skip-browser --skip-computer-use --non-interactive; \
     rm -f /tmp/hermes-install.sh; \
-    "$HOME/.hermes/bin/uv" pip install --python "$HOME/.hermes/hermes-agent/venv/bin/python" \
-        -e "$HOME/.hermes/hermes-agent[anthropic]"; \
+    "$HOME/.local/bin/hermes" pm install --extra anthropic; \
     reported="$("$HOME/.local/bin/hermes" --version | head -1)"; \
     echo "hermes --version: $reported"; \
     case "$reported" in \
-      *"(${HERMES_VERSION})"*) ;; \
+      "Hermes Agent v${HERMES_VERSION} "* | "Hermes Agent v"*" (${HERMES_VERSION})"*) ;; \
       *) echo "pin mismatch: descriptor says ${HERMES_VERSION}, hermes reports '$reported'" >&2; exit 1 ;; \
     esac
 
