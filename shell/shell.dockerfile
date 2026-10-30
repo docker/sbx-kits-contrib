@@ -52,6 +52,12 @@ apt-get clean
 rm -rf /var/lib/apt/lists/*
 EOF
 
+# The base gives agent /bin/sh as its login shell; the Ubuntu templates gave
+# bash.
+RUN usermod -s /bin/bash agent
+
+# An image run with a command (`docker run sbx/shell sleep infinity`, as
+# OpenClaw's tool containers do) execs it, and a plain run is a login bash.
 USER 1000
-ENTRYPOINT ["bash"]
-CMD ["-l"]
+ENTRYPOINT ["bash", "-c", "exec \"$@\"", "bash"]
+CMD ["bash", "-l"]

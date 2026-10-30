@@ -20,7 +20,7 @@ kind: workload
 # provide with no version at all). v2's comment about
 # `vnd.docker.sandbox.kit.version` is stale: v3 derives
 # `org.opencontainers.image.version` from this field (§9.3).
-version: "1.0.1"
+version: "1.0.2"
 
 # UNVERSIONED, DELIBERATELY — this kit's install cannot be pinned, so there is
 # no kiro-cli release it could name without lying. The sibling agent kits in
@@ -116,16 +116,11 @@ capabilities:
           - kiro.dev
           # `apt-get update` (the startup hook below) refreshes metadata for
           # every configured apt source and returns exit 100 if any one of
-          # them fails. The shell-docker base configures Ubuntu, Docker and
-          # GitHub CLI apt sources, so all of them must be reachable. Ubuntu
-          # serves amd64 from archive/security
-          # and arm64 from ports.ubuntu.com, so all three Ubuntu hosts are
-          # listed to keep the kit working cross-arch.
-          - archive.ubuntu.com        # Ubuntu archive (amd64 main)
-          - security.ubuntu.com       # Ubuntu security updates (amd64)
-          - ports.ubuntu.com          # Ubuntu archive/security (arm64)
-          - download.docker.com       # Docker's apt repo, pre-added by shell-docker
-          - cli.github.com            # GitHub CLI apt repo, pre-added by the base
+          # them fails. The sbx/shell base configures the Debian archive and
+          # security mirrors and the DHI package repository as apt sources, so
+          # all of them must be reachable.
+          - deb.debian.org            # Debian archive and security mirrors
+          - dhi.io                    # DHI apt repo
           #
           # AWS-backed endpoints Kiro's device-flow auth and chat need,
           # reported in #185. Not publicly documented beyond that. Exact hosts

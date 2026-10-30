@@ -14,7 +14,7 @@ kind: workload
 
 # The KIT's version, carried over from v2, and the fallback publishing uses
 # for the unversioned provide below.
-version: "1.0.0"
+version: "1.0.1"
 
 # DELIBERATELY UNVERSIONED. agy's version is not a pin this kit can make, and
 # an unversioned provide that matches only unconstrained `requires` is the

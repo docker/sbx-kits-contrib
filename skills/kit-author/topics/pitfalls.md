@@ -105,11 +105,11 @@ When debugging "auth header isn't appearing": confirm the user's `~/.config/sbx/
 
 ## 15. Package managers refresh **every** configured source
 
-A subtle network trap from the repository README, worth restating here: `apt-get update` re-fetches metadata for every file in `/etc/apt/sources.list[.d/]` — including sources the base template added. If *any* of those returns non-2xx (because it's not in your `permissions.network.allow`), `apt-get` exits non-zero even if the package you want is in a different source.
+A subtle network trap from the repository README, worth restating here: `apt-get update` re-fetches metadata for every file in `/etc/apt/sources.list[.d/]`, including sources the base added. If *any* of those returns non-2xx (because it's not in your `permissions.network.allow`), `apt-get` exits non-zero even if the package you want is in a different source.
 
-For kits built on `shell-docker` / `*-docker` templates that means `download.docker.com` (Docker's apt repo, pre-added by the template) needs to be in your `permissions.network.allow` even if you're only installing something from Ubuntu's main archive.
+New kits build on `docker.io/sbx/shell` (Debian 13). Its sources are `deb.debian.org` and `dhi.io`, so both go in `permissions.network.allow`. The same hosts serve amd64 and arm64.
 
-For Ubuntu cross-arch coverage, list all three: `archive.ubuntu.com` and `security.ubuntu.com` (amd64) + `ports.ubuntu.com` (arm64). CI is amd64; many developer Macs are arm64.
+Some existing kits still build on `docker/sandbox-templates:*` (Ubuntu). There, `download.docker.com` (Docker's apt repo, pre-added on the `-docker` variants) also needs to be allowed, and so do all three Ubuntu hosts: `archive.ubuntu.com` and `security.ubuntu.com` (amd64) + `ports.ubuntu.com` (arm64). CI is amd64; many developer Macs are arm64.
 
 ## 16. Legacy v1 fields don't round-trip
 
@@ -155,7 +155,7 @@ Middle-position wildcards like `bedrock-runtime.*.amazonaws.com` aren't part of 
 Common allowlist gaps that have caught real kits:
 
 - **VS Code extension marketplaces**: a kit that ships `code-server` and downloads extensions at runtime needs `openvsx.eclipsecontent.org` (Open VSX content host) in addition to the marketplace API.
-- **Container runtimes that use Docker's apt repo**: `download.docker.com` is added to most agent template `sources.list.d/` — `apt-get update` will fail under `deny-all` unless you allowlist it.
+- **Container runtimes that use Docker's apt repo**: `download.docker.com` is in the apt sources of the `-docker` `docker/sandbox-templates` images, so `apt-get update` on those fails under `deny-all` unless you allowlist it. `docker.io/sbx/shell` has no such source.
 - **Package mirrors**: `registry.npmjs.org` for npm; `pypi.org` + `files.pythonhosted.org` for pip; `crates.io` + `static.crates.io` for cargo. The metadata host and the content host are usually different.
 
 When debugging "this thing can't fetch X," run under `sbx policy log` and add what shows up in the blocked list, one domain at a time. The repository README has the full recipe.

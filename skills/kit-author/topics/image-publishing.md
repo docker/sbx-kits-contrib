@@ -51,20 +51,22 @@ itself, which is also distributed as an OCI artifact — see
 
 ## Choosing a base image
 
-Default to `docker/sandbox-templates:shell`; reach for a `-docker` variant only
-when the kit's agent itself launches containers, not because a nearby kit's
-Dockerfile does — existing kits split between the two bases, so the closest
-example isn't evidence either way. Only set `LABEL
+Build new kits on `docker.io/sbx/shell:latest`, this repository's own base (kit
+`shell/`): Debian 13 with the Docker engine, and apt sources `deb.debian.org`
+and `dhi.io`. It carries the `com.docker.sandboxes.start-docker="true"` label,
+so Docker starts for a workload built on it. Some existing kits still build on
+`docker/sandbox-templates:*` (Ubuntu), so a nearby kit's Dockerfile is not
+evidence of what to pick. Only set `LABEL
 com.docker.sandboxes.start-docker="true"` on a base that actually ships an
-engine (CI checks this — see [Pre-publish verification](../../../PUBLISHING.md#pre-publish-verification)).
-For a new kit, absence of evidence isn't a reason to pick either base — check
-the agent's own source or docs for whether it shells out to `docker`,
-declares a container runtime, or offers a container-backed execution mode,
-and default to plain if it doesn't; when converting an existing kit and that
-question stays open, preserve the base it already had rather than change
-behavior on a guess. The plain base runs meaningfully smaller — hundreds of
-megabytes, measured against today's bases — which is why the choice is worth
-making deliberately rather than by default.
+engine (CI checks this, see [Pre-publish verification](../../../PUBLISHING.md#pre-publish-verification)),
+and state the label in your own Dockerfile rather than relying on the base's.
+When converting an existing kit on a templates base, preserve the base it
+already had rather than change behavior on a guess.
+
+Pinning a base by digest or version is normally the better practice. This
+repository uses `docker.io/sbx/shell:latest` on purpose: CI builds `shell`
+first and rebuilds every kit that builds on it whenever `shell` changes and
+every night, so the floating tag is what keeps those kits on the current base.
 
 ## Do not reach for `sandbox.build:`
 

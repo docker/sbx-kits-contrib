@@ -1,14 +1,13 @@
 # syntax=docker/dockerfile:1
 # The trivy workload's content. The v2 kit shipped no Dockerfile at all: it
-# pointed `sandbox.image` straight at this published template and installed
+# pointed `sandbox.image` straight at a published template and installed
 # the scanner from a setup.install hook. A v3 workload must have content, so
-# this recipe states that template as its base -- v2's `sandbox.image`,
-# carried over verbatim -- puts v2's `sandbox.entrypoint` in the slot the
-# image config already owns, and performs the install itself.
+# this recipe names the shell base, puts v2's `sandbox.entrypoint` in the slot
+# the image config already owns, and performs the install itself.
 #
-# The template carries the platform floor sbx@1 asks for: bash at /bin/bash,
+# The base carries the platform floor sbx@1 asks for: bash at /bin/bash,
 # the agent user at uid 1000, git, and a CA store.
-FROM docker/sandbox-templates:shell-docker
+FROM docker.io/sbx/shell:latest
 
 # Keep these two in step with ../trivy-mixin/trivy-mixin.dockerfile, which
 # carries the same pin for the overlay form, and with the `provides` entry in
@@ -80,6 +79,10 @@ USER agent
 
 # Overrides the base's flavor: sbx reads it as the image's agent.
 LABEL com.docker.sandboxes.flavor="trivy"
+
+# Requests Docker-in-Docker from the runtime. Stated here so the kit does not
+# depend on the base's label.
+LABEL com.docker.sandboxes.start-docker="true"
 
 # v2's sandbox.entrypoint: drop into bash with trivy on PATH and the
 # workspace as cwd. Run `trivy fs .` to scan. Setting ENTRYPOINT also clears

@@ -124,15 +124,11 @@ capabilities:
           - bridge.claudeusercontent.com
           # `apt-get update` (the startup hook below) refreshes metadata for
           # every configured apt source and returns exit 100 if any one of them
-          # fails, so every source the shell-docker base configures must
-          # be reachable. Ubuntu serves amd64 from archive/security and arm64
-          # from ports.ubuntu.com, so all three Ubuntu hosts are listed to keep
-          # the kit working cross-arch.
-          - archive.ubuntu.com        # Ubuntu archive (amd64 main)
-          - security.ubuntu.com       # Ubuntu security updates (amd64)
-          - ports.ubuntu.com          # Ubuntu archive/security (arm64)
-          - download.docker.com       # Docker's apt repo, pre-added by shell-docker
-          - cli.github.com            # GitHub CLI apt repo, pre-added by the base
+          # fails, so every source the sbx/shell base configures must be
+          # reachable: Debian 13 (trixie) from deb.debian.org, and the DHI
+          # package repository from dhi.io.
+          - deb.debian.org            # Debian archive and security
+          - dhi.io                    # DHI Debian package repository
           #
           # Deliberately absent, in both cases because adding a host on
           # speculation is how an allow-list stops describing anything:

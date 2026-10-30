@@ -27,7 +27,7 @@
 # The workload (../amp) deliberately does NOT relocate: it owns its root
 # filesystem, so the faithful thing there is the install v2's hook performed,
 # under the agent's own home.
-ARG BASE_IMAGE=docker/sandbox-templates:shell-docker
+ARG BASE_IMAGE=docker.io/sbx/shell:latest
 FROM ${BASE_IMAGE} AS build
 
 # THE PIN. The kit's `version` arg arrives as this build arg: amp-mixin.yaml
@@ -92,8 +92,7 @@ USER root
 # pin to verify. It is a cheap call even so: the string it prints is baked into
 # the binary (the "released ... ago" part is arithmetic on the timestamp inside
 # its own version), so it reaches no network and returns in under a second
-# natively. The overlay is still exercised where it counts as well: composed onto
-# a bare ubuntu:24.04 and run as uid 1000, `amp --version` reports this pin.
+# natively.
 RUN set -eux; \
     [ -n "$AMP_VERSION" ] || { echo "AMP_VERSION must be set" >&2; exit 1; }; \
     export AMP_HOME=/opt/amp; \
@@ -129,7 +128,7 @@ RUN set -eux; \
 # NOTE on self-update: the CLI's own updater writes to the AMP_HOME it
 # resolves at run time, which -- with the variable deliberately unexported --
 # is the user's ~/.amp, not this prefix. On a base whose PATH puts
-# ~/.local/bin ahead of /usr/local/bin (the sandbox templates do) an updated
+# ~/.local/bin ahead of /usr/local/bin (sbx/shell does) an updated
 # copy wins; otherwise the shim keeps pointing at the version this kit built.
 # The workload installs into the agent's home and has no such seam.
 

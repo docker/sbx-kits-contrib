@@ -14,7 +14,7 @@
 # be unreachable without a second kit to consume it.
 #
 # The base is a floating tag, which is why CI also rebuilds on a schedule.
-ARG BASE_IMAGE=docker/sandbox-templates:shell-docker
+ARG BASE_IMAGE=docker.io/sbx/shell:latest
 FROM ${BASE_IMAGE}
 
 # Re-declared inside the stage: an ARG defined before the first FROM is a global
@@ -159,8 +159,8 @@ LABEL com.docker.sandboxes.start-docker="true"
 
 # Both of the labels below OVERRIDE values inherited from the base image, which
 # describe the base rather than this image. Overriding is not optional for
-# `flavor`: left inherited it would read "shell-docker", and sbx would report
-# this image's agent as "shell-docker".
+# `flavor`: left inherited it would read "shell", and sbx would report
+# this image's agent as "shell".
 #
 # sbx reads `flavor` and treats it as an agent identifier — it surfaces the value
 # as an image's `Agent` in the API, and separately uses it (with any `-docker`

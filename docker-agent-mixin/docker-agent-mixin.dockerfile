@@ -15,7 +15,7 @@
 # layer instead of being re-established at create.
 #
 # The base is a floating tag, which is why CI also rebuilds on a schedule.
-ARG BASE_IMAGE=docker/sandbox-templates:shell-docker
+ARG BASE_IMAGE=docker.io/sbx/shell:latest
 FROM ${BASE_IMAGE} AS build
 
 # Docker Agent publishes one static binary per platform, so the release asset
@@ -97,7 +97,9 @@ EOF
 #   NO_TOUR                -- skip the first-run walkthrough.
 #   HIDE_TELEMETRY_BANNER  -- suppress the notice only; telemetry itself is off
 #                            via TELEMETRY_ENABLED=false.
-RUN printf 'export TERM=xterm-256color\nexport COLORTERM=truecolor\nexport LANG=en_US.UTF-8\nexport TELEMETRY_ENABLED=false\nexport DOCKER_AGENT_AUTO_UPDATE=1\nexport DOCKER_AGENT_NO_TOUR=1\nexport DOCKER_AGENT_HIDE_TELEMETRY_BANNER=1\n' \
+#
+# LANG is C.UTF-8 because docker.io/sbx/shell has no en_US locale.
+RUN printf 'export TERM=xterm-256color\nexport COLORTERM=truecolor\nexport LANG=C.UTF-8\nexport TELEMETRY_ENABLED=false\nexport DOCKER_AGENT_AUTO_UPDATE=1\nexport DOCKER_AGENT_NO_TOUR=1\nexport DOCKER_AGENT_HIDE_TELEMETRY_BANNER=1\n' \
       > /out/etc/profile.d/docker-agent-env.sh
 
 # No com.docker.sandboxes.start-docker label here, deliberately. The workload

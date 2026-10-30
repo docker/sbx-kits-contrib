@@ -11,7 +11,7 @@
 # install on the workload's own base, with HOME already at /home/agent (the
 # sandbox runtime's own home, so the baked paths are correct when the overlay
 # lands), then copy the specific resulting paths into a scratch overlay.
-ARG BASE_IMAGE=docker/sandbox-templates:shell-docker
+ARG BASE_IMAGE=docker.io/sbx/shell:latest
 FROM ${BASE_IMAGE} AS build
 
 # The kit's `version` arg arriving as a build arg -- vibe-mixin.yaml declares
@@ -32,7 +32,7 @@ RUN mkdir -p /out/home/agent/.local /out/etc/profile.d /out/usr/local/bin \
  && chown -R agent:agent /out/home/agent
 
 # mistral-vibe depends on miniaudio, which publishes no arm64 wheel, so uv
-# builds it from source and needs a C++ compiler the template does not carry.
+# builds it from source and needs a C++ compiler the base does not carry.
 # The compiler belongs to this build stage only -- the overlay copies specific
 # paths out, so a toolchain here never reaches the composed sandbox.
 RUN set -ex; \
@@ -41,13 +41,13 @@ RUN set -ex; \
     rm -rf /var/lib/apt/lists/*
 
 # The compiler is only half of it: miniaudio's extension also needs CPython's
-# headers, and the template's own python3.14 ships neither `pyconfig.h` nor an
-# apt package that provides one. --managed-python below has uv download an
-# interpreter that carries its headers, pinned to the same 3.14 the template
-# runs, so this changes where Python comes from and not which Python it is.
+# headers, and the base's /usr/bin/python3 (the `python-3.14-minimal` deb) ships
+# no `pyconfig.h` without `python-3.14-dev`. --managed-python below has uv download an interpreter that
+# carries its headers, pinned to the same 3.14 the base runs, so this changes
+# where Python comes from and not which Python it is.
 
 # The install, unmodified from the workload recipe. uv ships with the
-# template at /usr/local/bin/uv, and `uv tool install` puts the executables
+# base at /usr/bin/uv, and `uv tool install` puts the executables
 # in ~/.local/bin. The requirement is `mistral-vibe==<version>`, an exact
 # specifier rather than a range, so what uv resolves is the release the
 # descriptor promised. `vibe --version` is the build-time gate.
@@ -92,7 +92,7 @@ exec vibe --trust --agent "${VIBE_AGENT:-auto-approve}" "$@"
 EOF
 
 # The bin shim below, not a profile.d PATH export: ~/.local/bin is on PATH on
-# the shell templates but a mixin lands on any base, and /usr/local/bin is on
+# the shell base but a mixin lands on any base, and /usr/local/bin is on
 # every one of them.
 RUN set -eu; \
     chmod 0755 /out/usr/local/bin/vibe-start; \

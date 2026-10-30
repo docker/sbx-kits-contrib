@@ -16,8 +16,7 @@ Copilot was previously a built-in `sbx` agent, run as `sbx run copilot`. This
 kit replaces that. A v3 workload's layers *are* the sandbox's root filesystem,
 so the kit is its own image: the content recipe is
 [`copilot.dockerfile`](./copilot.dockerfile) beside the descriptor, built on
-`docker/sandbox-templates:shell-docker` rather than tracking the
-`docker/sandbox-templates` release train.
+`docker.io/sbx/shell` rather than tracking a prebuilt agent template.
 
 Prefer Copilot layered onto something else rather than as the whole sandbox?
 See [`copilot-mixin`](../copilot-mixin/), which makes the same declarations as
@@ -97,8 +96,9 @@ fail until `COPILOT_GITHUB_TOKEN` is set up too.
 
 The `network-policy@1` capability's `runtime.allow` list mirrors every domain
 either credential injects into, plus the apt sources the base image ships with
-(needed because the startup hook runs `apt-get update`, which fails wholesale
-if any configured source is unreachable). v3 validates the other direction too:
+(`deb.debian.org` and `dhi.io`, needed because the startup hook runs
+`apt-get update`, which fails wholesale if any configured source is
+unreachable). v3 validates the other direction too:
 every inject domain must appear in the matching phase's allow list, so an inject
 rule the policy could never admit is a build error rather than dead config.
 
@@ -143,7 +143,7 @@ Unlike a mixin, which layers onto whatever it lands on, a `kind: workload` kit
 image config carries the launch contract. So this kit builds that filesystem
 itself, from [`copilot.dockerfile`](./copilot.dockerfile) beside the descriptor.
 
-The recipe builds on `docker/sandbox-templates:shell-docker`, so the result
+The recipe builds on `docker.io/sbx/shell` (Debian 13), so the result
 carries a Docker engine and requests Docker-in-Docker.
 
 There is one artifact rather than two. Under v2 this kit named a separately

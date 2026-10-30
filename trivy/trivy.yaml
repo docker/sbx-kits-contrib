@@ -2,8 +2,8 @@
 # Migration of the v2 `trivy` sandbox kit. This kit shipped no Dockerfile:
 # `sandbox.image` named a published template directly and `setup.install`
 # fetched the scanner at sandbox create. A v3 workload must carry content, so
-# trivy.dockerfile states that template, carries v2's sandbox.entrypoint in
-# the image config, and performs the pinned, digest-verified install itself —
+# trivy.dockerfile names the shell base, carries v2's sandbox.entrypoint in
+# the image config, and performs the pinned, digest-verified install itself,
 # which is what lets this kit declare no install phase at all (see the
 # network policy below). Deltas are marked MIGRATION NOTE inline.
 schemaVersion: "3"

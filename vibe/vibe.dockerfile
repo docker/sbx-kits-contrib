@@ -10,11 +10,11 @@
 # The base is a floating tag, which is why CI also rebuilds on a schedule.
 # Vibe itself is not: the kit pins its release (see ARG VIBE_VERSION below),
 # so a scheduled rebuild refreshes the base and leaves the agent where it is.
-ARG BASE_IMAGE=docker/sandbox-templates:shell-docker
+ARG BASE_IMAGE=docker.io/sbx/shell:latest
 
 # MIGRATION NOTE: the install runs in a build stage, where the v2 recipe had a
 # single one. mistral-vibe depends on miniaudio, which publishes no arm64 wheel,
-# so uv builds it from source and needs a C++ compiler the template does not
+# so uv builds it from source and needs a C++ compiler the base does not
 # carry -- the v2 recipe therefore could only ever build for amd64, even though
 # CI asked for both platforms. The compiler is installed here and stays behind
 # in this stage, so the published kit does not carry a toolchain it never uses.
@@ -42,18 +42,17 @@ RUN set -ex; \
     apt-get install -y --no-install-recommends g++; \
     rm -rf /var/lib/apt/lists/*
 
-# uv ships with the template at /usr/local/bin/uv, and `uv tool install` puts
-# the executables in ~/.local/bin, which is already on the template's PATH --
-# so the ENTRYPOINT below can stay the bare name `vibe`.
+# uv ships with the base at /usr/bin/uv, and `uv tool install` puts the
+# executables in ~/.local/bin, which is already on the base's PATH -- so the
+# ENTRYPOINT below can stay the bare name `vibe`.
 #
 # --managed-python is the other half of the arm64 fix, and it is not
 # interchangeable with the compiler above: miniaudio's extension needs a
-# compiler AND CPython's headers. The template's own python3.14 ships neither
-# `pyconfig.h` nor an apt package that provides it -- there is no
-# `python3-dev` candidate in its sources at all -- so uv downloads a managed
-# interpreter that carries its headers. The version is pinned to 3.14 to match
-# the interpreter the v2 image ran on, so this changes where Python comes from
-# and not which Python it is.
+# compiler AND CPython's headers. The base's /usr/bin/python3 comes from the
+# `python-3.14-minimal` deb, which ships no `pyconfig.h` (that needs
+# `python-3.14-dev`), so uv downloads a managed interpreter that carries its
+# headers. The version is pinned to 3.14 to match the base's interpreter, so
+# this changes where Python comes from and not which Python it is.
 #
 # The requirement is `mistral-vibe==<version>`, an exact specifier rather than
 # a range: what uv resolves is the release the descriptor promised, which is
@@ -84,13 +83,13 @@ USER agent
 
 # Requests Docker-in-Docker from the runtime. Inherited from the base image,
 # but re-declared so the value is owned here rather than depending on
-# inheritance from an image this repository does not own. This stays a label:
+# inheritance. This stays a label:
 # it is a request to the runtime, not a v3 capability.
 LABEL com.docker.sandboxes.start-docker="true"
 
 # sbx reads `flavor` as the image's agent identifier and surfaces it in the API,
 # so it must be the kit's own name -- left inherited it would read
-# "shell-docker" and sbx would report this image's agent as that.
+# "shell" and sbx would report this image's agent as that.
 LABEL com.docker.sandboxes.flavor="vibe"
 
 # Informational only. Worth setting because the base is a floating tag rebuilt

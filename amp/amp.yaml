@@ -2,7 +2,7 @@
 # Migration of the v2 `amp` sandbox kit. This one shipped no Dockerfile at
 # all: v2's sandbox.image pointed straight at a published template and the
 # install hook did the rest. A v3 workload MUST have content, so the companion
-# recipe states exactly that -- the same template as its base, the launch
+# recipe states exactly that -- the shell base, the launch
 # config the image config now owns, and Amp's own installer run at build time
 # rather than at sandbox create. That last part is why this kit declares no
 # lifecycle hook and no install-phase egress. Deltas are marked MIGRATION NOTE

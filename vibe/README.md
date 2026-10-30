@@ -83,7 +83,7 @@ Telemetry and Vibe's self-update are both switched off through `VIBE_ENABLE_TELE
 ## Content
 
 The kit's content is its own image: [`vibe.dockerfile`](./vibe.dockerfile)
-builds from `docker/sandbox-templates:shell-docker` and installs
+builds from `docker.io/sbx/shell` and installs
 `mistral-vibe` from PyPI with `uv tool install`. The release is pinned by the
 descriptor's `version` arg, which reaches the recipe as `VIBE_VERSION` and is
 expanded into `provides: ["vibe@<version>"]`, so the kit advertises the release

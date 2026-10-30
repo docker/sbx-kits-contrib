@@ -29,6 +29,7 @@ Tool calls run in a nested container that the bootstrap pulls on first boot;
 until that pull lands, a tool call fails with "Sandbox image not found".
 
 The browser tool uses the Chromium this overlay carries. Its shared libraries
-come from the base workload, not from this mixin — if the browser fails to
-launch on a missing `.so`, that is the base's gap, and the standalone
+are installed from the base's apt when the sandbox is created, and the create
+fails if any is left unresolved (a base that is not Debian-family, or blocked
+apt hosts). The standalone
 [`openclaw`](../openclaw) workload kit is the self-contained alternative.

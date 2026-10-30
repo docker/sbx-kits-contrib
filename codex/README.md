@@ -16,8 +16,7 @@ Codex was previously a built-in `sbx` agent, run as `sbx run codex`. This kit
 replaces that. A v3 workload's layers *are* the sandbox's root filesystem, so
 the kit is its own image: the content recipe is
 [`codex.dockerfile`](./codex.dockerfile) beside the descriptor, built on
-`docker/sandbox-templates:shell-docker` rather than tracking the
-`docker/sandbox-templates` release train.
+`docker.io/sbx/shell` rather than tracking a prebuilt agent template.
 
 Prefer Codex layered onto something else rather than as the whole sandbox? See
 [`codex-mixin`](../codex-mixin/), which makes the same declarations as an
@@ -73,10 +72,8 @@ behaviour survives a session started by something other than the entrypoint —
 
 ## Opening links
 
-`BROWSER` is set to `xdg-open`, and the image installs `xdg-utils` so that
-program is really there. A kit that builds its own image has no excuse for
-pointing `BROWSER` at something it never shipped, and the package costs
-roughly 400 KB with no dependencies once its X11 recommends are skipped.
+`BROWSER` is set to `xdg-open`, and the image installs `xdg-utils` because the
+base does not ship it; the build fails if it is missing.
 
 The sandbox still has no browser and no display, so a link does not literally
 open: `xdg-open` answers `no method available for opening ...`, exits non-zero,
@@ -207,9 +204,10 @@ The `network-policy@1` capability's `runtime.allow` list covers every domain the
 credential injects into or authenticates against, the hosts Codex reaches
 during a session (uploads,
 `codex update` re-running the standalone installer, GitHub release checks and
-skill downloads), and the apt sources the base image ships with — the last of
-those because the startup hook runs `apt-get update`, which fails wholesale if
-any configured source is unreachable.
+skill downloads), and the apt sources the base image ships with
+(`deb.debian.org` and `dhi.io`). The last of those because the startup hook
+runs `apt-get update`, which fails wholesale if any configured source is
+unreachable.
 
 Everything sits in the `runtime` phase and the `install` phase is absent, which
 grants nothing there. That is not an oversight: v3 scopes egress by phase and
@@ -254,7 +252,7 @@ Unlike a mixin, which layers onto whatever it lands on, a `kind: workload` kit
 image config carries the launch contract. So this kit builds that filesystem
 itself, from [`codex.dockerfile`](./codex.dockerfile) beside the descriptor.
 
-The recipe builds on `docker/sandbox-templates:shell-docker`, so the result
+The recipe builds on `docker.io/sbx/shell` (Debian 13), so the result
 carries a Docker engine and requests Docker-in-Docker.
 
 There is one artifact rather than two. Under v2 this kit named a separately

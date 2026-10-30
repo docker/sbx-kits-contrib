@@ -15,7 +15,7 @@ request after that.
 `devin` was previously a built-in `sbx` agent, run as `sbx run devin`. This kit
 replaces that, and its content is built from
 [`devin.dockerfile`](./devin.dockerfile) in this directory rather than taken
-from the `docker/sandbox-templates` release train.
+from a prebuilt agent template.
 
 There is also a [`devin-mixin`](../devin-mixin) variant of the same kit, for
 layering the CLI onto a shell workload instead of running a sandbox of its
@@ -224,8 +224,8 @@ accumulate.
 The `network-policy@1` capability's `runtime` allow list names Devin's own
 hosts (collapsed to a single `*.devin.ai` wildcard, below), the alternate
 sign-in host, the Codeium backend the model and seat services still live on,
-and the apt sources the base image ships — which the startup `apt-get update`
-fails wholesale without.
+and the apt sources the base image ships (`deb.debian.org` and `dhi.io`), which
+the startup `apt-get update` fails wholesale without.
 
 Everything is in the `runtime` phase and there is no `install` phase: the CLI
 is installed at build time, which no phase of the policy scopes, and both
@@ -317,7 +317,7 @@ built elsewhere. That content is built from
 [`devin.dockerfile`](./devin.dockerfile), the companion recipe the descriptor
 finds by filename stem.
 
-It is built on `docker/sandbox-templates:shell-docker`, so it carries a Docker
+It is built on `docker.io/sbx/shell` (Debian 13), so it carries a Docker
 engine and requests Docker-in-Docker through the
 `com.docker.sandboxes.start-docker` label — which stays a label in v3 rather
 than becoming a capability.

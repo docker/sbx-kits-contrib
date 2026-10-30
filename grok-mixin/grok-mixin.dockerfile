@@ -8,13 +8,13 @@
 # workload's own base, then copy the specific resulting paths into a scratch
 # overlay.
 #
-# This is also where the workload's setup hook went: ../grok installs at
-# sandbox-create time, this kit installs at image-build time, which is why its
-# descriptor declares no install phase and no lifecycle entry.
+# Like ../grok, which bakes the same install into its image, this kit installs
+# at image-build time, which is why its descriptor declares no install phase and
+# no lifecycle entry.
 #
 # It runs as `agent` with HOME at /home/agent, the sandbox runtime's own home,
 # so the paths the installer bakes are already correct when the overlay lands.
-FROM docker/sandbox-templates:shell-docker AS build
+FROM docker.io/sbx/shell:latest AS build
 
 # THE PIN. The kit's `version` arg arrives as this build arg: grok-mixin.yaml
 # validates its shape and expands the same value into `provides` and into its
@@ -103,7 +103,7 @@ RUN set -eux; \
     ln -s /home/agent/.grok/bin/grok /out/usr/local/bin/grok
 
 # The bin shim above, not a profile.d PATH export: ~/.local/bin is on PATH on
-# the shell templates but a mixin lands on any base, and /usr/local/bin is on
+# the shell base but a mixin lands on any base, and /usr/local/bin is on
 # every one of them. v2 declared no environment.variables, so there is no env
 # file to write beside it.
 
