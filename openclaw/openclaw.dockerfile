@@ -17,7 +17,7 @@
 # arg, so the default is what ships -- and it is the same tag this image has
 # always been built on. Unlike OPENCLAW_VERSION below, the base is left
 # floating on purpose, so a nightly rebuild picks up base fixes.
-ARG BASE_IMAGE=docker.io/sbx/shell
+ARG BASE_IMAGE=docker.io/sbx/shell:latest
 FROM ${BASE_IMAGE}
 
 # Re-declared inside the stage: an ARG defined before the first FROM is a

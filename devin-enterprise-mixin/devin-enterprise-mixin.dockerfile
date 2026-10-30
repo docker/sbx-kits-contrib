@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1
 # Same pinned installation recipe as the devin-mixin kit.
-ARG BASE_IMAGE=docker.io/sbx/shell
+ARG BASE_IMAGE=docker.io/sbx/shell:latest
 FROM ${BASE_IMAGE} AS build
 
 # Supplied by the descriptor's `version` arg, which owns the default and the

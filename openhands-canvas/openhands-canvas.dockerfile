@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1
 # sbx/shell provides uv, bash, git, a CA store, Node 24 (Agent Canvas' engine
 # floor is >=24) and the uid-1000 agent user required by sbx@1.
-FROM docker.io/sbx/shell
+FROM docker.io/sbx/shell:latest
 
 ARG AGENT_CANVAS_VERSION
 ARG OPENHANDS_VERSION

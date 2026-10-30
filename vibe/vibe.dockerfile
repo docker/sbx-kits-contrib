@@ -10,7 +10,7 @@
 # The base is a floating tag, which is why CI also rebuilds on a schedule.
 # Vibe itself is not: the kit pins its release (see ARG VIBE_VERSION below),
 # so a scheduled rebuild refreshes the base and leaves the agent where it is.
-ARG BASE_IMAGE=docker.io/sbx/shell
+ARG BASE_IMAGE=docker.io/sbx/shell:latest
 
 # MIGRATION NOTE: the install runs in a build stage, where the v2 recipe had a
 # single one. mistral-vibe depends on miniaudio, which publishes no arm64 wheel,

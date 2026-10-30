@@ -286,7 +286,7 @@ so this kit carries the whole environment, built from
 
 ```
 pi (the kit's own layers)
-└── FROM docker.io/sbx/shell
+└── FROM docker.io/sbx/shell:latest
     ├── fd-find (apt, + /usr/local/bin/fd symlink)
     └── @earendil-works/pi-coding-agent @ latest
         npm global install (+ /usr/local/bin symlink)

@@ -7,7 +7,7 @@
 #
 # The base carries the platform floor sbx@1 asks for: bash at /bin/bash,
 # the agent user at uid 1000, git, and a CA store.
-FROM docker.io/sbx/shell
+FROM docker.io/sbx/shell:latest
 
 # Keep these two in step with ../trivy-mixin/trivy-mixin.dockerfile, which
 # carries the same pin for the overlay form, and with the `provides` entry in

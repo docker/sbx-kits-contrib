@@ -364,7 +364,7 @@ root filesystem — so this kit carries the whole environment. It builds from
 
 ```
 the openclaw kit's content
-└── FROM ${BASE_IMAGE}  (defaults to docker.io/sbx/shell)
+└── FROM ${BASE_IMAGE}  (defaults to docker.io/sbx/shell:latest)
     ├── Node 24, from the base (openclaw 2026.9.3 requires >= 24.16.0 < 25, or >= 26.1.0)
     ├── openclaw @ args.version     npm global install (+ /usr/local/bin symlink)
     ├── /opt/ms-playwright          Chromium + xvfb for the browser tool

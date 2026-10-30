@@ -15,7 +15,7 @@
 # layer instead of being re-established at create.
 #
 # The base is a floating tag, which is why CI also rebuilds on a schedule.
-ARG BASE_IMAGE=docker.io/sbx/shell
+ARG BASE_IMAGE=docker.io/sbx/shell:latest
 FROM ${BASE_IMAGE} AS build
 
 # Docker Agent publishes one static binary per platform, so the release asset

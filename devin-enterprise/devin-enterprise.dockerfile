@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1
 # Same pinned installation recipe as the devin kit.
-ARG BASE_IMAGE=docker.io/sbx/shell
+ARG BASE_IMAGE=docker.io/sbx/shell:latest
 FROM ${BASE_IMAGE}
 
 # Re-declared inside the stage: an ARG defined before the first FROM is a
