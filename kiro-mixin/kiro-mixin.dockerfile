@@ -20,7 +20,7 @@
 # It runs as `agent` with HOME at /home/agent, the sandbox runtime's own home,
 # so the paths the installer and `setup` bake are already correct when the
 # overlay lands.
-ARG BASE_IMAGE=docker/sandbox-templates:shell-docker
+ARG BASE_IMAGE=docker.io/sbx/shell
 FROM ${BASE_IMAGE} AS build
 
 # The launcher the user resolves as `kiro`: it checks authentication state and
@@ -70,7 +70,7 @@ RUN set -eux; \
     ln -s /home/agent/.local/bin/kiro-cli /out/usr/local/bin/kiro-cli
 
 # The bin shims above, not a profile.d PATH export: ~/.local/bin is on PATH on
-# the shell templates but a mixin lands on any base, and /usr/local/bin is on
+# docker.io/sbx/shell but a mixin lands on any base, and /usr/local/bin is on
 # every one of them. `kiro-cli` gets one as well as `kiro`, because the
 # descriptor's install hook invokes it by bare name.
 

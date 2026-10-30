@@ -16,8 +16,8 @@
 # base digest without editing this file. Nothing in this repository passes the
 # arg, so the default is what ships -- and it is the same tag this image has
 # always been built on. Unlike OPENCLAW_VERSION below, the base is left
-# floating on purpose, so a nightly rebuild picks up template fixes.
-ARG BASE_IMAGE=docker/sandbox-templates:shell-docker
+# floating on purpose, so a nightly rebuild picks up base fixes.
+ARG BASE_IMAGE=docker.io/sbx/shell
 FROM ${BASE_IMAGE}
 
 # Re-declared inside the stage: an ARG defined before the first FROM is a
@@ -34,47 +34,38 @@ ARG BASE_IMAGE
 ARG OPENCLAW_VERSION
 
 USER root
-# Some networks block plain-HTTP apt traffic (UA-based filtering); the
-# Ubuntu archives all support HTTPS.
+# Some networks block plain-HTTP apt traffic (UA-based filtering); deb.debian.org
+# and dhi.io both serve HTTPS.
 RUN sed -i 's|http://|https://|g' /etc/apt/sources.list.d/*.sources /etc/apt/sources.list 2>/dev/null || true
 
-# Node 24 and the pinned openclaw package. The major is pinned, not the patch:
-# 2026.9.3 declares `node >=24.16.0 <25 || >=26.1.0`, so 24.x is the supported
-# line and a rebuild picking up a newer 24.x is wanted. The floor moved with
-# this release -- 2026.9.2 still ran on 22 -- so the package bump and the
-# runtime bump have to travel together.
+# The pinned openclaw package, on the base's Node. 2026.9.3 declares
+# `node >=24.16.0 <25 || >=26.1.0`, and sbx/shell ships Node 24, so no runtime
+# is installed here. The floor moved with this release -- 2026.9.2 still ran on
+# 22 -- so a package bump and the base's Node have to travel together.
 # The package's lifecycle scripts are offline-safe (local plugin fixups only).
 #
-# `n` installs to /usr/local, leaving the template's apt node at /usr/bin/node
-# on 22.22.1. That is load-bearing: openclaw's launcher is
-# `#!/usr/bin/env node`, so it needs /usr/local/bin ahead of /usr/bin on PATH
-# or it resolves the old interpreter and refuses to run. Every PATH in play has
-# that order -- the image's own, the runtime's default for startup commands,
-# and the one openclaw-gateway-up.sh exports -- but a PATH change that reorders
-# those two directories breaks the kit. openclaw's own preinstall guard does
-# not cover this: it inspects the Node that ran npm, not what the shebang will
-# resolve to later, so the check below is what ties the two together.
-RUN npm install -g n && n 24 && npm install -g "openclaw@${OPENCLAW_VERSION}"
+# openclaw's launcher is `#!/usr/bin/env node`, and openclaw's own preinstall
+# guard inspects the Node that ran npm, not what the shebang will resolve to
+# later, so the `openclaw --version` check below is what ties the two together.
+RUN npm install -g "openclaw@${OPENCLAW_VERSION}"
 
 # Chromium + headless deps for openclaw's browser tool, shared system-wide.
 # `install --with-deps` apt-installs the runtime libraries; the browser
 # download itself goes to PLAYWRIGHT_BROWSERS_PATH below.
 #
-# The platform override is no longer strictly needed: it was added when
-# Playwright 1.60 had no dependency map for the template's Ubuntu 26.04, and
-# 2026.9.3's playwright-core 1.62.1 does carry an ubuntu26.04 entry whose
-# chromium apt list is identical to ubuntu24.04's. It is kept deliberately,
-# because BASE_IMAGE floats: on a platform Playwright has no map for,
-# `install --with-deps` prints "Cannot install dependencies" and exits 0, so a
-# template moving to an unmapped Ubuntu would publish a green image shipping a
-# Chromium with no runtime libraries. Pinning a mapped platform keeps that
-# state unreachable. gstack/Dockerfile pins it for the same reason.
+# The platform is pinned to Playwright's own debian13 target, which sbx/shell
+# matches (playwright-core 1.62.1 maps Debian 13 to it, with a chromium apt
+# list of its own). It is kept explicit because BASE_IMAGE floats: on a platform
+# Playwright has no map for, `install --with-deps` prints "Cannot install
+# dependencies" and exits 0, so a base moving to an unmapped distro would
+# publish a green image shipping a Chromium with no runtime libraries. Pinning
+# a mapped platform keeps that state unreachable.
 ENV PLAYWRIGHT_BROWSERS_PATH=/opt/ms-playwright
 ARG TARGETARCH
 RUN apt-get update && apt-get install -y --no-install-recommends xvfb && \
     ARCH="${TARGETARCH:-$(dpkg --print-architecture)}" && \
     PW_ARCH=$([ "$ARCH" = "amd64" ] && echo x64 || echo arm64) && \
-    PLAYWRIGHT_HOST_PLATFORM_OVERRIDE="ubuntu24.04-$PW_ARCH" \
+    PLAYWRIGHT_HOST_PLATFORM_OVERRIDE="debian13-$PW_ARCH" \
       node "$(npm root -g)/openclaw/node_modules/playwright-core/cli.js" install --with-deps chromium && \
     chmod -R a+rX /opt/ms-playwright && \
     rm -rf /var/lib/apt/lists/*
@@ -114,8 +105,7 @@ COPY --chown=agent:agent files/home/ /home/agent/
 
 USER root
 # Inherited from the base image, but re-declared deliberately so the value is
-# owned here rather than depending on inheritance from an image this repository
-# does not own.
+# owned here rather than depending on inheritance.
 #
 # This is a *request* to the runtime, not a description of the image: setting it
 # over a base with no Docker engine yields a sandbox started in Docker mode with
@@ -133,8 +123,8 @@ LABEL com.docker.sandboxes.start-docker="true"
 # Overriding `flavor` is not optional. sbx reads it as an agent identifier: it
 # surfaces the value as an image's `Agent`, and uses it to warn when a template
 # looks built for a different agent than the one being run. Left inherited it
-# reads "shell-docker", so sbx reports this image's agent as the base template
-# rather than OpenClaw. It must be the kit name exactly: `openclaw`.
+# reads "shell", so sbx reports this image's agent as the base rather than
+# OpenClaw. It must be the kit name exactly: `openclaw`.
 LABEL com.docker.sandboxes.flavor="openclaw"
 
 # Informational only -- nothing in sbx reads this. Worth setting because it is
@@ -143,8 +133,7 @@ LABEL com.docker.sandboxes.flavor="openclaw"
 LABEL com.docker.sandboxes.base="${BASE_IMAGE}"
 
 # Note: `com.docker.sandboxes=templates` also appears on this image. It is
-# inherited from the base and is not set here -- nothing reads it, and this
-# image is not part of that template family, so it is left alone rather than
+# inherited from the base and is not set here, so it is left alone rather than
 # asserted.
 
 # v2's environment.variables, in the slot OCI already owns for static env.

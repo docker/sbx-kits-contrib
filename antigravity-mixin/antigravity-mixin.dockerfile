@@ -19,7 +19,7 @@
 # bundle it launches, so copying bin alone risks an overlay of launchers with
 # nothing behind them. The per-user prefix is the smallest boundary that is
 # certain to contain both.
-ARG BASE_IMAGE=docker/sandbox-templates:shell-docker
+ARG BASE_IMAGE=docker.io/sbx/shell
 FROM ${BASE_IMAGE} AS build
 
 USER agent
@@ -42,9 +42,17 @@ RUN set -eu; \
 
 # v2's environment.variables. A mixin's image config is not the composed
 # image's, so static env rides the overlay as a profile script instead of ENV.
+#
+# xdg-open is what BROWSER names. The base does not ship xdg-utils (plain
+# scripts, no libraries), so install it here and copy /usr/bin/xdg-* across.
 USER root
-RUN mkdir -p /out/etc/profile.d && \
-    printf 'export BROWSER=xdg-open\n' > /out/etc/profile.d/antigravity-env.sh
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends xdg-utils \
+ && rm -rf /var/lib/apt/lists/* \
+ && command -v xdg-open \
+ && mkdir -p /out/usr/bin /out/etc/profile.d \
+ && cp -a /usr/bin/xdg-* /out/usr/bin/ \
+ && printf 'export BROWSER=xdg-open\n' > /out/etc/profile.d/antigravity-env.sh
 
 # No com.docker.sandboxes.start-docker label here, deliberately. The workload
 # sets it because it owns a base that carries a Docker engine; setting it from

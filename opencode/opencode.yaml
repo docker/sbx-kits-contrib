@@ -4,7 +4,7 @@
 #
 # The shape follows the v3 migration of this agent's built-in ancestor
 # (runtime-kits examples/opencode), but the content is this kit's own: its
-# Dockerfile, its shell-docker base, its inject-only github credential, its
+# Dockerfile, its sbx/shell base, its inject-only github credential, its
 # fresh-write MCP registration, its Copilot seed, and its apt hosts. Where the
 # two differ deliberately, the comment says so.
 #
@@ -161,17 +161,13 @@ capabilities:
           - "*.opencode.ai"
           # `apt-get update` (the startup hook below) refreshes metadata for
           # every configured apt source and returns exit 100 if any one of them
-          # fails. The shell-docker base configures Ubuntu, Docker and GitHub
-          # CLI apt sources, so all of them must be reachable. Ubuntu serves amd64 from archive/security and arm64
-          # from ports.ubuntu.com, so all three Ubuntu hosts are listed to keep
-          # the kit working cross-arch. A workload owns its base, so these
+          # fails. The sbx/shell base configures the Debian archive and
+          # security mirrors and the DHI package repository as apt sources, so
+          # all of them must be reachable. A workload owns its base, so these
           # belong here (and only here -- the mixin leaves them to the base it
           # composes onto).
-          - archive.ubuntu.com        # Ubuntu archive (amd64 main)
-          - security.ubuntu.com       # Ubuntu security updates (amd64)
-          - ports.ubuntu.com          # Ubuntu archive/security (arm64)
-          - download.docker.com       # Docker's apt repo, pre-added by shell-docker
-          - cli.github.com            # GitHub CLI apt repo, pre-added by the base
+          - deb.debian.org            # Debian archive and security mirrors
+          - dhi.io                    # DHI apt repo
 
   # Seven provider services, every one of them `optional: true`. That is
   # deliberate and uniform: OpenCode is usable with a locally served model and

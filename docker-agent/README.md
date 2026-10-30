@@ -15,7 +15,7 @@ request — no interactive sign-in flow is involved.
 `sbx run docker-agent` (or its `cagent` alias). This kit replaces that, and its
 content is built from
 [`docker-agent.dockerfile`](./docker-agent.dockerfile) in this directory
-rather than taken from the `docker/sandbox-templates` release train.
+rather than taken from a shared template image.
 
 There is also a [`docker-agent-mixin`](../docker-agent-mixin) variant of the
 same kit, for layering the agent onto a shell workload instead of running a
@@ -208,9 +208,9 @@ are in the allow-list.
 
 The `network-policy@1` capability's `runtime` allow list names every host a
 credential above injects into, plus the release-asset host self-update
-redirects to, plus the apt sources the base image ships with (needed because
-the startup hook runs `apt-get update`, which fails wholesale if any
-configured source is unreachable).
+redirects to, plus the apt sources the base image ships with, `deb.debian.org`
+and `dhi.io` (needed because the startup hook runs `apt-get update`, which
+fails wholesale if any configured source is unreachable).
 
 Everything is in the `runtime` phase and there is no `install` phase: the
 binary is installed at build time, which no phase of the policy scopes; the
@@ -258,7 +258,7 @@ built elsewhere. That content is built from
 [`docker-agent.dockerfile`](./docker-agent.dockerfile), the companion recipe
 the descriptor finds by filename stem.
 
-It is built on `docker/sandbox-templates:shell-docker`, so it carries a Docker
+It is built on `docker.io/sbx/shell`, so it carries a Docker
 engine and requests Docker-in-Docker through the
 `com.docker.sandboxes.start-docker` label — which stays a label in v3 rather
 than becoming a capability.

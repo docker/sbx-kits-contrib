@@ -56,10 +56,10 @@ $ docker-agent run --yolo
 - **The launch command.** No `ENTRYPOINT`: the base workload's stays, so
   `run --yolo --agent-picker` has to be spelled out. Dropping `--agent-picker`
   is usually what you want from a shell — it opens a full-screen chooser.
-- **The base's package sources.** The workload allows `archive.ubuntu.com`,
-  `security.ubuntu.com`, `ports.ubuntu.com` and `download.docker.com` and runs
-  an `apt-get update` startup hook. Both stay with it: they describe the base
-  image's apt configuration, which an overlay does not own and cannot know.
+- **The base's package sources.** The workload allows `deb.debian.org` and
+  `dhi.io` and runs an `apt-get update` startup hook. Both stay with it: they
+  describe the base image's apt configuration, which an overlay does not own
+  and cannot know.
 - **Docker-in-Docker.** The workload sets
   `com.docker.sandboxes.start-docker` because it owns a base that carries an
   engine. An overlay setting it would ask for Docker mode over a base that may

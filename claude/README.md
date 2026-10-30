@@ -14,7 +14,7 @@ console API key or as a Claude subscription, per request.
 `claude` was previously a built-in `sbx` agent, run as `sbx run claude`. This
 kit replaces that. Its content is built from the
 [`claude.dockerfile`](./claude.dockerfile) beside the descriptor rather than
-coming from the `docker/sandbox-templates` release train.
+coming from a prebuilt agent template.
 
 Want Claude Code *added to* a sandbox rather than being the whole sandbox? Use
 [`claude-mixin`](../claude-mixin), which carries the same declarations as an
@@ -213,8 +213,9 @@ every workspace regardless of the session's cwd.
 The `network-policy@1` capability lists every host the credential injects into,
 the OAuth token endpoint, the release bucket `claude update` pulls from, Claude
 Code's own web properties, the remote-control relay that lets claude.ai and the
-mobile app drive a session, and the apt sources the base image ships with —
-which the startup `apt-get update` fails wholesale without.
+mobile app drive a session, and the apt sources the base image ships with
+(`deb.debian.org` and `dhi.io`), which the startup `apt-get update` fails
+wholesale without.
 
 A v3 policy is phase-scoped, and an absent phase grants nothing. Every entry
 here sits under `runtime`, and there is no `install` block at all: none of the
@@ -304,7 +305,7 @@ kit has content of its own rather than naming an image to boot from. That
 content is built from [`claude.dockerfile`](./claude.dockerfile), which the
 frontend finds by the filename stem beside the descriptor.
 
-It builds on `docker/sandbox-templates:shell-docker`, so it carries a Docker
+It builds on `docker.io/sbx/shell` (Debian 13), so it carries a Docker
 engine and sets `com.docker.sandboxes.start-docker` — matching the agent this kit
 replaces, which resolved to the Docker flavour of its template. That label stays
 a label: v3 has no capability for it, and `privileged@1` is a far broader ask

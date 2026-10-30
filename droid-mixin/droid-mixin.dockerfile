@@ -11,7 +11,7 @@
 # so the absolute paths are already correct when the overlay lands. Installing
 # under a staging HOME and moving the tree afterwards would leave them
 # pointing at a directory that does not exist in the composed sandbox.
-FROM docker/sandbox-templates:shell-docker AS build
+FROM docker.io/sbx/shell AS build
 
 # Supplied by the descriptor's `version` arg, which owns the default and the
 # accepted shape. No default here on purpose: the descriptor expands this same
@@ -96,7 +96,7 @@ RUN set -eux; \
     ln -s /home/agent/.local/bin/droid /out/usr/local/bin/droid
 
 # The bin shim above, not a profile.d PATH export: ~/.local/bin is on PATH on
-# the shell templates but a mixin lands on any base, and /usr/local/bin is on
+# docker.io/sbx/shell but a mixin lands on any base, and /usr/local/bin is on
 # every one of them. v2 declared no environment.variables, so there is no env
 # file to write beside it.
 

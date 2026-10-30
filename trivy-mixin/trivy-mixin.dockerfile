@@ -16,7 +16,7 @@
 # Why not the official `install.sh`: that pattern (curl|sh) is exactly what
 # TeamPCP weaponized in March 2026 against tag-rewriteable references. The
 # release is pinned by version AND SHA256, in the kit, in git.
-ARG BASE_IMAGE=docker/sandbox-templates:shell-docker
+ARG BASE_IMAGE=docker.io/sbx/shell
 FROM ${BASE_IMAGE} AS build
 
 ARG TRIVY_VERSION=0.70.0

@@ -286,7 +286,7 @@ so this kit carries the whole environment, built from
 
 ```
 pi (the kit's own layers)
-└── FROM docker/sandbox-templates:shell-docker
+└── FROM docker.io/sbx/shell
     ├── fd-find (apt, + /usr/local/bin/fd symlink)
     └── @earendil-works/pi-coding-agent @ latest
         npm global install (+ /usr/local/bin symlink)
@@ -296,11 +296,11 @@ fd is what pi's `find` tool runs. Without it in the image pi probes for
 `fd`/`fdfind` on first use and then downloads a binary from GitHub releases —
 unreachable under this repo's deny-all e2e policy, and a needless first-use
 wait everywhere else. ripgrep needs no such layer: pi probes for `rg` the same
-way and the template already ships it.
+way and the base already ships it.
 
-No Node layer: the template already ships Node 22.22.1 and pi requires
-`>= 22.19.0`. The npm install runs as `agent` — the template's global prefix is
-agent-owned — so `pi install` and `pi update --self` work inside the sandbox.
+No Node layer: the base already ships Node 24 and pi requires
+`>= 22.19.0`. The npm install runs as `agent` (the base's global prefix is
+agent-owned), so `pi install` and `pi update --self` work inside the sandbox.
 
 There is no longer a separately published `docker.io/sbx/pi-image` for a
 `sandbox.image:` field to point at: a v3 Kit is one OCI image carrying both

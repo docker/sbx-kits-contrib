@@ -136,7 +136,8 @@ is normative; the short version:
   `/var/lib/dpkg/status` (or apk's database) out of the built content and
   states one provide per installed package under `deb/` or `apk/`, at the
   upstream version with epochs and Debian revisions stripped. Nobody
-  authors these: a workload on `docker/sandbox-templates:*` offers
+  authors these: a workload on `docker.io/sbx/shell` (or on a
+  `docker/sandbox-templates:*` image) offers
   `deb/apt`, `deb/jq`, `deb/docker-ce` and hundreds more for free, which
   is what lets a mixin state a real dependency instead of failing at
   create on a base that lacks one. **Authoring a `deb/` provide is

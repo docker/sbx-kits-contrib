@@ -1,14 +1,13 @@
 # syntax=docker/dockerfile:1
 # The content of the `amp` workload kit. The v2 kit shipped no Dockerfile: it
-# pointed sandbox.image straight at a published template and installed Amp
+# pointed sandbox.image straight at a published image and installed Amp
 # with a create-time hook. A v3 workload's layers are its root filesystem, so
-# it must have content -- this recipe states that same template as its base
-# and bakes in the install v2 could only do at create time.
+# it must have content -- this recipe states a base image and bakes in the
+# install v2 could only do at create time.
 #
-# The base is v2's sandbox.image carried over verbatim, the `-docker` variant
-# included: swapping it for a different template would change what the sandbox
-# ships underneath the agent.
-FROM docker/sandbox-templates:shell-docker
+# The base is the repository's own shell base, which carries a Docker engine
+# and the agent user.
+FROM docker.io/sbx/shell
 
 # The platform floor's user, restated rather than inherited: sbx@1 requires
 # the image config to declare a non-empty user for the host to honor, and an
@@ -44,9 +43,8 @@ ARG AMP_VERSION
 # The command is v2's hook body plus the pin. Two details it leans on:
 #
 #   - HOME is exported rather than inherited. install.sh is $HOME-scoped
-#     (AMP_HOME defaults to $HOME/.amp) and this base's image config declares
-#     no HOME, so a RUN's value would depend on the builder's passwd lookup
-#     rather than on anything this kit states. /home/agent is the sandbox
+#     (AMP_HOME defaults to $HOME/.amp), so the kit states the value it
+#     depends on instead of relying on the base's. /home/agent is the sandbox
 #     runtime's own home, so the tree the installer writes is the tree the
 #     agent finds at run time.
 #   - The PATH symlink is what puts `amp` where the entrypoint below can find
@@ -108,6 +106,10 @@ WORKDIR /home/agent/workspace
 
 # Overrides the base's flavor: sbx reads it as the image's agent.
 LABEL com.docker.sandboxes.flavor="amp"
+
+# Requests Docker-in-Docker from the runtime. Stated here so the kit does not
+# depend on the base's label.
+LABEL com.docker.sandboxes.start-docker="true"
 
 # v2's sandbox.entrypoint. The binary it names is now in this image's layers
 # rather than installed into the container before the entrypoint first runs;

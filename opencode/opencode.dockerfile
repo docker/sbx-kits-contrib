@@ -13,7 +13,7 @@
 # published-tag round trip is gone. The base is v2's default, verbatim.
 #
 # The base is a floating tag, which is why CI also rebuilds on a schedule.
-ARG BASE_IMAGE=docker/sandbox-templates:shell-docker
+ARG BASE_IMAGE=docker.io/sbx/shell
 FROM ${BASE_IMAGE}
 
 # Re-declared inside the stage: an ARG defined before the first FROM is a global
@@ -57,8 +57,7 @@ opencode --version
 EOF
 
 # Inherited from the base image, but re-declared deliberately so the value is
-# owned here rather than depending on inheritance from an image this repository
-# does not own.
+# owned here rather than depending on inheritance.
 #
 # This is a *request* to the runtime, not a description of the image: setting it
 # over a base with no Docker engine yields a sandbox started in Docker mode with
@@ -72,8 +71,8 @@ LABEL com.docker.sandboxes.start-docker="true"
 
 # Both of the labels below OVERRIDE values inherited from the base image, which
 # describe the base rather than this image. Overriding is not optional for
-# `flavor`: left inherited it would read "shell-docker", and sbx would report
-# this image's agent as "shell-docker".
+# `flavor`: left inherited it would read "shell", and sbx would report
+# this image's agent as "shell".
 #
 # sbx reads `flavor` and treats it as an agent identifier — it surfaces the value
 # as an image's `Agent` in the API, and separately uses it (with any `-docker`
@@ -87,7 +86,7 @@ LABEL com.docker.sandboxes.flavor="opencode"
 LABEL com.docker.sandboxes.base="${BASE_IMAGE}"
 
 # Note: `com.docker.sandboxes=templates` also appears on this image. It is
-# inherited from the base and is not set here — nothing reads it, and this image
+# inherited from the base and is not set here -- nothing reads it, and this image
 # is not part of that template family, so it is left alone rather than asserted.
 
 # v2's sandbox.entrypoint: bare `opencode`, no flags — the launch the agent this

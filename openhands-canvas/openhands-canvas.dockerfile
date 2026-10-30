@@ -1,21 +1,16 @@
 # syntax=docker/dockerfile:1
-# v2's sandbox.image, carried over verbatim. shell-docker provides uv, bash,
-# git, a CA store, and the uid-1000 agent user required by sbx@1. Its Node 22
-# is below Agent Canvas' current >=24 engine floor, so Node 24 is installed
-# before the package.
-FROM docker/sandbox-templates:shell-docker
+# sbx/shell provides uv, bash, git, a CA store, Node 24 (Agent Canvas' engine
+# floor is >=24) and the uid-1000 agent user required by sbx@1.
+FROM docker.io/sbx/shell
 
 ARG AGENT_CANVAS_VERSION
 ARG OPENHANDS_VERSION
 
 # The former root install hooks are immutable image content in v3. The npm
-# package and the descriptor share one version pin. `n 24` follows the
-# supported major while the package release itself is exact.
+# package and the descriptor share one version pin.
 USER root
 RUN set -eux; \
     [ -n "$AGENT_CANVAS_VERSION" ]; \
-    npm install -g n; \
-    n 24; \
     i=0; \
     while [ "$i" -lt 3 ]; do \
       i=$((i+1)); \
@@ -40,9 +35,9 @@ RUN --network=none command -v agent-canvas \
          printf '%s\n' "$output"; test "$status" -eq 0 && test -n "$output"; }
 USER root
 
-# shell-docker's uv has no working uvx. Agent Canvas invokes
-# `uvx --from openhands-agent-server==<ver> agent-server`; `uv tool run`
-# supports that interface.
+# Agent Canvas invokes `uvx --from openhands-agent-server==<ver> agent-server`.
+# This shim routes it through `uv tool run`, which supports that interface, so
+# it does not depend on which uvx the base ships.
 RUN <<'EOF'
 cat > /usr/local/bin/uvx <<'SCRIPT'
 #!/bin/sh
@@ -99,5 +94,9 @@ WORKDIR /home/agent/workspace
 
 # Overrides the base's flavor: sbx reads it as the image's agent.
 LABEL com.docker.sandboxes.flavor="openhands-canvas"
+
+# Requests Docker-in-Docker from the runtime. Stated here so the kit does not
+# depend on the base's label.
+LABEL com.docker.sandboxes.start-docker="true"
 
 ENTRYPOINT ["/usr/local/bin/openhands-canvas-launch"]

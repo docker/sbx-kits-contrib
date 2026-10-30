@@ -13,7 +13,7 @@
 # moved.
 #
 # The base is a floating tag, which is why CI also rebuilds on a schedule.
-ARG BASE_IMAGE=docker/sandbox-templates:shell-docker
+ARG BASE_IMAGE=docker.io/sbx/shell
 FROM ${BASE_IMAGE}
 
 # Re-declared inside the stage: an ARG defined before the first FROM is a global
@@ -38,32 +38,19 @@ ARG BASE_IMAGE
 # the sandbox. The image is the only place early enough.
 RUN mkdir -p /home/agent/.codex /home/agent/.agents
 
-# xdg-utils, for the `xdg-open` that this kit's BROWSER variable names.
+# xdg-utils, for the `xdg-open` that this kit's BROWSER variable names. The base
+# does not ship it, so the kit installs it; without it BROWSER would point at a
+# binary that does not exist. --no-install-recommends skips the X11 half of the
+# package, leaving one architecture-independent set of shell scripts.
 #
-# The base image ships neither xdg-open nor xdg-settings, so without this layer
-# BROWSER points at a binary that does not exist and every "open this link for
-# you" attempt dies with a command-not-found. This kit builds its own image
-# precisely so it can install what the agent needs, so it installs it.
-#
-# --no-install-recommends is load-bearing rather than habitual here: the
-# recommends are the desktop-integration half of the package
-# (libfile-mimeinfo-perl, libnet-dbus-perl, libx11-protocol-perl, x11-utils,
-# x11-xserver-utils) and pull in an X11 dependency tree a headless sandbox has
-# no use for. Skipping them leaves xdg-utils with no dependencies at all: one
-# architecture-independent package of shell scripts, well under a megabyte.
-#
-# BROWSER=xdg-open does not make xdg-open re-invoke itself: Debian and Ubuntu
-# patch the script to strip its own name out of $BROWSER before consulting it,
+# BROWSER=xdg-open does not make xdg-open re-invoke itself: Debian patches
+# the script to strip its own name out of $BROWSER before consulting it,
 # so it falls through to the browser list instead of recursing.
-#
-# Deliberately placed above the Codex install layer below. That layer changes
-# whenever the pinned release changes; this one has nothing to do with which
-# Codex version is installed, and above it stays a cache hit.
 USER root
-RUN apt-get update && \
-    apt-get install -y --no-install-recommends xdg-utils && \
-    rm -rf /var/lib/apt/lists/* && \
-    command -v xdg-open
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends xdg-utils \
+ && rm -rf /var/lib/apt/lists/* \
+ && command -v xdg-open
 USER agent
 
 # OpenAI ships Codex as a native Rust binary and leads with this standalone
@@ -134,8 +121,8 @@ LABEL com.docker.sandboxes.start-docker="true"
 
 # Both of the labels below OVERRIDE values inherited from the base image, which
 # describe the base rather than this image. Overriding is not optional for
-# `flavor`: left inherited it would read "shell-docker", and sbx would report
-# this image's agent as "shell-docker".
+# `flavor`: left inherited it would read "shell", and sbx would report
+# this image's agent as "shell".
 #
 # sbx reads `flavor` and treats it as an agent identifier — it surfaces the value
 # as an image's `Agent` in the API, and separately uses it (with any `-docker`
@@ -155,11 +142,11 @@ LABEL com.docker.sandboxes.base="${BASE_IMAGE}"
 # v2's environment.variables, in the slot OCI already owns for static env.
 #
 # xdg-open is the conventional "open this for me" hook on Linux. The layer
-# above installs xdg-utils, so this names a program that is really there rather
-# than one the kit forgot to ship. There is still no browser and no display
-# inside the sandbox, so a link does not literally open: xdg-open says so ("no
-# method available for opening ...") and exits non-zero, which is a diagnosable
-# answer, and Codex prints the URL for you to open on your own machine.
+# above installs xdg-utils, so this names a program that is really there. There
+# is still no browser and no display inside the sandbox, so a link does not
+# literally open: xdg-open says so ("no method available for opening ...") and
+# exits non-zero, which is a diagnosable answer, and Codex prints the URL for
+# you to open on your own machine.
 #
 # GIT_TERMINAL_PROMPT=0 keeps git from blocking on an interactive credential
 # prompt in a headless sandbox. Without it, a 401 from the credentials proxy

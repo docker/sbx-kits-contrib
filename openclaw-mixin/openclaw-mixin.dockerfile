@@ -14,20 +14,20 @@
 # WHAT THIS OVERLAY CANNOT CARRY: playwright's `install --with-deps` apt-installs
 # Chromium's shared libraries, and apt packages are not copyable content -- an
 # overlay can carry the browser tree but not the libraries it links against.
-# The browser tool therefore works on a base that already has them (the
-# sandbox-templates bases do) and fails on one that does not. There is no
-# grammar to state that floor: provides/requires name kit capabilities, and no
-# base workload provides an entry for its shared libraries. The workload kit
-# (../openclaw) is the self-contained alternative.
-ARG BASE_IMAGE=docker/sandbox-templates:shell-docker
+# openclaw-mixin.yaml therefore runs `install-deps chromium` in an install-phase
+# hook against the composed base's own apt, the same split the playwright kit
+# makes. The hook runs the playwright-core that ships inside the openclaw
+# package, through the /usr/local/bin/openclaw-playwright link staged below, so
+# the libraries match the pinned Chromium.
+ARG BASE_IMAGE=docker.io/sbx/shell
 FROM ${BASE_IMAGE} AS build
 
 ARG OPENCLAW_VERSION
 ARG TARGETARCH
 
 USER root
-# Some networks block plain-HTTP apt traffic (UA-based filtering); the
-# Ubuntu archives all support HTTPS.
+# Some networks block plain-HTTP apt traffic (UA-based filtering); deb.debian.org
+# and dhi.io both serve HTTPS.
 RUN sed -i 's|http://|https://|g' /etc/apt/sources.list.d/*.sources /etc/apt/sources.list 2>/dev/null || true
 
 # Node 24 and the pinned openclaw package. The major is pinned, not the patch:
@@ -36,24 +36,26 @@ RUN sed -i 's|http://|https://|g' /etc/apt/sources.list.d/*.sources /etc/apt/sou
 # this release -- 2026.9.2 still ran on 22 -- so the package bump and runtime
 # bump have to travel together.
 # The package's lifecycle scripts are offline-safe (local plugin fixups only).
+#
+# `n` stays although sbx/shell ships Node 24: the overlay has to carry its own
+# runtime onto bases that do not, and `n` installs under /usr/local, which is
+# the tree copied out below.
 RUN npm install -g n && n 24 && npm install -g "openclaw@${OPENCLAW_VERSION}"
 
 # Chromium + headless deps for openclaw's browser tool.
 #
-# The platform override is no longer strictly needed: it was added when
-# Playwright 1.60 had no dependency map for the template's Ubuntu 26.04, and
-# 2026.9.3's playwright-core 1.62.1 does carry an ubuntu26.04 entry whose
-# chromium apt list is identical to ubuntu24.04's. It is kept deliberately,
+# The platform is pinned to Playwright's own debian13 target, which sbx/shell
+# matches (playwright-core 1.62.1 maps Debian 13 to it). It is kept explicit
 # because BASE_IMAGE floats: on a platform Playwright has no map for,
 # `install --with-deps` prints "Cannot install dependencies" and exits 0, so a
-# template moving to an unmapped Ubuntu would publish a green image shipping a
+# base moving to an unmapped distro would publish a green image shipping a
 # Chromium with no runtime libraries. Pinning a mapped platform keeps that
-# state unreachable. gstack/Dockerfile pins it for the same reason.
+# state unreachable.
 RUN apt-get update && apt-get install -y --no-install-recommends xvfb && \
     ARCH="${TARGETARCH:-$(dpkg --print-architecture)}" && \
     PW_ARCH=$([ "$ARCH" = "amd64" ] && echo x64 || echo arm64) && \
     PLAYWRIGHT_BROWSERS_PATH=/opt/ms-playwright \
-    PLAYWRIGHT_HOST_PLATFORM_OVERRIDE="ubuntu24.04-$PW_ARCH" \
+    PLAYWRIGHT_HOST_PLATFORM_OVERRIDE="debian13-$PW_ARCH" \
       node "$(npm root -g)/openclaw/node_modules/playwright-core/cli.js" install --with-deps chromium && \
     chmod -R a+rX /opt/ms-playwright && \
     rm -rf /var/lib/apt/lists/*
@@ -76,14 +78,14 @@ COPY files/home/ /out/home/agent/
 
 # The specific paths the three installs produced.
 #
-# There are two prefixes here, not one. The template base exports
+# There are two prefixes here, not one. The base exports
 # NPM_CONFIG_PREFIX=/usr/local/share/npm-global, so a `npm install -g` lands
 # the package there, while `n` installs the node runtime -- and the npm that
 # comes inside the node tarball -- under N_PREFIX (/usr/local). npm is
 # therefore not a global package on this base and does not appear under
 # `npm root -g` at all; it sits beside node, in node's own prefix. Both
 # prefixes are asked for rather than hardcoded, and both are asserted, so a
-# future `n` or template change that moves either fails this build instead of
+# future `n` or base change that moves either fails this build instead of
 # producing an overlay that silently contains nothing.
 #
 # Paths are preserved absolutely, which is what keeps npm's relative bin
@@ -157,6 +159,13 @@ chown 1000:1000 "/out${prefix}"
 ln -sf "$prefix/bin/openclaw" /out/usr/local/bin/openclaw
 
 cp -a /opt/ms-playwright /out/opt/ms-playwright
+
+# The entry point the install-phase hook runs as `node /usr/local/bin/openclaw-playwright
+# install-deps chromium`. Node resolves the link to the real cli.js, so
+# playwright-core finds its own modules. Absolute, for the same reason as the
+# openclaw link above.
+test -f "$root/openclaw/node_modules/playwright-core/cli.js"
+ln -sf "$root/openclaw/node_modules/playwright-core/cli.js" /out/usr/local/bin/openclaw-playwright
 
 # The launcher the workload also ships at this path, for `openclaw-start` from
 # the shell.
