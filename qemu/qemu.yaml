@@ -46,7 +46,7 @@ kind: mixin
 # for a qemu version would have to ship the emulators as content and register
 # them from its own copy.
 provides: ["qemu-binfmt"]
-version: "1.0.0"
+version: "1.0.1"
 
 # This kit's hard dependency on a Docker-in-Docker base, which v2 had no field
 # for — the v2 kit could only say it in prose and check at runtime.
@@ -82,12 +82,14 @@ capabilities:
         allow:
           # apt: install `mount` if the base image lacks it.
           # `apt-get update` refreshes every configured source, so all of the
-          # *-docker template's Ubuntu + Docker apt hosts must be reachable. Ubuntu
-          # serves amd64 from archive/security and arm64 from ports.ubuntu.com.
+          # *-docker template's Ubuntu, Docker and GitHub CLI apt hosts must be
+          # reachable. Ubuntu serves amd64 from archive/security and arm64 from
+          # ports.ubuntu.com.
           - archive.ubuntu.com
           - security.ubuntu.com
           - ports.ubuntu.com
           - download.docker.com
+          - cli.github.com          # GitHub CLI apt repo, pre-added by the base
       runtime:
         allow:
           # Docker Hub: the in-sandbox docker daemon pulls tonistiigi/binfmt for the
@@ -103,6 +105,9 @@ capabilities:
           - production.cloudflare.docker.com
           - production.cloudfront.docker.com
           - index.docker.io
+          # The engine contacts sigstore's TUF CDN while pulling the binfmt image;
+          # the deny-all e2e run blocked it right after the Docker Hub requests.
+          - tuf-repo-cdn.sigstore.dev
 
   - type: com.docker.sandbox/lifecycle@1
     config:

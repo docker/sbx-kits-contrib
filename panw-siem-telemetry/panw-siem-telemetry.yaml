@@ -14,7 +14,7 @@ licenses:
 # The kit's release version. This kit intentionally declares no `provides`:
 # Fluent Bit is selected at create time and one install path tracks the vendor's
 # current package, so claiming a fixed Fluent Bit version would be inaccurate.
-version: "1.0.0"
+version: "1.0.1"
 
 args:
   siemCollectorHost:
@@ -54,6 +54,7 @@ capabilities:
           - security.ubuntu.com
           - ports.ubuntu.com
           - download.docker.com
+          - cli.github.com          # GitHub CLI apt repo, pre-added by the base
       runtime:
         allow:
           # Collector ingestion endpoint (token injected by the proxy).

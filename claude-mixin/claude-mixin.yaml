@@ -108,6 +108,7 @@ capabilities:
           - security.ubuntu.com       # Ubuntu security updates (amd64)
           - ports.ubuntu.com          # Ubuntu archive/security (arm64)
           - download.docker.com       # Docker's apt repo, pre-added by shell-docker
+          - cli.github.com            # GitHub CLI apt repo, pre-added by the base
           #
           # Deliberately absent: telemetry and error-reporting hosts (the
           # overlay turns both off at the source), and registry.npmjs.org plus

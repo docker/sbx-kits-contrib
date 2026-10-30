@@ -16,7 +16,7 @@ kind: mixin
 
 # The KIT's version, not Kiro's, and the fallback version for the unversioned
 # provide below. Tracks ../kiro.
-version: "1.0.0"
+version: "1.0.1"
 
 # UNVERSIONED, DELIBERATELY, and for the same reason as ../kiro: this install
 # cannot be pinned, so there is no kiro-cli release the kit could name without
@@ -91,6 +91,7 @@ capabilities:
           - security.ubuntu.com       # Ubuntu security updates (amd64)
           - ports.ubuntu.com          # Ubuntu archive/security (arm64)
           - download.docker.com       # Docker's apt repo, on the shell-docker family
+          - cli.github.com            # GitHub CLI apt repo, on the shell-docker family
           #
           # AWS-backed endpoints Kiro's device-flow auth and chat need,
           # reported in #185. Not publicly documented beyond that. Exact hosts

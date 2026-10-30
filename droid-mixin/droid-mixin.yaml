@@ -101,6 +101,7 @@ capabilities:
           - security.ubuntu.com       # Ubuntu security updates (amd64)
           - ports.ubuntu.com          # Ubuntu archive/security (arm64)
           - download.docker.com       # Docker's apt repo, on the shell-docker family
+          - cli.github.com            # GitHub CLI apt repo, on the shell-docker family
 
   # Droid cannot authenticate at all without this service. Required, not
   # optional: v2 set `required: true`, and v3's default is required, so the
