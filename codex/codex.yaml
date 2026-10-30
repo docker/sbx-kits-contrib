@@ -143,8 +143,8 @@ capabilities:
           - codeload.github.com
           # `apt-get update` (the startup hook below) refreshes metadata for
           # every configured apt source and returns exit 100 if any one of
-          # them fails. The shell-docker base ships three sources, so all
-          # three must be reachable. Ubuntu serves amd64 from
+          # them fails, so every source the shell-docker base configures
+          # must be reachable. Ubuntu serves amd64 from
           # archive/security and arm64 from ports.ubuntu.com, so all three
           # Ubuntu hosts are listed to keep the kit working cross-arch.
           #
@@ -155,6 +155,7 @@ capabilities:
           - security.ubuntu.com       # Ubuntu security updates (amd64)
           - ports.ubuntu.com          # Ubuntu archive/security (arm64)
           - download.docker.com       # Docker's apt repo, pre-added by shell-docker
+          - cli.github.com            # GitHub CLI apt repo, pre-added by the base
           #
           # TODO(codex-extraction): the domains above are the ones the
           # built-in agent already declared; they have not been verified

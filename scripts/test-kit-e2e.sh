@@ -612,7 +612,7 @@ on_exit() {
       if policy_log_out=$(sbx --app-name "$APP_NAME" policy log "$sandbox_name" 2>&1); then
         echo "$policy_log_out" >&2
         case "$policy_log_out" in
-          *"Blocked requests"*)
+          *"Blocked requests"*|*"BLOCKED REQUESTS"*)
             cat >&2 <<EOF
 
 Every row under 'Blocked requests' above is a host this kit reached for. Add it
@@ -872,11 +872,11 @@ if [ -n "$POLICY" ]; then
     policy_log=""
   }
   case "$policy_log" in
-    *"Blocked requests"*)
+    *"Blocked requests"*|*"BLOCKED REQUESTS"*)
       printf '%s\n' "$policy_log"
       blocked_hosts=$(printf '%s\n' "$policy_log" | awk -v sb="$sandbox_name" '
-          /^Blocked requests:/ { in_blocked = 1; next }
-          /^Allowed requests:/ { in_blocked = 0 }
+          /^(Blocked requests:?|BLOCKED REQUESTS)/ { in_blocked = 1; next }
+          /^(Allowed requests:?|ALLOWED REQUESTS)/ { in_blocked = 0 }
           in_blocked && $1 == sb {
             host = $3
             sub(/:[0-9]+$/, "", host)

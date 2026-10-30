@@ -25,7 +25,7 @@ kind: mixin
 # The kit's own version, not the version of anything it installs: it is the
 # tag this kit publishes under, and the fallback that versions an unversioned
 # provide at publish. Bump it when this kit's declarations change.
-version: "1.0.0"
+version: "1.0.1"
 
 # MIGRATION NOTE: v2's `requires: {agent: codex}` — sshd + a codex bridge, only
 # meaningful on the codex base agent. v2 declared base-agent affinity instead
@@ -74,7 +74,8 @@ capabilities:
         allow:
           # `apt-get update` (run by the first install hook) refreshes metadata
           # for every configured apt source. The codex-docker base template
-          # pre-configures Docker's apt repo, so `download.docker.com` must be
+          # pre-configures Docker's and GitHub CLI's apt repos, so
+          # `download.docker.com` and `cli.github.com` must be
           # allowed even though this kit only installs `openssh-server` from
           # Ubuntu's main archive — apt-get exits 100 on the first source
           # metadata fetch that returns non-2xx. Ubuntu hosts amd64 packages on
@@ -84,6 +85,7 @@ capabilities:
           - security.ubuntu.com       # Ubuntu security updates (amd64)
           - ports.ubuntu.com          # Ubuntu archive/security (arm64)
           - download.docker.com       # Docker's apt repo, pre-added by codex-docker
+          - cli.github.com            # GitHub CLI apt repo, pre-added by the base
 
   # MIGRATION NOTE: v2's `ports: [{container: 22, protocol: tcp, name: sshd}]`.
   # Same three values; v2's `protocol` is spelled `transport` in v3. Inbound

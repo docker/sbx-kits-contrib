@@ -60,6 +60,7 @@ capabilities:
           - security.ubuntu.com
           - ports.ubuntu.com
           - download.docker.com
+          - cli.github.com
       runtime:
         allow:
           # Hugging Face Hub and Inference Providers, used by InferenceClientModel and
