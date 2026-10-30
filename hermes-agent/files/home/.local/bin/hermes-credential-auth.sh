@@ -81,14 +81,19 @@ else
     anthropic_cred=apikey
 fi
 
-# Same placeholder problem as ANTHROPIC_API_KEY above, for the other two
-# credentials this kit declares -- except neither has an OAuth shape to
-# preserve, so "not genuinely bound" always means "drop the sentinel".
-if [ "${SBX_CRED_OPENAI_MODE:-none}" = none ]; then
+# The rendered file is the OAuth discriminator, as with Anthropic. Some
+# engine versions report mode=none even when they materialize OAuth files.
+# Fail startup on a malformed seed or native Codex conflict; do not silently
+# switch accounts or continue with a partly configured managed provider.
+openai_oauth=$("$HOME/.local/bin/hermes-kit-python" "$HOME/.local/bin/hermes-codex-auth.py")
+if [ "$openai_oauth" = oauth ]; then
+    openai_bound=1
+    printf 'unset OPENAI_API_KEY\n' >> "$AUTH_ENV_FILE"
+elif [ "${SBX_CRED_OPENAI_MODE:-none}" = apikey ]; then
+    openai_bound=1
+else
     openai_bound=0
     printf 'unset OPENAI_API_KEY\n' >> "$AUTH_ENV_FILE"
-else
-    openai_bound=1
 fi
 if [ "${SBX_CRED_OPENROUTER_MODE:-none}" = none ]; then
     openrouter_bound=0

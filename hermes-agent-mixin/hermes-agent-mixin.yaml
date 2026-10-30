@@ -100,6 +100,9 @@ capabilities:
           - openrouter.ai
           - '*.openrouter.ai'
           - api.openai.com
+          # ChatGPT Codex resources and intercepted OAuth refresh endpoint.
+          - chatgpt.com
+          - auth.openai.com
           - api.anthropic.com
           # The anthropic credential's OAuth token endpoint, for the refresh
           # the proxy performs once the access token expires.
@@ -173,7 +176,7 @@ capabilities:
 
   - type: com.docker.sandbox/credential@1
     optional: true
-    description: OpenAI API access
+    description: OpenAI API access (API key or ChatGPT OAuth)
     config:
       service: openai
       phase: runtime
@@ -182,6 +185,19 @@ capabilities:
         proxyManaged: true
         inject:
           - {domain: api.openai.com, header: Authorization, format: "Bearer %s"}
+      # Keep Docker's rendered seed separate from Hermes' multi-provider store.
+      # The startup bridge merges sentinels without overwriting other providers.
+      oauth:
+        tokenEndpoint: {host: auth.openai.com, path: /oauth/token}
+        resourceHosts: [chatgpt.com]
+        sentinels:
+          accessToken: oai-oat01-proxy-managed
+          refreshToken: oai-ort01-proxy-managed
+        credentialFile:
+          path: ~/.docker/hermes-openai-oauth.json
+          structure:
+            access_token: "{{.AccessToken}}"
+            refresh_token: "{{.RefreshToken}}"
 
   - type: com.docker.sandbox/credential@1
     optional: true

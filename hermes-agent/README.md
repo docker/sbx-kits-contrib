@@ -177,3 +177,91 @@ sbx secret rm -g --host api.anthropic.com
 sbx secret rm -g --host api.openai.com
 sbx secret rm -g --host openrouter.ai
 ```
+
+## Docker-managed ChatGPT OAuth
+
+On the trusted Docker Sandboxes host, enroll the subscription with:
+
+```sh
+sbx secret set openai --oauth
+```
+
+Create a **fresh** sandbox and approve its OpenAI credential binding. In Hermes,
+select `openai-codex` and an account-supported model with `/model`. API keys
+continue to use the existing OpenAI API route.
+
+Docker owns the real access and refresh tokens. It renders fixed placeholders
+into `~/.docker/hermes-openai-oauth.json`; startup merges only the expected pair
+into `${HERMES_HOME:-$HOME/.hermes}/auth.json`, using Hermes' lock and atomic
+0600 writes. Other providers and an existing active-provider choice survive.
+A native Codex account or independent credential-pool entry causes startup to
+fail rather than replacing an identity. Use a fresh sandbox for managed OAuth.
+
+Requests retain Docker's credential-injecting forward proxy. No proxy bypass,
+real-token copy, writable host helper, or fabricated JWT is introduced. Remove
+any ChatGPT exclusions from `NO_PROXY` / `no_proxy`, including Hermes' `.env`,
+if migrating from a previous bypass workaround. Enrollment stays on the host:
+Hermes-native login inside the sandbox is not redirected into Docker's store.
+Local OpenAI OAuth enrollment is global; sandbox binding approval controls
+access to that grant and does not create a separate per-sandbox OAuth grant.
+Existing sandboxes do not gain newly registered global secrets automatically.
+
+### Single-account scope and in-sandbox Codex login
+
+This integration supports one Docker-managed ChatGPT OAuth binding. Hermes'
+multiple-Codex-account pool is not supported alongside that binding. This is
+the scope of this adapter, not a claim that Docker universally prohibits
+multiple OAuth identities or custom credential configurations.
+
+The startup conflict check does not disable Hermes' native login/auth-add
+commands while Hermes is running. Tests against 0.21.3 and 0.22.5, with fixture
+OAuth results and network access disabled, establish that a forced native login
+can replace the managed singleton if it receives native tokens. `hermes auth add
+openai-codex` can instead persist an independent pool entry while retaining the
+managed singleton. In either case, the next startup bridge rejects the conflict
+without modifying the stored credentials. It does not reconcile the accounts
+or promote an in-sandbox login into Docker's host secret store.
+
+Actual second-account login, Docker's proxy/header and OAuth-response handling,
+account selection during inference, refresh, and failover remain untested on a
+Docker Sandboxes host. These local tests do not establish which account a live
+request would use. Do not combine native Codex login/auth-add with the managed
+binding; keep credential enrollment and account selection under Docker's host
+controls. Unrelated providers remain separate from this Codex-account restriction.
+
+### Catalog compatibility
+
+The image adapts two verified Hermes implementations:
+
+- The current pin (Hermes 0.21.3) requests the newest `client_version=99.0.0`
+  catalog first, with a legacy fallback for empty results or rejected versions.
+  Authentication, throttling, and server errors do not trigger that retry.
+- Hermes 0.22.5 already negotiates versions. Its native logic stays intact;
+  only the JWT catalog gate gains an exception for the exact Docker access
+  placeholder, a rendered seed containing the matching pair, and the official
+  HTTPS Codex route. Other credential checks retain their upstream behavior.
+
+Unknown source shapes fail the build for review. The adapter adds no model
+names or entitlements and retains upstream visibility filtering and cache
+behavior. Both kits use the installed interpreter through `hermes-kit-python`,
+including PM-managed generations on newer releases. This change does not bump
+release pins or replace the separate PM installation/version upgrade.
+
+### Validation and remaining checks
+
+Local tests cover both source versions, credential conflicts/removal, locking,
+masked refresh simulation, catalog filtering, route restrictions, and actual
+picker-cache discovery. A fresh Docker Sandboxes host test of the v0.22.5
+adapter successfully ran `gpt-6.1-sol`; the older-pin catalog backport also
+passed the user's sandbox test. Full catalog entitlement coverage, gateway
+operation, host refresh/revocation, profiles, and policy-negative tests remain
+pending. See [the host validation checklist](../hermes-agent/tests/HOST_VALIDATION.md).
+
+The placeholders cannot supply account/residency JWT claims. Accounts requiring
+those headers need a trusted host-side metadata solution; this adapter must
+not expose real tokens to compensate. Missing rendered bindings remove managed
+Hermes entries at the next startup; host removal behavior still needs testing.
+
+References: [Docker credential management](https://docs.docker.com/ai/sandboxes/configuration/credentials/),
+[`sbx secret set`](https://docs.docker.com/reference/cli/sbx/secret/set/), and
+[credential capability specification](https://github.com/docker/sandbox-kit-spec/blob/main/docs/spec/capabilities/com.docker.sandbox/credential%401.md).
