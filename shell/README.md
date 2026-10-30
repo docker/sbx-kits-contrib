@@ -69,9 +69,9 @@ services.
 
 - **`sbx@1`.** The host launches the image's command and honors the image's
   user.
-- **Network.** `deb.debian.org` and `dhi.io`, the configured apt sources.
-  Nothing else: a sandbox that needs more should declare it in its own kit or
-  widen the policy for that sandbox.
+- **No network.** Everything ships in the image, so the kit grants no egress.
+  A kit that runs `apt-get` declares the apt sources (`deb.debian.org`,
+  `dhi.io`) itself; for an interactive sandbox, widen its policy.
 - **`AGENTS.md`.** The profile file composed kits write their guidance into. A
   workload owns the filename; a mixin contributes a body without naming one.
 

@@ -22,14 +22,9 @@ capabilities:
   # the image config declares instead of assuming one.
   - type: com.docker.sandbox/sbx@1
 
-  # Apt sources on DHI's shell-docker template (Debian trixie / DHI):
-  #   deb.debian.org/debian, deb.debian.org/debian-security, dhi.io/deb/...
-  - type: com.docker.sandbox/network-policy@1
-    config:
-      runtime:
-        allow:
-          - deb.debian.org
-          - dhi.io
+  # No network-policy@1: everything this image ships is installed at build
+  # time, so a plain shell under deny-all reaches nothing. A kit that runs apt
+  # declares the template's sources (deb.debian.org, dhi.io) in its own policy.
 
   # This legacy profile is the fallback. An agent mixin can select its
   # discovery destination; every composed Kit contributes guidance there.
@@ -50,5 +45,6 @@ capabilities:
       content: |
         This is a plain shell sandbox on DHI's shell-docker template: bash, git,
         apt, a Docker engine (compose/buildx) that sbx starts for you,
-        curl, gh, jq, make, gcc, Python 3, and Node/npm. Install more with
-        apt; composed kits list their own capabilities below.
+        curl, gh, jq, make, gcc, Python 3, and Node/npm. The network policy
+        decides what apt can reach (deb.debian.org and dhi.io are the sources);
+        composed kits list their own capabilities below.
