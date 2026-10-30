@@ -98,8 +98,9 @@ different bits — and different attestations — for one commit.
 ## Build order
 
 `shell` is the base. It builds first because other kits build on it. A kit
-builds on it when a `*.dockerfile` in its directory has a `FROM` or
-`ARG BASE_IMAGE=` line naming `sbx/shell`; `scripts/kit-dependents.sh shell`
+builds on it when its recipe (the descriptor's `build:` block, the file its
+`dockerfile:` field names, or a `*.dockerfile` in its directory) has a `FROM`
+or `ARG BASE_IMAGE=` line naming `sbx/shell`; `scripts/kit-dependents.sh shell`
 lists them.
 
 On pushes and the nightly, `shell` being built also rebuilds every kit

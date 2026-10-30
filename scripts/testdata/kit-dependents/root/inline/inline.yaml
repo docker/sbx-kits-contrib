@@ -1,0 +1,9 @@
+# syntax=docker/sandbox-kit:3
+name: inline
+build: |
+  # syntax=docker/dockerfile:1
+  ARG X=1
+  FROM docker.io/sbx/shell
+  RUN true
+description: |
+  FROM sbx/shell-docker

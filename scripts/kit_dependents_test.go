@@ -54,10 +54,18 @@ func TestKitDependents(t *testing.T) {
 			// `scripts`, and a kit with recipe files for both bases. `idx`
 			// is shell-docker only, `ghcr` needs REGISTRY=ghcr.io, `foons`
 			// needs IMAGE_NAMESPACE=foo, and `cred`, `qcred` and `stray`
-			// never match.
+			// never match. `inline` has a `build:` block and `recipedf` a
+			// quoted `dockerfile: recipe/Dockerfile` with a trailing
+			// comment; `inlinecred` builds on shell-credentials in its
+			// block and `nofile` names a recipe that does not exist.
 			name: "shell, default registry and namespace",
 			base: "shell",
-			want: []string{"bare", "both", "dockio", "dq", "lead", "lower", "plainarg", "plat", "qshell", "scripts", "sq"},
+			want: []string{"bare", "both", "dockio", "dq", "inline", "lead", "lower", "plainarg", "plat", "qshell", "recipedf", "scripts", "sq"},
+		},
+		{
+			name: "shell-credentials, from an inline build block",
+			base: "shell-credentials",
+			want: []string{"cred", "inlinecred", "qcred"},
 		},
 		{
 			name: "shell-docker, including index.docker.io, a closing quote and a second recipe file",
@@ -136,6 +144,23 @@ func TestKitDependents_StrayDirectoryIsNeverReturned(t *testing.T) {
 	for _, k := range got {
 		if k == "stray" {
 			t.Errorf("stray directory returned: %v", got)
+		}
+	}
+}
+
+// A `dockerfile:` naming a missing file (the `nofile` fixture) is the
+// frontend's error to report, so the script stays silent about it.
+func TestKitDependents_MissingRecipeIsSilent(t *testing.T) {
+	for _, base := range []string{"shell", "shell-docker", "shell-credentials"} {
+		stdout, stderr, code := runKitDependents(t, nil, base)
+		if code != 0 {
+			t.Errorf("%s: exit %d, stderr: %s", base, code, stderr)
+		}
+		if stderr != "" {
+			t.Errorf("%s: stderr = %q, want empty", base, stderr)
+		}
+		if strings.Contains(stdout, "nofile") {
+			t.Errorf("%s: nofile returned: %s", base, stdout)
 		}
 	}
 }

@@ -41,9 +41,10 @@ name: Build and publish kits
 #     `verify-versions` job below refuses to build anything until every kit in
 #     the repo satisfies it.
 #   * One kit is the BASE: `shell`, built from its upstream template and
-#     published as docker.io/sbx/shell. A kit builds on it when any
-#     `<kit>/*.dockerfile` names it (scripts/kit-dependents.sh has the exact
-#     rules). The jobs below build the base first, then the kits built on it;
+#     published as docker.io/sbx/shell. A kit builds on it when its
+#     recipe (the descriptor's `build:` block, the file its `dockerfile:`
+#     names, or a `<kit>/*.dockerfile`) names it (scripts/kit-dependents.sh
+#     has the exact rules). The jobs below build the base first, then the kits built on it;
 #     every other kit runs alongside. On a publishing run (anything but a pull
 #     request) the base being built also rebuilds the kits found that way, not
 #     a list. Pull requests build only what changed.
