@@ -1,0 +1,79 @@
+# syntax=docker/sandbox-kit:3
+schemaVersion: "3"
+kind: workload
+displayName: oh-my-openagent
+description: oh-my-openagent, the extension-first coding agent, with provider credentials routed by the Docker Sandboxes proxy.
+
+version: "1.0.0"
+
+provides: ["omo-ai@5.1.48"]
+
+capabilities:
+  - type: com.docker.sandbox/sbx@1
+  
+  - type: com.docker.sandbox/network-policy@1
+    config:
+      runtime:
+        allow:
+          - api.anthropic.com
+          - platform.claude.com:443
+          - github.com
+          - api.github.com
+          - raw.githubusercontent.com
+          - registry.npmjs.org
+
+  - type: com.docker.sandbox/credential@1
+    optional: true
+    description: Anthropic API key, resolved by the Docker Sandboxes proxy
+    config:
+      service: anthropic
+      phase: runtime
+      apiKey:
+        name: ANTHROPIC_API_KEY
+        proxyManaged: true
+        inject:
+          - {domain: api.anthropic.com, header: x-api-key, format: "%s"}
+          - {domain: platform.claude.com, header: x-api-key, format: "%s"}
+
+  - type: com.docker.sandbox/credential@1
+    optional: true
+    description: GitHub credentials
+    config:
+      service: github
+      phase: runtime
+      apiKey:
+        name: ""
+        inject:
+          - {domain: api.github.com, header: Authorization, format: "Bearer %s"}
+          - {domain: github.com, header: Authorization, format: "Bearer %s"}
+          - {domain: raw.githubusercontent.com, header: Authorization, format: "Bearer %s"}
+
+  - type: com.docker.sandbox/lifecycle@1
+    config:
+      startup:
+        - command: ["sh", "-c", "{ command -v apt-get && apt-get update -qq -y || true; } >/dev/null 2>&1 </dev/null"]
+          user: "root"
+          background: true
+          description: Update apt package cache in background
+        - command: |
+            set -e
+            [ -n "$MCP_GATEWAY_URL" ] || exit 0
+            cfg="${OH_MY_OpenAGENT_AGENT_DIR:-$HOME/.omo/agent}/mcp.json"
+            dir=$(dirname "$cfg")
+            if ! mkdir -p "$dir"; then exit 0; fi
+            if ! command -v jq >/dev/null 2>&1; then
+              printf '{"mcpServers":{"mcp-gateway":{"type":"remote","url":"%s","enabled":true,"headers":{"Authorization":"Bearer %s"}}}}\n' "$MCP_GATEWAY_URL" "$MCP_SENTINEL_TOKEN_NAME" > "$cfg"
+              chown agent:agent "$cfg"
+              exit 0
+            fi
+            src=$cfg
+            [ -e "$src" ] || src=/dev/null
+            gateway=$(printf '{"type":"remote","url":"%s","enabled":true,"headers":{"Authorization":"Bearer %s"}}' "$MCP_GATEWAY_URL" "$MCP_SENTINEL_TOKEN_NAME")
+            merged=$(jq -s --argjson gateway "$gateway" '
+              (if length == 0 then {} elif length == 1 and (.[0] | type) == "object" then .[0] else error("not a single JSON object") end)
+              | .mcpServers["mcp-gateway"] = $gateway' "$src" 2>/dev/null || printf '{"mcpServers":{"mcp-gateway":%s}}' "$gateway")
+            printf '%s\n' "$merged" > "$cfg"
+            chown agent:agent "$cfg"
+          user: "agent"
+          env: [MCP_GATEWAY_URL, MCP_SENTINEL_TOKEN_NAME]
+          description: Register the sandbox MCP gateway in mcp.json (OH_MY_OpenAGENT_AGENT_DIR, defaults to ~/.omo/agent)
