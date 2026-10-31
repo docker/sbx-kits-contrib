@@ -143,10 +143,11 @@ credentials:
       name: GROQ_API_KEY
       proxyManaged: true
       inject:
+        # Cloud's groq service registry covers api.groq.com only. Injecting
+        # groq.com fails bake with "not covered by the service's registry
+        # injection domains". Keep groq.com on the network allow list below
+        # for redirects; do not inject there.
         - domain: api.groq.com
-          header: Authorization
-          format: Bearer %s
-        - domain: groq.com
           header: Authorization
           format: Bearer %s
   - service: huggingface
