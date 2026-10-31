@@ -1,3 +1,12 @@
 # Smoke test for the oh-my-openagent kit: `sbx run --kit ... oh-my-openagent -p "<prompt>"`.
 # oh-my-openagent's print/one-shot mode is `-p` (same flag as upstream pi/senpi).
 promptArgs: ["-p"]
+
+mcp:
+  configPath: $HOME/.omo/agent/mcp.json
+  transportKey: url
+  preservesSiblings: true
+  forbiddenKeys:
+    - httpUrl
+    - http_headers
+    - command

@@ -58,17 +58,22 @@ capabilities:
         - command: |
             set -e
             [ -n "$MCP_GATEWAY_URL" ] || exit 0
-            cfg="${OH_MY_OpenAGENT_AGENT_DIR:-$HOME/.omo/agent}/settings.json"
-            if ! command -v jq >/dev/null 2>&1; then exit 0; fi
-            gateway=$(printf '{"type":"remote","url":"%s","enabled":true,"headers":{"Authorization":"Bearer %s"}}' "$MCP_GATEWAY_URL" "$MCP_SENTINEL_TOKEN_NAME")
-            if ! mkdir -p "$(dirname "$cfg")"; then exit 0; fi
+            cfg="${OH_MY_OpenAGENT_AGENT_DIR:-$HOME/.omo/agent}/mcp.json"
+            dir=$(dirname "$cfg")
+            if ! mkdir -p "$dir"; then exit 0; fi
+            if ! command -v jq >/dev/null 2>&1; then
+              printf '{"mcpServers":{"mcp-gateway":{"type":"remote","url":"%s","enabled":true,"headers":{"Authorization":"Bearer %s"}}}}\n' "$MCP_GATEWAY_URL" "$MCP_SENTINEL_TOKEN_NAME" > "$cfg"
+              chown agent:agent "$cfg"
+              exit 0
+            fi
             src=$cfg
             [ -e "$src" ] || src=/dev/null
+            gateway=$(printf '{"type":"remote","url":"%s","enabled":true,"headers":{"Authorization":"Bearer %s"}}' "$MCP_GATEWAY_URL" "$MCP_SENTINEL_TOKEN_NAME")
             merged=$(jq -s --argjson gateway "$gateway" '
               (if length == 0 then {} elif length == 1 and (.[0] | type) == "object" then .[0] else error("not a single JSON object") end)
-              | .mcp["mcp-gateway"] = $gateway' "$src")
+              | .mcpServers["mcp-gateway"] = $gateway' "$src" 2>/dev/null || printf '{"mcpServers":{"mcp-gateway":%s}}' "$gateway")
             printf '%s\n' "$merged" > "$cfg"
             chown agent:agent "$cfg"
           user: "agent"
           env: [MCP_GATEWAY_URL, MCP_SENTINEL_TOKEN_NAME]
-          description: Register the sandbox MCP gateway (uses OH_MY_OpenAGENT_AGENT_DIR, defaults to ~/.omo/agent)
+          description: Register the sandbox MCP gateway in mcp.json (OH_MY_OpenAGENT_AGENT_DIR, defaults to ~/.omo/agent)
