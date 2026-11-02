@@ -357,12 +357,12 @@ capabilities:
       contentFile: ./docker-agent-context.md
 
   # MIGRATION NOTE: no agent-sessions@1. testdata/tck.yaml omitted promptArgs
-  # deliberately and said why: the entrypoint launches the full-screen agent
-  # picker, which is mutually exclusive with the binary's own non-interactive
-  # `--exec` mode -- appending `--exec` to that argv is an error, not an
-  # override. A working recipe has to re-spell the whole invocation
-  # (`run --yolo --exec …`), which is more than an argv *tail* can express, and
-  # this capability's tails append rather than replace.
+  # deliberately and said why: the launch argv opens the full-screen agent
+  # picker (`--agent-picker`, the recipe's CMD), which is mutually exclusive
+  # with the binary's own non-interactive `--exec` mode -- appending `--exec`
+  # to that argv is an error, not an override. A working recipe has to replace
+  # the picker (`default --exec …`), which is more than an argv *tail* can
+  # express, and this capability's tails append rather than replace.
   #
   # MIGRATION NOTE: no agent-skills@1 either. Neither the v2 spec nor this
   # kit's README ever named a path docker-agent reads shared skills from, and
