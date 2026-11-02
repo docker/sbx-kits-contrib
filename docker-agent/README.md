@@ -7,8 +7,9 @@
 
 A standalone workload kit (`kind: workload`, `schemaVersion: "3"`) for
 [Docker Agent](https://github.com/docker/docker-agent), Docker's agentic coding
-CLI. The kit runs `docker-agent run --yolo --agent-picker` as the entrypoint
-and declares eight provider credentials that the sandbox proxy resolves per
+CLI. The kit launches `docker-agent run --yolo --agent-picker`, with
+`docker-agent run --yolo` as the entrypoint and `--agent-picker` as its default
+argument, and declares eight provider credentials that the sandbox proxy resolves per
 request — no interactive sign-in flow is involved.
 
 `docker-agent` was previously a built-in `sbx` agent, run as
@@ -66,8 +67,15 @@ matches on.
 
 ## Passing arguments
 
-The entrypoint is `docker-agent run --yolo --agent-picker`, so anything you
-pass is appended after `--agent-picker`.
+The entrypoint is `docker-agent run --yolo`, and `--agent-picker` is the
+image's default argument (its `CMD`). What you pass after `--` either keeps
+that default or replaces it:
+
+- **A first argument that starts with `-` keeps it**, so it is appended after
+  `--agent-picker`.
+- **A first argument that does not start with `-` replaces it**, on a launcher
+  that keeps the entrypoint and the default apart. `run --yolo` stays, so an
+  agent ref or a prompt goes straight to `docker-agent run --yolo`.
 
 - **`--yolo` lets the agent run tools without asking.** That is deliberate: the
   container is the boundary, and it is how this agent has always started under
@@ -79,8 +87,17 @@ pass is appended after `--agent-picker`.
 
 One consequence worth knowing: `--agent-picker` is mutually exclusive with the
 binary's non-interactive `--exec` mode, so `sbx run docker-agent -- --exec …`
-is an error rather than an override. A one-shot run has to bypass the
-entrypoint entirely:
+is an error rather than an override. A one-shot run has to replace the picker,
+so lead with the agent ref:
+
+```console
+sbx run docker-agent -- default --exec "summarise this repo"
+```
+
+That runs `docker-agent run --yolo default --exec "summarise this repo"` where
+the launcher keeps the entrypoint. A launcher that drops the whole argument
+list for a positional first argument runs `docker-agent default …` instead,
+and there the one-shot has to bypass the launcher:
 
 ```console
 sbx exec <sandbox> -- docker-agent run --yolo --exec "summarise this repo"

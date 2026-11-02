@@ -160,7 +160,8 @@ WORKDIR /home/agent/workspace
 # `CMD [ "docker-agent" ]`, which existed so a plain `docker run` got the
 # agent's own defaults rather than a sandbox-shaped launch, goes away with the
 # split it served. In v3 the image config is the launch contract, and a second
-# spelling of it would be a second answer to one question.
+# spelling of it would be a second answer to one question. The CMD at the end of
+# this file is not that one: it carries a default argument, not the launch.
 #
 # --yolo lets the agent run tools without asking for per-tool approval. That is
 # the point of a sandbox -- the blast radius is the container.
@@ -168,7 +169,20 @@ WORKDIR /home/agent/workspace
 # --agent-picker opens a full-screen agent chooser at launch. It requires an
 # interactive terminal, which a TTY launch always provides, and it is mutually
 # exclusive with the binary's own non-interactive `--exec` mode: appending
-# `--exec` to this argv is an error, not an override. That is also why this kit
-# declares no agent-sessions@1 prompt verb -- a verb's tail appends to this
-# argv, and a one-shot run has to re-spell the whole invocation instead.
-ENTRYPOINT ["docker-agent", "run", "--yolo", "--agent-picker"]
+# `--exec` after it is an error, not an override. That is also why this kit
+# declares no agent-sessions@1 prompt verb -- a verb's tail appends to the
+# launch argv, picker included.
+#
+# The two halves are split on purpose. ENTRYPOINT is the fixed process prefix,
+# which a launch always keeps. --agent-picker is a default, the CMD, which a
+# launcher that honours the split replaces when the first argument you pass is
+# an agent ref or a prompt rather than a flag. So `default --exec "<prompt>"`
+# runs `docker-agent run --yolo default --exec "<prompt>"`, a one-shot, while a
+# bare launch or a flag-first one still opens the picker.
+#
+# MIGRATION NOTE: v2's sandbox.entrypoint carried --agent-picker. Moving it to
+# CMD changes nothing for a launcher that flattens ENTRYPOINT and CMD into one
+# argument list the way v2 did: the argv is the same four words. It only lets a
+# launcher that keeps them apart drop the picker for a positional first argument.
+ENTRYPOINT ["docker-agent", "run", "--yolo"]
+CMD ["--agent-picker"]
