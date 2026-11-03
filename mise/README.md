@@ -25,7 +25,7 @@ active:
 
 ```console
 agent@sandbox:~$ mise --version
-2026.5.2 ...
+2026.11.0 ...
 agent@sandbox:~$ cd ~/my-project   # auto-resolves .mise.toml
 agent@sandbox:~$ mise install      # installs the project's pinned versions
 ```

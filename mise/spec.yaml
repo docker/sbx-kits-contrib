@@ -44,16 +44,16 @@ setup:
     # and the per-arch SHA256 below (sourced from the release's SHASUMS256.txt).
     - command: |
         set -euo pipefail
-        MISE_VERSION=2026.5.2
+        MISE_VERSION=2026.11.0
         ARCH=$(dpkg --print-architecture)
         case "$ARCH" in
           amd64)
             TARBALL="mise-v${MISE_VERSION}-linux-x64.tar.gz"
-            SHA256="cdf616b3d8554bece574cb1a5c0f19cc0f551dffbecf66037df1cc06569a42ef"
+            SHA256="cf48795ee2cb3f8822ba0ed4b45d729b791fe0c984baf6080ebb7b0c1ba23119"
             ;;
           arm64)
             TARBALL="mise-v${MISE_VERSION}-linux-arm64.tar.gz"
-            SHA256="a746ad85fe8a7b62a6c72939da5fb4231074fd16c482f6334a598bd92926f41e"
+            SHA256="92f90c094b6eab2dcdbc46f2b977a78bba82a9311fe0c592c17e403a8d0ec621"
             ;;
           *)
             echo "unsupported sandbox arch: $ARCH (expected amd64 or arm64)" >&2
@@ -68,7 +68,7 @@ setup:
         rm -rf /tmp/mise /tmp/mise.tgz
         mise --version
       user: "0"
-      description: "Install mise CLI v2026.5.2, version+digest pinned"
+      description: "Install mise CLI v2026.11.0, version+digest pinned"
     # Wire shell activation into the agent user's bashrc so interactive shells get
     # `mise activate` (PATH shimming + auto-`mise install` on cd). Append rather than
     # overwrite so we don't clobber whatever the template image already ships.
