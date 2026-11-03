@@ -272,7 +272,7 @@ sbx run shell --kit ./mise .          # or onto a built-in agent
    └── README.md
    ```
 
-2. Write `my-kit.yaml`, starting from the skeleton in [Anatomy of a kit](#anatomy-of-a-kit) and from whichever existing kit is closest in shape. `mise/` is a good declaration-only mixin; `claude-mixin/` is a good overlay mixin; `claude/` is a good workload.
+2. Write `my-kit.yaml`, starting from the skeleton in [Anatomy of a kit](#anatomy-of-a-kit) and from whichever existing kit is closest in shape. `mise/` is a good declaration-only mixin; `claude-mixin/` is a good overlay mixin; `copilot/` is a good workload.
 
 3. Write `my-kit.dockerfile`, unless the kit declares only. A workload must have one.
 
@@ -364,7 +364,7 @@ Note that a fork PR does not receive repository secrets, so any leg needing Dock
 
 ## Kit index
 
-109 kits: 33 workloads and 76 mixins. Every workload except `openhands-canvas` and `shell` has a `-mixin` sibling that declares the same capabilities in overlay form, so you can either boot the agent as the sandbox or layer it onto one.
+107 kits: 31 workloads and 76 mixins, plus the `claude` and `codex` workloads, which are now Docker Hardened Images in the [DHI catalog](https://github.com/docker-hardened-images/catalog/tree/main/image). Every workload except `openhands-canvas` and `shell` has a `-mixin` sibling that declares the same capabilities in overlay form, so you can either boot the agent as the sandbox or layer it onto one.
 
 ### Workloads
 
@@ -373,9 +373,9 @@ Note that a fork PR does not receive repository secrets, so any leg needing Dock
 | [`aider`](./aider) | [`aider-mixin`](./aider-mixin) | Aider |
 | [`amp`](./amp) | [`amp-mixin`](./amp-mixin) | Amp |
 | [`antigravity`](./antigravity) | [`antigravity-mixin`](./antigravity-mixin) | Google Antigravity |
-| [`claude`](./claude) | [`claude-mixin`](./claude-mixin) | Claude Code |
+| [`claude`](https://github.com/docker-hardened-images/catalog/tree/main/image/claude) (DHI catalog) | [`claude-mixin`](./claude-mixin) | Claude Code |
 | [`claude-ollama`](./claude-ollama) | [`claude-ollama-mixin`](./claude-ollama-mixin) | Claude Code against a local Ollama endpoint |
-| [`codex`](./codex) | [`codex-mixin`](./codex-mixin) | Codex |
+| [`codex`](https://github.com/docker-hardened-images/catalog/tree/main/image/codex) (DHI catalog) | [`codex-mixin`](./codex-mixin) | Codex |
 | [`copilot`](./copilot) | [`copilot-mixin`](./copilot-mixin) | GitHub Copilot |
 | [`crush`](./crush) | [`crush-mixin`](./crush-mixin) | Crush |
 | [`cursor`](./cursor) | [`cursor-mixin`](./cursor-mixin) | Cursor |
