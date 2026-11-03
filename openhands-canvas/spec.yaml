@@ -41,8 +41,12 @@ credentials:
       name: OPENAI_API_KEY
       proxyManaged: true
       inject:
+        # Spelled out as header + format rather than `scheme: bearer`. Cloud
+        # Sandboxes validate the header name on the published descriptor and
+        # do not expand the sugar, so an empty header rejects the kit at bake.
         - domain: api.openai.com
-          scheme: bearer
+          header: Authorization
+          format: "Bearer %s"
   # `google` (not `gemini`) is the canonical service name across sbx kits, so a
   # binding set for one kit is reused here.
   - service: google
