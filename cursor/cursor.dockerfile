@@ -68,6 +68,11 @@ ARG BASE_IMAGE
 #     compared against the pin. `cursor-agent --version` prints the identifier
 #     bare, on one line, which is exactly the string in the URL above: that
 #     round trip is what makes `provides: ["cursor@..."]` a checked claim.
+#     It runs against a scratch HOME because any invocation writes a default
+#     ~/.cursor/cli-config.json with `useHttp1ForAgent: false`. Baked into the
+#     image, that file defeats the descriptor's seed (`overwrite: false`), the
+#     agent connects over HTTP/2, the proxy never swaps the OAuth sentinel,
+#     and every request fails authentication.
 ARG CURSOR_VERSION
 ARG TARGETARCH
 RUN <<EOF
@@ -89,9 +94,13 @@ ln -sfn "$dir/cursor-agent" /home/agent/.local/bin/agent
 ln -sfn "$dir/cursor-agent" /home/agent/.local/bin/cursor-agent
 
 test -x /home/agent/.local/bin/cursor-agent
-installed=$(/home/agent/.local/bin/cursor-agent --version)
+scratch=$(mktemp -d)
+installed=$(HOME="$scratch" /home/agent/.local/bin/cursor-agent --version)
+rm -rf "$scratch"
 [ "$installed" = "${CURSOR_VERSION}" ] || {
   echo "installed cursor-agent $installed != pinned ${CURSOR_VERSION}" >&2; exit 1; }
+[ ! -e /home/agent/.cursor/cli-config.json ] || {
+  echo "/home/agent/.cursor/cli-config.json is in the image and would shadow the descriptor's seed" >&2; exit 1; }
 EOF
 
 # Inherited from the base image, but re-declared deliberately so the value is

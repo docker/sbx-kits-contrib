@@ -41,11 +41,11 @@ kind: workload
 # The cursor-agent build this kit installs and publishes.
 #
 # NOT SEMVER — calendar-shaped, with the release's build hash as part of the
-# identifier. `2026.09.18-9a7762b` is one atom: the date alone does not name a
+# identifier. `2026.10.22-27dcf5f` is one atom: the date alone does not name a
 # downloadable release and is not what the agent reports for itself. SPEC-v3
 # §5.2 admits it as a version because only the FIRST segment must be numeric
-# and later segments may carry letters and hyphens — `2026` / `09` /
-# `18-9a7762b` — so it can be referenced into `provides` unchanged.
+# and later segments may carry letters and hyphens — `2026` / `10` /
+# `22-27dcf5f` — so it can be referenced into `provides` unchanged.
 #
 # HOW THE DEFAULT WAS DETERMINED, and how to bump it: Cursor's installer takes
 # no version argument and its endpoint ignores query parameters (`?version=`
@@ -54,13 +54,13 @@ kind: workload
 # release is read out of the script itself:
 #
 #   curl -fsSL https://cursor.com/install | grep -o 'lab/[^/]*'
-#     # -> lab/2026.09.18-9a7762b
+#     # -> lab/2026.10.22-27dcf5f
 #
 # and `cursor-agent --version` in a throwaway container confirms the agent
 # reports that same string back.
 args:
   version:
-    default: "2026.09.18-9a7762b"
+    default: "2026.10.22-27dcf5f"
     # Deliberately not a semver pattern: `[0-9]+\.[0-9]+\.[0-9]+` would reject
     # nothing useful here but would also accept a bare date, which does not
     # name a fetchable release. The build hash is required because the
