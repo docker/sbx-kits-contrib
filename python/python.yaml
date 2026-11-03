@@ -1,0 +1,38 @@
+# syntax=docker/sandbox-kit:3
+# A Python toolchain as a mixin: a relocatable CPython plus uv, for workloads
+# that ship no Python or an older one. See the recipe for why the interpreter
+# comes from python-build-standalone and not the official python image.
+schemaVersion: "3"
+kind: mixin
+displayName: Python and uv
+description: >-
+  CPython from python-build-standalone in /opt/python, plus uv and uvx, with
+  PyPI allowed at runtime so packages install. Layer it onto a workload that
+  ships no Python toolchain.
+sourceUrl: https://github.com/astral-sh/python-build-standalone
+licenses: [PSF-2.0, MIT, Apache-2.0]
+
+version: "${{ kit.args.version }}"
+
+args:
+  version:
+    default: "3.14.10"
+    pattern: '^[0-9]+\.[0-9]+\.[0-9]+$'
+    description: CPython release to install; the build fails unless the interpreter reports it
+    buildArg: PYTHON_VERSION
+  uvVersion:
+    default: "0.13.6"
+    pattern: '^[0-9]+\.[0-9]+\.[0-9]+$'
+    description: uv release to ship; the build fails unless `uv --version` reports it
+    buildArg: UV_VERSION
+
+provides:
+  - "python@${{ kit.args.version }}"
+  - "uv@${{ kit.args.uvVersion }}"
+
+capabilities:
+  # Package installs at runtime: the index, and the CDN it redirects to.
+  - type: com.docker.sandbox/network-policy@1
+    config:
+      runtime:
+        allow: [pypi.org, files.pythonhosted.org]
