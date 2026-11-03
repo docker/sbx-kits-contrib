@@ -1,0 +1,108 @@
+# syntax=docker/sandbox-kit:3
+# herdr (https://herdr.dev) as a WORKLOAD: the shell-docker template the
+# `shell` kit runs, plus herdr's static binary as the launch command. `sbx run`
+# opens herdr's workspaces, tabs and split panes instead of a single shell, and
+# herdr's server keeps them, and whatever runs in them, after you detach.
+#
+# No agent is bundled. Agents arrive as mixins (claude-mixin, codex-mixin, ...),
+# which land on this kit the way they land on `shell`: the base image is the
+# same, so every `deb/` package a mixin requires is here too.
+#
+# Workload only, with no mixin sibling. A mixin's ENTRYPOINT is ignored when it
+# is composed, so a herdr mixin could carry the binary but not make it the
+# launch command.
+schemaVersion: "3"
+kind: workload
+displayName: Herdr
+description: A sandbox that opens herdr, a terminal multiplexer for coding agents. Add agents as mixins.
+sourceUrl: https://github.com/herdrdev/herdr
+iconUrl: https://raw.githubusercontent.com/herdrdev/herdr/v0.9.5/assets/logo.png
+licenses: [Apache-2.0]
+
+# herdr's version, by reference: the `version` arg below, expanded at publish.
+# One value drives the download, the provide and the published tag.
+version: "${{ kit.args.version }}"
+
+# Bump the default together with HERDR_VERSION and the two SHA-256 ARGs in
+# herdr.dockerfile: the build fails on a mismatch, by design. herdr's
+# agent-detection rules are built into the binary and the baked config turns
+# off their refresh, so a bump is also how detection gets updated.
+args:
+  version:
+    default: "0.9.5"
+    pattern: '^[0-9]+\.[0-9]+\.[0-9]+$'
+    description: herdr release to install (update the dockerfile's SHA-256 ARGs with it)
+    buildArg: HERDR_VERSION
+
+# What `requires: ["herdr"]` from another kit resolves against. The recipe
+# asserts the installed binary reports this version, so the claim is checked.
+provides: ["herdr@${{ kit.args.version }}"]
+
+# No credentials. v3 gives each (service, phase) one owner across a composed
+# set, so a workload claiming `anthropic` could not host claude-mixin, and one
+# claiming `openai` could not host codex-mixin. Provider keys come with the
+# agent mixins, or from `shell-credentials` composed beside this kit.
+
+capabilities:
+  # This workload is an agent sandbox: the host launches herdr rather than
+  # running the image's entrypoint as PID 1, and honors the identity the image
+  # config declares instead of assuming one.
+  - type: com.docker.sandbox/sbx@1
+
+  # herdr's server holds the panes, and the agents running in them, after the
+  # last client detaches. On a runtime that stops a sandbox once no session is
+  # attached, this keeps it running with none attached. Optional, because the
+  # kit still works without it: a runtime that cannot honor it skips and
+  # records it, and herdr restores its saved layout, with fresh shells, on the
+  # next attach.
+  - type: com.docker.sandbox/long-running@1
+    optional: true
+
+  # The image's apt sources, the same as `shell`'s: Debian trixie and DHI,
+  #   deb.debian.org/debian, deb.debian.org/debian-security, dhi.io/deb/...
+  #
+  # Nothing for herdr itself. Its only automatic traffic is a version check
+  # and a refresh of its agent-detection rules, both against herdr.dev and
+  # both off in the baked config. herdr.dev is left out on purpose, so a check
+  # switched back on fails closed under a deny-all policy.
+  - type: com.docker.sandbox/network-policy@1
+    config:
+      runtime:
+        allow:
+          - deb.debian.org
+          - dhi.io
+
+  # The profile file the runtime writes beside the workspace: its own guidance
+  # and an index of every composed kit's. The workload names it, and the agent
+  # mixins this kit hosts contribute bodies without naming one, so without it
+  # their guidance would have nowhere to land.
+  #
+  # @1 rather than @2: the agent mixins this kit hosts declare @1, selected @1
+  # and @2 requests cannot compose, and no released `sbx` resolves @2 yet.
+  # Move with them.
+  - type: com.docker.sandbox/agent-context@1
+    config:
+      filename: AGENTS.md
+      contentFile: ./herdr-context.md
+
+  # herdr's own agent skill: the guide `herdr --skill` prints, generated at
+  # build time from the pinned binary, so it always matches the CLI it
+  # describes. The runtime exposes it as `herdr` in every agent-skills@1
+  # directory a composed agent mixin declares. Optional, because this kit
+  # declares no such directory itself: alone, it has nowhere to go.
+  - type: com.docker.sandbox/agent-skill@1
+    optional: true
+    config:
+      path: /usr/local/share/herdr-kit/skills/herdr
+
+  # Not declared:
+  #   agent-sessions@1  herdr is not an agent; it has no prompt mode for a
+  #                     harness to drive.
+  #   agent-skills@1    herdr reads no skills itself. The directories its
+  #                     panes' agents read belong to their mixins.
+  #   lifecycle@1       herdr's config is baked into the image (see
+  #                     herdr.dockerfile), so nothing runs or is written at
+  #                     create or start. Keep herdr's server out of startup
+  #                     hooks too: every pane inherits the environment the
+  #                     server starts with, and a hook runs without the
+  #                     session's proxy, CA and credential variables.
