@@ -76,12 +76,16 @@ The real key never enters the sandbox. Each credential sets
 expects to find.
 
 The `network-policy@1` capability's `runtime` allow list covers every provider
-API host and nothing else — Crush is baked into the kit's content (see
+API hosts — Crush is baked into the kit's content (see
 [Content](#content) below), so `repo.charm.sh` (the apt index and GPG key) and
 the hosts it redirects package downloads to are build-time-only and do not
 need to be reachable from a running sandbox. The policy declares no `install`
 phase at all, because a build runs before any phase the policy scopes and this
 kit has no lifecycle hooks.
+
+`groq.com` also remains allowed for egress, without credential injection.
+Authenticated Groq requests must target `api.groq.com`; the kit does not
+provide authenticated redirects to `groq.com`.
 
 ### Anthropic: API key only, no Claude subscription
 

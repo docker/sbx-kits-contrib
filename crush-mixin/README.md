@@ -13,9 +13,10 @@ shell workload, instead of a whole sandbox of its own.
 
 A `kind: mixin` kit carrying the Crush binary as a filesystem delta, with the
 same declarations the workload makes — fifteen optional proxy-managed provider
-credentials and the runtime allow list covering exactly the hosts they inject
-into, Bedrock regions enumerated because the allow grammar has no
-middle-position wildcard.
+credentials and a runtime allow list covering the provider API hosts, with
+Bedrock regions enumerated because the allow grammar has no middle-position
+wildcard. `groq.com` is also allowed for egress, without credential injection;
+authenticated Groq requests must target `api.groq.com`.
 
 Crush installs from Charm's apt repository, which is the case where relocation
 is not available at all: `apt-get --root` wants its own dpkg database, keyring
