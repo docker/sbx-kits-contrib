@@ -27,12 +27,11 @@ version: "${{ kit.args.version }}"
 # resolves at build. Nothing in the container reads a MISE_VERSION, and mise
 # itself would misread one if it did.
 #
-# An installer may override it, but not silently: the per-arch SHA256s in the
-# recipe are pinned to this release, so another version fails the digest check
-# rather than installing under a descriptor that goes on claiming this number.
-# Bumping mise is therefore a three-part edit — this default and both digests
-# in mise.dockerfile, together — with the checksums from the release's
-# SHASUMS256.txt.
+# Source builds can override the version and per-architecture checksums
+# together. A version override without matching checksums fails verification.
+# Published kits have already been built and cannot accept these build args.
+# For a release bump, update all three defaults here using the release's
+# SHASUMS256.txt; see the README for sourcing and override guidance.
 args:
   version:
     default: "2026.5.2"
@@ -42,6 +41,16 @@ args:
     pattern: '^[0-9]+\.[0-9]+\.[0-9]+$'
     description: mise release to install
     buildArg: MISE_VERSION
+  sha256_amd64:
+    default: "cdf616b3d8554bece574cb1a5c0f19cc0f551dffbecf66037df1cc06569a42ef"
+    pattern: '^[0-9a-f]{64}$'
+    description: SHA256 of mise-v<version>-linux-x64.tar.gz, from that release's SHASUMS256.txt
+    buildArg: MISE_SHA256_AMD64
+  sha256_arm64:
+    default: "a746ad85fe8a7b62a6c72939da5fb4231074fd16c482f6334a598bd92926f41e"
+    pattern: '^[0-9a-f]{64}$'
+    description: SHA256 of mise-v<version>-linux-arm64.tar.gz, from that release's SHASUMS256.txt
+    buildArg: MISE_SHA256_ARM64
 
 # MIGRATION NOTE: the provide was the literal `mise@2026.5.2` and now reads the
 # arg, so the version is not repeated in two places that could drift. The claim

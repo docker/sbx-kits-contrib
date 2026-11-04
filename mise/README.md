@@ -21,8 +21,8 @@ sbx run claude --kit "docker.io/sbx/mise:latest" ~/my-project
 Or from a git URL targeting this repo:
 
 ```console
-sbx run shell --kit "git+https://github.com/docker/sbx-kits-contrib.git#dir=mise" ~/my-project
-sbx run claude --kit "git+https://github.com/docker/sbx-kits-contrib.git#dir=mise" ~/my-project
+sbx run shell --kit "git+https://github.com/docker/sbx-kits-contrib.git#ref=v3&dir=mise" ~/my-project
+sbx run claude --kit "git+https://github.com/docker/sbx-kits-contrib.git#ref=v3&dir=mise" ~/my-project
 ```
 
 Once attached, any interactive shell has `mise` on PATH and shell hooks
@@ -39,8 +39,8 @@ agent@sandbox:~$ mise install      # installs the project's pinned versions
 
 **mise ships in the kit's image layers; nothing is downloaded into your
 sandbox.** `mise.dockerfile` fetches a pinned release tarball from
-GitHub at build time, verifies its SHA256 against a digest captured in
-the recipe, and extracts only the `mise` binary into
+GitHub at build time, verifies its SHA256 against a digest declared in
+`mise.yaml`, and extracts only the `mise` binary into
 `/usr/local/bin/`. The `/etc/profile.d/mise-env.sh` export ships in the
 same layer.
 
@@ -52,18 +52,50 @@ fetch, and — most visibly — **the kit asks for no install-phase network
 access at all**. GitHub is still in the `runtime` allow list, but for
 your `mise install` calls rather than the kit's own.
 
-The version and per-arch digests are sourced from the release's
-`SHASUMS256.txt` and live in git. Bumping mise is the `version`
-argument's default in `mise.yaml` plus both digests in
-`mise.dockerfile`: the version is stated in that one place — the
-recipe, the `mise@<version>` the kit provides and the tag it publishes
-under all read it — and the build runs the installed binary and fails
-if what it reports disagrees.
+The version and per-architecture digests are declared together in
+`mise.yaml`. To bump mise, update all three argument defaults using the
+release's `SHASUMS256.txt`. The recipe, the `mise@<version>` the kit
+provides, and the tag it publishes under all read the version argument;
+the build runs the installed binary and fails if what it reports disagrees.
 
 We avoid the upstream `curl https://mise.run | sh` flow on purpose:
 that pattern is fine on a developer workstation but it gives a sandbox
 no visibility into what binary actually got placed on PATH. Pinning
 lets reviewers see what changed when you bump the kit.
+
+## Pinning a different mise release
+
+A published kit (`docker.io/sbx/mise:<tag>` or `latest`) is already built:
+its version and checksums cannot be changed with `--kit-arg`. Choose another
+published tag or build from source for a different release.
+
+For a source kit, pass the version and matching checksums as scoped build
+arguments. Use a local `./mise` directory or the quoted Git URL below; `ref=v3`
+is required because the repository's default branch contains the v2 kit.
+Replace the placeholders with the release version and its lowercase SHA256s:
+
+```console
+sbx run shell --kit "git+https://github.com/docker/sbx-kits-contrib.git#ref=v3&dir=mise" \
+  --kit-arg mise.version=<version> \
+  --kit-arg mise.sha256_amd64=<sha256> \
+  --kit-arg mise.sha256_arm64=<sha256> ~/my-project
+```
+
+Or build the source kit directly with buildx:
+
+```console
+docker buildx build mise -f mise/mise.yaml \
+  --build-arg version=<version> \
+  --build-arg sha256_amd64=<sha256> \
+  --build-arg sha256_arm64=<sha256>
+```
+
+Get the digests from that release's `SHASUMS256.txt` and cross-check them
+against the GitHub release asset digests or the `SHASUMS256.txt.minisig` or
+`.asc` signature. Do not use third-party checksums. Changing the version alone
+fails verification: the default digests still pin the old release. A
+single-architecture build uses only the target architecture's digest; a
+multi-architecture build needs both.
 
 ## Shell activation
 
