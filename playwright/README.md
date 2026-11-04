@@ -1,6 +1,6 @@
 # playwright
 
-A mixin kit that installs the **Playwright** browser-automation toolchain inside the sandbox: the `playwright` CLI and `@playwright/test` **v1.61.1** from npm, plus **Chromium** (and its headless shell) with all required system libraries. Pair it with any agent (Claude, Gemini, …) to let the agent write and run end-to-end tests, scrape or screenshot pages, generate PDFs, and debug web apps served inside the sandbox — all headless, all sandbox-local.
+A mixin kit that installs the **Playwright** browser-automation toolchain inside the sandbox: the `playwright` CLI and `@playwright/test` **v1.64.1** from npm, plus **Chromium** (and its headless shell) with all required system libraries. Pair it with any agent (Claude, Gemini, …) to let the agent write and run end-to-end tests, scrape or screenshot pages, generate PDFs, and debug web apps served inside the sandbox — all headless, all sandbox-local.
 
 ## Usage
 
@@ -22,7 +22,8 @@ sbx run claude --kit ./playwright/ .
 
 Prerequisites:
 
-- A base image with Node.js ≥ 18 and npm — all standard agent templates ship it. The install fails loudly with a clear message if npm is missing.
+- A base image with Node.js ≥ 20 and npm (Playwright 1.62+ requires Node 20; the standard templates ship Node 22). The install fails loudly with a clear message if npm is missing.
+- Chromium supports Ubuntu 22.04, 24.04 and 26.04 and Debian 12 and 13, on amd64 and arm64. Ubuntu 20.04 and Debian 11 support ended in Playwright 1.63 and 1.62, respectively.
 
 Inside the sandbox:
 
@@ -59,7 +60,7 @@ The sandbox has no display server, so `--headed`, `--ui` mode, and `codegen` won
 
 ### Why the version is pinned
 
-Kits are cached in user workflows and re-run on every sandbox creation, so a floating `latest` would make sandbox builds non-reproducible. The kit pins `playwright@1.61.1` and `@playwright/test@1.61.1`; npm verifies the downloaded tarballs against the sha512 integrity values in the registry metadata, so pinning the version pins the content. Browser builds are keyed to the Playwright version, so they're transitively pinned too. To bump: change `PLAYWRIGHT_VERSION` in `spec.yaml` and the version references in `agentInstructions` and this README.
+Kits are cached in user workflows and re-run on every sandbox creation, so a floating `latest` would make sandbox builds non-reproducible. The kit pins `playwright@1.64.1` and `@playwright/test@1.64.1`; npm verifies the downloaded tarballs against the sha512 integrity values in the registry metadata, so pinning the version pins the content. Browser builds are keyed to the Playwright version, so they're transitively pinned too. To bump: change `PLAYWRIGHT_VERSION` in `spec.yaml` and the version references in `agentInstructions` and this README.
 
 ### Why these domains
 
@@ -69,7 +70,8 @@ Kits are cached in user workflows and re-run on every sandbox creation, so a flo
 | --- | --- |
 | `registry.npmjs.org` | npm tarballs for `playwright` + `@playwright/test` (install time) |
 | `cdn.playwright.dev` | Playwright's primary browser-binary CDN (install time; runtime for version-mismatched projects) |
-| `playwright.download.prss.microsoft.com` | Documented fallback CDN Playwright rotates to on primary failure |
+| `playwright.download.prss.microsoft.com` | Documented fallback CDN Playwright rotates to on primary failure; redirect target for ffmpeg downloads |
+| `storage.googleapis.com` | Chrome for Testing bucket that `cdn.playwright.dev` redirects Chromium downloads to on both amd64 and arm64 |
 | `archive.ubuntu.com` | Ubuntu apt archive, amd64 — `--with-deps` installs Chromium's system libraries |
 | `security.ubuntu.com` | Ubuntu security pocket, amd64 — refreshed by the same `apt-get update` |
 | `ports.ubuntu.com` | Ubuntu archive/security for arm64 (Apple Silicon sandboxes) |
