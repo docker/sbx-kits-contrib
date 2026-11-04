@@ -6,13 +6,13 @@
 # claude-mixin
 
 [Claude Code](https://code.claude.com) as a **mixin** (`kind: mixin`,
-`schemaVersion: "3"`) — the same agent the [`claude`](../claude) workload kit
-ships, packaged as an overlay you layer onto a shell base instead of booting as
+`schemaVersion: "3"`) — the same agent the [`claude`](https://github.com/docker-hardened-images/catalog/tree/main/image/claude) workload kit
+(now a Docker Hardened Image) ships, packaged as an overlay you layer onto a shell base instead of booting as
 the whole environment.
 
 Use this one when the sandbox already has a workload you want to keep (a shell,
 a language toolchain, another team's base image) and you want `claude` in it.
-Use [`claude`](../claude) when Claude Code *is* the environment.
+Use [`claude`](https://github.com/docker-hardened-images/catalog/tree/main/image/claude) when Claude Code *is* the environment.
 
 ## Composing it
 
@@ -30,8 +30,8 @@ Everything the workload declares that belongs to the agent rather than to the
 environment:
 
 - the `anthropic` credential, covering both a console API key and a Claude
-  subscription, with the same deliberate omission of `proxyManaged` (see the
-  workload's [README](../claude/README.md#why-the-api-key-is-not-proxymanaged));
+  subscription, with the same deliberate omission of `proxyManaged` (see
+  [below](#why-the-api-key-is-not-proxymanaged));
 - the same egress allow-list, including the apt hosts the background
   `apt-get update` needs;
 - the same five `~/.claude/` session-state volumes;
@@ -43,6 +43,26 @@ The install itself is the unmodified upstream one, run over the workload's base
 in a build stage and staged into a `scratch` overlay. Anthropic's installer is
 not relocatable and the install *method* is what `claude update` drives, so the
 mixin keeps it rather than swapping in a `--prefix` build.
+
+## Why the API key is *not* `proxyManaged`
+
+This is the one deviation from the pattern every other apiKey credential in
+this repo follows, and it is load-bearing rather than an oversight carried
+forward.
+
+With `proxyManaged: true` the engine sets `ANTHROPIC_API_KEY` to the literal
+`proxy-managed` inside the container. Claude Code resolves auth in a fixed
+order in which an `ANTHROPIC_API_KEY` in the environment outranks the OAuth
+credentials file — so that sentinel would shadow a bound Claude subscription on
+every sandbox, and the session would try to authenticate as a console API key
+that may not exist.
+
+Without it, the variable is simply not populated, and the sentinel Claude Code
+is meant to send arrives by a different route: a lifecycle install hook writes
+`"apiKeyHelper": "echo proxy-managed"` into `~/.claude/settings.json` when the
+bound credential is an API key, and the credential's `inject` rules swap the
+real value in at request time. The container never holds a usable key either
+way.
 
 ## What it deliberately leaves to the base workload
 
@@ -56,7 +76,8 @@ mixin keeps it rather than swapping in a `--prefix` build.
 
 ## Related
 
-- [`claude`](../claude) — the same agent as a standalone workload kit.
+- [`claude`](https://github.com/docker-hardened-images/catalog/tree/main/image/claude) — the same agent as a standalone workload, in the DHI
+  catalog.
 - [`claude-mem`](../claude-mem), [`claude-acp`](../claude-acp),
   [`claude-sbx-statusline`](../claude-sbx-statusline), [`ecc`](../ecc),
   [`claude-model-runner`](../claude-model-runner) — mixins that
