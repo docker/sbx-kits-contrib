@@ -16,6 +16,7 @@ sourceUrl: https://github.com/predictionguard/docker-pg-experiment
 iconUrl: https://raw.githubusercontent.com/predictionguard/docker-pg-experiment/main/pg-kit/logo.svg
 
 kind: mixin
+version: "1.0.0"
 
 args:
   pgHost:
