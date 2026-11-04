@@ -1,0 +1,79 @@
+schemaVersion: "1"
+kind: mixin
+name: github-copilot-cli
+displayName: GitHub Copilot CLI
+description: "Installs GitHub CLI and prepares the sandbox to run GitHub Copilot CLI through `gh copilot`."
+
+caps:
+  network:
+    allow:
+      # GitHub CLI apt repository and GitHub-hosted release downloads.
+      - "cli.github.com:443"
+      - "github.com:443"
+      - "api.github.com:443"
+      - "objects.githubusercontent.com:443"
+      - "release-assets.githubusercontent.com:443"
+      - "raw.githubusercontent.com:443"
+      # Copilot CLI runtime traffic. `gh copilot` may download the Copilot CLI on
+      # first use, then route prompts through GitHub Copilot's service endpoints.
+      - "api.githubcopilot.com:443"
+      - "copilot-proxy.githubusercontent.com:443"
+      # `apt-get update` refreshes every configured apt source from the base
+      # template. Keep all template sources allowed for amd64 and arm64 sandboxes.
+      - "archive.ubuntu.com:80"
+      - "security.ubuntu.com:80"
+      - "ports.ubuntu.com:80"
+      - "download.docker.com:443"
+
+environment:
+  variables:
+    GH_NO_UPDATE_NOTIFIER: "1"
+
+commands:
+  install:
+    - command: |
+        set -eu
+        apt-get update
+        apt-get install -y --no-install-recommends ca-certificates curl gnupg
+
+        install -d -m 0755 /etc/apt/keyrings
+        curl -fsSL -o /etc/apt/keyrings/githubcli-archive-keyring.gpg \
+          https://cli.github.com/packages/githubcli-archive-keyring.gpg
+        chmod go+r /etc/apt/keyrings/githubcli-archive-keyring.gpg
+
+        . /etc/os-release
+        echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" \
+          > /etc/apt/sources.list.d/github-cli.list
+
+        apt-get update
+        apt-get install -y --no-install-recommends gh
+        rm -rf /var/lib/apt/lists/*
+        gh --version
+      user: "0"
+      description: Install GitHub CLI from the official apt repository
+    - command: |
+        set -eu
+        grep -qF 'github-copilot-cli' ~/.bashrc 2>/dev/null || \
+          printf '\n# github-copilot-cli (added by sbx-kits-contrib/github-copilot-cli)\nexport GH_NO_UPDATE_NOTIFIER=1\n' >> ~/.bashrc
+      user: "1000"
+      description: Disable GitHub CLI update notices in interactive shells
+
+agentContext: |
+  ## GitHub Copilot CLI
+
+  GitHub CLI is installed in this sandbox. Use `gh copilot` to run GitHub
+  Copilot CLI.
+
+  Authenticate interactively if required:
+
+      gh auth login
+      gh auth status
+
+  Then run Copilot CLI:
+
+      gh copilot -- --help
+      gh copilot -p "Explain this repository"
+
+  `gh copilot` downloads the Copilot CLI on first use if it is not already
+  present on PATH. If a download, auth, or prompt request is blocked by network
+  policy, inspect `sbx policy log` and add only the required host.
