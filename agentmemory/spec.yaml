@@ -1,0 +1,102 @@
+schemaVersion: "2"
+kind: mixin
+name: agentmemory
+version: "1.0.0"
+displayName: agentmemory (persistent memory)
+description: "Local persistent memory for coding agents, powered by iii. Registers MCP tools for Claude Code and Codex without additional API keys."
+sourceURL: https://github.com/rohitg00/agentmemory
+licenses:
+  - Apache-2.0
+
+permissions:
+  network:
+    allow:
+      - registry.npmjs.org
+      - github.com:443
+      - release-assets.githubusercontent.com:443
+
+setup:
+  install:
+    - command: |
+        set -eu
+        install -d -o 1000 -g 1000 /home/agent/.local/share/agentmemory-sbx
+      user: "0"
+      description: Create the private agentmemory installation directory
+    - command: |
+        set -eu
+        for tool in node npm curl tar sha256sum flock; do
+          command -v "$tool" >/dev/null || { echo "agentmemory kit requires $tool in the base image" >&2; exit 1; }
+        done
+        node -e 'if (Number(process.versions.node.split(".")[0]) < 20) throw new Error("agentmemory requires Node.js 20 or newer")'
+        root=/home/agent/.local/share/agentmemory-sbx
+        npm install --prefix "$root/runtime" --omit=dev --omit=optional --ignore-scripts --no-audit --no-fund @agentmemory/agentmemory@0.9.29 @modelcontextprotocol/sdk@1.30.1
+        node -e 'const p = require(process.argv[1]); if (p.version !== "0.9.29") throw new Error("Unexpected agentmemory version")' "$root/runtime/node_modules/@agentmemory/agentmemory/package.json"
+        {
+          cat "$root/runtime/node_modules/@agentmemory/agentmemory/iii-config.yaml"
+          printf '\n  - name: iii-worker-manager\n    config:\n      host: 127.0.0.1\n      port: 49134\n'
+        } > "$root/iii-config.yaml"
+        case "$(uname -m)" in
+          x86_64) target=x86_64-unknown-linux-gnu ;;
+          aarch64|arm64) target=aarch64-unknown-linux-gnu ;;
+          *) echo "agentmemory kit supports Linux amd64 and arm64" >&2; exit 1 ;;
+        esac
+        bin="$root/home/.agentmemory/bin"
+        mkdir -p "$bin"
+        if [ "$("$bin/iii" --version 2>/dev/null)" != "0.11.2" ]; then
+          stage=$(mktemp -d)
+          trap 'rm -rf "$stage"' EXIT
+          asset="iii-$target"
+          url="https://github.com/iii-hq/iii/releases/download/iii/v0.11.2/$asset"
+          curl --fail --silent --show-error --location "$url.tar.gz" -o "$stage/$asset.tar.gz"
+          curl --fail --silent --show-error --location "$url.sha256" -o "$stage/$asset.sha256"
+          (cd "$stage" && sha256sum -c "$asset.sha256")
+          tar -xzf "$stage/$asset.tar.gz" -C "$bin" iii
+          chmod 755 "$bin/iii"
+        fi
+        test "$("$bin/iii" --version)" = "0.11.2"
+      user: "1000"
+      description: Install agentmemory 0.9.29 and checksum-verified iii 0.11.2 without model downloads
+    - command: |
+        set -eu
+        launcher=/home/agent/.local/bin/agentmemory-sbx
+        if command -v claude >/dev/null 2>&1; then
+          claude mcp get agentmemory-sbx >/dev/null 2>&1 ||
+            claude mcp add --scope user agentmemory-sbx -- sh "$launcher" mcp
+        fi
+        if command -v codex >/dev/null 2>&1; then
+          codex mcp get agentmemory-sbx >/dev/null 2>&1 ||
+            codex mcp add agentmemory-sbx -- sh "$launcher" mcp
+        fi
+      user: "1000"
+      description: Register agentmemory through the installed agent CLIs while preserving other MCP servers
+  startup:
+    - command: ["sh", "/home/agent/.local/share/agentmemory-sbx/start.sh"]
+      user: "1000"
+      description: Start the local memory service once and wait for readiness
+
+agentInstructions:
+  content: |
+    ## agentmemory
+
+    This sandbox has a local agentmemory service powered by iii. Claude Code
+    and Codex have its MCP server registered as `agentmemory-sbx`. Use
+    `memory_recall` to recall relevant prior decisions before starting work,
+    and `memory_save` to save useful facts, preferences, and decisions.
+    Include the project name when saving or searching. Never save credentials.
+
+    This kit uses keyword search without LLM calls or embedding downloads.
+    LLM summarization and semantic vector search are not enabled. It does not
+    install automatic capture hooks; save memories explicitly through MCP.
+
+    Memory is written to disk every five seconds and survives restarting
+    this sandbox after that write. Allow at least five seconds after the last
+    save before stopping it. Removing the sandbox removes its memory too;
+    export anything needed elsewhere before removal.
+    Other agents can use the stdio command
+    `sh /home/agent/.local/bin/agentmemory-sbx mcp` or the loopback REST API at
+    `http://127.0.0.1:3111/agentmemory`.
+
+    Diagnose with `sh /home/agent/.local/bin/agentmemory-sbx status` and
+    `/home/agent/.local/share/agentmemory-sbx/startup.log`. If tools report a
+    connection error, report that the memory service is unavailable; do not
+    claim a memory was saved. MCP is forced to use the persistent service.
