@@ -6,9 +6,9 @@ app for managing AI agents at work: a Node.js server + React UI that
 orchestrates a team of agents ("if OpenClaw is an employee, Paperclip is
 the company").
 
-The kit uses a **pre-baked sandbox image**: Node 22 and the pinned
+The kit uses a **pre-baked sandbox image**: Node 24 and the pinned
 `paperclipai` package (server, built UI, embedded PostgreSQL binaries)
-ship inside the image, built on the `claude-code` template so the
+ship inside the image, built on the `claude` kit's image so the
 `claude_local` adapter has Claude Code available out of the box. A new
 sandbox serves the web UI in seconds.
 
@@ -115,16 +115,15 @@ Telemetry is opted out at the source (`PAPERCLIP_TELEMETRY_DISABLED=1`);
 
 ## Base image
 
-Unlike most kits here — which are `kind: mixin` or `kind: agent` and layer
-onto an existing `docker/sandbox-templates` image — a `kind: sandbox` kit
-*is* the whole environment, so it names the image the sandbox boots from.
-This kit builds and publishes its own, from the `Dockerfile` in this
-directory:
+Unlike a `kind: mixin` kit, which layers onto the image of the agent it is
+composed with, a `kind: sandbox` kit *is* the whole environment, so it names
+the image the sandbox boots from. This kit builds and publishes its own, from
+the `Dockerfile` in this directory:
 
 ```
 docker.io/sbx/paperclip-image
-└── FROM docker/sandbox-templates:claude-code
-    ├── Node 22 (paperclip requires >= 20)
+└── FROM docker.io/sbx/claude-image:latest
+    ├── Node 24 (npm 11 resolves paperclipai's tree; npm 9 and 10 crash on it)
     └── paperclipai @ pinned version   npm global install:
         ├── @paperclipai/server + built React UI
         ├── distro PostgreSQL (not the bundled embedded-postgres, whose
@@ -167,5 +166,5 @@ sbx exec <sandbox> -- curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:
 sbx exec <sandbox> -- paperclipai doctor
 ```
 
-See [`docs/recipe-prebaked-image-kit.md`](../docs/recipe-prebaked-image-kit.md)
+See [Publishing a kit's own image](../skills/kit-author/topics/image-publishing.md)
 for the general pattern this kit follows.

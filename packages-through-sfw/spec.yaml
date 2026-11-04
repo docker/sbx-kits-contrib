@@ -17,7 +17,8 @@ permissions:
       - "files.pythonhosted.org:443"
       # `apt-get update` (run by the first install hook) refreshes metadata
       # for every configured apt source. The shell-docker base template
-      # ships three sources, all of which must succeed for the update to
+      # ships five sources (Ubuntu's archive, security and ports, Docker's repo,
+      # GitHub CLI's repo), all of which must succeed for the update to
       # exit 0, regardless of which one our install actually fetches from.
       # Ubuntu hosts amd64 packages on archive/security and arm64 packages
       # on ports.ubuntu.com, so all three Ubuntu hosts are listed for
@@ -26,6 +27,7 @@ permissions:
       - "security.ubuntu.com:80"       # Ubuntu security updates (amd64, HTTP)
       - "ports.ubuntu.com:80"          # Ubuntu archive/security (arm64, HTTP)
       - "download.docker.com:443"      # Docker's apt repo, pre-added by shell-docker
+      - "cli.github.com:443"           # GitHub CLI's apt repo, pre-added by the base
 setup:
   install:
     - command: apt-get update && apt-get install -y --no-install-recommends ca-certificates curl nodejs npm python3-pip && rm -rf /var/lib/apt/lists/*

@@ -148,6 +148,31 @@ func TestMCPExpectationsValidate(t *testing.T) {
 	}
 }
 
+func TestMCPExpectationsServersKey(t *testing.T) {
+	tests := []struct {
+		name string
+		want mcpExpectations
+		key  string
+	}{
+		{
+			name: "empty_defaults_to_mcpServers",
+			want: mcpExpectations{ConfigPath: "$HOME/.copilot/mcp-config.json"},
+			key:  "mcpServers",
+		},
+		{
+			name: "explicit_key_is_kept",
+			want: mcpExpectations{ConfigPath: "$HOME/.config/opencode/opencode.json", ServersKey: "mcp"},
+			key:  "mcp",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			require.Equal(t, tc.key, tc.want.serversKey())
+		})
+	}
+}
+
 func TestMCPKeyPatterns(t *testing.T) {
 	t.Run("json", func(t *testing.T) {
 		present, assigned := mcpKeyPatterns(mcpFormatJSON, "url")

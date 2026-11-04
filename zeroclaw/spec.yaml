@@ -5,7 +5,7 @@ displayName: ZeroClaw
 description: Fast, small, fully autonomous AI assistant infrastructure (Rust, single binary) — gateway with 30+ channels and ~20 providers, pre-baked at a pinned upstream release.
 sandbox:
   # Pre-baked image: the pinned zeroclaw release binary, on the shell
-  # template (no Docker engine -- see the Dockerfile). Built and published
+  # base image (no Docker engine -- see the Dockerfile). Built and published
   # by build-and-publish-kits.yml, the shared kit-image pipeline (see
   # ../PUBLISHING.md) -- no bespoke workflow needed, same as
   # hermes-agent/pi/openclaw/kiro/copilot. Sandbox creation only pulls the

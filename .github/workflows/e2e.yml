@@ -89,6 +89,13 @@ jobs:
     # (Docker Hub secrets are not exposed there).
     strategy:
       fail-fast: false
+      # Every leg signs in to Docker Hub and sbx reads the org's admin
+      # settings from Hub on create. A wide matrix (all kits, three lanes)
+      # fired 200+ of those within a minute from one account and Hub
+      # throttled it: logins answered 429 and creates failed with
+      # "administrator settings are unavailable". The cap keeps the
+      # per-lane rate under that limit; the login step also retries.
+      max-parallel: 10
       matrix:
         kit: ${{ fromJson(inputs.kits) }}
     runs-on: ubuntu-latest
@@ -141,7 +148,31 @@ jobs:
           # stripping all whitespace can't corrupt a legitimate value.
           USER_CLEAN=$(printf '%s' "$USERNAME" | tr -d '[:space:]')
           TOKEN_CLEAN=$(printf '%s' "$TOKEN" | tr -d '[:space:]')
-          printf '%s' "$TOKEN_CLEAN" | sbx --app-name "$APP_NAME" login --username "$USER_CLEAN" --password-stdin
+          # Hub throttles logins per account (HTTP 429). Hub also answers slowly under
+          # the same load, so timeouts and "service unavailable" are retried the same way.
+          # A wide matrix logs in
+          # from every leg within the same minute and trips it (main run
+          # 39812201021 lost 42 of 71 release legs that way), so back off and
+          # retry on throttling, timeouts or unavailable only; any other login
+          # error still fails the leg.
+          delay=10
+          for attempt in 1 2 3 4 5 6; do
+            if out=$(printf '%s' "$TOKEN_CLEAN" | sbx --app-name "$APP_NAME" login --username "$USER_CLEAN" --password-stdin 2>&1); then
+              printf '%s\n' "$out"
+              exit 0
+            fi
+            printf '%s\n' "$out"
+            case "$out" in
+              *"rate limited"*|*429*|*"service unavailable"*|*"deadline exceeded"*|*"Client.Timeout"*) ;;
+              *) exit 1 ;;
+            esac
+            wait_s=$((delay + RANDOM % delay))
+            echo "Docker Hub login throttled or unavailable (attempt ${attempt}); retrying in ${wait_s}s"
+            sleep "$wait_s"
+            delay=$((delay * 2))
+          done
+          echo "::error::Docker Hub login still failing after 6 attempts (throttled or unavailable)"
+          exit 1
 
       - name: Run e2e TCK for ${{ matrix.kit }}
         # Runs TestE2EKit: verifies kit content (env, files, tmpfs, agentContext)

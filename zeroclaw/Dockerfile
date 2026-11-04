@@ -10,7 +10,7 @@
 # Built and published by build-and-publish-kits.yml, the shared kit-image
 # pipeline (see ../PUBLISHING.md) -- no bespoke workflow needed, same as
 # hermes-agent/pi/openclaw/kiro/copilot.
-ARG BASE_IMAGE=docker/sandbox-templates:shell
+ARG BASE_IMAGE=docker.io/sbx/shell-image:latest
 FROM ${BASE_IMAGE}
 
 # Re-declared inside the stage: an ARG defined before the first FROM is a

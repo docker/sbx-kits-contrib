@@ -5,7 +5,7 @@ Base image for the OpenClaw agent kit for
 
 ## Contents
 
-Built on `docker/sandbox-templates:shell-docker`. On top of that:
+Built on `docker.io/sbx/shell-docker-image`. On top of that:
 
 - Node 24 (OpenClaw 2026.9.3 requires >= 24.16.0 < 25, or >= 26.1.0)
 - `openclaw`, installed globally at a pinned version

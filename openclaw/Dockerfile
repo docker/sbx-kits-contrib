@@ -13,11 +13,10 @@
 
 # Parameterised rather than hard-coded so a build can be aimed at a specific
 # base digest without editing this file. Nothing in this repository passes the
-# arg, so the default is what ships -- and it is the same tag this image has
-# always been built on. Unlike OPENCLAW_VERSION below, the base is left
-# floating on purpose, so the shared pipeline's nightly rebuild picks up
-# template fixes.
-ARG BASE_IMAGE=docker/sandbox-templates:shell-docker
+# arg, so the default is what ships. Unlike OPENCLAW_VERSION below, the base is
+# left floating on purpose, so the shared pipeline's nightly rebuild picks up
+# base image fixes.
+ARG BASE_IMAGE=docker.io/sbx/shell-docker-image:latest
 FROM ${BASE_IMAGE}
 
 # Re-declared inside the stage: an ARG defined before the first FROM is a
@@ -40,7 +39,7 @@ RUN sed -i 's|http://|https://|g' /etc/apt/sources.list.d/*.sources /etc/apt/sou
 # runtime bump have to travel together.
 # The package's lifecycle scripts are offline-safe (local plugin fixups only).
 #
-# `n` installs to /usr/local, leaving the template's apt node at /usr/bin/node
+# `n` installs to /usr/local, leaving the base image's apt node at /usr/bin/node
 # on 22.22.1. That is load-bearing: openclaw's launcher is
 # `#!/usr/bin/env node`, so it needs /usr/local/bin ahead of /usr/bin on PATH
 # or it resolves the old interpreter and refuses to run. Every PATH in play has
@@ -56,12 +55,12 @@ RUN npm install -g n && n 24 && npm install -g "openclaw@${OPENCLAW_VERSION}"
 # download itself goes to PLAYWRIGHT_BROWSERS_PATH below.
 #
 # The platform override is no longer strictly needed: it was added when
-# Playwright 1.60 had no dependency map for the template's Ubuntu 26.04, and
+# Playwright 1.60 had no dependency map for the base image's Ubuntu 26.04, and
 # 2026.9.3's playwright-core 1.62.1 does carry an ubuntu26.04 entry whose
 # chromium apt list is identical to ubuntu24.04's. It is kept deliberately,
 # because BASE_IMAGE floats: on a platform Playwright has no map for,
 # `install --with-deps` prints "Cannot install dependencies" and exits 0, so a
-# template moving to an unmapped Ubuntu would publish a green image shipping a
+# base image moving to an unmapped Ubuntu would publish a green image shipping a
 # Chromium with no runtime libraries. Pinning a mapped platform keeps that
 # state unreachable. gstack/Dockerfile pins it for the same reason.
 ENV PLAYWRIGHT_BROWSERS_PATH=/opt/ms-playwright
@@ -95,8 +94,7 @@ RUN mkdir -p /home/agent/.openclaw && \
     printf '{\n  "gateway": {\n    "mode": "local"\n  }\n}\n' > /home/agent/.openclaw/openclaw.json
 
 # Inherited from the base image, but re-declared deliberately so the value is
-# owned here rather than depending on inheritance from an image this repository
-# does not own.
+# owned here rather than depending on inheritance.
 #
 # This is a *request* to the runtime, not a description of the image: setting it
 # over a base with no Docker engine yields a sandbox started in Docker mode with
@@ -110,7 +108,7 @@ LABEL com.docker.sandboxes.start-docker="true"
 # Overriding `flavor` is not optional. sbx reads it as an agent identifier: it
 # surfaces the value as an image's `Agent`, and uses it to warn when a template
 # looks built for a different agent than the one being run. Left inherited it
-# reads "shell-docker", so sbx reports this image's agent as the base template
+# reads "shell-docker", so sbx reports this image's agent as the base image's
 # rather than OpenClaw. It must be the kit name exactly as spec.yaml uses it:
 # `openclaw`.
 LABEL com.docker.sandboxes.flavor="openclaw"
@@ -119,10 +117,5 @@ LABEL com.docker.sandboxes.flavor="openclaw"
 # the one place the produced image itself records what it was built on: the
 # default tag above, or whatever a build passed instead.
 LABEL com.docker.sandboxes.base="${BASE_IMAGE}"
-
-# Note: `com.docker.sandboxes=templates` also appears on this image. It is
-# inherited from the base and is not set here -- nothing reads it, and this
-# image is not part of that template family, so it is left alone rather than
-# asserted.
 
 CMD ["/usr/local/bin/openclaw-start"]

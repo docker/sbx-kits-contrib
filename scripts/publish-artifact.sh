@@ -156,7 +156,26 @@ elif command -v sbx >/dev/null; then
   # stream is the one CI shows, so say which arguments were supplied and
   # leave reading their values to the tck.yaml this names.
   [ -z "$arg_names" ] || log "    args from $kit/testdata/tck.yaml: $arg_names"
-  sbx kit validate "$REPO_ROOT/$kit" ${validate_args[@]+"${validate_args[@]}"}
+  # Hub holds the org's kit policy and validate reads it, so a wide run gets
+  # the account throttled. Retry only that; any other failure is final.
+  delay=15
+  attempt=1
+  while :; do
+    rc=0
+    out=$(sbx kit validate "$REPO_ROOT/$kit" ${validate_args[@]+"${validate_args[@]}"} 2>&1) || rc=$?
+    printf '%s\n' "$out"
+    [ "$rc" -ne 0 ] || break
+    case "$out" in
+      *"administrator settings are unavailable"* | *"rate limited"*) ;;
+      *) exit 1 ;;
+    esac
+    [ "$attempt" -lt 5 ] || die "Docker Hub throttled this account on all 5 validation attempts"
+    sleep_for=$((delay + RANDOM % delay))
+    log "!!! Docker Hub throttled this account (attempt $attempt); retrying validation in ${sleep_for}s"
+    sleep "$sleep_for"
+    delay=$((delay * 2))
+    attempt=$((attempt + 1))
+  done
 else
   # A developer inspecting the plan should not need sbx installed; CI always
   # has it, so this branch never runs there. Loud rather than silent, because

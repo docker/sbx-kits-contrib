@@ -5,8 +5,8 @@ Base image for the Hermes Agent kit for
 
 ## Contents
 
-Built on `docker/sandbox-templates:shell` — the standard sandbox toolchain,
-no Docker engine (Hermes' terminal backend defaults to `local`, so it does
+Built on `docker.io/sbx/shell-image`, the standard sandbox toolchain
+with no Docker engine (Hermes' terminal backend defaults to `local`, so it does
 not need one). On top of that:
 
 - [Hermes Agent](https://github.com/NousResearch/hermes-agent), installed

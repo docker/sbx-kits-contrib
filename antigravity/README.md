@@ -41,4 +41,4 @@ When Docker Sandboxes provides an MCP gateway, the kit registers it in Antigravi
 
 ## Image
 
-The companion image is built from `docker/sandbox-templates:shell-docker` and installs `agy` with Google's official installation script. The installer resolves the current release and verifies its published checksum.
+The companion image is built from `docker.io/sbx/shell-docker-image` and installs `agy` with Google's official installation script. The installer resolves the current release and verifies its published checksum.

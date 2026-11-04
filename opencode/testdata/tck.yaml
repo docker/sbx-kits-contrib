@@ -42,9 +42,19 @@ extractedFromBuiltin: true
 #   * `command` — the key OpenCode's *local* server shape uses. A registration
 #     carrying it would be describing a process to spawn rather than the
 #     gateway URL to call, which is a different server entirely.
+#
+# Other kits can write provider settings into this same file during install,
+# and startup replays on every container start, so the hook has to merge rather
+# than overwrite. preservesSiblings runs it once with no config file, then twice
+# against a config that already holds another server and an unrelated top-level
+# setting, and checks that the gateway is registered and both are still there.
+# serversKey points the server checks at `mcp`, the key OpenCode keeps its
+# servers under, rather than the `mcpServers` default.
 mcp:
   configPath: $HOME/.config/opencode/opencode.json
   transportKey: url
+  serversKey: mcp
+  preservesSiblings: true
   forbiddenKeys:
     - httpUrl
     - http_headers

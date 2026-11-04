@@ -31,10 +31,10 @@ func WithImage(image string) Option {
 // ArtifactFile.Open. File content is still read into memory at the copy
 // boundary inside RunContainerTests, but only one file at a time.
 //
-// For kind=agent artifacts, the container image is taken from the manifest's template.
+// For kind=sandbox artifacts, the container image is taken from sandbox.image.
 // For kind=mixin artifacts, the image is resolved from extends or the declared
-// base-agent affinity (requires.agent) using well-known agent templates, or
-// defaults to the shell template.
+// base-agent affinity (requires.agent) using well-known agent images, or
+// defaults to DefaultShellImage.
 // Use WithImage to override the image for any artifact.
 func NewSuiteFromDir(dir string, opts ...Option) (*Suite, error) {
 	artifact, err := openKitArtifact(dir)

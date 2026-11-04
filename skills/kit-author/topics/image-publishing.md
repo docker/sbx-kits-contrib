@@ -1,8 +1,8 @@
 # Publishing a kit's own image
 
 Applies only to a `kind: sandbox` kit whose image **this repository builds**.
-Mixins and kits that reuse an existing `docker/sandbox-templates` image publish
-nothing and can skip this.
+Mixins, and sandbox kits that name an image they do not build (another kit's,
+like `devin-enterprise`, or a template), build nothing and can skip this.
 
 Full pipeline reference: [`PUBLISHING.md`](../../../PUBLISHING.md) at the repo
 root. This topic is the author-facing subset — what you write, and the traps.
@@ -30,7 +30,7 @@ hub-overview.yml` only syncs a base image's overview for a kit that has both a
 `Dockerfile` (proof the kit actually owns that image, not just a shared
 template or someone else's pre-built one) *and* a `README.image.md` to publish
 — the sync step is guarded on both, precisely so a kit reusing
-`docker/sandbox-templates` (or, like `nanoclaw`, someone else's own image)
+an agent's image (or, like `nanoclaw`, someone else's own image)
 never overwrites a Hub repository it doesn't own the narrative for. This is
 separate from `my-kit/README.md`, which documents the *kit* (how to run it);
 `README.image.md` documents the *image* (what's installed, how it's built) —
@@ -51,12 +51,24 @@ itself, which is also distributed as an OCI artifact — see
 
 ## Choosing a base image
 
-Default to `docker/sandbox-templates:shell`; reach for a `-docker` variant only
+Two bases, both built and published by this repository. A kit that extends an
+agent builds on that agent kit's image (e.g. `docker.io/sbx/claude-image:latest`)
+instead of installing the agent itself. It inherits that image's engine and
+`start-docker` label; leave the label alone, because overriding it to `"false"`
+on an image that ships `dockerd` makes the sandbox fail to start with `docker
+daemon failed to start inside the sandbox`.
+
+| Base | What it is | `start-docker` label |
+|---|---|---|
+| `docker.io/sbx/shell-image:latest` | the sandbox toolchain, the `agent` user, the Docker CLI with compose and buildx; no engine | never |
+| `docker.io/sbx/shell-docker-image:latest` | the shell image plus `containerd.io` and `docker-ce` | `"true"` |
+
+Default to `docker.io/sbx/shell-image:latest`; reach for the `-docker` base only
 when the kit's agent itself launches containers, not because a nearby kit's
 Dockerfile does — existing kits split between the two bases, so the closest
 example isn't evidence either way. Only set `LABEL
-com.docker.sandboxes.start-docker="true"` on a base that actually ships an
-engine (CI checks this — see [Pre-publish verification](../../../PUBLISHING.md#pre-publish-verification)).
+com.docker.sandboxes.start-docker="true"` on the `-docker` base (CI checks the
+image really ships an engine — see [Pre-publish verification](../../../PUBLISHING.md#pre-publish-verification)).
 For a new kit, absence of evidence isn't a reason to pick either base — check
 the agent's own source or docs for whether it shells out to `docker`,
 declares a container runtime, or offers a container-backed execution mode,
@@ -65,6 +77,12 @@ question stays open, preserve the base it already had rather than change
 behavior on a guess. The plain base runs meaningfully smaller — hundreds of
 megabytes, measured against today's bases — which is why the choice is worth
 making deliberately rather than by default.
+
+Write the base as `ARG BASE_IMAGE=<base>` followed by `FROM ${BASE_IMAGE}`, as
+every kit here does: the publish workflow finds a base's dependents by
+grepping `*/Dockerfile` for that line. Kits on the shell or shell-docker base
+rebuild when the base does; kits on an agent kit's image pick it up on the next
+nightly after the agent image is published.
 
 ## Do not reach for `sandbox.build:`
 

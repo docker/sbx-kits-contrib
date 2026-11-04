@@ -6,7 +6,7 @@ skill pack: opinionated slash commands (`/ship`, `/review`, `/qa`,
 `/browse`, `/office-hours`, …) plus compiled Bun binaries including a
 headless-Chromium browse daemon.
 
-The kit uses a **pre-baked sandbox image** on the `claude-code` template:
+The kit uses a **pre-baked sandbox image** on the `claude` kit's image:
 Bun, the gstack checkout at a pinned commit with `./setup` already run
 (all skills registered under `~/.claude/skills`), and Chromium for the
 browse daemon. Attaching drops straight into a Claude Code session with
@@ -47,15 +47,14 @@ allow-listed; its sync exits silently when unreachable.
 
 ## Base image
 
-Unlike most kits here — which are `kind: mixin` or `kind: agent` and layer
-onto an existing `docker/sandbox-templates` image — a `kind: sandbox` kit
-*is* the whole environment, so it names the image the sandbox boots from.
-This kit builds and publishes its own, from the `Dockerfile` in this
-directory:
+Unlike a `kind: mixin` kit, which layers onto the image of the agent it is
+composed with, a `kind: sandbox` kit *is* the whole environment, so it names
+the image the sandbox boots from. This kit builds and publishes its own, from
+the `Dockerfile` in this directory:
 
 ```
 docker.io/sbx/gstack-image
-└── FROM docker/sandbox-templates:claude-code
+└── FROM docker.io/sbx/claude-image:latest
     ├── Bun 1.3.10 (/usr/local)
     ├── /opt/playwright-browsers        Chromium + xvfb/fonts for /browse
     └── ~/.claude/skills/gstack         checkout @ pinned SHA, ./setup run:
@@ -101,5 +100,5 @@ $ sbx exec <sandbox> -- /home/agent/.claude/skills/gstack/browse/dist/browse got
 $ sbx exec <sandbox> -- cat <workspace>/.gstack/browse.json   # daemon port + token
 ```
 
-See [`docs/recipe-prebaked-image-kit.md`](../docs/recipe-prebaked-image-kit.md)
+See [Publishing a kit's own image](../skills/kit-author/topics/image-publishing.md)
 for the general pattern this kit follows.

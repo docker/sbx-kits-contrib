@@ -40,7 +40,17 @@ Then launch:
 sbx run --kit "docker.io/sbx/vibe-kit:latest" vibe
 ```
 
-The container only ever sees `MISTRAL_API_KEY` set to a proxy sentinel. The real key is substituted by the proxy on requests to `api.mistral.ai`, `chat.mistral.ai` and `console.mistral.ai`, and on no other host — so a prompt injection that talks the agent into exfiltrating the variable exfiltrates the sentinel.
+The container only ever sees `MISTRAL_API_KEY` set to a proxy sentinel.
+The proxy substitutes the real key only on requests to `api.mistral.ai`,
+matching Cloud's `mistral` service registry. Exfiltrating the variable
+therefore exposes only the sentinel.
+
+`chat.mistral.ai` and `console.mistral.ai` remain allowed for egress but
+receive no credential injection. Requests using `MISTRAL_API_KEY` there
+carry the sentinel and may return HTTP 401: the organization's
+admin-managed configuration at startup and the `/whoami` account and
+plan lookup may be unavailable. This applies locally and on Cloud;
+inference requests to `api.mistral.ai` still receive the real key.
 
 ## Agent profile
 
@@ -75,4 +85,4 @@ Telemetry and Vibe's self-update are both switched off through `VIBE_ENABLE_TELE
 
 ## Image
 
-The companion image, `docker.io/sbx/vibe-image`, is built from `docker/sandbox-templates:shell-docker` and installs `mistral-vibe` from PyPI with `uv tool install`. Pin a release at build time with `--build-arg VIBE_VERSION=2.25.0`; the default, `latest`, is what CI's nightly rebuild tracks.
+The companion image, `docker.io/sbx/vibe-image`, is built from `docker.io/sbx/shell-docker-image` and installs `mistral-vibe` from PyPI with `uv tool install`. Pin a release at build time with `--build-arg VIBE_VERSION=2.25.0`; the default, `latest`, is what CI's nightly rebuild tracks.

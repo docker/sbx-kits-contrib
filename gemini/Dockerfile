@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1.7
 
-ARG BASE_IMAGE=docker/sandbox-templates:shell-docker
+ARG BASE_IMAGE=docker.io/sbx/shell-docker-image:latest
 FROM ${BASE_IMAGE}
 
 ARG BASE_IMAGE

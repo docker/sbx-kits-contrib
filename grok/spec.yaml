@@ -5,7 +5,7 @@ displayName: Grok Build
 description: xAI's terminal-based coding agent, powered by Grok models.
 
 sandbox:
-  image: "docker/sandbox-templates:shell-docker"
+  image: "docker.io/sbx/shell-docker-image:latest"
   entrypoint: [grok, "--yolo", "--no-auto-update"]
 
 permissions:
@@ -41,7 +41,7 @@ setup:
   install:
     # The installer only symlinks `grok` onto an existing, writable PATH
     # directory (~/.local/bin or /usr/local/bin); it does not create either.
-    # ~/.local/bin is on PATH already (shell-docker template), but the base
+    # ~/.local/bin is on PATH already (shell-docker base image), but the base
     # image never creates it, so on a fresh container the installer would
     # silently fall through to rewriting .bashrc/.zshrc instead — which a
     # non-interactive kit entrypoint never sources. Pre-creating the

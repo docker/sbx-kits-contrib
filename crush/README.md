@@ -70,11 +70,15 @@ The real key never enters the sandbox. Each credential sets
 `*_API_KEY` env var inside the container so Crush sees the variables it
 expects to find.
 
-`permissions.network.allow` covers every provider API host and nothing else —
+`permissions.network.allow` covers the provider API hosts —
 Crush is baked into the image (see [Base image](#base-image) below), so
 `repo.charm.sh` (the apt index and GPG key) and the hosts it redirects package
 downloads to are install-time-only and do not need to be reachable from a
 running sandbox.
+
+`groq.com` also remains allowed for egress, without credential injection.
+Authenticated Groq requests must target `api.groq.com`; the kit does not
+provide authenticated redirects to `groq.com`.
 
 ### Anthropic: API key only, no Claude subscription
 
@@ -101,14 +105,14 @@ host-side.
 
 ## Base image
 
-Unlike most kits here — which are `kind: mixin` or `kind: agent` and layer
-onto an existing `docker/sandbox-templates` image — a `kind: sandbox` kit *is*
-the whole environment, so it names the image the sandbox boots from. This kit
-builds and publishes its own, from the `Dockerfile` in this directory:
+Unlike a `kind: mixin` kit, which layers onto the image of the agent it is
+composed with, a `kind: sandbox` kit *is* the whole environment, so it names the
+image the sandbox boots from. This kit builds and publishes its own, from the
+`Dockerfile` in this directory:
 
 ```
 docker.io/sbx/crush-image
-└── FROM docker/sandbox-templates:shell
+└── FROM docker.io/sbx/shell-image:latest
     └── crush (apt, from Charm's own repository)
 ```
 

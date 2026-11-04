@@ -73,15 +73,24 @@ type mcpExpectations struct {
 	ForbiddenKeys []string `yaml:"forbiddenKeys"`
 
 	// PreservesSiblings opts the kit into the mcp_merge subtest, which runs
-	// the registration script twice against a config that already holds
-	// another server and asserts that server is still there afterwards.
+	// the registration script once with no config file, then twice against a
+	// config that already holds another server and an unrelated top-level
+	// setting, and asserts the gateway is registered and both are still there
+	// afterwards.
 	//
 	// Opt-in: an agent whose MCP config file nothing but this script ever
 	// writes may write it whole, and the subtest would fail it for doing so.
 	//
 	// Requires ConfigPath, TransportKey, and JSON ConfigFormat — the
-	// assertions read the result with jq.
+	// assertions read the result with jq. Servers are seeded and read back
+	// under ServersKey.
 	PreservesSiblings bool `yaml:"preservesSiblings"`
+
+	// ServersKey is the top-level key the agent's config nests its MCP
+	// servers under: "mcpServers" (the default) or the agent's own spelling,
+	// e.g. "mcp" for OpenCode. Only the mcp_merge subtest reads it, to seed
+	// the sibling server and to find both servers afterwards.
+	ServersKey string `yaml:"serversKey"`
 }
 
 // mcpGuard is the no-op guard every registration script must open with. It is
@@ -109,6 +118,14 @@ func (m *mcpExpectations) format() string {
 		return mcpFormatJSON
 	}
 	return strings.ToLower(m.ConfigFormat)
+}
+
+// serversKey returns the declared servers key, defaulted to "mcpServers".
+func (m *mcpExpectations) serversKey() string {
+	if m.ServersKey == "" {
+		return "mcpServers"
+	}
+	return m.ServersKey
 }
 
 // validate rejects an mcp: block the assertions cannot honour: an unknown
@@ -341,15 +358,20 @@ const (
 	mcpSiblingName = "tck-sibling"
 	mcpSiblingURL  = "http://tck-sibling.invalid/mcp"
 
+	// mcpUnrelatedKey stands in for a top-level setting another writer owns in
+	// the same file, such as OpenCode provider settings a kit writes at install.
+	mcpUnrelatedKey = "tck-unrelated"
+
 	// mcpMergeGatewayURL and mcpMergeSentinel stand in for the values
 	// sandboxd injects when a gateway has been reserved.
 	mcpMergeGatewayURL = "http://tck-gateway.invalid/mcp"
 	mcpMergeSentinel   = "TCK_MCP_SENTINEL"
 )
 
-// RunMCPMergeTests runs the kit's gateway-registration script in the container,
-// twice, against a config that already holds another server, and asserts that
-// server survives both runs.
+// RunMCPMergeTests runs the kit's gateway-registration script in the container.
+// It first runs it once with no config file and asserts the gateway gets
+// registered. It then runs it twice against a config that already holds another
+// server and an unrelated top-level setting, and asserts both survive.
 //
 // Startup commands replay on every container start, so a script that writes its
 // config file whole deletes every server the user added inside the sandbox — a
@@ -386,11 +408,23 @@ func (s *Suite) RunMCPMergeTests(t *testing.T, ctx context.Context, container te
 			return out
 		}
 
-		// Paths and JSON are passed as positional arguments rather than
-		// interpolated into the script text, so neither needs quoting.
-		exec("seed",
-			"sh", "-c", `mkdir -p "$(dirname "$1")" && printf '%s' "$2" > "$1"`, "sh",
-			cfg, fmt.Sprintf(`{"mcpServers":{%q:{"url":%q}}}`, mcpSiblingName, mcpSiblingURL))
+		assert := func(what, filter, shown, when string) {
+			t.Helper()
+			code, reader, err := container.Exec(ctx, []string{
+				"jq", "-e",
+				"--arg", "servers", want.serversKey(),
+				"--arg", "gateway", mcpGatewayName,
+				"--arg", "sibling", mcpSiblingName,
+				"--arg", "siblingURL", mcpSiblingURL,
+				"--arg", "transport", want.TransportKey,
+				"--arg", "url", mcpMergeGatewayURL,
+				"--arg", "unrelated", mcpUnrelatedKey,
+				filter, cfg,
+			}, tcexec.WithUser(user), tcexec.Multiplexed())
+			require.NoErrorf(t, err, "exec jq for %s", what)
+			require.Equalf(t, 0, code, "%s\n  filter: %s\n  jq: %s\n  config %s:\n%s",
+				what, filter, readOutput(t, reader), when, shown)
+		}
 
 		register := []string{
 			"env",
@@ -401,6 +435,21 @@ func (s *Suite) RunMCPMergeTests(t *testing.T, ctx context.Context, container te
 			"sh", "-c", script,
 		}
 
+		// A sandbox's first start has no config file. Only the file is removed,
+		// not its directory, which may hold files the kit ships.
+		exec("remove config", "rm", "-f", cfg)
+		exec("registration with no config file", register...)
+		fresh := exec("read config after registration with no config file", "cat", cfg)
+		assert("the gateway must be registered when no config file exists",
+			`.[$servers][$gateway][$transport] == $url`, fresh, "after registration with no config file")
+
+		// Paths and JSON are passed as positional arguments rather than
+		// interpolated into the script text, so neither needs quoting.
+		exec("seed",
+			"sh", "-c", `mkdir -p "$(dirname "$1")" && printf '%s' "$2" > "$1"`, "sh",
+			cfg, fmt.Sprintf(`{%q:{"keep":true},%q:{%q:{"url":%q}}}`,
+				mcpUnrelatedKey, want.serversKey(), mcpSiblingName, mcpSiblingURL))
+
 		exec("registration on first start", register...)
 		first := exec("read config after first start", "cat", cfg)
 		exec("registration on restart", register...)
@@ -409,25 +458,11 @@ func (s *Suite) RunMCPMergeTests(t *testing.T, ctx context.Context, container te
 		require.Equal(t, first, second,
 			"replaying the registration must converge on the same config, not keep rewriting it")
 
-		assert := func(what, filter string) {
-			t.Helper()
-			code, reader, err := container.Exec(ctx, []string{
-				"jq", "-e",
-				"--arg", "gateway", mcpGatewayName,
-				"--arg", "sibling", mcpSiblingName,
-				"--arg", "siblingURL", mcpSiblingURL,
-				"--arg", "transport", want.TransportKey,
-				"--arg", "url", mcpMergeGatewayURL,
-				filter, cfg,
-			}, tcexec.WithUser(user), tcexec.Multiplexed())
-			require.NoErrorf(t, err, "exec jq for %s", what)
-			require.Equalf(t, 0, code, "%s\n  filter: %s\n  jq: %s\n  config after two starts:\n%s",
-				what, filter, readOutput(t, reader), second)
-		}
-
 		assert("a server the user added must survive the restart",
-			`.mcpServers[$sibling].url == $siblingURL`)
+			`.[$servers][$sibling].url == $siblingURL`, second, "after two starts")
+		assert("a top-level setting another writer owns must survive the restart",
+			`.[$unrelated].keep == true`, second, "after two starts")
 		assert("the gateway must be registered with the injected URL",
-			`.mcpServers[$gateway][$transport] == $url`)
+			`.[$servers][$gateway][$transport] == $url`, second, "after two starts")
 	})
 }

@@ -4,6 +4,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -20,16 +21,18 @@ const (
 	claudeSettingsNone = `{
   "themeId": 1,
   "alwaysThinkingEnabled": true,
-  "defaultMode": "bypassPermissions",
-  "bypassPermissionsModeAccepted": true
+  "permissions": { "defaultMode": "bypassPermissions" },
+  "bypassPermissionsModeAccepted": true,
+  "skipDangerousModePermissionPrompt": true
 }
 `
 	claudeSettingsAPIKey = `{
   "themeId": 1,
   "alwaysThinkingEnabled": true,
   "apiKeyHelper": "echo proxy-managed",
-  "defaultMode": "bypassPermissions",
-  "bypassPermissionsModeAccepted": true
+  "permissions": { "defaultMode": "bypassPermissions" },
+  "bypassPermissionsModeAccepted": true,
+  "skipDangerousModePermissionPrompt": true
 }
 `
 )
@@ -49,32 +52,41 @@ func findSettingsInstall(t *testing.T, c *CommandsPolicy) InstallCommand {
 	return InstallCommand{}
 }
 
-// runSettingsInstallScript executes the kit's settings-seeding install script
-// in a temp dir, rewriting the absolute /home/agent paths to the temp dir and
-// making both the recursive and enumerated chown forms non-fatal (the test
-// process is not root), then returns the content of the produced
-// settings.json.
+// runSettingsInstallScript runs the kit's settings-seeding install script in a
+// fresh temp home and returns the content of the produced settings.json.
 func runSettingsInstallScript(t *testing.T, script, modeEnv string) string {
 	t.Helper()
 	tmp := t.TempDir()
-
-	// /home/agent -> tmp so the script writes inside the sandbox of the test.
-	script = strings.ReplaceAll(script, "/home/agent", tmp)
-	// chown will fail for a non-root test process; keep it non-fatal so the
-	// `set -e` script does not abort before/after writing the file. Two
-	// patterns: kits still on the recursive form, and kits enumerating
-	// specific paths. The two ReplaceAll calls can't double-substitute each
-	// other: "chown -R agent:agent" doesn't contain "chown agent:agent" as a
-	// substring, since "-R " sits between "chown" and "agent:agent".
-	script = strings.ReplaceAll(script, "chown -R agent:agent", "chown -R agent:agent 2>/dev/null || true #")
-	script = strings.ReplaceAll(script, "chown agent:agent", "chown agent:agent 2>/dev/null || true #")
-
-	cmd := exec.Command("sh", "-c", script)
-	cmd.Env = append(os.Environ(), modeEnv)
-	out, err := cmd.CombinedOutput()
-	require.NoErrorf(t, err, "install script failed: %s", out)
+	runSettingsScriptIn(t, tmp, script, modeEnv)
 
 	data, err := os.ReadFile(filepath.Join(tmp, ".claude", "settings.json"))
 	require.NoError(t, err)
 	return string(data)
+}
+
+// runSettingsScriptIn executes a settings script with the absolute /home/agent
+// paths rewritten to home. Several runs can share one home, the way a recreate
+// or restart reuses the same settings.json.
+func runSettingsScriptIn(t *testing.T, home, script, modeEnv string) {
+	t.Helper()
+
+	// /home/agent -> home so the script writes inside the sandbox of the test.
+	script = strings.ReplaceAll(script, "/home/agent", home)
+
+	// The test process is not root, so a no-op chown on PATH stands in for
+	// every chown form the kits use, inside traps included.
+	bin := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(bin, "chown"), []byte("#!/bin/sh\nexit 0\n"), 0o755))
+
+	cmd := exec.Command("sh", "-c", script)
+	// Drop an inherited mode so an empty modeEnv means the variable is unset.
+	cmd.Env = slices.DeleteFunc(os.Environ(), func(kv string) bool {
+		return strings.HasPrefix(kv, "SBX_CRED_ANTHROPIC_MODE=") || strings.HasPrefix(kv, "PATH=")
+	})
+	cmd.Env = append(cmd.Env, "PATH="+bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	if modeEnv != "" {
+		cmd.Env = append(cmd.Env, modeEnv)
+	}
+	out, err := cmd.CombinedOutput()
+	require.NoErrorf(t, err, "settings script failed: %s", out)
 }

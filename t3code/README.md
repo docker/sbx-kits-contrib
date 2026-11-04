@@ -33,6 +33,26 @@ t3 --version
 Then connect the sandbox to T3 Code over SSH as usual, see
 [Connect T3 Code to a sandbox](https://docs.docker.com/ai/sandboxes/integrations/t3-code/).
 
+## Arguments
+
+| Argument | Default | Purpose |
+|---|---|---|
+| `telemetry` | `false` | Whether the t3 server sends anonymous usage telemetry to PostHog. |
+
+### Telemetry
+
+Telemetry is off by default. The sandbox proxy does not allow the telemetry
+host unless told to, and a server that cannot reach it keeps retrying and
+logging the failure. To opt in, allow the host and pass the argument:
+
+```console
+sbx policy allow network us.i.posthog.com
+sbx run claude --kit "docker.io/sbx/t3code-kit:latest" --kit-arg t3code.telemetry=true .
+```
+
+The kit sets `T3CODE_TELEMETRY_ENABLED` in the sandbox environment, which the
+t3 server reads at startup.
+
 ## How it works
 
 ### Why `libatomic1`
@@ -69,10 +89,13 @@ plus starting a binary that is already there.
 | Domain | Why |
 | --- | --- |
 | `registry.npmjs.org` | npm tarballs for `t3` and its platform package (install time) |
+| `github.com` | the t3 installer fetches the platform binary and its `SHA256SUMS` from the t3code GitHub release |
+| `release-assets.githubusercontent.com` | where github.com redirects release downloads |
 | `archive.ubuntu.com` | Ubuntu apt archive, amd64 |
 | `security.ubuntu.com` | Ubuntu security pocket, amd64, refreshed by the same `apt-get update` |
 | `ports.ubuntu.com` | Ubuntu archive and security for arm64 (Apple Silicon sandboxes) |
 | `download.docker.com` | Docker's apt repo, pre-added by the `*-docker` templates. `apt-get update` refreshes every configured source and fails if any is blocked |
+| `cli.github.com` | GitHub CLI's apt repo, pre-added by the base image; `apt-get update` fails if any configured source is blocked |
 
 ## Cleanup
 

@@ -1,9 +1,9 @@
 # Publishing kit images
 
 Applies to any kit that **builds its own image** — a kit directory containing
-both a `spec.yaml` and a `Dockerfile`. Most kits here are `kind: mixin` or
-`kind: agent` and layer onto an existing `docker/sandbox-templates` image; they
-publish nothing and can ignore this document.
+both a `spec.yaml` and a `Dockerfile`. Most kits here are `kind: mixin` and
+layer onto the image of the agent they are composed with; they publish nothing
+and can ignore this document.
 
 A `kind: sandbox` kit *is* the whole environment, so it names the image its
 sandbox boots from. If that image is one this repository builds, everything
@@ -46,9 +46,30 @@ kit's image.
 | Trigger | Builds | Publishes |
 |---|---|---|
 | Push to `main` touching the kit (excluding `README.md` and `testdata/`) | yes | yes |
+| Push to `main` touching a base kit (`shell/`, `shell-docker/`) | the base and every kit whose Dockerfile builds on it | image yes; artifact only for the kit that changed |
 | Nightly schedule | yes | yes |
 | `workflow_dispatch` | yes | yes |
-| Pull request | yes | **no** |
+| Pull request | yes, only what changed | **no** |
+
+Two kits are **bases**. `shell` publishes `docker.io/sbx/shell-image`, built
+from Ubuntu; `shell-docker` publishes `docker.io/sbx/shell-docker-image`,
+built `FROM` the shell image with a Docker engine added. Most other kit images
+build `FROM` one of the two. The workflow therefore runs `shell` first,
+`shell-docker` second and the kits built on them after both, so a dependent
+pulls the base this same run just re-pointed `:latest` at. A failed base stops
+every kit built on either base; kits on other bases and the mixin artifacts
+still run.
+
+On a publishing run (push, nightly, `workflow_dispatch`) a change to `shell/`
+builds shell, shell-docker and every kit whose Dockerfile names either image;
+a change to `shell-docker/` builds it and its dependents; any other kit change
+builds that kit alone. Dependents are found by grepping `*/Dockerfile` for the
+base reference, not listed. Kits on an agent kit's image are not found this way
+and pick up a new agent image on the next nightly after it is published. A kit
+rebuilt only because its base moved gets a fresh image and no new artifact: the
+artifact records the image as `:latest`, so it already points at the rebuilt
+image. Pull requests build only the kits they touch, as dry runs; a dependent
+built in a PR would pull the published base, not the one built beside it.
 
 The workflow **discovers** kits rather than listing them: any directory with a
 `spec.yaml` is a candidate. Whether one also builds an image is a separate,
@@ -321,6 +342,16 @@ image](skills/kit-author/topics/image-publishing.md#choosing-a-base-image).
 ## Adding an image-publishing kit
 
 1. Put a `Dockerfile` at the kit root; the kit directory is the build context.
+   Build `FROM docker.io/sbx/shell-image:latest` (the toolchain, no Docker
+   engine) or `FROM docker.io/sbx/shell-docker-image:latest` (the same plus an
+   engine), or on the image of the agent kit it extends (e.g.
+   `docker.io/sbx/claude-image:latest`); see [Choosing a base
+   image](skills/kit-author/topics/image-publishing.md#choosing-a-base-image).
+   Only the `-docker` base may carry `com.docker.sandboxes.start-docker="true"`.
+   Agent kit images built on it carry the label and the engine too, and a kit on
+   one keeps both: overriding the label to `"false"` on an image that ships
+   `dockerd` makes the sandbox fail to start with `docker daemon failed to start
+   inside the sandbox`.
 2. Set `LABEL com.docker.sandboxes.flavor="<kit>"` in it. Nothing derives this
    from the directory name, and leaving it out inherits whatever the base sets —
    with today's bases that is the base's own flavor, so the kit ships under

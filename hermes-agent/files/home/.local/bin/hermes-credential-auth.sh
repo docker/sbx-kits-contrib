@@ -111,6 +111,31 @@ else
     printf 'export COPILOT_GITHUB_TOKEN=github_pat_proxy_managed\n' >> "$AUTH_ENV_FILE"
 fi
 
+# Keeps "$1=proxy-managed" in the profile .env while $1 is bound ($2=1) and holds that
+# sentinel, and removes only that exact line otherwise, so a value the user wrote stays.
+sync_profile_placeholder() (
+    umask 077
+    line="$1=proxy-managed"
+    if [ "$2" = 1 ] && [ "$(printenv "$1")" = proxy-managed ]; then
+        grep -Eq "^[[:space:]]*(export[[:space:]]+)?$1[[:space:]]*=" "$PROFILE_ENV" 2>/dev/null && return
+        [ ! -s "$PROFILE_ENV" ] || [ -z "$(tail -c 1 "$PROFILE_ENV")" ] || echo >> "$PROFILE_ENV"
+        printf '%s\n' "$line" >> "$PROFILE_ENV"
+    elif grep -qxF "$line" "$PROFILE_ENV" 2>/dev/null; then
+        grep -vxF "$line" "$PROFILE_ENV" > "$PROFILE_ENV.tmp" || [ $? -eq 1 ]
+        mv "$PROFILE_ENV.tmp" "$PROFILE_ENV"
+    fi
+)
+
+# Under a profile HERMES_HOME, Hermes reads provider keys only from the profile's .env,
+# not the process env. The default home reads the process env, so it needs nothing written.
+if [ "${STATE_DIR%/}" != "$HOME/.hermes" ]; then
+    PROFILE_ENV="$STATE_DIR/.env"
+    case "$anthropic_cred" in apikey) anthropic_bound=1 ;; *) anthropic_bound=0 ;; esac
+    sync_profile_placeholder ANTHROPIC_API_KEY "$anthropic_bound"
+    sync_profile_placeholder OPENAI_API_KEY "$openai_bound"
+    sync_profile_placeholder OPENROUTER_API_KEY "$openrouter_bound"
+fi
+
 # `sbx exec` runs a non-login shell, so a scripted call picks this up only when
 # it asks for one (`sbx exec -- sh -lc 'hermes ...'`). The hook stays harmless
 # when the file is absent, which is the case where anthropic/openai/openrouter

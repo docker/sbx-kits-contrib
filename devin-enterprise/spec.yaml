@@ -74,6 +74,7 @@ permissions:
       - security.ubuntu.com
       - ports.ubuntu.com
       - download.docker.com
+      - cli.github.com
 
 setup:
   startup:
