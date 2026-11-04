@@ -34,7 +34,7 @@ version: "${{ kit.args.version }}"
 # SHASUMS256.txt; see the README for sourcing and override guidance.
 args:
   version:
-    default: "2026.5.2"
+    default: "2026.11.0"
     # mise versions are CalVer, but the shape is the same three dotted numeric
     # segments, and every value this accepts is a legal provide version under
     # SPEC-v3 §5.2. No leading `v`, which the release URL adds for itself.
@@ -42,12 +42,12 @@ args:
     description: mise release to install
     buildArg: MISE_VERSION
   sha256_amd64:
-    default: "cdf616b3d8554bece574cb1a5c0f19cc0f551dffbecf66037df1cc06569a42ef"
+    default: "cf48795ee2cb3f8822ba0ed4b45d729b791fe0c984baf6080ebb7b0c1ba23119"
     pattern: '^[0-9a-f]{64}$'
     description: SHA256 of mise-v<version>-linux-x64.tar.gz, from that release's SHASUMS256.txt
     buildArg: MISE_SHA256_AMD64
   sha256_arm64:
-    default: "a746ad85fe8a7b62a6c72939da5fb4231074fd16c482f6334a598bd92926f41e"
+    default: "92f90c094b6eab2dcdbc46f2b977a78bba82a9311fe0c592c17e403a8d0ec621"
     pattern: '^[0-9a-f]{64}$'
     description: SHA256 of mise-v<version>-linux-arm64.tar.gz, from that release's SHASUMS256.txt
     buildArg: MISE_SHA256_ARM64
