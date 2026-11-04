@@ -1,0 +1,124 @@
+schemaVersion: "3"
+kind: mixin
+displayName: Visual Studio Code
+description: >-
+  Install VS Code and open the sandbox workspace in a window on the host.
+  Requires --display when creating the sandbox.
+capabilities:
+  - type: com.docker.sandbox/network-policy@1
+    config:
+      install:
+        allow:
+          - "archive.ubuntu.com"
+          - "security.ubuntu.com"
+          - "ports.ubuntu.com"
+          - "download.docker.com"
+          # apt refreshes the GitHub CLI repository configured by the base image.
+          - "cli.github.com"
+          - "packages.microsoft.com"
+          - "update.code.visualstudio.com"
+          - "vscode.download.prss.microsoft.com"
+          - "marketplace.visualstudio.com"
+          - "*.vscode-cdn.net"
+          - "*.gallerycdn.vsassets.io"
+      runtime:
+        allow:
+          - "archive.ubuntu.com"
+          - "security.ubuntu.com"
+          - "ports.ubuntu.com"
+          - "download.docker.com"
+          - "cli.github.com"
+          - "packages.microsoft.com"
+          - "update.code.visualstudio.com"
+          - "vscode.download.prss.microsoft.com"
+          - "marketplace.visualstudio.com"
+          - "*.vscode-cdn.net"
+          - "*.gallerycdn.vsassets.io"
+  - type: com.docker.sandbox/agent-context@1
+    config:
+      content: |
+        ## VS Code
+
+        VS Code is running inside this sandbox. Its window is visible on the
+        host desktop — it opened the sandbox workspace on startup, so any
+        file you create or edit in the terminal is immediately visible in the
+        editor, and vice versa.
+
+        If the user closes the VS Code window and wants to reopen it, run
+        `code &` from any terminal inside the sandbox.
+
+        If the VS Code window is not visible at all, check that `--display`
+        was passed at sandbox creation time and that the host compositor is
+        running. The process runs backgrounded; it does not produce a log
+        file by default.
+  - type: com.docker.sandbox/lifecycle@1
+    config:
+      install:
+        - command:
+            - bash
+            - -lc
+            - |
+                set -euo pipefail
+
+                # The base image may refresh apt metadata during startup.
+                # Keep apt lists on disk; /dev/shm is too small for the package indexes.
+                APT_OPTS="-o DPkg::Lock::Timeout=600"
+
+                apt-get $APT_OPTS update
+                apt-get $APT_OPTS install -yy --no-install-recommends ca-certificates curl gnupg
+
+                install -d -m 0755 /usr/share/keyrings
+                curl -fsSL https://packages.microsoft.com/keys/microsoft.asc \
+                    | gpg --dearmor > /usr/share/keyrings/packages.microsoft.gpg
+                echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/packages.microsoft.gpg] https://packages.microsoft.com/repos/code stable main" \
+                    > /etc/apt/sources.list.d/vscode.list
+
+                apt-get $APT_OPTS update
+                apt-get $APT_OPTS install -yy --no-install-recommends code dbus-x11
+
+                apt-get clean
+          user: "0"
+          description: Install VS Code and its session bus.
+      files:
+        - path: /home/agent/.local/bin/code
+          mode: "0755"
+          content: |
+            #!/bin/sh
+            if [ ! -S /run/display/wayland-0 ]; then
+              echo "code: display socket not found at /run/display/wayland-0" >&2
+              echo "This sandbox was not created with --display." >&2
+              echo "" >&2
+              echo "To fix, enable the experimental display feature and recreate:" >&2
+              echo "  sbx settings set platform.allowExperimentalFeatures true" >&2
+              echo "  sbx settings set feature.sandbox-display true" >&2
+              echo "  sbx run claude --display --kit <this-kit> <workspace>" >&2
+              exit 1
+            fi
+            export WAYLAND_DISPLAY=/run/display/wayland-0
+            HOME_DIR=$(getent passwd 1000 | cut -d: -f6)
+            if [ -z "$HOME_DIR" ]; then
+              echo "code: no user at uid 1000" >&2
+              exit 1
+            fi
+            export HOME="$HOME_DIR"
+            LAUNCH_DIR="$WORKSPACE_DIR"
+            if [ -z "$LAUNCH_DIR" ]; then LAUNCH_DIR="$HOME_DIR"; fi
+            exec dbus-run-session /usr/share/code/code \
+              --ozone-platform=wayland \
+              --disable-gpu \
+              --disable-gpu-compositing \
+              --no-sandbox \
+              --disable-dev-shm-usage \
+              --user-data-dir="$HOME_DIR/.vscode-user" \
+              "$LAUNCH_DIR"
+      startup:
+        - command:
+            - setpriv
+            - --reuid=1000
+            - --regid=1000
+            - --init-groups
+            - /home/agent/.local/bin/code
+          user: "0"
+          background: true
+          env: [WORKSPACE_DIR, PATH]
+          description: Open the workspace in VS Code as uid 1000.
