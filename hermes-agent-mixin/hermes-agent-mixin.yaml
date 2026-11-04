@@ -242,7 +242,7 @@ capabilities:
             - SBX_CRED_OPENAI_MODE
             - SBX_CRED_OPENROUTER_MODE
             - SBX_CRED_COPILOT_MODE
-          description: Resolve which of the anthropic/openai/openrouter/copilot credentials are genuinely bound, record the result for `sbx exec` login shells, and pin the active provider in config.yaml when only an Anthropic OAuth login or only Copilot is bound
+          description: Resolve which of the anthropic/openai/openrouter/copilot credentials are genuinely bound, record the result for `sbx exec` login shells, and pin the active provider in config.yaml (Anthropic, then OpenAI, then Copilot; OpenRouter or nothing bound keeps the image default)
 
   # MIGRATION NOTE: no `agent-skills@1` — neither the v2 spec nor the recipe
   # nor the README ever names the directory Hermes reads skills from, and the

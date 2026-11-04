@@ -38,14 +38,17 @@
 # host did not actually bind (SBX_CRED_OPENAI_MODE / SBX_CRED_OPENROUTER_MODE
 # are the proxy's own signal of that, independent of the sentinel string
 # itself), so upstream's detection can no longer mistake either for a real
-# key. That alone is enough when Anthropic is bound as a plain API key --
-# once the other two sentinels are gone, upstream's provider-specific-env-key
-# tier already recognizes ANTHROPIC_API_KEY correctly. It is NOT enough for an
-# Anthropic OAuth login: upstream's auto-detection has no tier that reads
-# ~/.claude/.credentials.json at all, so a login there is invisible to
-# resolve_provider() no matter how clean the other sentinels are, and it falls
-# through to "no provider configured" instead of Anthropic. That case needs
-# the config.yaml override at the bottom of this script.
+# key. That alone is enough when Anthropic is bound as a plain API key and
+# OpenAI is not -- once the other two sentinels are gone, upstream's
+# provider-specific-env-key tier already recognizes ANTHROPIC_API_KEY
+# correctly. It is NOT enough for an Anthropic OAuth login: upstream's
+# auto-detection has no tier that reads ~/.claude/.credentials.json at all, so
+# a login there is invisible to resolve_provider() no matter how clean the
+# other sentinels are, and it falls through to "no provider configured"
+# instead of Anthropic. Nor is it enough when OpenAI is genuinely bound:
+# upstream treats OPENAI_API_KEY as an OpenRouter credential in auto mode and
+# ranks it first. Those cases need the config.yaml override at the bottom of
+# this script.
 set -eu
 
 # Startup hooks run with a minimal environment and no $HOME (the same reason
@@ -123,19 +126,25 @@ else
     rm -f "$AUTH_ENV_FILE"
 fi
 
-# Provider pin, for the OAuth gap the sentinel fix above cannot reach.
+# Provider pin, for the cases the sentinel fix above cannot reach.
 # cli-config.yaml.example -- the template install.sh copies verbatim into
 # config.yaml -- ships `provider: "auto"` and `default:
 # "anthropic/claude-opus-4.6"`. "auto" defers to resolve_provider(), and by
 # this point in the script that can only still land on OpenRouter if the host
-# genuinely bound it (the sentinel fix above ruled out the false positive), so
-# doing nothing is correct in every state except two: an Anthropic OAuth login
-# with neither OpenAI nor OpenRouter bound, where resolve_provider() has no
-# tier that would ever pick Anthropic; and Copilot as the only bound
-# credential, since upstream never auto-selects Copilot at all
-# (_NO_AUTO_DETECT_PROVIDERS in hermes_cli/auth.py). Force it there, and
-# nowhere else. Anthropic wins when both it and Copilot are bound, matching
-# the order the pin had before Copilot existed.
+# genuinely bound it or OpenAI (upstream treats OPENAI_API_KEY as an OpenRouter
+# credential in auto mode), so doing nothing is correct only when nothing
+# below applies. First match wins, which is the order the v2 kit uses, plus
+# Copilot:
+#   OpenRouter bound            -> leave the image default; auto reaches it
+#   Anthropic (apikey or oauth) -> anthropic. resolve_provider() has no tier
+#                                  that reads ~/.claude/.credentials.json, and
+#                                  would pick OpenRouter over a bound key when
+#                                  OpenAI is bound too
+#   OpenAI bound                -> openai-api, the direct OpenAI provider
+#   Copilot bound               -> copilot, since upstream never auto-selects
+#                                  it (_NO_AUTO_DETECT_PROVIDERS in
+#                                  hermes_cli/auth.py)
+#   nothing bound               -> leave the image default
 #
 # Only ever touch the provider/model pair this script could itself have
 # produced -- the template's original values, or the values it sets below.
@@ -150,25 +159,32 @@ if [ -x "$HERMES_BIN" ]; then
     # plan, including Free, so the pin works before the user picks a model.
     OUR_COPILOT_PROVIDER=copilot
     OUR_COPILOT_MODEL=gpt-5-mini
+    OUR_OPENAI_PROVIDER=openai-api
+    OUR_OPENAI_MODEL=gpt-6-sol
 
     current_provider=$("$HERMES_BIN" config get model.provider 2>/dev/null) || current_provider=""
     current_model=$("$HERMES_BIN" config get model.default 2>/dev/null) || current_model=""
 
     provider_is_ours=0
     case "$current_provider" in
-        "$PRISTINE_PROVIDER" | "$OUR_PROVIDER" | "$OUR_COPILOT_PROVIDER" | "") provider_is_ours=1 ;;
+        "$PRISTINE_PROVIDER" | "$OUR_PROVIDER" | "$OUR_COPILOT_PROVIDER" | "$OUR_OPENAI_PROVIDER" | "") provider_is_ours=1 ;;
     esac
     model_is_ours=0
     case "$current_model" in
-        "$PRISTINE_MODEL" | "$OUR_MODEL" | "$OUR_COPILOT_MODEL" | "") model_is_ours=1 ;;
+        "$PRISTINE_MODEL" | "$OUR_MODEL" | "$OUR_COPILOT_MODEL" | "$OUR_OPENAI_MODEL" | "") model_is_ours=1 ;;
     esac
 
     if [ "$provider_is_ours" = 1 ] && [ "$model_is_ours" = 1 ]; then
-        if [ "$anthropic_cred" != none ] && [ "$openai_bound" = 0 ] && [ "$openrouter_bound" = 0 ]; then
+        if [ "$openrouter_bound" = 1 ]; then
+            want_provider=$PRISTINE_PROVIDER
+            want_model=$PRISTINE_MODEL
+        elif [ "$anthropic_cred" != none ]; then
             want_provider=$OUR_PROVIDER
             want_model=$OUR_MODEL
-        elif [ "$copilot_bound" = 1 ] && [ "$anthropic_cred" = none ] \
-            && [ "$openai_bound" = 0 ] && [ "$openrouter_bound" = 0 ]; then
+        elif [ "$openai_bound" = 1 ]; then
+            want_provider=$OUR_OPENAI_PROVIDER
+            want_model=$OUR_OPENAI_MODEL
+        elif [ "$copilot_bound" = 1 ]; then
             want_provider=$OUR_COPILOT_PROVIDER
             want_model=$OUR_COPILOT_MODEL
         else
