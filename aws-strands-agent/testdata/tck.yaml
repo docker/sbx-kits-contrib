@@ -1,0 +1,19 @@
+# Extra self-checks run in the TCK container right after this kit's install
+# commands succeed (see tck.Suite.PostInstallChecks). These are what used to
+# live in scripts/smoke-test.sh — the parts that don't need a live sandbox
+# (venv layout, individual package imports). The Bedrock SigV4 colon-encoding
+# self-test isn't repeated here: it already runs as part of the install
+# command in spec.yaml, so a broken signer already fails install_execution.
+postInstallChecks:
+  - command: "test -d /opt/strands"
+    description: "venv exists at /opt/strands"
+  - command: "which strands-python"
+    description: "strands-python is on PATH"
+  - command: "strands-python -c 'import sys; assert sys.version_info >= (3, 10)'"
+    description: "strands-python runs Python >= 3.10"
+  - command: "strands-python -c 'import strands'"
+    description: "strands-agents is importable"
+  - command: "strands-python -c 'import strands_tools'"
+    description: "strands-agents-tools is importable"
+  - command: "strands-python -c 'import boto3'"
+    description: "boto3 is importable"
