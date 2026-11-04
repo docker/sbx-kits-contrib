@@ -1,0 +1,78 @@
+# Docker Sandboxes kit: install the Microsoft Azure CLI (az), authenticated
+# through its own interactive device-code login -- no API key, no proxy-
+# managed credential. Usage/design notes: see README.md.
+schemaVersion: "2"
+kind: mixin
+name: azure-cli
+version: "1.0.0"
+displayName: Microsoft Azure CLI (az)
+description: "Installs the official Azure CLI (az) from Microsoft's own apt repository. Like the kiro kit in this repo, az has no API-key or env-var auth path for a human account -- it authenticates via az login --use-device-code (device-flow: a URL and a verification code), which the agent or the user runs interactively inside the sandbox."
+licenses:
+  - Apache-2.0
+
+permissions:
+  network:
+    allow:
+      # Microsoft's official apt repo: the signing key and the package index/pool.
+      - packages.microsoft.com
+      # `apt-get update` refreshes every configured apt source from the base
+      # template too. Keep all template sources allowed for amd64 and arm64.
+      - archive.ubuntu.com
+      - security.ubuntu.com
+      - ports.ubuntu.com
+      - download.docker.com
+      # az's own device-code login and token refresh (Microsoft Entra ID / the
+      # multi-tenant "common" endpoint az uses by default).
+      - login.microsoftonline.com
+      - login.live.com
+      # Most-common API surfaces a freshly-authenticated az session touches
+      # first (az account show/list, subscription + resource graph calls).
+      # Service-specific calls (Storage, Key Vault, etc.) reach their own
+      # host, which this kit cannot enumerate in advance -- see the "What
+      # this kit does not do" note in README.md.
+      - management.azure.com
+      - graph.microsoft.com
+
+environment:
+  variables:
+    AZURE_CORE_NO_COLOR: "1"
+
+agentInstructions:
+  content: |
+    ## Microsoft Azure CLI (az)
+
+    `az` is installed from Microsoft's official apt repository. There is no
+    API-key or environment-variable auth path for a human Azure account -- the
+    sandbox is not pre-authenticated. Run
+
+        az login --use-device-code
+
+    which prints a URL and a verification code rather than trying to open a
+    browser (there isn't one in the sandbox): open the URL on your host, sign
+    in, copy the code it shows into the sandbox shell. Auth state then lives
+    in `~/.azure` and survives restarts of this sandbox (not recreation of
+    it), same as any other `az` install.
+
+    Set a default subscription once signed in: `az account set --subscription
+    <id-or-name>`.
+
+    For fully unattended use with a service principal instead of a human
+    login, see "Service principals" in README.md.
+
+setup:
+  install:
+    - command: |
+        set -euo pipefail
+        apt-get update && apt-get install -y --no-install-recommends ca-certificates curl gnupg apt-transport-https lsb-release
+        mkdir -p /etc/apt/keyrings
+        curl -sLS https://packages.microsoft.com/keys/microsoft.asc | gpg --dearmor -o /etc/apt/keyrings/microsoft.gpg
+        chmod go+r /etc/apt/keyrings/microsoft.gpg
+        ARCH=$(dpkg --print-architecture)
+        DIST=$(lsb_release -cs)
+        echo "deb [arch=${ARCH} signed-by=/etc/apt/keyrings/microsoft.gpg] https://packages.microsoft.com/repos/azure-cli/ ${DIST} main" > /etc/apt/sources.list.d/azure-cli.list
+        apt-get update
+        AZURE_CLI_VERSION=2.91.0
+        apt-get install -y --no-install-recommends "azure-cli=${AZURE_CLI_VERSION}-1~${DIST}"
+        az --version
+      user: "0"
+      description: "Add Microsoft's official apt repo and install azure-cli v2.91.0"
