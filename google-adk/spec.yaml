@@ -1,0 +1,73 @@
+schemaVersion: "1"
+kind: mixin
+name: google-adk
+displayName: Google Agent Development Kit
+description: "Installs Google's Agent Development Kit (ADK) in an isolated Python virtual environment and exposes the adk CLI inside the sandbox."
+
+caps:
+  network:
+    allow:
+      # pip install path for google-adk and its Python dependencies.
+      - "pypi.org:443"
+      - "files.pythonhosted.org:443"
+      # Gemini Developer API. The credentials block can proxy-inject
+      # GOOGLE_API_KEY as x-goog-api-key for this host.
+      - "generativelanguage.googleapis.com:443"
+      # Vertex AI and common Google auth endpoints for users who configure ADC
+      # or use Google Cloud project-based execution instead of an API key.
+      - "aiplatform.googleapis.com:443"
+      - "oauth2.googleapis.com:443"
+      - "sts.googleapis.com:443"
+      - "iamcredentials.googleapis.com:443"
+      - "www.googleapis.com:443"
+      # `apt-get update` refreshes every configured apt source from the base
+      # template. Keep all template sources allowed for amd64 and arm64 sandboxes.
+      - "archive.ubuntu.com:80"
+      - "security.ubuntu.com:80"
+      - "ports.ubuntu.com:80"
+      - "download.docker.com:443"
+
+credentials:
+  - service: google-gemini
+    description: "Google Gemini API key"
+    apiKey:
+      name: GOOGLE_API_KEY
+      proxyManaged: true
+      inject:
+        - domain: generativelanguage.googleapis.com
+          header: x-goog-api-key
+          format: "%s"
+
+environment:
+  variables:
+    GOOGLE_ADK_VENV: "/opt/google-adk"
+    GOOGLE_ADK_PYTHON: "/opt/google-adk/bin/python"
+
+commands:
+  install:
+    - command: "apt-get update && apt-get install -y --no-install-recommends ca-certificates python3 python3-venv python3-pip && rm -rf /var/lib/apt/lists/*"
+      user: "0"
+      description: Install Python and venv prerequisites for Google ADK
+    - command: |
+        set -euo pipefail
+        GOOGLE_ADK_VERSION=2.3.0
+        python3 -m venv /opt/google-adk
+        /opt/google-adk/bin/python -m pip install --upgrade pip setuptools wheel
+        /opt/google-adk/bin/python -m pip install "google-adk==${GOOGLE_ADK_VERSION}"
+        ln -sf /opt/google-adk/bin/adk /usr/local/bin/adk
+        cat > /usr/local/bin/adk-python <<'SCRIPT'
+        #!/bin/sh
+        exec /opt/google-adk/bin/python "$@"
+        SCRIPT
+        chmod 0755 /usr/local/bin/adk-python
+        adk --help >/dev/null
+        adk-python -c 'import importlib.metadata; print("google-adk", importlib.metadata.version("google-adk"))'
+        chown -R 1000:1000 /opt/google-adk
+      user: "0"
+      description: "Install google-adk v2.3.0 in /opt/google-adk venv"
+    - command: |
+        set -euo pipefail
+        grep -qF 'adk-python' ~/.bashrc 2>/dev/null || \
+          printf '\n# google-adk (added by sbx-kits-contrib/google-adk)\nexport GOOGLE_ADK_VENV=/opt/google-adk\nexport GOOGLE_ADK_PYTHON=/opt/google-adk/bin/python\nalias adk-python=/opt/google-adk/bin/python\n' >> ~/.bashrc
+      user: "1000"
+      description: Add Google ADK helper environment variables to interactive shells
