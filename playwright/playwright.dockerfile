@@ -34,7 +34,7 @@ FROM ${BASE_IMAGE} AS build
 # the registry metadata's sha512 integrity values, so this version is a fact
 # about what the kit ships, not a knob. To bump: edit this line, the `provides`
 # entry in playwright.yaml, playwright-context.md and the README together.
-ARG PLAYWRIGHT_VERSION=1.61.1
+ARG PLAYWRIGHT_VERSION=1.64.1
 
 # Root, matching the `user: "0"` the install hooks ran as, so the tree this
 # stages is the tree they produced.
