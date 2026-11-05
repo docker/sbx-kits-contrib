@@ -364,7 +364,7 @@ Note that a fork PR does not receive repository secrets, so any leg needing Dock
 
 ## Kit index
 
-107 kits: 31 workloads and 76 mixins, plus the `claude` and `codex` workloads, which are now Docker Hardened Images in the [DHI catalog](https://github.com/docker-hardened-images/catalog/tree/main/image). Every workload except `openhands-canvas` and `shell` has a `-mixin` sibling that declares the same capabilities in overlay form, so you can either boot the agent as the sandbox or layer it onto one.
+108 kits: 31 workloads and 77 mixins, plus the `claude`, `codex` and `shell` workloads, which are now Docker Hardened Images in the [DHI catalog](https://github.com/docker-hardened-images/catalog/tree/main/image). Every workload except `openhands-canvas` and `shell` has a `-mixin` sibling that declares the same capabilities in overlay form, so you can either boot the agent as the sandbox or layer it onto one.
 
 ### Workloads
 
@@ -398,7 +398,7 @@ Note that a fork PR does not receive repository secrets, so any leg needing Dock
 | [`paperclip`](./paperclip) | [`paperclip-mixin`](./paperclip-mixin) | Paperclip |
 | [`pi`](./pi) | [`pi-mixin`](./pi-mixin) | Pi |
 | [`picoclaw`](./picoclaw) | [`picoclaw-mixin`](./picoclaw-mixin) | PicoClaw |
-| [`shell`](./shell) | — | A hardened Debian sandbox with a Docker engine, a login shell and no agent: the base an agent mixin layers onto |
+| [`shell`](https://github.com/docker-hardened-images/catalog/tree/main/image/shell) (DHI catalog) | — | A hardened Debian sandbox with a Docker engine, a login shell and no agent: the base an agent mixin layers onto |
 | [`trivy`](./trivy) | [`trivy-mixin`](./trivy-mixin) | Trivy vulnerability scanner |
 | [`vibe`](./vibe) | [`vibe-mixin`](./vibe-mixin) | Mistral Vibe |
 | [`zeroclaw`](./zeroclaw) | [`zeroclaw-mixin`](./zeroclaw-mixin) | ZeroClaw |

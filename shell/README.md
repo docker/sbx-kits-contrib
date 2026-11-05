@@ -1,109 +1,13 @@
-> [!NOTE]
-> <strong>Experimental: Sandbox Kit v3</strong>
->
-> This kit uses the experimental [Sandbox Kit specification](https://github.com/docker/sandbox-kit-spec), specifically [v3](https://github.com/docker/sandbox-kit-spec/blob/main/docs/spec/SPEC-v3.md). The format and runtime behavior may change before v3 is stable.
-
 # shell
 
-A sandbox with no agent in it: DHI's hardened Debian 13 shell-docker template
-with a login shell as its launch command. bash, git, apt, a Docker engine with
-compose and buildx, curl, gh, jq, make, gcc, Python 3 and Node with npm. sbx
-starts the engine when the sandbox starts.
-
-The descriptor derives from the `examples/shell` kit in
-[sandbox-kit-spec](https://github.com/docker/sandbox-kit-spec), published here
-so `sbx` can resolve it by name.
-
-The recipe refreshes certificate trust from DHI's signed apt repository:
-uv 0.13.4, GitHub CLI 2.103.0, pip 26.2.2 (including its virtual-environment
-wheel), Node 24.22.1, Docker 29.9.2, Buildx 0.38.1, Compose 5.6.1 and
-containerd 2.4.2-1, or newer package revisions. The Docker and containerd
-binaries are rebuilt with patched Go; updating the installed compiler alone
-does not fix existing binaries. The base's Go toolchain and clipboard bridge
-already use patched Go 1.26.10 and are retained.
-No extra apt repository or standalone binary download is needed.
-
-Two things to use it for:
-
-- **A plain sandbox.** Isolated filesystem, isolated network, a Docker engine
-  you can break without touching the host.
-- **The base an agent mixin layers onto.** It declares no credentials, which is
-  what makes it composable: v3 gives each credential one owner across a set, so
-  a base that claimed `anthropic` could not host `claude-mixin`, and one that
-  claimed `openai` could not host `codex-mixin`. This one claims nothing and
-  hosts all of them.
-
-## Usage
+The `shell` workload kit — a sandbox with no agent in it, the base an agent
+mixin layers onto — is now maintained as a Docker Hardened Image. Its
+definition, guides and overview live in the DHI catalog:
+[`docker-hardened-images/catalog/image/shell`](https://github.com/docker-hardened-images/catalog/tree/main/image/shell).
 
 ```console
-sbx run docker.io/sbx/shell:latest
+sbx run dhi.io/shell:latest /path/to/workspace
 ```
 
-With an agent layered on:
-
-```console
-sbx run --kit docker.io/sbx/claude-mixin:latest docker.io/sbx/shell:latest
-```
-
-Or from a git URL targeting this repo:
-
-```console
-sbx run "git+https://github.com/docker/sbx-kits-contrib.git#dir=shell"
-```
-
-## Provider credentials
-
-This kit declares none. For the provider API keys an agentless sandbox used to
-carry, compose [`shell-credentials`](../shell-credentials) beside it:
-
-```console
-sbx run --kit docker.io/sbx/shell-credentials:latest docker.io/sbx/shell:latest
-```
-
-That adds `anthropic`, `github`, `google`, `mistral`, `nebius`, `openai`,
-`openrouter` and `xai`, each injected by the sandbox proxy on requests to that
-provider's hosts. It does not compose with an agent kit that owns one of those
-services.
-
-## What it declares
-
-- **`sbx@1`.** The host launches the image's command and honors the image's
-  user.
-- **No network.** Everything ships in the image, so the kit grants no egress.
-  A kit that runs `apt-get` declares the apt sources (`deb.debian.org`,
-  `dhi.io`) itself; for an interactive sandbox, widen its policy.
-- **`AGENTS.md`.** The profile file composed kits write their guidance into. A
-  workload owns the filename; a mixin contributes a body without naming one.
-
-Labels: the recipe sets `com.docker.sandboxes.flavor=shell` and
-`com.docker.sandboxes.start-docker=true`, which is what makes sbx start the
-Docker engine.
-
-## Installing packages
-
-The base ships an empty apt cache, so refresh it before the first install:
-
-```console
-sudo apt-get update && sudo apt-get install -y <package>
-```
-
-Both apt sources are in the allow list above, so this works under a deny-all
-policy without widening anything.
-
-## Launch command
-
-`ENTRYPOINT ["bash"]` with `CMD ["-l"]`, so the sandbox opens a login shell. A
-v3 workload takes its binary from the entrypoint, so the kit states it rather
-than inheriting the base's `tini -- bash -l`, whose binary would be `tini`.
-
-## Building
-
-```console
-cd shell
-docker buildx build . -f shell.yaml --output type=cacheonly   # validates
-cd .. && sbx kit inspect ./shell                              # what it resolved to
-```
-
-Building through `shell.yaml` is what validates the descriptor: the kit
-frontend checks it during the build and fails on a bad one. `sbx kit validate`
-does not accept a v3 source kit.
+`docker.io/sbx/shell` is now published from that definition, so the mixins
+here that layer onto `docker.io/sbx/shell:latest` compose onto it unchanged.
