@@ -12,7 +12,7 @@
 # self-update keeps working. Changing the install method for the mixin shape
 # would change that behavior. So the unmodified install runs over the workload's
 # base, and only the paths it produced are staged into the overlay.
-ARG BASE_IMAGE=docker/sandbox-templates:shell-docker
+ARG BASE_IMAGE=docker.io/sbx/shell:latest
 FROM ${BASE_IMAGE} AS build
 
 # The kit's `version` arg, handed over by the descriptor as the installer's one

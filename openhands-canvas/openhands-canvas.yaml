@@ -1,8 +1,8 @@
 # syntax=docker/sandbox-kit:3
 # Migration of the v2 `openhands-canvas` sandbox kit. A v3 workload's content
-# is its image, so the companion recipe starts from the same shell-docker
-# template, bakes in the four former install hooks, and carries the launch
-# contract that v2 kept under `sandbox`.
+# is its image, so the companion recipe starts from the sbx/shell base, bakes
+# in the four former install hooks, and carries the launch contract that v2
+# kept under `sandbox`.
 schemaVersion: "3"
 displayName: OpenHands Agent Canvas
 description: |

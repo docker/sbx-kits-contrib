@@ -92,7 +92,7 @@ The policy is **phase-scoped**, and an absent phase grants nothing:
       allow: [api.example.com]
 ```
 
-Watch out for package managers: `apt-get update` re-fetches metadata for every configured source, not just yours, and exits non-zero if any one of them fails. For kits on `shell-docker` / `*-docker` templates that means `download.docker.com` must be listed even if you only install from Ubuntu's main archive. List `archive.ubuntu.com`, `security.ubuntu.com`, **and** `ports.ubuntu.com` so the kit works on both amd64 (CI) and arm64 (Apple Silicon). Write hosts portless, so a mirror answering over HTTPS doesn't break the kit.
+Watch out for package managers: `apt-get update` re-fetches metadata for every configured source, not just yours, and exits non-zero if any one of them fails. New kits build on `docker.io/sbx/shell` (Debian 13), so list `deb.debian.org` **and** `dhi.io`; the same hosts serve amd64 (CI) and arm64 (Apple Silicon). Some existing kits still build on `docker/sandbox-templates:*` (Ubuntu), where you list `archive.ubuntu.com`, `security.ubuntu.com`, **and** `ports.ubuntu.com`, plus `download.docker.com` on the `-docker` variants. Write hosts portless, so a mirror answering over HTTPS doesn't break the kit.
 
 Adding a host on speculation is how an allow-list stops describing anything. If a host is only reached on a path most sessions never take — an `npx`-launched MCP server, a plugin marketplace — leave it out and say so in a comment, so the omission reads as a decision rather than an oversight.
 

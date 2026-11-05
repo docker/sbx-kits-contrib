@@ -20,7 +20,7 @@
 # sibling kit's. It must stay byte-identical to ../devin/devin-entrypoint.sh.
 #
 # The base is a floating tag, which is why CI also rebuilds on a schedule.
-ARG BASE_IMAGE=docker/sandbox-templates:shell-docker
+ARG BASE_IMAGE=docker.io/sbx/shell:latest
 FROM ${BASE_IMAGE} AS build
 
 # Supplied by the descriptor's `version` arg, which owns the default and the

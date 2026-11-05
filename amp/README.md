@@ -11,13 +11,13 @@ wires its API auth through the sandbox proxy, and runs
 `amp --dangerously-allow-all` as the entrypoint when you attach.
 
 Its content ([amp.dockerfile](./amp.dockerfile)) is the
-`docker/sandbox-templates:shell-docker` template, Amp's own installer run at
+`docker.io/sbx/shell` base, Amp's own installer run at
 build time, and the launch command in the image config. Everything else this
 kit does it does through declarations rather than layers.
 
 The Amp release is pinned. The descriptor's `version` arg holds it, the recipe
 exports it as `AMP_VERSION` for Amp's installer to read, and the kit publishes
-`provides: ["amp@<version>"]` plus a top-level `version:` from that same arg —
+`provides: ["amp@<version>"]` plus a top-level `version:` from that same arg,
 so the publish tag names the Amp release the image carries. The build then runs
 `amp --version` and fails if the installed binary reports anything else. Amp
 publishes continuously (`0.0.<timestamp>-g<commit>`, a new build most hours), so

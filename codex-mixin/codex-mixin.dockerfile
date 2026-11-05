@@ -4,22 +4,19 @@
 # does, landed under /out and shipped as a `FROM scratch` delta that composes
 # onto any base rather than as a root filesystem.
 #
-# The build stage is the workload's own base, verbatim. Two of the three things
-# this recipe installs cannot be relocated by pointing an installer somewhere
-# else — xdg-utils is an apt package, and apt owns where its files go — so the
-# shape the guide prescribes applies: run the unmodified install on the
-# workload's base, then copy the specific resulting paths into the overlay.
-ARG BASE_IMAGE=docker/sandbox-templates:shell-docker
+# The build stage is the workload's own base, verbatim. The installer below
+# cannot be fully relocated by pointing it somewhere else, so the shape the
+# guide prescribes applies: run the unmodified install on the workload's base,
+# then copy the specific resulting paths into the overlay.
+ARG BASE_IMAGE=docker.io/sbx/shell:latest
 FROM ${BASE_IMAGE} AS build
 USER root
 
-# xdg-utils, for the `xdg-open` that the BROWSER export below names. The
-# package is one architecture-independent set of shell scripts with no
-# dependencies once --no-install-recommends drops the X11 desktop-integration
-# half, which is what makes copying /usr/bin/xdg-* out of it a faithful
-# relocation rather than half an install: there is no library, no data
-# directory, and nothing outside /usr/bin and /usr/share/man that xdg-open
-# reads at run time.
+# xdg-utils, for the `xdg-open` that the BROWSER export below names. The base
+# does not ship it, so the kit installs it here. The package is one
+# architecture-independent set of shell scripts with no library or data
+# directory once --no-install-recommends drops the X11 half, so copying
+# /usr/bin/xdg-* into the overlay is a faithful relocation.
 RUN apt-get update \
  && apt-get install -y --no-install-recommends xdg-utils \
  && rm -rf /var/lib/apt/lists/* \

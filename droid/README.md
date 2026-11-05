@@ -14,8 +14,8 @@ device/token flow otherwise.
 
 Droid was previously a built-in `sbx` agent, run as `sbx run droid`. This kit
 replaces that, and is backed by a base image built from the
-[`droid.dockerfile`](./droid.dockerfile) in this directory rather than by the
-`docker/sandbox-templates` release train.
+[`droid.dockerfile`](./droid.dockerfile) in this directory rather than by a
+shared template image.
 
 The declarations live in [`droid.yaml`](./droid.yaml); the recipe beside it is
 found by the filename-stem convention. If you want Droid layered onto a shell
@@ -95,8 +95,9 @@ than letting the CLI fail with an opaque 401 once you are inside.
 
 The `network-policy@1` capability mirrors every domain the credential block
 injects into or resolves against, plus the apt sources the base image ships
-with (needed because the startup hook runs `apt-get update`, which fails
-wholesale if any configured source is unreachable).
+with, `deb.debian.org` and `dhi.io` (needed because the startup hook runs
+`apt-get update`, which fails wholesale if any configured source is
+unreachable).
 
 v3 policy is phase-scoped — `install` for what setup hooks reach, `runtime`
 for the agent's steady state, and an absent phase grants nothing. This kit
@@ -124,7 +125,7 @@ the image the sandbox boots from. This kit builds and publishes its own, from
 [`droid.dockerfile`](./droid.dockerfile) in this directory.
 
 The image is **`docker.io/sbx/droid-image`**, built on
-`docker/sandbox-templates:shell-docker`, so it carries a Docker engine and
+`docker.io/sbx/shell`, so it carries a Docker engine and
 requests Docker-in-Docker.
 
 The `-image` suffix distinguishes the base image from the kit itself: the kit

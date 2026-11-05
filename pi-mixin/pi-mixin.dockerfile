@@ -11,13 +11,13 @@
 # symlinks resolving.
 #
 # WHAT THIS OVERLAY CANNOT CARRY: a Node runtime. The workload installs none
-# either -- the shell templates already ship Node 22, which satisfies pi's
+# either -- docker.io/sbx/shell already ships Node 24, which satisfies pi's
 # `engines.node >= 22.19.0` -- so pi works on a base that has one and fails
 # on a base that does not. There is no grammar to state that floor:
 # provides/requires name kit capabilities, and no base workload provides an
 # entry for its language runtimes. The workload kit (../pi) is the
 # self-contained alternative.
-ARG BASE_IMAGE=docker/sandbox-templates:shell-docker
+ARG BASE_IMAGE=docker.io/sbx/shell:latest
 FROM ${BASE_IMAGE} AS build
 
 USER root
@@ -25,7 +25,7 @@ USER root
 # pi's `find` tool is fd underneath. On first use pi probes the system for
 # `fd` or `fdfind` and, finding neither, downloads a release binary from
 # GitHub -- a host this kit's allowlist does not name, so the download cannot
-# succeed and `find` is simply broken. Ubuntu's package is `fd-find` and it
+# succeed and `find` is simply broken. Debian's package is `fd-find` and it
 # installs the binary as `fdfind`; pi's probe accepts that name as-is, and
 # the `fd` symlink is for humans at the shell.
 #
@@ -57,7 +57,7 @@ ADD --chmod=644 https://registry.npmjs.org/@earendil-works%2Fpi-coding-agent/${P
 
 # The install, unmodified from the workload recipe: the version comes out of
 # the pinned document ADDed above rather than being re-resolved at RUN time,
-# the install runs as agent because the template's global prefix is agent-owned
+# the install runs as agent because the base's global prefix is agent-owned
 # (which is the ownership `pi update --self` and `pi install` need), and
 # `pi --version` is the build-time gate -- npm only WARNS on an engines
 # mismatch, so executing pi is what actually fails the build on a release
@@ -77,10 +77,10 @@ USER root
 # /home/agent/... prefix would land on top of the base's agent-owned one and
 # take `pi update --self` with it. Copying the metadata from the same tree
 # the files came out of is what keeps that from happening whatever the
-# template's prefix turns out to be.
+# base's prefix turns out to be.
 #
 # The /usr/local/bin/pi shim is a bin shim rather than a profile.d PATH
-# export: the global bin dir is on PATH on the shell templates, but a mixin
+# export: the global bin dir is on PATH on docker.io/sbx/shell, but a mixin
 # lands on any base and /usr/local/bin is on every one of them. Guarded
 # because a prefix of /usr/local would make it a self-referential link.
 #

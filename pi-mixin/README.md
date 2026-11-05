@@ -35,7 +35,7 @@ pi
   prefix it was built at, plus a `/usr/local/bin/pi` shim — copied out of a
   build stage on the same base the workload uses, because `npm install -g`
   takes no relocation flag.
-- `fdfind` (Ubuntu's `fd-find`) and the `fd` symlink. pi's `find` tool probes
+- `fdfind` (Debian's `fd-find`) and the `fd` symlink. pi's `find` tool probes
   for it and would otherwise try to download a release binary from a host
   this kit's allowlist does not name.
 - The proxy-managed `anthropic` credential (API key or claude.ai OAuth) and
@@ -47,7 +47,7 @@ There is no `/etc/profile.d` snippet: the v2 kit declared no
 ## Known limitation: the Node runtime
 
 pi is an npm package and needs `node >= 22.19.0` on `PATH`. The workload
-installs none either — the shell templates already ship Node 22 — so this
+installs none either (`docker.io/sbx/shell` already ships Node 24), so this
 overlay carries none, and pi works on a base that has one and fails on a base
 that does not. v3 has no way to state that floor: `requires:` names kit
 capabilities, and no base workload provides an entry for its language

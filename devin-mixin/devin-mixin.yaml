@@ -67,11 +67,9 @@ capabilities:
   # below is a startup hook, which runs at boot in the runtime phase and
   # reaches nothing off-box anyway.
   #
-  # MIGRATION NOTE: v2's allow list also carried archive.ubuntu.com,
-  # security.ubuntu.com, ports.ubuntu.com and download.docker.com, for the apt
-  # cache-refresh hook. Both the hosts and the hook stay with the workload:
-  # they describe the base image's package sources, which an overlay does not
-  # own and cannot know. A base that refreshes its own apt cache declares them.
+  # The apt hosts and the cache-refresh hook stay with the workload: they
+  # describe the base image's package sources, which an overlay does not own
+  # and cannot know. A base that refreshes its own apt cache declares them.
   #
   # Entries are portless, this repo's house style: a portless pattern matches
   # any port.

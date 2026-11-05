@@ -97,7 +97,11 @@ different bits — and different attestations — for one commit.
 
 ## Build order
 
-`shell` is the base. It builds first because other kits build on it. A kit
+`shell` is the base. It builds first because other kits build on it. Pinning a
+base by digest or version is normally the better practice; kits here name
+`docker.io/sbx/shell:latest` on purpose, because every rebuild of `shell` (and
+the nightly) rebuilds its dependents, so the floating tag is what keeps them on
+the current base. A kit
 builds on it when its recipe (the descriptor's `build:` block, the file its
 `dockerfile:` field names, or a `*.dockerfile` in its directory) has a `FROM`
 or `ARG BASE_IMAGE=` line naming `sbx/shell`; `scripts/kit-dependents.sh shell`
@@ -136,7 +140,8 @@ is normative; the short version:
   `/var/lib/dpkg/status` (or apk's database) out of the built content and
   states one provide per installed package under `deb/` or `apk/`, at the
   upstream version with epochs and Debian revisions stripped. Nobody
-  authors these: a workload on `docker/sandbox-templates:*` offers
+  authors these: a workload on `docker.io/sbx/shell` (or on a
+  `docker/sandbox-templates:*` image) offers
   `deb/apt`, `deb/jq`, `deb/docker-ce` and hundreds more for free, which
   is what lets a mixin state a real dependency instead of failing at
   create on a base that lacks one. **Authoring a `deb/` provide is

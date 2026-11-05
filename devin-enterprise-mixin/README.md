@@ -83,9 +83,8 @@ provide `devin` at that version and must keep their defaults in sync.
 The v2 kit reused `docker.io/sbx/devin-image:latest`. These v3 recipes carry
 the same installation as the existing Devin workload/mixin pair, including
 the `devin-cli` rename, so they do not depend on the legacy image publisher.
-The workload retains its underlying `docker/sandbox-templates:shell-docker`
-base. The mixin stages the whole CLI prefix into a scratch overlay, with
-`/home` owned by root and `/home/agent` by uid 1000.
+The workload builds on `docker.io/sbx/shell`. The mixin stages the whole CLI
+prefix into a scratch overlay, with `/home` owned by root and `/home/agent` by uid 1000.
 
 The wrapper copies in both enterprise directories must stay byte-identical;
 each kit directory is its own build context.

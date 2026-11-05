@@ -11,7 +11,7 @@
 # sandbox.
 #
 # The base is a floating tag, which is why CI also rebuilds on a schedule.
-ARG BASE_IMAGE=docker/sandbox-templates:shell-docker
+ARG BASE_IMAGE=docker.io/sbx/shell:latest
 FROM ${BASE_IMAGE}
 
 # Re-declared inside the stage: an ARG defined before the first FROM is a global
@@ -28,12 +28,12 @@ ARG BASE_IMAGE
 # the first time the agent looks for a file. Baking the package settles it for
 # every sandbox at build time.
 #
-# Ubuntu's package is `fd-find` and it installs the binary as `fdfind`. pi's
+# Debian's package is `fd-find` and it installs the binary as `fdfind`. pi's
 # probe accepts that name as-is; the symlink is for humans at the shell, who
 # expect `fd`.
 #
 # ripgrep needs no equivalent layer -- pi probes the system for `rg` exactly the
-# same way, and the template already ships /usr/bin/rg. Nothing to add here.
+# same way, and sbx/shell already ships /usr/bin/rg. Nothing to add here.
 #
 # Deliberately placed above the ARG PI_VERSION / ADD section below: every layer
 # after that ADD re-runs whenever the pin moves, and this one has nothing to do
@@ -88,10 +88,8 @@ ARG PI_VERSION
 # below reads this file as agent.
 USER root
 ADD --chmod=644 https://registry.npmjs.org/@earendil-works%2Fpi-coding-agent/${PI_VERSION} /tmp/pi-release.json
-# No Node install step: the template already ships Node 22.22.1, which
-# satisfies pi's `engines.node >= 22.19.0`. (openclaw's image installs its own
-# Node because openclaw's engine floor has moved past the template's major --
-# pi's has not.)
+# No Node install step: sbx/shell ships Node 24, which satisfies pi's
+# `engines.node >= 22.19.0`.
 #
 # The version installed is read out of the document ADDed above rather than
 # re-resolved from the registry at RUN time, so what lands in the image is a
@@ -103,11 +101,11 @@ ADD --chmod=644 https://registry.npmjs.org/@earendil-works%2Fpi-coding-agent/${P
 # release, which is what the descriptor's provide is claiming.
 #
 # The install runs as agent because the global prefix is agent-owned in the
-# template, so installing as agent gets the ownership `pi update --self` and
+# base, so installing as agent gets the ownership `pi update --self` and
 # `pi install` need (they run as agent inside the sandbox and would otherwise
 # fail on EACCES). Installing as root and chowning afterwards would be worse
 # on both counts: root-owned files land in the tree first, and a recursive
-# chown -- even to the owner the files already have -- copies the template's
+# chown -- even to the owner the files already have -- copies the base's
 # entire npm tree up into this image's layer, adding megabytes to every
 # nightly rebuild.
 #
@@ -134,9 +132,8 @@ USER root
 RUN ln -sf "$(npm prefix -g)/bin/pi" /usr/local/bin/pi
 
 # Inherited from the base image, but re-declared deliberately so the value is
-# owned here rather than depending on inheritance from an image this repository
-# does not own. This stays a label: it is a request to the runtime, not a v3
-# capability, and there is no descriptor field that means it.
+# owned here rather than depending on inheritance. This stays a label: it is a
+# request to the runtime, not a v3 capability, and there is no descriptor field that means it.
 #
 # Setting it over a base with no Docker engine yields a sandbox started in
 # Docker mode with nothing to run. Since BASE_IMAGE is overridable, CI asserts
@@ -145,8 +142,8 @@ LABEL com.docker.sandboxes.start-docker="true"
 
 # Both of the labels below OVERRIDE values inherited from the base image, which
 # describe the base rather than this image. Overriding is not optional for
-# `flavor`: left inherited it would read "shell-docker", and sbx would report
-# this image's agent as "shell-docker". So it must be the kit's own name: `pi`.
+# `flavor`: left inherited it would read "shell", and sbx would report
+# this image's agent as "shell". So it must be the kit's own name: `pi`.
 LABEL com.docker.sandboxes.flavor="pi"
 
 # Informational only -- nothing in sbx reads this. Worth setting because the

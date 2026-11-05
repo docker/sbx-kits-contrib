@@ -135,7 +135,7 @@ The recipe is an ordinary Dockerfile. For a workload it builds a root filesystem
 
 ```dockerfile
 # syntax=docker/dockerfile:1
-ARG BASE_IMAGE=docker/sandbox-templates:shell-docker
+ARG BASE_IMAGE=docker.io/sbx/shell:latest
 FROM ${BASE_IMAGE} AS build
 ARG MY_TOOL_VERSION
 RUN install-the-thing "${MY_TOOL_VERSION}"
@@ -349,10 +349,10 @@ A kit's network policy is its **complete** outbound contract. Anything not in an
 
 Two things make this harder than listing the hosts you meant to reach:
 
-- **Package managers refresh every configured source, not just yours.** `apt-get update` re-fetches metadata for every file in `/etc/apt/sources.list[.d/]`, including the ones the base template added, and exits non-zero if *any* of them fails — even when the package you want lives in a different source. For kits on `shell-docker` / `*-docker` templates that means `download.docker.com` has to be allowed even if you only install from Ubuntu's main archive. Ubuntu serves amd64 from `archive.ubuntu.com` + `security.ubuntu.com` and arm64 from `ports.ubuntu.com`, so list all three; CI is amd64 and your Mac is likely arm64.
+- **Package managers refresh every configured source, not just yours.** `apt-get update` re-fetches metadata for every file in `/etc/apt/sources.list[.d/]`, including the ones the base added, and exits non-zero if *any* of them fails, even when the package you want lives in a different source. New kits build on `docker.io/sbx/shell` (Debian 13), whose sources are `deb.debian.org` and `dhi.io`, so allow both. The same hosts serve amd64 and arm64. Some existing kits still build on `docker/sandbox-templates:*` (Ubuntu), which also needs `download.docker.com` on the `-docker` variants and the Ubuntu archive hosts (`archive.ubuntu.com`, `security.ubuntu.com`, `ports.ubuntu.com`); those hosts matter only for kits on that base.
 - **The phase split can lose a host.** An absent phase grants nothing, so a host your v2 kit reached from a startup hook belongs in `runtime`, not `install` — startup hooks run at boot. A host both phases reach goes in both.
 
-Write entries **portless** (`archive.ubuntu.com`, not `archive.ubuntu.com:80`). A portless pattern matches any port, which is what apt hosts need: pinning `:80` breaks the moment a mirror answers over HTTPS, and `apt-get update` then fails wholesale rather than skipping one source.
+Write entries **portless** (`deb.debian.org`, not `deb.debian.org:80`). A portless pattern matches any port, which is what apt hosts need: pinning `:80` breaks the moment a mirror answers over HTTPS, and `apt-get update` then fails wholesale rather than skipping one source.
 
 Validation enforces that every `credential@1` `inject[].domain` appears in the **same phase's** allow list, as an exact host match — a single-label wildcard like `*.example.com` does not satisfy an inject domain of `api.example.com`, even though it covers the host at run time, because the matcher does not expand globs. Add the literal host beside the wildcard; it widens nothing.
 

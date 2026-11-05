@@ -3,15 +3,13 @@
 #
 # The v2 kit shipped no Dockerfile: it pointed `sandbox.image` straight at
 # this published template and let a setup hook install the agent at
-# sandbox-create time. A v3 workload MUST have content — its layers are the
-# root filesystem — so this recipe states that template as its base and bakes
-# the install into it.
+# sandbox-create time. A v3 workload MUST have content: its layers are the
+# root filesystem. So this recipe names a base and bakes the install into it.
 #
-# The image reference is v2's `sandbox.image` carried over verbatim, not
-# re-pointed at another registry: the template is what the kit was built and
-# tested against, and it carries the platform floor (bash, the agent user,
-# git, a CA store) a workload is expected to stand on.
-FROM docker/sandbox-templates:shell-docker
+# The base is the repository's own shell image, which carries the platform
+# floor (bash, the agent user, git, a CA store) a workload is expected to
+# stand on, and a Docker engine.
+FROM docker.io/sbx/shell:latest
 
 # The platform floor's user, restated rather than inherited: the install below
 # has to run as the agent (v2's hook said `user: "1000"`), and sbx@1 wants the
@@ -44,17 +42,16 @@ ARG GROK_VERSION
 #
 # The command is v2's hook body plus the pin. Two details it depends on:
 #
-#   - HOME is exported rather than inherited. The installer is $HOME-scoped
-#     and the base's image config declares no HOME, so a RUN's value would
-#     depend on the builder's passwd lookup rather than on anything this kit
-#     states. /home/agent is the sandbox runtime's own home, so the paths the
+#   - HOME is exported rather than inherited. The installer is $HOME-scoped,
+#     so the kit states the value it depends on instead of relying on the
+#     base's. /home/agent is the sandbox runtime's own home, so the paths the
 #     installer bakes are the paths the agent finds at run time.
-#   - The mkdir is load-bearing. The installer only symlinks `grok` onto an
+#   - The mkdir is a guard. The installer only symlinks `grok` onto an
 #     existing, writable PATH directory (~/.local/bin or /usr/local/bin); it
-#     does not create either. ~/.local/bin is on the base's PATH already but
-#     the image never creates it, so without this the installer would silently
-#     fall through to rewriting .bashrc/.zshrc instead — which the
-#     non-interactive kit entrypoint never sources.
+#     does not create either. sbx/shell already creates ~/.local/bin and puts
+#     it on PATH, but without it the installer would silently fall through to
+#     rewriting .bashrc/.zshrc, which the non-interactive kit entrypoint never
+#     sources, so the recipe does not depend on the base for it.
 #
 # HOW THE PIN REACHES THE INSTALLER: as install.sh's first positional argument,
 # which `bash -s` is what forwards to a script read from a pipe. That is the
@@ -98,6 +95,10 @@ RUN set -eux; \
 
 # Overrides the base's flavor: sbx reads it as the image's agent.
 LABEL com.docker.sandboxes.flavor="grok"
+
+# Requests Docker-in-Docker from the runtime. Stated here so the kit does not
+# depend on the base's label.
+LABEL com.docker.sandboxes.start-docker="true"
 
 # v2's `sandbox.entrypoint`, in the slot OCI already owns for launch config —
 # the v3 descriptor carries none. `--yolo` auto-approves tool calls (the

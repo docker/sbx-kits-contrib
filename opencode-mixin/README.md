@@ -51,9 +51,9 @@ installs. Move it with `--build-arg version=1.2.3` (npm semver, no leading
 - **The launch command.** A mixin does not set an entrypoint.
 - **The apt mirrors and the `apt-get update` hook.** Those refresh the base
   image's own package sources; a workload owns its base, a mixin does not.
-- **`jq` and `flock`**, which the Copilot seed hook shells out to. Every
-  sandbox-templates base ships both; the hook exits without seeding rather than
-  failing if it cannot build the seed.
+- **`jq` and `flock`**, which the Copilot seed hook shells out to. `docker.io/sbx/shell`
+  ships both; the hook exits without seeding rather than failing if it cannot
+  build the seed.
 - **The context-file profile.** `filename:` is workload-only; this kit
   contributes a body through `contentFile`.
 - **`sbx@1`.** A mixin's image config does not become the composed image's.

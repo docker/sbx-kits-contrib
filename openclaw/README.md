@@ -358,14 +358,14 @@ token resolves.
 ## Base image
 
 Unlike a `kind: mixin` kit, which layers onto an existing
-`docker/sandbox-templates` image, a `kind: workload` kit's layers *are* the
+image, a `kind: workload` kit's layers *are* the
 root filesystem — so this kit carries the whole environment. It builds from
 [`openclaw.dockerfile`](./openclaw.dockerfile) in this directory:
 
 ```
 the openclaw kit's content
-└── FROM ${BASE_IMAGE}  (defaults to docker/sandbox-templates:shell-docker)
-    ├── Node 24 (openclaw 2026.9.3 requires >= 24.16.0 < 25, or >= 26.1.0)
+└── FROM ${BASE_IMAGE}  (defaults to docker.io/sbx/shell:latest)
+    ├── Node 24, from the base (openclaw 2026.9.3 requires >= 24.16.0 < 25, or >= 26.1.0)
     ├── openclaw @ args.version     npm global install (+ /usr/local/bin symlink)
     ├── /opt/ms-playwright          Chromium + xvfb for the browser tool
     └── files/home/                 the startup scripts and gateway config
@@ -420,7 +420,7 @@ descriptor is the build target, and the frontend validates it on the way.
 | `authentication_error: x-api-key header is required` | A bearer the proxy does not recognise as its own sentinel is not carried to `api.anthropic.com` — it manages auth on that host. Usually a `claude setup-token` string bound as a custom secret; see [Model provider](#model-provider). |
 | `authentication_error: OAuth access token is invalid` | The bearer sentinel went out unswapped: no OAuth login is stored in the credential store this sandbox was created under, or the login behind it has expired or been revoked. |
 | `auth flow failed (exit 1)` after `/auth` | Interactive login needs a TTY the TUI's subprocess does not get. Credentials belong on the host. |
-| `Sandbox image not found: docker/sandbox-templates:shell-docker. Build or pull it first.` | The first-boot pull of the tool-call image has not landed yet. Check `~/.openclaw/sandbox-image-pull.log`. |
+| `Sandbox image not found: docker.io/sbx/shell:latest. Build or pull it first.` | The first-boot pull of the tool-call image has not landed yet. Check `~/.openclaw/sandbox-image-pull.log`. |
 | A newly bound secret changes nothing | Bindings are wired at create time. Create a fresh sandbox. |
 | `remote model catalog refresh failed` on every gateway start | Expected. The catalog host is deliberately outside the runtime network allowlist (see `openclaw.yaml`); the refresh is warn-only and the gateway reports ready regardless. |
 
