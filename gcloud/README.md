@@ -24,13 +24,13 @@ Compose with a v3 workload (built-in v2 aliases are incompatible):
 ```sh
 sbx run docker.io/docker/sbx-kit-claude:latest --kit docker.io/sbx/gcloud:latest .
 sbx run docker.io/docker/sbx-kit-claude:latest --kit 'git+https://github.com/docker/sbx-kits-contrib.git#ref=v3&dir=gcloud' .
-sbx run docker.io/docker/sbx-kit-claude:latest --kit ./gcloud .
+sbx run docker.io/docker/sbx-kit-claude:latest --kit ./gcloud --kit-arg run_region=us-central1 .
 ```
 
 The credential is optional so the CLI can run unauthenticated for local commands
 such as `gcloud version`. Authenticated API calls require the host secret.
 
-Approve the `gcloud` credential binding for the exact domains in the descriptor.
+Approve the `gcloud` credential binding for the exact domains in the descriptor, including the selected regional Cloud Run host.
 For sandbox-scoped secrets, add `--sandbox YOUR_SANDBOX` to the host command and
 create the sandbox with the same name. Command-based secrets require a recent
 sbx version supporting `--command` and `--refresh`.
@@ -57,7 +57,20 @@ Google OAuth provider. This kit does not claim to implement that bootstrap.
 Do not run `gcloud auth login` inside the sandbox or mount host gcloud config.
 
 Resource Manager, Compute, Cloud Run, and Storage JSON API hosts are explicitly
-allowed. Add further hosts to both the network policy and credential injection
+allowed. Cloud Run CLI uses `REGION-run.googleapis.com`; allowing only
+`run.googleapis.com` does not authenticate regional CLI requests. The
+`run_region` create-time argument defaults to `us-central1`, sets
+`CLOUDSDK_RUN_REGION`, and adds exactly that regional host to both lists.
+Supply `--kit-arg run_region=YOUR_REGION` when creating the sandbox. Selecting a
+different `--region` in gcloud does not widen credential injection. Recreate with
+the matching kit argument, or explicitly extend the descriptor and binding for
+multiple regions. The global v2 REST API remains available at `run.googleapis.com`.
+
+An empty `gcloud auth list` or missing ADC is expected with this authentication
+method. Test a read-only API operation with an explicit project instead.
+
+IAM (`iam.googleapis.com`) and Cloud SQL (`sqladmin.googleapis.com`) are outside
+the default contract. Add further hosts to both the network policy and credential injection
 rules, then approve the updated binding. No wildcard Google API access is granted.
 Other composed kits can widen the effective network policy.
 

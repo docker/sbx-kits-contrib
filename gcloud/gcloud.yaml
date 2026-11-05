@@ -11,6 +11,11 @@ args:
     pattern: '^[0-9]+\.[0-9]+\.[0-9]+$'
     description: Google Cloud CLI release to install
     buildArg: GCLOUD_VERSION
+  run_region:
+    default: us-central1
+    pattern: '^[a-z]+(-[a-z]+)+[0-9]+$'
+    description: Cloud Run region whose regional API receives proxy authentication
+    env: CLOUDSDK_RUN_REGION
 provides: ["gcloud@${{ kit.args.version }}"]
 capabilities:
   - type: com.docker.sandbox/network-policy@1
@@ -20,6 +25,7 @@ capabilities:
           - cloudresourcemanager.googleapis.com
           - compute.googleapis.com
           - run.googleapis.com
+          - "${{ kit.args.run_region }}-run.googleapis.com"
           - storage.googleapis.com
   - type: com.docker.sandbox/credential@1
     optional: true
@@ -34,4 +40,8 @@ capabilities:
           - {domain: cloudresourcemanager.googleapis.com, header: Authorization, format: "Bearer %s"}
           - {domain: compute.googleapis.com, header: Authorization, format: "Bearer %s"}
           - {domain: run.googleapis.com, header: Authorization, format: "Bearer %s"}
+          - {domain: "${{ kit.args.run_region }}-run.googleapis.com", header: Authorization, format: "Bearer %s"}
           - {domain: storage.googleapis.com, header: Authorization, format: "Bearer %s"}
+  - type: com.docker.sandbox/agent-context@1
+    config:
+      contentFile: ./gcloud-context.md
