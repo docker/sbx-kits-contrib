@@ -104,6 +104,13 @@ sbx run ./hermes-agent/
 Once inside the agent, use `hermes model` to choose a provider and model, then
 start chatting.
 
+The provider pin in `hermes-credential-auth.sh` has a test that needs no
+container; run it from the repo root:
+
+```console
+python3 -m unittest hermes-agent/testdata/test_provider_pin.py
+```
+
 ## How auth works
 
 Each of the kit's three `credential@1` capabilities maps a provider to a domain
