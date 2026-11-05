@@ -412,6 +412,7 @@ Note that a fork PR does not receive repository secrets, so any leg needing Dock
 | [`claude-bedrock-mixin`](./claude-bedrock-mixin) | `claude`, `deb/jq` | Claude Code on Amazon Bedrock with the AWS profile stored on the host |
 | [`claude-mem`](./claude-mem) | `claude` | Persistent memory across Claude Code sessions, in SQLite + FTS5 |
 | [`claude-model-runner`](./claude-model-runner) | `claude` | Routes Claude Code's API calls to a local Docker Model Runner |
+| [`claude-openrouter`](./claude-openrouter) | `claude` | Claude Code on OpenRouter, any model per tier, with the key kept on the host |
 | [`claude-sbx-statusline`](./claude-sbx-statusline) | `claude`, `deb/jq` | A two-line Docker Sandboxes status line for Claude Code |
 | [`claude-vertex-mixin`](./claude-vertex-mixin) | `claude`, `deb/jq` | Claude Code on Google Vertex AI with host gcloud Application Default Credentials |
 | [`code-server`](./code-server) | `claude` | code-server on port 8080 with the Claude Code VS Code extension |
