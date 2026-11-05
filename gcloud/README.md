@@ -44,7 +44,9 @@ gcloud projects describe YOUR_PROJECT --format='value(projectId)'
 ## Authentication and permissions
 
 Google APIs accept an HTTPS Authorization bearer header. `CLOUDSDK_AUTH_ACCESS_TOKEN`
-lets gcloud send requests without loading a local credential database. The v3
+lets gcloud send requests without loading a local credential database. The
+launcher defaults this variable to a public placeholder when it is absent, so
+SSH-launched agents do not depend on inheriting the container environment. The v3
 `credential@1` capability gives it a placeholder; the boundary proxy substitutes
 the real token only for the declared API hosts. sbx refreshes the host command's
 result every five minutes as needed. No real token or refresh token is mounted
