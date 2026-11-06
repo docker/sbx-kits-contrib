@@ -107,6 +107,9 @@ capabilities:
           - openrouter.ai
           - '*.openrouter.ai'
           - api.openai.com
+          # ChatGPT Codex resources and intercepted OAuth refresh endpoint.
+          - chatgpt.com
+          - auth.openai.com
           - api.anthropic.com
           # The anthropic credential's OAuth token endpoint, for the refresh
           # the proxy performs once the access token expires.
@@ -162,7 +165,8 @@ capabilities:
           # on faith.
           - hermes-agent.nousresearch.com
 
-  # All three credentials are `optional: true`, faithfully: v2 credentials
+  # Provider credentials are optional; missing bindings are filtered at startup.
+  # Historically, v2 credentials
   # default to not-required and the v3 default inverts (an entry is required
   # unless it opts out). Hermes runs with any one of the three, or with none
   # — the startup hook below resolves which are genuinely bound — so making
@@ -206,7 +210,7 @@ capabilities:
 
   - type: com.docker.sandbox/credential@1
     optional: true
-    description: OpenAI API access
+    description: OpenAI API access (API key or ChatGPT OAuth)
     config:
       service: openai
       phase: runtime
@@ -215,6 +219,19 @@ capabilities:
         proxyManaged: true
         inject:
           - {domain: api.openai.com, header: Authorization, format: "Bearer %s"}
+      # Keep Docker's rendered seed separate from Hermes' multi-provider store.
+      # The startup bridge merges sentinels without overwriting other providers.
+      oauth:
+        tokenEndpoint: {host: auth.openai.com, path: /oauth/token}
+        resourceHosts: [chatgpt.com]
+        sentinels:
+          accessToken: oai-oat01-proxy-managed
+          refreshToken: oai-ort01-proxy-managed
+        credentialFile:
+          path: ~/.docker/hermes-openai-oauth.json
+          structure:
+            access_token: "{{.AccessToken}}"
+            refresh_token: "{{.RefreshToken}}"
 
   - type: com.docker.sandbox/credential@1
     optional: true
