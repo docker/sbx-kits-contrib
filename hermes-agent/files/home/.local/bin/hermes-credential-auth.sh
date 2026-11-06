@@ -146,24 +146,43 @@ fi
 #                                  hermes_cli/auth.py)
 #   nothing bound               -> leave the image default
 #
-# Only ever touch the provider/model pair this script could itself have
-# produced -- the template's original values, or the values it sets below.
-# Anything else is a choice the user made with `hermes model` and must
-# survive a credential change or a container restart untouched.
+# model.base_url moves with the pin. The template also ships `base_url:
+# "https://openrouter.ai/api/v1"`, and for the provider model.provider names,
+# Hermes' credential-pool and env-key paths (_pool_entry_mode_and_url and
+# _api_key_provider_runtime in hermes_cli/runtime_provider.py) send requests
+# to model.base_url instead of the provider's own endpoint. So:
+#   openai-api -> api.openai.com; left on the template URL, the OpenAI key's
+#                 requests reach OpenRouter, which 401s them
+#   copilot    -> unset, so both Copilot paths use Copilot's own endpoint;
+#                 the env-key path would otherwise send it to OpenRouter
+#   anthropic  -> api.anthropic.com. Hermes would drop the template URL here
+#                 anyway (_anthropic_base_url_override_ok), but an OpenRouter
+#                 URL beside provider: anthropic reads as a bug
+#   default    -> the template's URL
+#
+# Only ever touch the provider/model/base_url triple this script could itself
+# have produced -- the template's original values, or the values it sets
+# below. Anything else is a choice the user made with `hermes model` or
+# `hermes config set` and must survive a credential change or a container
+# restart untouched, so one user-chosen field leaves all three alone.
 if [ -x "$HERMES_BIN" ]; then
     PRISTINE_PROVIDER=auto
     PRISTINE_MODEL='anthropic/claude-opus-4.6'
+    PRISTINE_BASE_URL='https://openrouter.ai/api/v1'
     OUR_PROVIDER=anthropic
     OUR_MODEL=claude-opus-4-6
+    OUR_BASE_URL='https://api.anthropic.com'
     # gpt-5-mini costs no premium requests and is offered on every Copilot
     # plan, including Free, so the pin works before the user picks a model.
     OUR_COPILOT_PROVIDER=copilot
     OUR_COPILOT_MODEL=gpt-5-mini
     OUR_OPENAI_PROVIDER=openai-api
     OUR_OPENAI_MODEL=gpt-6-sol
+    OUR_OPENAI_BASE_URL='https://api.openai.com/v1'
 
     current_provider=$("$HERMES_BIN" config get model.provider 2>/dev/null) || current_provider=""
     current_model=$("$HERMES_BIN" config get model.default 2>/dev/null) || current_model=""
+    current_base_url=$("$HERMES_BIN" config get model.base_url 2>/dev/null) || current_base_url=""
 
     provider_is_ours=0
     case "$current_provider" in
@@ -173,25 +192,40 @@ if [ -x "$HERMES_BIN" ]; then
     case "$current_model" in
         "$PRISTINE_MODEL" | "$OUR_MODEL" | "$OUR_COPILOT_MODEL" | "$OUR_OPENAI_MODEL" | "") model_is_ours=1 ;;
     esac
+    base_url_is_ours=0
+    case "$current_base_url" in
+        "$PRISTINE_BASE_URL" | "$OUR_BASE_URL" | "$OUR_OPENAI_BASE_URL" | "") base_url_is_ours=1 ;;
+    esac
 
-    if [ "$provider_is_ours" = 1 ] && [ "$model_is_ours" = 1 ]; then
+    if [ "$provider_is_ours" = 1 ] && [ "$model_is_ours" = 1 ] && [ "$base_url_is_ours" = 1 ]; then
+        want_base_url=$PRISTINE_BASE_URL
         if [ "$openrouter_bound" = 1 ]; then
             want_provider=$PRISTINE_PROVIDER
             want_model=$PRISTINE_MODEL
         elif [ "$anthropic_cred" != none ]; then
             want_provider=$OUR_PROVIDER
             want_model=$OUR_MODEL
+            want_base_url=$OUR_BASE_URL
         elif [ "$openai_bound" = 1 ]; then
             want_provider=$OUR_OPENAI_PROVIDER
             want_model=$OUR_OPENAI_MODEL
+            want_base_url=$OUR_OPENAI_BASE_URL
         elif [ "$copilot_bound" = 1 ]; then
             want_provider=$OUR_COPILOT_PROVIDER
             want_model=$OUR_COPILOT_MODEL
+            want_base_url=""
         else
             want_provider=$PRISTINE_PROVIDER
             want_model=$PRISTINE_MODEL
         fi
         [ "$current_provider" = "$want_provider" ] || "$HERMES_BIN" config set model.provider "$want_provider" >/dev/null 2>&1 || true
         [ "$current_model" = "$want_model" ] || "$HERMES_BIN" config set model.default "$want_model" >/dev/null 2>&1 || true
+        if [ "$current_base_url" != "$want_base_url" ]; then
+            if [ -n "$want_base_url" ]; then
+                "$HERMES_BIN" config set model.base_url "$want_base_url" >/dev/null 2>&1 || true
+            else
+                "$HERMES_BIN" config unset model.base_url >/dev/null 2>&1 || true
+            fi
+        fi
     fi
 fi
