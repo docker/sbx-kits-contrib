@@ -15,6 +15,12 @@ COPY files/home/dapr-kit/install.sh /tmp/dapr-agents-install.sh
 RUN DESTDIR=/out bash /tmp/dapr-agents-install.sh \
  && rm /tmp/dapr-agents-install.sh
 
+# The launcher creates the selected project's locked environment at runtime,
+# so uv is part of this mixin rather than a requirement imposed on the base.
+# Install it under /usr/local/bin to avoid overwriting a distro-owned uv when
+# the selected workload already carries one.
+RUN install -Dm0755 /usr/bin/uv /out/usr/local/bin/uv
+
 # A Kit's build context cannot reach its workload sibling, so files/ is a
 # byte-identical copy of ../dapr-agents/files/. Root owns /out/home; ownership
 # changes begin at the agent home so the overlay does not hand /home to uid 1000.
@@ -44,7 +50,8 @@ USER root
 COPY --from=build /out /out
 COPY --from=build /out /
 USER agent
-RUN --network=none dapr --version \
+RUN --network=none test "$(command -v uv)" = /usr/local/bin/uv \
+ && dapr --version \
  && /home/agent/.dapr/bin/daprd --version \
  && uv --version \
  && docker compose version \
