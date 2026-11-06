@@ -1,6 +1,6 @@
 ## Playwright
 
-playwright and @playwright/test v1.61.1 are installed globally (the
+playwright and @playwright/test v1.64.1 are installed globally (the
 `playwright` CLI is on PATH). Chromium and its headless shell live in
 /opt/ms-playwright; PLAYWRIGHT_BROWSERS_PATH points there system-wide —
 don't unset or override it, or Playwright will look in ~/.cache and try to

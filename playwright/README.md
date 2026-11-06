@@ -5,7 +5,7 @@
 
 # playwright
 
-A mixin kit that installs the **Playwright** browser-automation toolchain inside the sandbox: the `playwright` CLI and `@playwright/test` **v1.61.1** from npm, plus **Chromium** (and its headless shell) with all required system libraries. Pair it with any agent (Claude, Gemini, …) to let the agent write and run end-to-end tests, scrape or screenshot pages, generate PDFs, and debug web apps served inside the sandbox — all headless, all sandbox-local.
+A mixin kit that installs the **Playwright** browser-automation toolchain inside the sandbox: the `playwright` CLI and `@playwright/test` **v1.64.1** from npm, plus **Chromium** (and its headless shell) with all required system libraries. Pair it with any agent (Claude, Gemini, …) to let the agent write and run end-to-end tests, scrape or screenshot pages, generate PDFs, and debug web apps served inside the sandbox — all headless, all sandbox-local.
 
 ## Usage
 
@@ -27,8 +27,8 @@ sbx run claude --kit ./playwright/ .
 
 Prerequisites:
 
-- A base image with Node.js ≥ 18 — all standard agent templates ship it. The overlay carries Playwright's own JavaScript, so npm is not needed on the composed base; a base without npm fails the kit's *build*, not your sandbox.
-- A Debian-family base, for the one install hook that is left: Chromium's system libraries come from the composed base's own apt (see below).
+- A base image with Node.js ≥ 20 (Playwright 1.62+ requires Node 20; the tested standard template ships Node 22). The overlay carries Playwright's own JavaScript, so npm is not needed on the composed base; a base without npm fails the kit's *build*, not your sandbox.
+- A supported Debian-family base, for the remaining install hook: Chromium's system libraries come from the composed base's own apt (see below). Playwright supports Ubuntu 22.04, 24.04 and 26.04 and Debian 12 and 13 on amd64 and arm64; support for Ubuntu 20.04 ended in 1.63 and Debian 11 in 1.62. Configured apt sources must also be reachable through the install-phase network policy.
 
 Inside the sandbox:
 
@@ -83,11 +83,11 @@ The sandbox has no display server, so `--headed`, `--ui` mode, and `codegen` won
 
 ### Why the version is pinned
 
-The kit pins `playwright@1.61.1` and `@playwright/test@1.61.1`; npm verifies the downloaded tarballs against the sha512 integrity values in the registry metadata, so pinning the version pins the content. Browser builds are keyed to the Playwright version, so they're transitively pinned too. Now that the install happens at build, the published layer's digest pins it a second time — what you run is byte-for-byte what was scanned. To bump: change `PLAYWRIGHT_VERSION` in `playwright.dockerfile`, the version in the descriptor's `provides`, and the version references in `playwright-context.md` and this README.
+The kit pins `playwright@1.64.1` and `@playwright/test@1.64.1`; npm verifies the downloaded tarballs against the sha512 integrity values in the registry metadata. Browser builds are keyed to the Playwright version. The published layer's digest identifies the built content for scanning and distribution. To bump: change `PLAYWRIGHT_VERSION` in `playwright.dockerfile`, the version in the descriptor's `provides`, and the version references in `playwright-context.md` and this README.
 
 ### Why these domains
 
-The kit's `network-policy@1` capability is its complete outbound contract — CI runs e2e under a `deny-all` policy. The lists are phase-scoped, and a phase that doesn't name a host cannot reach it: the install phase is open only while the kit's install hook runs and is closed again before the agent starts. The hosts the *build* uses are not on this list at all, because the builder is not the sandbox.
+The kit's `network-policy@1` capability defines its phase-scoped outbound grants: the install phase applies while the kit's install hook runs, and the runtime phase applies after the agent starts. Other kits and user policy may grant additional hosts. The hosts the *build* uses are not on this list, because the builder is not the sandbox.
 
 | Domain | Phase | Why |
 | --- | --- | --- |
@@ -99,10 +99,10 @@ The kit's `network-policy@1` capability is its complete outbound contract — CI
 | `download.docker.com` | install | Docker's apt repo, pre-added by the `*-docker` templates — `apt-get update` refreshes every configured source and fails if any is blocked |
 | `cli.github.com` | install | GitHub CLI apt repo, pre-added by the `*-docker` templates; refreshed by the same `apt-get update` |
 | `cdn.playwright.dev` | runtime | Playwright's primary browser-binary CDN, for a project that pins a different Playwright version and fetches its own build |
-| `playwright.download.prss.microsoft.com` | runtime | Documented fallback CDN Playwright rotates to on primary failure |
-| `storage.googleapis.com` | runtime | Google's Chrome-for-Testing bucket, where `cdn.playwright.dev` redirects for amd64 Chromium |
+| `playwright.download.prss.microsoft.com` | runtime | Documented fallback CDN Playwright rotates to on primary failure; also the redirect target for ffmpeg |
+| `storage.googleapis.com` | runtime | Google's Chrome-for-Testing bucket, where `cdn.playwright.dev` redirects for Chromium on amd64 and arm64 |
 
-`registry.npmjs.org` used to be on this list and no longer is: the npm install happens at build now, so the sandbox never talks to the registry. The three CDNs left the install phase for the same reason, and stay in `runtime` for the version-mismatch case `/opt/ms-playwright` is kept world-writable for.
+`registry.npmjs.org` used to be on this list and no longer is: the npm install happens at build now, so the kit's install hook does not contact the registry. The three CDNs left the install phase for the same reason, and stay in `runtime` for the version-mismatch case `/opt/ms-playwright` is kept world-writable for.
 
 **Runtime reminder:** the allowlist covers installing and running Playwright itself, not the sites a test visits. Servers on `localhost` inside the sandbox always work; navigating to external sites fails with a proxy error unless the user's sandbox policy allows those domains.
 

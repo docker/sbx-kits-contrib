@@ -39,17 +39,17 @@ schemaVersion: "3"
 displayName: Playwright
 description: >-
   Playwright browser-automation toolchain for sandbox agents — the playwright
-  CLI and @playwright/test v1.61.1 with Chromium, installed to a shared system
+  CLI and @playwright/test v1.64.1 with Chromium, installed to a shared system
   browsers path so the agent user can run headless browser automation and
   end-to-end tests entirely inside the sandbox.
 
 kind: mixin
 
-# The recipe pins 1.61.1 and npm verifies the tarballs against the registry
+# The recipe pins 1.64.1 and npm verifies the tarballs against the registry
 # metadata's sha512 integrity values, so this version is a fact about what the
 # kit installs rather than a release number. To bump: edit PLAYWRIGHT_VERSION in
 # playwright.dockerfile, this entry, the agent context and the README together.
-provides: ["playwright@1.61.1"]
+provides: ["playwright@1.64.1"]
 
 capabilities:
   # MIGRATION NOTE: v2's one flat allow list, split by the phase that reaches
@@ -89,11 +89,11 @@ capabilities:
           # with `npx playwright install chromium` at runtime, and the overlay
           # ships /opt/ms-playwright world-writable for exactly that.
           #
-          # cdn.playwright.dev is the primary CDN, the prss.microsoft.com host
-          # is the documented fallback Playwright rotates to on CDN failure, and
-          # storage.googleapis.com is Google's Chrome-for-Testing bucket that
-          # cdn.playwright.dev 302s to for amd64 Chromium (arm64 builds come
-          # from prss.microsoft.com instead, hence the split).
+          # cdn.playwright.dev is the primary CDN; the prss.microsoft.com host
+          # is a fallback and also a redirect target for ffmpeg. For Chromium on
+          # amd64 and arm64, cdn.playwright.dev redirects to Google's
+          # Chrome-for-Testing bucket on storage.googleapis.com (both use Chrome
+          # for Testing since Playwright 1.63).
           - cdn.playwright.dev
           - playwright.download.prss.microsoft.com
           - storage.googleapis.com
