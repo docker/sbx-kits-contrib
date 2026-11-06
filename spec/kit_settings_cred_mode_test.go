@@ -14,38 +14,10 @@ import (
 
 const claudeAPIKeyHelper = "echo proxy-managed"
 
-// TestClaudeSettingsAPIKeyHelper pins which credential modes get Claude Code's
-// apiKeyHelper. A subscription must not, or Claude Code disables its claude.ai connectors.
-func TestClaudeSettingsAPIKeyHelper(t *testing.T) {
-	for _, kit := range []string{"claude", "claude-mixin"} {
-		seed := findSettingsInstall(t, loadV3Commands(t, kit)).Command
-
-		for _, tc := range []struct {
-			name       string
-			modes      []string
-			wantHelper string
-		}{
-			{name: "unset", modes: []string{""}},
-			{name: "none", modes: []string{"none"}},
-			{name: "api key", modes: []string{"apikey"}, wantHelper: claudeAPIKeyHelper},
-			{name: "subscription OAuth", modes: []string{"oauth"}},
-			{name: "unknown mode", modes: []string{"unknown"}},
-			{name: "recreate from api key to OAuth", modes: []string{"apikey", "oauth"}},
-			{name: "recreate from OAuth to api key", modes: []string{"oauth", "apikey"}, wantHelper: claudeAPIKeyHelper},
-		} {
-			t.Run(kit+"/"+tc.name, func(t *testing.T) {
-				home := t.TempDir()
-				for _, mode := range tc.modes {
-					runSettingsScriptIn(t, home, seed, credModeEnv(mode))
-				}
-				requireAPIKeyHelper(t, home, tc.wantHelper)
-			})
-		}
-	}
-}
-
-// TestClaudeOllamaSettingsAPIKeyHelper keeps the ollama kits' copy of the rule
-// in step. They declare no credential, so only a composed base could set a mode.
+// TestClaudeOllamaSettingsAPIKeyHelper pins which credential modes get Claude
+// Code's apiKeyHelper in the ollama kits. A subscription must not, or Claude
+// Code disables its claude.ai connectors. They declare no credential, so only
+// a composed base could set a mode.
 func TestClaudeOllamaSettingsAPIKeyHelper(t *testing.T) {
 	for _, kit := range []string{"claude-ollama", "claude-ollama-mixin"} {
 		seed := findSettingsInstall(t, loadV3Commands(t, kit)).Command
@@ -78,7 +50,8 @@ func TestClaudeMemReconcilerAPIKeyHelper(t *testing.T) {
 		}
 		t.Skip("the claude-mem reconciler needs node on PATH")
 	}
-	seed := findSettingsInstall(t, loadV3Commands(t, "claude")).Command
+	// The claude workload is a DHI image now; claude-ollama ships the same seed rule.
+	seed := findSettingsInstall(t, loadV3Commands(t, "claude-ollama")).Command
 	reconciler := findSettingsReconciler(t, loadV3Commands(t, "claude-mem"))
 	require.Contains(t, reconciler, "/tmp/claude-mem-reconcile.log")
 

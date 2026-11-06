@@ -272,7 +272,7 @@ sbx run shell --kit ./mise .          # or onto a built-in agent
    └── README.md
    ```
 
-2. Write `my-kit.yaml`, starting from the skeleton in [Anatomy of a kit](#anatomy-of-a-kit) and from whichever existing kit is closest in shape. `mise/` is a good declaration-only mixin; `claude-mixin/` is a good overlay mixin; `copilot/` is a good workload.
+2. Write `my-kit.yaml`, starting from the skeleton in [Anatomy of a kit](#anatomy-of-a-kit) and from whichever existing kit is closest in shape. `mise/` is a good declaration-only mixin; `cursor-mixin/` is a good overlay mixin; `copilot/` is a good workload.
 
 3. Write `my-kit.dockerfile`, unless the kit declares only. A workload must have one.
 
@@ -364,7 +364,7 @@ Note that a fork PR does not receive repository secrets, so any leg needing Dock
 
 ## Kit index
 
-108 kits: 31 workloads and 77 mixins, plus the `claude`, `codex` and `shell` workloads, which are now Docker Hardened Images in the [DHI catalog](https://github.com/docker-hardened-images/catalog/tree/main/image). Every workload except `openhands-canvas` and `shell` has a `-mixin` sibling that declares the same capabilities in overlay form, so you can either boot the agent as the sandbox or layer it onto one.
+104 kits: 31 workloads and 73 mixins, plus the `claude`, `codex` and `shell` workloads and the `claude-mixin`, `codex-mixin`, `claude-acp` and `codex-acp` mixins, which are now Docker Hardened Images in the [DHI catalog](https://github.com/docker-hardened-images/catalog/tree/main/image). Every workload except `openhands-canvas` and `shell` has a `-mixin` sibling that declares the same capabilities in overlay form, so you can either boot the agent as the sandbox or layer it onto one.
 
 ### Workloads
 
@@ -373,9 +373,9 @@ Note that a fork PR does not receive repository secrets, so any leg needing Dock
 | [`aider`](./aider) | [`aider-mixin`](./aider-mixin) | Aider |
 | [`amp`](./amp) | [`amp-mixin`](./amp-mixin) | Amp |
 | [`antigravity`](./antigravity) | [`antigravity-mixin`](./antigravity-mixin) | Google Antigravity |
-| [`claude`](https://github.com/docker-hardened-images/catalog/tree/main/image/claude) (DHI catalog) | [`claude-mixin`](./claude-mixin) | Claude Code |
+| [`claude`](https://github.com/docker-hardened-images/catalog/tree/main/image/claude) (DHI catalog) | [`claude-mixin`](https://github.com/docker-hardened-images/catalog/tree/main/image/claude-mixin) (DHI catalog) | Claude Code |
 | [`claude-ollama`](./claude-ollama) | [`claude-ollama-mixin`](./claude-ollama-mixin) | Claude Code against a local Ollama endpoint |
-| [`codex`](https://github.com/docker-hardened-images/catalog/tree/main/image/codex) (DHI catalog) | [`codex-mixin`](./codex-mixin) | Codex |
+| [`codex`](https://github.com/docker-hardened-images/catalog/tree/main/image/codex) (DHI catalog) | [`codex-mixin`](https://github.com/docker-hardened-images/catalog/tree/main/image/codex-mixin) (DHI catalog) | Codex |
 | [`copilot`](./copilot) | [`copilot-mixin`](./copilot-mixin) | GitHub Copilot |
 | [`crush`](./crush) | [`crush-mixin`](./crush-mixin) | Crush |
 | [`cursor`](./cursor) | [`cursor-mixin`](./cursor-mixin) | Cursor |
@@ -408,14 +408,14 @@ Note that a fork PR does not receive repository secrets, so any leg needing Dock
 | Kit | Requires | What it is |
 | --- | --- | --- |
 | [`aidlc-claude`](./aidlc-claude) | `claude-bedrock` | AWS AI-DLC starter: a pinned Bun and the aidlc-workflows Claude harness |
-| [`claude-acp`](./claude-acp) | `claude` | The Claude ACP adapter over stdio |
+| [`claude-acp`](https://github.com/docker-hardened-images/catalog/tree/main/image/claude-acp) (DHI catalog) | `claude` | The Claude ACP adapter over stdio |
 | [`claude-bedrock-mixin`](./claude-bedrock-mixin) | `claude`, `deb/jq` | Claude Code on Amazon Bedrock with the AWS profile stored on the host |
 | [`claude-mem`](./claude-mem) | `claude` | Persistent memory across Claude Code sessions, in SQLite + FTS5 |
 | [`claude-model-runner`](./claude-model-runner) | `claude` | Routes Claude Code's API calls to a local Docker Model Runner |
 | [`claude-sbx-statusline`](./claude-sbx-statusline) | `claude`, `deb/jq` | A two-line Docker Sandboxes status line for Claude Code |
 | [`claude-vertex-mixin`](./claude-vertex-mixin) | `claude`, `deb/jq` | Claude Code on Google Vertex AI with host gcloud Application Default Credentials |
 | [`code-server`](./code-server) | `claude` | code-server on port 8080 with the Claude Code VS Code extension |
-| [`codex-acp`](./codex-acp) | `codex` | The Codex ACP adapter over stdio |
+| [`codex-acp`](https://github.com/docker-hardened-images/catalog/tree/main/image/codex-acp) (DHI catalog) | `codex` | The Codex ACP adapter over stdio |
 | [`codex-app-server`](./codex-app-server) | `codex`, `deb/apt` | sshd plus forwarded host keys, so the Codex Mac GUI can drive `codex app-server` |
 | [`cosmos-db-emulator`](./cosmos-db-emulator) | `deb/curl`, `deb/docker-ce` | The Azure Cosmos DB emulator (vNext, API for NoSQL) on the sandbox's Docker Engine, with the gateway and Data Explorer published on the host loopback |
 | [`docker-tcp`](./docker-tcp) | `deb/curl`, `deb/docker-ce`, `deb/jq`, `deb/procps` | The sandbox's Docker Engine on a TCP port published on the host loopback, so host Docker clients can run containers in it |
