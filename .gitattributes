@@ -2,3 +2,6 @@
 # out on Windows with core.autocrlf=true. Without this, a CRLF-converted
 # `#!/usr/bin/env bash` becomes `bash\r` and the script fails to invoke.
 *.sh text eol=lf
+
+# The same applies to Dockerfile recipes: heredoc RUN bodies must be LF.
+*.dockerfile text eol=lf

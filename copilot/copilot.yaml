@@ -152,6 +152,7 @@ capabilities:
       phase: runtime
       apiKey:
         name: GH_TOKEN
+        proxyManaged: true
         inject:
           - {domain: api.github.com, header: Authorization, format: "Bearer %s"}
           - {domain: github.com, header: Authorization, format: "Bearer %s"}
@@ -171,6 +172,7 @@ capabilities:
         # without affecting the broader github secret used for gh/git access.
         # https://docs.github.com/en/copilot/how-tos/set-up/install-copilot-cli
         name: COPILOT_GITHUB_TOKEN
+        proxyManaged: true
         inject:
           # https://github.blog/changelog/2026-02-13-network-configuration-changes-for-copilot-coding-agent/
           - {domain: api.business.githubcopilot.com, header: Authorization, format: "Bearer %s"}     # Copilot Business
