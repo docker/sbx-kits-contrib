@@ -1,0 +1,92 @@
+# syntax=docker/sandbox-kit:3
+# The Go toolchain as a MIXIN: `go` and `gofmt` from the official release and
+# the gopls language server, shipped in the kit's layers, plus the egress `go`
+# needs to fetch modules. It composes onto any workload; it owns no launch
+# command, no profile and no credential.
+#
+# Some bases already carry a Go (the shell-docker templates do; dhi.io/claude
+# does not). This kit still earns its place on those: it pins the release
+# instead of inheriting whatever the template ships, adds gopls, and declares
+# the module egress, which no base does.
+schemaVersion: "3"
+kind: mixin
+displayName: Go
+description: >-
+  Adds a pinned Go toolchain and the gopls language server so the agent can
+  build, test and navigate Go code, with module downloads through the Go
+  module proxy and checksum database.
+sourceUrl: https://go.dev
+iconUrl: https://go.dev/images/go-logo-blue.svg
+
+# The Go release this kit's overlay carries, by reference to the `version` arg
+# below, so the release is stated once and the publish tag names the toolchain
+# the kit ships.
+version: "${{ kit.args.version }}"
+
+# The release go.dockerfile downloads, declared once: handed to the recipe as
+# GO_VERSION and expanded into `provides` and `version:`. The recipe compiles
+# and runs a program with the installed toolchain and compares what
+# `go version` reports against this value, so the provide cannot drift from
+# the content.
+#
+# An installer may override it, but not silently: the per-arch SHA256s in the
+# recipe are pinned to this release, so another value fails the digest check.
+# Bumping Go is this default and both digests in go.dockerfile, together.
+args:
+  version:
+    default: "1.27.3"
+    # Go's own release names. No `go` prefix, which the download URL adds.
+    pattern: '^[0-9]+\.[0-9]+\.[0-9]+$'
+    description: Go release to install
+    buildArg: GO_VERSION
+  # gopls, built at image build from this module version with the toolchain
+  # above. Module checksums are verified against sum.golang.org, so no digest
+  # needs pinning here; the recipe checks the built binary reports this value.
+  gopls_version:
+    default: "0.24.0"
+    pattern: '^[0-9]+\.[0-9]+\.[0-9]+$'
+    description: gopls release to build
+    buildArg: GOPLS_VERSION
+
+provides: ["go@${{ kit.args.version }}", "gopls@${{ kit.args.gopls_version }}"]
+
+# No `requires`. The toolchain is statically linked and needs nothing from the
+# base beyond the SPEC-v3 section 12 platform floor. cgo is the one exception
+# and it degrades rather than breaks: with no C compiler on the base, `go`
+# turns CGO_ENABLED off by itself and pure-Go builds work unchanged.
+
+capabilities:
+  - type: com.docker.sandbox/network-policy@2
+    config:
+      # No install phase. The toolchain is fetched at image build, which is the
+      # builder's traffic and not governed by this policy, and the kit runs no
+      # hooks. An absent phase grants nothing.
+      runtime:
+        allow:
+          # GOPROXY's default. Serves module lists, .mod and .zip files, and
+          # the golang.org/toolchain modules GOTOOLCHAIN=auto switches to when
+          # a go.mod asks for a newer Go than this kit ships.
+          - proxy.golang.org
+          # GOSUMDB's default. Every module download is checked against it.
+          - sum.golang.org
+          # The proxy does not serve every zip itself. Large modules
+          # (github.com/aws/aws-sdk-go, google.golang.org/api) and every
+          # toolchain zip answer with a 302 to signed URLs in the proxy's own
+          # Cloud Storage bucket. Checked by hand against proxy.golang.org.
+          # Without this host, `go mod download` fails on those modules.
+          #
+          # storage.googleapis.com fronts every public bucket on Google
+          # Cloud, so it is bounded to reads of the one bucket the proxy
+          # redirects to, not opened as a host.
+          - hosts: [storage.googleapis.com]
+            methods: [GET, HEAD]
+            paths: [/proxy-golang-org-prod/**]
+          # Deliberately absent: VCS hosts such as github.com. Public modules
+          # come through the proxy, so `go` never contacts them unless the
+          # user sets GOPROXY=direct or GOPRIVATE. Those users add the hosts
+          # they need in a fork; see the README. vuln.go.dev is absent too,
+          # since this kit does not ship govulncheck.
+
+  - type: com.docker.sandbox/agent-context@1
+    config:
+      contentFile: ./go-context.md
