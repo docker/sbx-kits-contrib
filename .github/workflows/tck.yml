@@ -440,8 +440,6 @@ jobs:
   # own: a suite can cover a sibling's copy of a script (hermes-agent's covers
   # hermes-agent-mixin's), and which suite covers which kit is not something
   # this workflow should have to know.
-  # ponytail: every suite on any kit change; scope to the changed kits once the
-  # suites take more than a minute or so.
   test-kit-unit:
     needs: detect-changes
     if: >-
