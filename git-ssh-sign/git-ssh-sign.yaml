@@ -8,7 +8,7 @@ kind: mixin
 # The kit's own version, not the version of anything it installs: it is the
 # tag this kit publishes under, and the fallback that versions an unversioned
 # provide at publish. Bump it when this kit's declarations change.
-version: "1.0.1"
+version: "1.0.2"
 
 # OpenSSH is the whole mechanism here, on both ends of it: the shipped
 # ssh-signing-key-command runs `ssh-add -L` against the forwarded agent, and
@@ -30,6 +30,13 @@ requires: ["deb/openssh-client"]
 # authenticated `gh` CLI are both present, so that one API host is required.
 
 capabilities:
+  # A v3 kit set receives the host's git user.name and user.email only when a
+  # kit requests them. Without one, commits in the sandbox have no configured
+  # author, and GitHub shows a signature as Verified only when the committer
+  # email belongs to the account that registered the signing key.
+  # Optional so that a host with no git identity configured still starts.
+  - type: com.docker.sandbox/git-identity@1
+    optional: true
   - type: com.docker.sandbox/ssh-agent@1
     config:
       phase: runtime
