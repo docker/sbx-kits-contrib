@@ -1,0 +1,70 @@
+# syntax=docker/sandbox-kit:3
+# altool, the AL command-line compiler for Business Central, as a MIXIN with an
+# overlay.
+#
+# Everything this kit installs is content: the .NET runtime and a pinned altool
+# package, neither of which reads anything that exists only at sandbox-create
+# time. So all of it is built by al.dockerfile into the published layer, and the
+# kit declares no lifecycle hooks.
+schemaVersion: "3"
+kind: mixin
+displayName: AL (Business Central)
+description: >-
+  altool, the AL command-line compiler and MCP server for Microsoft Dynamics 365
+  Business Central, with the .NET 8 and 10 runtimes it runs on — so the agent can
+  compile, package and inspect AL extensions in the sandbox.
+
+# altool's version, by reference to the `version` arg below — SPEC-v3 §4 admits
+# a build-phase arg reference here and expands it at publish, so the release is
+# stated in exactly one place and the publish tag names the compiler the kit
+# ships.
+version: "${{ kit.args.version }}"
+
+# The default is the latest stable package on nuget.org when the kit was last
+# bumped. Bump it by re-reading
+# https://api.nuget.org/v3-flatcontainer/microsoft.dynamics.businesscentral.development.tools/index.json
+# and taking the newest entry without a `-beta` tail.
+#
+# Microsoft's prereleases are four numeric segments plus `-beta`, which is a
+# legal provide version under SPEC-v3 §5.2, so the pattern admits them: an
+# installer who wants a newer compiler than the stable channel can ask for one.
+args:
+  version:
+    default: "18.1.43.24897"
+    pattern: '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$'
+    description: altool (Microsoft.Dynamics.BusinessCentral.Development.Tools) package version to install
+    buildArg: ALTOOL_VERSION
+
+# The recipe installs exactly this package version and fails the build if the
+# tool manifest reports anything else, so the claim is checked, not asserted.
+provides: ["al@${{ kit.args.version }}"]
+
+# No `requires`. The SPEC-v3 §12 floor covers the CA store; beyond it the .NET
+# runtime needs ICU, OpenSSL and zlib from the base, which every
+# sandbox-templates base ships. Requiring them by name would mean `deb/libicu78`
+# — a soname that changes with every Ubuntu release, so the kit would refuse to
+# compose on the next base for a reason that has nothing to do with it.
+
+capabilities:
+  # No `install` phase: the .NET installer, the runtime and the altool package
+  # are fetched by the builder, which this policy does not govern, and the kit
+  # runs nothing at create that could reach the network. An absent phase grants
+  # nothing.
+  #
+  # The NuGet hosts are for `runtime`: altool restores AL symbol packages from
+  # NuGet feeds (`al compile` with package sources, and the MCP server's symbol
+  # tooling), and nuget.org's v3 index is where that resolution starts.
+  # Corporate feeds and Business Central's own symbol endpoints vary per project
+  # and are left for the installer to add — see the README.
+  - type: com.docker.sandbox/network-policy@1
+    config:
+      runtime:
+        allow:
+          - api.nuget.org
+          - globalcdn.nuget.org
+
+  # No `filename:` — that is workload-only, and this mixin contributes a body
+  # to whichever agent owns the profile.
+  - type: com.docker.sandbox/agent-context@1
+    config:
+      contentFile: ./al-context.md
