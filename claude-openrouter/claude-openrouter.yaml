@@ -1,0 +1,87 @@
+# syntax=docker/sandbox-kit:3
+# Claude Code on OpenRouter as a MIXIN. It sits on the `claude` workload and
+# adds only what differs from plain Claude: the openrouter credential, its
+# egress, and the environment that points Claude Code at OpenRouter's
+# Anthropic-compatible API. The workload keeps the install, the session
+# volumes, ~/.claude.json and the profile.
+schemaVersion: "3"
+kind: mixin
+displayName: Claude Code on OpenRouter (mixin)
+description: >-
+  Routes Claude Code at OpenRouter's Anthropic-compatible API with the key
+  stored under the openrouter credential, and a kit arg for the model behind
+  each Claude Code tier. Layer it onto the claude workload.
+sourceUrl: https://openrouter.ai/docs/cookbook/coding-agents/claude-code-integration
+iconUrl: https://openrouter.ai/apple-touch-icon.png
+
+version: "1.0.0"
+
+# Unversioned on purpose: the overlay ships no binary, so a version here would
+# be a claim about the base's content. It falls back to `version:` at publish.
+provides: ["claude-openrouter"]
+requires: ["claude"]
+
+# Create-phase args, so the published image can switch models with --kit-arg
+# and no rebuild. Claude Code resolves its opus/sonnet/haiku aliases, and the
+# subagents that ask for them, through these variables.
+#
+# MIGRATION NOTE: v2 hardcoded the three slugs, and also pinned
+# CLAUDE_CODE_SUBAGENT_MODEL to the Sonnet one. That is dropped: subagents
+# already follow the tier variables, and pinning it put every subagent on one
+# model.
+args:
+  opus_model:
+    default: "anthropic/claude-opus-5.5"
+    pattern: '^[a-z0-9][a-z0-9._-]*/[A-Za-z0-9._-]+(:[a-z0-9-]+)?$'
+    description: OpenRouter model for Claude Code's opus tier, the default for the main session
+    env: ANTHROPIC_DEFAULT_OPUS_MODEL
+  sonnet_model:
+    default: "anthropic/claude-sonnet-5.5"
+    pattern: '^[a-z0-9][a-z0-9._-]*/[A-Za-z0-9._-]+(:[a-z0-9-]+)?$'
+    description: OpenRouter model for Claude Code's sonnet tier
+    env: ANTHROPIC_DEFAULT_SONNET_MODEL
+  haiku_model:
+    default: "anthropic/claude-haiku-5.5"
+    pattern: '^[a-z0-9][a-z0-9._-]*/[A-Za-z0-9._-]+(:[a-z0-9-]+)?$'
+    description: OpenRouter model for Claude Code's haiku tier, used by background tasks and fast subagents
+    env: ANTHROPIC_DEFAULT_HAIKU_MODEL
+  # OpenRouter reserves credit for a request's full max_tokens, and Claude Code
+  # asks for up to 128000, so a key with a spending limit gets a 402 on every
+  # request. Empty keeps Claude Code's own default.
+  max_output_tokens:
+    default: ""
+    pattern: '^([1-9][0-9]*)?$'
+    description: Cap on output tokens per request, for OpenRouter keys with a spending limit. Empty keeps Claude Code's default.
+    env: CLAUDE_CODE_MAX_OUTPUT_TOKENS
+
+capabilities:
+  - type: com.docker.sandbox/network-policy@2
+    config:
+      runtime:
+        allow:
+          # The Messages API only. The proxy attaches the real key to every
+          # request it lets through, and that key can also read credits and
+          # activity or create keys. Claude Code sends nothing but
+          # `POST /api/v1/messages?beta=true` (observed with Claude Code
+          # 2.1.318 against a logging server).
+          - hosts: [openrouter.ai]
+            methods: [POST]
+            paths: [/api/v1/messages, /api/v1/messages/**]
+
+  - type: com.docker.sandbox/credential@1
+    # Required: nothing in the sandbox can sign in to OpenRouter, so an unbound
+    # key would fail every call with a 401. Same service, name and inject rule
+    # as every other kit here that declares openrouter.
+    description: OpenRouter API key, kept on the host and presented by the proxy
+    config:
+      service: openrouter
+      phase: runtime
+      apiKey:
+        name: OPENROUTER_API_KEY
+        proxyManaged: true
+        inject:
+          - {domain: openrouter.ai, header: Authorization, format: "Bearer %s"}
+
+  - type: com.docker.sandbox/agent-context@1
+    config:
+      contentFile: ./claude-openrouter-context.md
