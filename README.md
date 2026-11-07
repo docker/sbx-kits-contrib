@@ -396,7 +396,7 @@ Note that a fork PR does not receive repository secrets, so any leg needing Dock
 | [`opencode-model-runner`](./opencode-model-runner) | [`opencode-model-runner-mixin`](./opencode-model-runner-mixin) | OpenCode against Docker Model Runner |
 | [`openhands`](./openhands) | [`openhands-mixin`](./openhands-mixin) | OpenHands |
 | [`paperclip`](./paperclip) | [`paperclip-mixin`](./paperclip-mixin) | Paperclip |
-| [`pi`](./pi) | [`pi-mixin`](./pi-mixin) | Pi |
+| [`pi`](https://github.com/docker-hardened-images/catalog/tree/main/image/pi) (DHI catalog) | [`pi-mixin`](https://github.com/docker-hardened-images/catalog/tree/main/image/pi-mixin) (DHI catalog) | Pi |
 | [`picoclaw`](./picoclaw) | [`picoclaw-mixin`](./picoclaw-mixin) | PicoClaw |
 | [`shell`](https://github.com/docker-hardened-images/catalog/tree/main/image/shell) (DHI catalog) | — | A hardened Debian sandbox with a Docker engine, a login shell and no agent: the base an agent mixin layers onto |
 | [`trivy`](./trivy) | [`trivy-mixin`](./trivy-mixin) | Trivy vulnerability scanner |
