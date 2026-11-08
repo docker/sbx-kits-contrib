@@ -97,6 +97,16 @@ ln -s "$(readlink /home/agent/.local/bin/devin)" /home/agent/.local/bin/devin-cl
 # overwriting the real CLI binary inside the version directory -- and the
 # wrapper would then exec itself.
 rm /home/agent/.local/bin/devin
+
+# The install leaves ~/.config/devin/config.json in the image as
+# {"version": 1}. devin.yaml seeds that path with {"auto_update": false} and
+# `overwrite: false`, which writes only when the file is missing, so with the
+# installer's copy in place the seed is skipped and background self-update
+# stays on in every sandbox. Removing it here, after the last `devin` run
+# above, lets the seed land when the sandbox starts; Devin's own first run
+# then adds its keys beside it. `-f`, because a future installer may stop
+# writing the file.
+rm -f /home/agent/.config/devin/config.json
 EOF
 
 # The launcher the image's entrypoint resolves as `devin`: it checks
