@@ -435,6 +435,7 @@ Note that a fork PR does not receive repository secrets, so any leg needing Dock
 | [`packages-through-sfw`](./packages-through-sfw) | — | Routes npm and pip through Socket Firewall Free |
 | [`playwright`](./playwright) | — | The Playwright toolchain with Chromium on a shared system browsers path |
 | [`qemu`](./qemu) | `deb/docker-ce` | QEMU user-mode emulators via binfmt_misc, for cross-arch builds |
+| [`sbx`](./sbx) | — | The Docker Sandboxes release (`sbx`: CLI and runtime), pinned release tarball |
 | [`shell-credentials`](./shell-credentials) | — | The eight provider credentials the built-in agentless sandbox declared, for a base that owns none of them |
 | [`smolagents`](./smolagents) | `deb/apt` | Hugging Face smolagents in an isolated virtualenv |
 | [`t3code`](./t3code) | — | The build toolchain T3 Code's SSH integration needs to compile `node-pty` |
