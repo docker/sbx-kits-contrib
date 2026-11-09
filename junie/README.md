@@ -131,7 +131,7 @@ How the image is named, tagged, verified and pushed is the same for every kit
 in this repo that builds its own image — see
 **[PUBLISHING.md](../PUBLISHING.md)** for the pipeline. There is no
 kit-specific build script or workflow; CI builds and publishes this image the
-same way it does for `hermes-agent`/`pi`/`openclaw`/`kiro`/`copilot`.
+same way it does for `hermes-agent`/`openclaw`/`kiro`/`copilot`.
 
 Junie's stable channel publishes a new build every few days, and this image no
 longer rolls with it: the install is pinned, so a rebuild reproduces the same
