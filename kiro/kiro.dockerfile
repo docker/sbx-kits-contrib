@@ -41,9 +41,12 @@ RUN <<EOF
 set -ex
 curl -fsSL https://cli.kiro.dev/install | bash
 
-# Runs kiro-cli setup to have it create ~/.local/share/kiro-cli/data.sqlite3,
-# which will potentially be managed in a Docker volume based on sandbox settings.
-kiro-cli setup --no-confirm
+# Creates ~/.local/share/kiro-cli/data.sqlite3, which may be managed in a
+# Docker volume based on sandbox settings. kiro-cli 3.1 removed `setup`;
+# `settings list` creates it without a login. The `test -f` fails the build if
+# a future kiro-cli stops creating it, rather than shipping without it.
+kiro-cli settings list > /dev/null
+test -f "$HOME/.local/share/kiro-cli/data.sqlite3"
 EOF
 
 # v2's environment.variables, in the slot OCI already owns for static env —

@@ -2,8 +2,9 @@
 # Overlay recipe for the kiro mixin.
 #
 # cli.kiro.dev's install script is an opaque `curl | bash` with a user-scoped
-# prefix: it lays kiro-cli under $HOME/.local and `kiro-cli setup` seeds state
-# beside it at absolute paths. There is no --prefix to redirect it at, so this
+# prefix: it lays kiro-cli under $HOME/.local, and the build then seeds state
+# beside it with `kiro-cli settings list`, at absolute paths. The installer
+# has no --prefix to redirect it at, so this
 # takes the shape the guide prescribes for an unrelocatable install — the
 # workload's own base as a build stage, the unmodified install run on it, and
 # the specific resulting paths copied into a scratch overlay.
@@ -18,8 +19,8 @@
 # `provides:` in kiro-mixin.yaml for the full evidence.
 #
 # It runs as `agent` with HOME at /home/agent, the sandbox runtime's own home,
-# so the paths the installer and `setup` bake are already correct when the
-# overlay lands.
+# so the paths the installer and `kiro-cli settings list` bake are already
+# correct when the overlay lands.
 ARG BASE_IMAGE=docker/sandbox-templates:shell-docker
 FROM ${BASE_IMAGE} AS build
 
@@ -42,10 +43,13 @@ RUN <<EOF
 set -ex
 curl -fsSL https://cli.kiro.dev/install | bash
 
-# Runs kiro-cli setup to have it create ~/.local/share/kiro-cli/data.sqlite3.
-# The descriptor re-runs this as an install hook at sandbox create, because a
-# volume mounted over ~/.local/share/kiro-cli would shadow this copy.
-kiro-cli setup --no-confirm
+# Creates ~/.local/share/kiro-cli/data.sqlite3. kiro-cli 3.1 removed `setup`;
+# `settings list` creates it without a login. The descriptor re-runs this as
+# an install hook at sandbox create, because a volume mounted over
+# ~/.local/share/kiro-cli would shadow this copy. The `test -f` fails the
+# build if a future kiro-cli stops creating it.
+kiro-cli settings list > /dev/null
+test -f "$HOME/.local/share/kiro-cli/data.sqlite3"
 EOF
 
 USER root
@@ -56,7 +60,7 @@ RUN mkdir -p /out/etc/profile.d && cat > /out/etc/profile.d/kiro-env.sh <<'EOF'
 export IS_SANDBOX=1
 EOF
 
-# The specific resulting paths: kiro-cli, the launcher and the state `setup`
+# The specific resulting paths: kiro-cli, the launcher and the state the build
 # seeded, all under the agent's home. `test -x` pins the assumption that the
 # installer lands under ~/.local/bin, so a change of prefix upstream fails the
 # build here rather than shipping an overlay with no agent in it.

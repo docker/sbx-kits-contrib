@@ -86,7 +86,7 @@ self-update.
 v3 policy is phase-scoped: `install` is open only while lifecycle install
 hooks run and is closed before the agent starts, and `runtime` is the agent's
 steady state. Kiro's three own hosts appear in **both**, because the install
-hook runs `kiro-cli setup --no-confirm` at create and it has not been
+hook runs `kiro-cli settings list` at create and it has not been
 confirmed from a live run whether that command touches the network — while the
 runtime need is established. Listing them twice reproduces the old flat list's
 reachability in each phase rather than guessing which one to starve. The apt

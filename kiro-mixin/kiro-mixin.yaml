@@ -59,7 +59,7 @@ capabilities:
   # grants nothing for services it doesn't carry.
   #
   # Kiro's own three hosts are listed in BOTH phases rather than moved to one:
-  # the install hook below runs `kiro-cli setup --no-confirm` at
+  # the install hook below runs `kiro-cli settings list` at
   # sandbox-create time and whether that command touches the network has not
   # been confirmed from a live run, while the v2 comment establishes that
   # kiro-cli reaches the same hosts in steady state for version checks and
@@ -120,9 +120,9 @@ capabilities:
         # data.sqlite3 it creates under ~/.local/share/kiro-cli may be
         # shadowed by a volume mounted at create, in which case the baked copy
         # is not the one the agent reads.
-        - command: "kiro-cli setup --no-confirm"
+        - command: "kiro-cli settings list > /dev/null"
           user: "agent"
-          description: Run Kiro CLI setup
+          description: Create Kiro CLI's state database
       startup:
         # Carried over from the workload. The `command -v apt-get` guard makes
         # it a no-op on a base with no apt, which is the case a mixin has to
