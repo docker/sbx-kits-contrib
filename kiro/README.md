@@ -97,12 +97,21 @@ runs).
 > [!IMPORTANT]
 > Kiro's chat and device-flow auth also reach AWS-backed hosts that are not
 > documented upstream. The ones reported so far
-> ([#185](https://github.com/docker/sbx-kits-contrib/issues/185)), plus two
-> more surfaced by a live deny-all run (`q.us-east-1.amazonaws.com`, Kiro's
-> Amazon Q chat backend, and `view.awsapps.com`, the AWS access portal used
-> by device-flow auth), are listed under `runtime.allow`. Other
-> kiro-cli features may still reach further hosts. If something fails under
-> deny-all, inspect what was blocked and widen the list:
+> ([#185](https://github.com/docker/sbx-kits-contrib/issues/185)), plus three
+> more surfaced by live deny-all runs, are listed under `runtime.allow`:
+> `q.us-east-1.amazonaws.com` (Kiro's Amazon Q chat backend),
+> `view.awsapps.com` (the AWS access portal used by device-flow auth) and
+> `oidc.us-east-1.amazonaws.com` (the AWS SSO OIDC endpoint that AWS Builder
+> ID's device authorization uses; without it the device-flow login
+> (`kiro-cli login --license free --use-device-flow`) fails with
+> `error: service error` before printing a device code, see
+> [docker/sbx-releases#818](https://github.com/docker/sbx-releases/issues/818)).
+> IAM Identity Center users outside us-east-1 may need
+> `oidc.<region>.amazonaws.com`, which the kit does not list; allow it for
+> your sandbox with
+> `sbx policy allow network --sandbox <sandbox-name> oidc.<region>.amazonaws.com:443`.
+> Other kiro-cli features may still reach further hosts. If something fails
+> under deny-all, inspect what was blocked and widen the list:
 >
 > ```console
 > $ sbx policy log
@@ -211,9 +220,9 @@ the install would be worse still — it would assert a release the content may
 not have.
 
 The cost, stated rather than hidden: SPEC-v3 §9.2 gives an unversioned provide
-the descriptor's `version:`, so this kit publishes `kiro@1.0.0` — its own
-release number wearing Kiro's name. That answers a bare `requires: ["kiro"]`,
-which is the only constraint honestly answerable here, and it will wrongly
-satisfy a `kiro >= 1.0`. Re-check the installer when bumping the kit; the day
-it grows a version flag, or a versioned manifest appears, this becomes a
-`version` arg like the siblings'.
+the descriptor's `version:`, so this kit publishes `kiro@` followed by its
+own `version:` — its release number wearing Kiro's name. That answers a bare
+`requires: ["kiro"]`, which is the only constraint honestly answerable here,
+and it will wrongly satisfy a `kiro >= 1.0`. Re-check the installer when
+bumping the kit; the day it grows a version flag, or a versioned manifest
+appears, this becomes a `version` arg like the siblings'.

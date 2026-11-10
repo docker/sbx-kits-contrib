@@ -20,7 +20,7 @@ kind: workload
 # provide with no version at all). v2's comment about
 # `vnd.docker.sandbox.kit.version` is stale: v3 derives
 # `org.opencontainers.image.version` from this field (§9.3).
-version: "1.0.1"
+version: "1.0.2"
 
 # UNVERSIONED, DELIBERATELY — this kit's install cannot be pinned, so there is
 # no kiro-cli release it could name without lying. The sibling agent kits in
@@ -59,14 +59,14 @@ version: "1.0.1"
 # the pin would buy less than it costs.)
 #
 # THE COST OF LEAVING IT UNVERSIONED, stated rather than hidden: §9.2 gives
-# this provide the `version:` above, so it publishes `kiro@1.0.0`. That is
-# this kit's own release number wearing Kiro's name. It resolves against a
-# bare `requires: ["kiro"]`, which is the only constraint that is honestly
-# answerable here, and it will wrongly satisfy a `kiro >= 1.0`. Pinning the
-# provide without pinning the install would be worse: it would assert a
-# release the content may well not have. Re-check the installer when bumping
-# this kit — the day it grows a version flag, or the day a versioned manifest
-# appears, this becomes a `version` arg like the siblings'.
+# this provide the `version:` above, so it publishes `kiro@` followed by this
+# kit's own `version:` — that release number wearing Kiro's name. It resolves
+# against a bare `requires: ["kiro"]`, which is the only constraint that is
+# honestly answerable here, and it will wrongly satisfy a `kiro >= 1.0`.
+# Pinning the provide without pinning the install would be worse: it would
+# assert a release the content may well not have. Re-check the installer when
+# bumping this kit — the day it grows a version flag, or the day a versioned
+# manifest appears, this becomes a `version` arg like the siblings'.
 provides: ["kiro"]
 
 capabilities:
@@ -92,7 +92,8 @@ capabilities:
   # which phase to starve. Everything else is runtime-only: the apt hosts
   # because startup hooks run at boot inside the runtime phase, and the AWS
   # endpoints because the device flow happens when the entrypoint's launcher
-  # runs. The union of the two phases is v2's list, host for host.
+  # runs. The union of the two phases is v2's list, host for host, plus the
+  # Builder ID OIDC host from docker/sbx-releases#818.
   - type: com.docker.sandbox/network-policy@1
     config:
       install:
@@ -128,14 +129,17 @@ capabilities:
           - cli.github.com            # GitHub CLI apt repo, pre-added by the base
           #
           # AWS-backed endpoints Kiro's device-flow auth and chat need,
-          # reported in #185. Not publicly documented beyond that. Exact hosts
-          # rather than a *.us-east-1.amazonaws.com wildcard — that would
+          # reported in #185, plus the Builder ID OIDC host from
+          # docker/sbx-releases#818. Kiro's use of them is not publicly
+          # documented beyond that. Exact hosts rather than a
+          # *.us-east-1.amazonaws.com wildcard — that would
           # reach every AWS service in the region, not just Kiro's own
           # backend.
           - client-telemetry.us-east-1.amazonaws.com
           - cognito-identity.us-east-1.amazonaws.com
           - desktop-release.q.us-east-1.amazonaws.com
           - management.us-east-1.kiro.dev
+          - oidc.us-east-1.amazonaws.com  # AWS SSO OIDC: Builder ID login
           - prod.us-east-1.auth.desktop.kiro.dev
           - prod.us-east-1.telemetry-v2.kiro.dev
           - runtime.us-east-1.kiro.dev
