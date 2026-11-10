@@ -364,7 +364,7 @@ Note that a fork PR does not receive repository secrets, so any leg needing Dock
 
 ## Kit index
 
-104 kits: 31 workloads and 73 mixins, plus the `claude`, `codex` and `shell` workloads and the `claude-mixin`, `codex-mixin`, `claude-acp` and `codex-acp` mixins, which are now Docker Hardened Images in the [DHI catalog](https://github.com/docker-hardened-images/catalog/tree/main/image). Every workload except `openhands-canvas` and `shell` has a `-mixin` sibling that declares the same capabilities in overlay form, so you can either boot the agent as the sandbox or layer it onto one.
+Buildable kits are listed by `scripts/discover-kits.sh`. Entries marked DHI catalog are maintained in [Docker Hardened Images](https://github.com/docker-hardened-images/catalog/tree/main/image); their local directories contain migration pointers only.
 
 ### Workloads
 
@@ -392,7 +392,7 @@ Note that a fork PR does not receive repository secrets, so any leg needing Dock
 | [`nanoclaw`](./nanoclaw) | [`nanoclaw-mixin`](./nanoclaw-mixin) | NanoClaw |
 | [`open-interpreter`](./open-interpreter) | [`open-interpreter-mixin`](./open-interpreter-mixin) | Open Interpreter |
 | [`openclaw`](./openclaw) | [`openclaw-mixin`](./openclaw-mixin) | OpenClaw |
-| [`opencode`](./opencode) | [`opencode-mixin`](./opencode-mixin) | OpenCode |
+| [`opencode`](https://github.com/docker-hardened-images/catalog/tree/main/image/opencode) (DHI catalog) | [`opencode-mixin`](https://github.com/docker-hardened-images/catalog/tree/main/image/opencode-mixin) (DHI catalog) | OpenCode |
 | [`opencode-model-runner`](./opencode-model-runner) | [`opencode-model-runner-mixin`](./opencode-model-runner-mixin) | OpenCode against Docker Model Runner |
 | [`openhands`](./openhands) | [`openhands-mixin`](./openhands-mixin) | OpenHands |
 | [`paperclip`](./paperclip) | [`paperclip-mixin`](./paperclip-mixin) | Paperclip |
