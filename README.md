@@ -364,7 +364,7 @@ Note that a fork PR does not receive repository secrets, so any leg needing Dock
 
 ## Kit index
 
-104 kits: 31 workloads and 73 mixins, plus the `claude`, `codex` and `shell` workloads and the `claude-mixin`, `codex-mixin`, `claude-acp` and `codex-acp` mixins, which are now Docker Hardened Images in the [DHI catalog](https://github.com/docker-hardened-images/catalog/tree/main/image). Every workload except `openhands-canvas` and `shell` has a `-mixin` sibling that declares the same capabilities in overlay form, so you can either boot the agent as the sandbox or layer it onto one.
+Buildable kits are listed by `scripts/discover-kits.sh`. Entries marked DHI catalog are maintained in [Docker Hardened Images](https://github.com/docker-hardened-images/catalog/tree/main/image); their local directories contain migration pointers only.
 
 ### Workloads
 
@@ -378,7 +378,7 @@ Note that a fork PR does not receive repository secrets, so any leg needing Dock
 | [`codex`](https://github.com/docker-hardened-images/catalog/tree/main/image/codex) (DHI catalog) | [`codex-mixin`](https://github.com/docker-hardened-images/catalog/tree/main/image/codex-mixin) (DHI catalog) | Codex |
 | [`copilot`](./copilot) | [`copilot-mixin`](./copilot-mixin) | GitHub Copilot |
 | [`crush`](./crush) | [`crush-mixin`](./crush-mixin) | Crush |
-| [`cursor`](./cursor) | [`cursor-mixin`](./cursor-mixin) | Cursor |
+| [`cursor`](https://github.com/docker-hardened-images/catalog/tree/main/image/cursor) (DHI catalog) | [`cursor-mixin`](https://github.com/docker-hardened-images/catalog/tree/main/image/cursor-mixin) (DHI catalog) | Cursor |
 | [`devin`](./devin) | [`devin-mixin`](./devin-mixin) | Devin |
 | [`devin-enterprise`](./devin-enterprise) | [`devin-enterprise-mixin`](./devin-enterprise-mixin) | Devin Enterprise |
 | [`docker-agent`](./docker-agent) | [`docker-agent-mixin`](./docker-agent-mixin) | Docker Agent |
