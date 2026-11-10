@@ -17,19 +17,19 @@ The kit needs a base whose Docker Engine is already installed, such as the
 `copilot` workload, which builds on `docker/sandbox-templates:shell-docker`:
 
 ```console
-sbx run docker.io/sbx/copilot:latest --kit docker.io/sbx/cosmos-db-emulator:latest .
+sbx run dhi.io/copilot:latest --kit docker.io/sbx/cosmos-db-emulator:latest .
 ```
 
 Or from a git URL targeting this repo:
 
 ```console
-sbx run docker.io/sbx/copilot:latest --kit "git+https://github.com/docker/sbx-kits-contrib.git#dir=cosmos-db-emulator" .
+sbx run dhi.io/copilot:latest --kit "git+https://github.com/docker/sbx-kits-contrib.git#dir=cosmos-db-emulator" .
 ```
 
 Or with a local clone of this repo:
 
 ```console
-sbx run ./copilot --kit ./cosmos-db-emulator .
+sbx run dhi.io/copilot:latest --kit ./cosmos-db-emulator .
 ```
 
 Any other Docker-in-Docker base works the same way, such as the shell
@@ -104,7 +104,7 @@ change after a restart. To keep fixed ones, publish the ports yourself when you
 create the sandbox:
 
 ```console
-sbx create --kit docker.io/sbx/cosmos-db-emulator:latest --publish 127.0.0.1:8081:8081/tcp4 --publish 127.0.0.1:1234:1234/tcp4 docker.io/sbx/copilot:latest /path/to/workspace
+sbx create --kit docker.io/sbx/cosmos-db-emulator:latest --publish 127.0.0.1:8081:8081/tcp4 --publish 127.0.0.1:1234:1234/tcp4 dhi.io/copilot:latest /path/to/workspace
 ```
 
 Or on a sandbox that already exists:
@@ -133,7 +133,7 @@ It is valid for `localhost`, `127.0.0.1` and `::1`, so it matches
 | `imageTag` | `vnext-latest` | The emulator's image tag, which must be a `vnext-*` one. Pin a dated tag such as `vnext-EN20261008` ([all tags](https://mcr.microsoft.com/v2/cosmosdb/linux/azure-cosmos-emulator/tags/list)) for repeatable runs |
 
 ```console
-sbx run docker.io/sbx/copilot:latest --kit docker.io/sbx/cosmos-db-emulator:latest --kit-arg cosmos-db-emulator.protocol=https .
+sbx run dhi.io/copilot:latest --kit docker.io/sbx/cosmos-db-emulator:latest --kit-arg cosmos-db-emulator.protocol=https .
 ```
 
 Both take effect when the sandbox starts, not when the kit is built. When the
