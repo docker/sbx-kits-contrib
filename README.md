@@ -272,7 +272,7 @@ sbx run shell --kit ./mise .          # or onto a built-in agent
    └── README.md
    ```
 
-2. Write `my-kit.yaml`, starting from the skeleton in [Anatomy of a kit](#anatomy-of-a-kit) and from whichever existing kit is closest in shape. `mise/` is a good declaration-only mixin; `cursor-mixin/` is a good overlay mixin; `copilot/` is a good workload.
+2. Write `my-kit.yaml`, starting from the skeleton in [Anatomy of a kit](#anatomy-of-a-kit) and from whichever existing kit is closest in shape. `mise/` is a good declaration-only mixin; [the DHI Cursor mixin](https://github.com/docker-hardened-images/definitions/tree/main/kit/cursor-mixin) is an overlay mixin example; `copilot/` is a good workload.
 
 3. Write `my-kit.dockerfile`, unless the kit declares only. A workload must have one.
 
