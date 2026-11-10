@@ -208,6 +208,9 @@ func (s *specFileV2) toArtifact(w *warnings) (*Artifact, error) {
 		}
 		if inter := concat(tail, interactive); len(inter) > 0 {
 			m.InteractiveOptions = inter
+		} else if s.Sandbox.Command.Interactive != nil {
+			// interactive: [] is an explicit empty tail, distinct from unset.
+			m.InteractiveOptions = []string{}
 		}
 
 		if s.Sandbox.Resources != nil {

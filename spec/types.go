@@ -104,13 +104,9 @@ type Manifest struct {
 	// entrypoint[1:] plus sandbox.command.default.
 	RunOptions []string `json:"runOptions,omitempty" yaml:"runOptions,omitempty"`
 
-	// InteractiveOptions are CLI arguments passed to the agent binary when a
-	// TTY/interactive session is attached, in place of RunOptions. In v2 this
-	// is entrypoint[1:] plus sandbox.command.interactive (falling back to
-	// sandbox.command.default when interactive is unset). Empty for v1 kits
-	// and for v2 kits with no command distinction; callers on the interactive
-	// attach path fall back to RunOptions when this is empty.
-	InteractiveOptions []string `json:"interactiveOptions,omitempty" yaml:"interactiveOptions,omitempty"`
+	// InteractiveOptions replaces RunOptions on interactive attach. Nil falls
+	// back to RunOptions; an empty slice explicitly clears the tail.
+	InteractiveOptions []string `json:"interactiveOptions,omitzero" yaml:"interactiveOptions,omitempty"`
 
 	// Resources optionally constrains container CPU, memory, and GPU.
 	Resources *Resources `json:"resources,omitempty" yaml:"resources,omitempty"`
