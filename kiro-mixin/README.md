@@ -26,8 +26,9 @@ capability name has one owner.
 ## What it carries
 
 kiro-cli and its seeded state, the `start.sh` device-flow launcher, the egress
-policy Kiro's auth, chat and telemetry backends need, and the hooks that re-run
-`kiro-cli setup` at create and register the MCP gateway at boot.
+policy Kiro's auth, chat and telemetry backends need, and the hooks that
+create the state database if it is missing (`kiro-cli settings list`) at create
+and register the MCP gateway at boot.
 
 ## No version pin
 
