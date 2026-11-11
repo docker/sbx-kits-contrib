@@ -103,9 +103,18 @@ EOF
 # precedes /usr/bin on PATH -- so it would shadow a working node on any base
 # that has one with a broken one.
 USER root
-RUN mkdir -p /out/opt /out/usr/local/bin \
+# OpenTUI reads the clipboard through libwayland-client at runtime. The base
+# this overlay lands on may not carry it, so install it here and copy the
+# library (and its one non-libc dependency) into the overlay.
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends libwayland-client0 \
+ && mkdir -p /out/opt /out/usr/local/bin \
  && cp -a /opt/opencode /out/opt/opencode \
- && chown -R 0:0 /out/opt/opencode
+ && (cd / && dpkg -L libwayland-client0 libffi8 \
+      | grep -E '/lib(wayland-client|ffi)\.so(\.|$)' \
+      | xargs -r cp -a --parents -t /out) \
+ && chown -R 0:0 /out/opt/opencode \
+ && rm -rf /var/lib/apt/lists/*
 
 COPY --chmod=755 <<'EOF' /out/usr/local/bin/opencode
 #!/bin/sh

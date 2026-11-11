@@ -30,6 +30,22 @@ ARG BASE_IMAGE
 # install and the provide together.
 ARG OPENCODE_VERSION
 
+# The base image runs as the unprivileged `agent` user; apt needs root.
+USER root
+
+# OpenCode v2's TUI binds Wayland's data-control protocol directly to read the
+# clipboard. The shell-docker base does not carry libwayland-client, so without
+# this the native clipboard backend cannot load, OpenTUI falls back to X11, and
+# Ctrl+V fails with "Clipboard read is not supported on this system" even while
+# clipboard-bridge is listening.
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends libwayland-client0 \
+ && rm -rf /var/lib/apt/lists/*
+
+# Back to the base image's agent user for the rest of the recipe. The installer
+# and any `corepack`/npm handling must run as that user, not root.
+USER agent
+
 # The official v2 installer downloads and extracts the platform binary directly
 # from the npm registry. It selects the architecture, libc and x86 AVX2 variant
 # itself, without requiring npm or Node at image build time.
