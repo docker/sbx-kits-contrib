@@ -280,47 +280,10 @@ base_conflicts() {
   return 1
 }
 
-# WHAT A MIXIN COMPOSES ONTO
-#
-# A mixin is not runnable by itself, so e2e has to choose a base — and the choice
-# is not cosmetic: v3 resolves the mixin's `requires:` against what the composed
-# set provides, so the wrong base fails the run before the kit is exercised at all.
-#
-# The mixin usually states the answer itself, so the chain is, in order:
-#
-#   1. E2E_HOST, when the caller knows better than any of this.
-#   2. A requirement naming a WORKLOAD kit in this repo → that kit's directory.
-#      Best case: the composition CI exercises is one this repo actually ships.
-#      The kind check matters — `task` is a requirement that names a repo kit,
-#      but it is a mixin, and a mixin cannot be another mixin's base.
-#   3. A requirement naming nothing in this repo → pass it through as a built-in
-#      agent name (`claude-bedrock` is one such). Deliberately not filtered
-#      against a hardcoded list of built-ins: such a list goes stale silently,
-#      whereas sbx rejects an unknown agent by name, which is a better error than
-#      composing onto the wrong base and failing somewhere inside the build.
-#   4. (removed) The `<base>-mixin` naming convention sent `foo-mixin` to `foo`.
-#      That is refused by construction: the two are the same agent in two
-#      shapes and both declare `provides: [foo]`, so the set is incoherent --
-#      "capability is provided by more than one kit". True of all 30 pairs here.
-#   5. The `claude` WORKLOAD KIT in this repo.
-#
-# Step 5 was the built-in `shell` agent, on the reasoning that it is the cheapest
-# and most neutral base with no agent credentials in play. That does not work in
-# v3: a built-in agent name contributes no WORKLOAD KIT to the composed set, and
-# v3 requires exactly one, so every mixin falling through to it failed create with
-#
-#   resolve: the kit set is not coherent:
-#     - no workload kit in the set; every composition needs exactly one
-#
-# before the mixin was exercised at all. The base has to be a kit, and `claude` is
-# the one workload here that every mixin can sit on. It is heavier than `shell`
-# was, which is the price of the base being a real kit; a mixin that wants
-# something cheaper should say so in `requires:` (step 2) or pass E2E_HOST.
-#
-# `shell/` is now that kit: a workload that declares no credentials, which is
-# what the default wants. Switching to it would change the base under every
-# mixin that names no `requires:`, so it is a change to make deliberately and
-# measure, not a side effect of the kit arriving.
+# Explicit workloads and named requirements take precedence. The default is
+# the published DHI Shell workload, which owns no agent credentials and carries
+# Docker Engine. Local agent directories can be README-only redirects, and
+# the first remaining workload may not satisfy distribution-package needs.
 host=""
 host_source=""
 host_is_kit=yes
@@ -362,21 +325,8 @@ if [ "$kind" = "mixin" ]; then
     # conflicts, must not be quietly rehomed onto a base that cannot satisfy the
     # requirement anyway — it skips below instead.
     if [ -z "$host" ] && [ -z "$host_conflict" ]; then
-      host="./claude"
-      host_source="the default workload kit (the kit requires no particular base)"
-      # A base providing what the mixin provides is refused as incoherent, so
-      # fall to the first workload that does not. This is what `claude-mixin`
-      # needs: it provides `claude`, same as the default base.
-      if base_conflicts "$descriptor" "$REPO_ROOT/claude"; then
-        host=""
-        for cand in $("$SCRIPT_DIR/discover-kits.sh"); do
-          [ "$(descriptor_field "$REPO_ROOT/$cand/$cand.yaml" kind)" = "workload" ] || continue
-          base_conflicts "$descriptor" "$REPO_ROOT/$cand" && continue
-          host="./$cand"
-          host_source="the first workload kit that does not contend with this mixin"
-          break
-        done
-      fi
+      host="dhi.io/shell:latest"
+      host_source="the default DHI Shell workload"
     fi
   fi
   if [ -z "$host" ] && [ -n "$host_conflict" ]; then
@@ -417,10 +367,8 @@ fi
 #   error: agent "claude" is already registered
 #          (built-in agents cannot be overridden by a kit)
 #
-# Ten workloads here are in that position (claude, codex, copilot, cursor,
-# devin, docker-agent, droid, kiro, opencode, shell), and so is the `claude`
-# base every mixin now composes onto, so without this the collision would take
-# out both halves of the matrix.
+# Local workload kits may still use a built-in agent name. Rename only a
+# source kit after the runtime reports that collision.
 #
 # A v3 kit's NAME IS ITS DIRECTORY STEM — the descriptor carries no `name:`
 # field, and the frontend pairs `<stem>.yaml` with `<stem>.dockerfile` by stem.
@@ -773,10 +721,8 @@ if [ "$kind" = "workload" ]; then
     esac
   fi
 else
-  # The BASE can collide too: every mixin without its own affinity now composes
-  # onto ./claude, and `claude` is one of the names a built-in holds. Only a
-  # local-path base can be renamed — a built-in agent name or a registry
-  # reference is not this repo's directory to copy.
+  # An explicitly selected local base can collide with a built-in agent.
+  # Registry references are not this repository's directories to rename.
   if run_out=$(run_kit "$kit_abs" "$host" "$@"); then
     printf '%s\n' "$run_out"
   else
