@@ -1,7 +1,7 @@
 # kit-builder
 
 The v3 Kit builder workload is maintained in Docker Hardened Images.
-Its definition is in the [DHI definitions repository](https://github.com/docker-hardened-images/definitions/tree/main/image/kit-builder).
+Its definition is in the [DHI catalog](https://github.com/docker-hardened-images/catalog/tree/main/image/kit-builder).
 
 ```console
 sbx run dhi.io/kit-builder:latest /path/to/workspace
