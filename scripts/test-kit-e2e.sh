@@ -280,10 +280,10 @@ base_conflicts() {
   return 1
 }
 
-# Explicit workloads and named requirements take precedence. The default is
-# the published DHI Shell workload, which owns no agent credentials and carries
-# Docker Engine. Local agent directories can be README-only redirects, and
-# the first remaining workload may not satisfy distribution-package needs.
+# Explicit workloads and named requirements take precedence. The test fixture
+# keeps the Ubuntu package names and apt sources these mixins were built for.
+# It owns no credentials or network grants, so it cannot mask missing policy.
+# Published agent directories may be README-only redirects.
 host=""
 host_source=""
 host_is_kit=yes
@@ -325,8 +325,8 @@ if [ "$kind" = "mixin" ]; then
     # conflicts, must not be quietly rehomed onto a base that cannot satisfy the
     # requirement anyway — it skips below instead.
     if [ -z "$host" ] && [ -z "$host_conflict" ]; then
-      host="dhi.io/shell:latest"
-      host_source="the default DHI Shell workload"
+      host="$SCRIPT_DIR/testdata/e2e-workload"
+      host_source="the default credential-free test workload"
     fi
   fi
   if [ -z "$host" ] && [ -n "$host_conflict" ]; then

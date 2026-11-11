@@ -12,7 +12,7 @@ func TestE2EMixinWorkload(t *testing.T) {
 	for _, tt := range []struct {
 		name, requires, override, want string
 	}{
-		{"package requirements", `requires: ["deb/curl", "deb/docker-ce"]`, "", "dhi.io/shell:latest"},
+		{"package requirements", `requires: ["deb/curl", "deb/docker-ce"]`, "", "$ROOT/scripts/testdata/e2e-workload"},
 		{"named workload", `requires: ["agent"]`, "", "./agent"},
 		{"explicit override", `requires: ["deb/docker-ce"]`, "dhi.io/custom:latest", "dhi.io/custom:latest"},
 	} {
@@ -51,8 +51,9 @@ func TestE2EMixinWorkload(t *testing.T) {
 				t.Fatal(err)
 			}
 			args := strings.Split(strings.TrimSpace(string(body)), "\n")
-			if got := args[len(args)-2]; got != tt.want {
-				t.Fatalf("workload passed to sbx run = %q, want %q", got, tt.want)
+			want := strings.ReplaceAll(tt.want, "$ROOT", root)
+			if got := args[len(args)-2]; got != want {
+				t.Fatalf("workload passed to sbx run = %q, want %q", got, want)
 			}
 		})
 	}
