@@ -57,7 +57,7 @@ Pick an existing kit closest in shape to what you want to build and read it end-
 
 - **[`mise/`](./mise)** — a declaration-only mixin: no recipe at all, just a pinned install expressed as lifecycle hooks, a phase-split network policy, and `requires: ["deb/dpkg"]`.
 - **[`cursor-mixin/`](./cursor-mixin)** — an overlay mixin: a non-relocatable install run over the workload's base, staged under `/out`, shipped `FROM scratch`, with its environment landing in `/etc/profile.d` because a mixin's image config is not the composed image's.
-- **[DHI Copilot workload](https://github.com/docker-hardened-images/definitions/tree/main/kit/copilot)** — a workload: the whole environment, with `sbx@1`, an `agent-context@1` that owns the `AGENTS.md` filename, lifecycle hooks, and two credentials on separate services (`github` for `gh`/git, `copilot` for Copilot requests) that coexist because v3 deduplicates on (service, phase).
+- **[DHI Copilot workload](https://github.com/docker-hardened-images/catalog/tree/main/image/copilot)** — a workload: the whole environment, with `sbx@1`, an `agent-context@1` that owns the `AGENTS.md` filename, lifecycle hooks, and two credentials on separate services (`github` for `gh`/git, `copilot` for Copilot requests) that coexist because v3 deduplicates on (service, phase).
 - **[`openclaw/`](./openclaw) and [`openclaw-mixin/`](./openclaw-mixin)** — a workload/mixin pair whose recipes `COPY` shipped assets out of a `files/` directory, and the clearest illustration of what the two shapes can and cannot share.
 
 ## Per-kit README
