@@ -232,6 +232,14 @@ open). A mixin is composed onto a resolved base automatically. Needs an `sbx`
 that understands v3 kits — see `install-sbx.sh` above — and Docker Hub
 credentials for the scoped daemon.
 
+### Mixin test workloads
+
+Generic mixin tests use the private Ubuntu workload in
+`testdata/e2e-workload`. It carries no credential or network grants. A
+mixin with a different package contract can name its test workload in
+`<kit>/testdata/e2e-host`, one kit reference on one line. `E2E_HOST` takes
+precedence when you run a different composition locally.
+
 ## `hub-repo-ready.sh` — does a Hub repository hold anything?
 
 ```bash

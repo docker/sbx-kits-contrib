@@ -35,7 +35,7 @@ sbx run "docker.io/sbx/shell:latest" \
 From a local clone:
 
 ```console
-sbx run ./shell/ \
+sbx run dhi.io/shell:latest \
   --kit ./dapr-agents-mixin/ \
   --kit-arg dapr-agents-mixin.mode=custom \
   --kit-arg dapr-agents-mixin.entrypoint=agent.py \
@@ -68,9 +68,10 @@ provider values and all other arguments match the workload README.
 - Runtime egress for locked Python dependency resolution and the private
   engine's pinned service-image pulls.
 
-The overlay requires the base workload to provide Python 3, uv, Docker Engine,
-and the Docker Compose plugin. These are declared as v3 `requires` entries, so
-composition fails early on an incompatible base.
+The overlay requires the DHI Python 3.14 package, uv, Docker Engine, and
+the Docker Compose plugin. The `requires` entries use the package names
+from the DHI workload. CI composes the mixin onto `dhi.io/shell:latest`,
+as recorded in `testdata/e2e-host`.
 
 ## What stays with the base workload
 

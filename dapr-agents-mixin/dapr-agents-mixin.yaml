@@ -60,7 +60,7 @@ provides: ["dapr-agents@${{ kit.args.version }}"]
 requires:
   - deb/docker-ce
   - deb/docker-compose-plugin
-  - deb/python3
+  - deb/python-3.14
   - deb/uv
 
 capabilities:
