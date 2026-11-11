@@ -73,7 +73,8 @@ RUN npm install --no-audit --no-fund --prefix /usr/local/lib/lighthouse-kit \
 # anything at create any more, both pin playwright 1.61.1, so both overlays
 # carry the same Chromium revision at the same path and the duplicate costs
 # layer bytes rather than sandbox-create time.
-RUN PLAYWRIGHT_BROWSERS_PATH=/opt/ms-playwright \
+# The build-only downloader also runs under QEMU arm64 in the publish checks.
+RUN NODE_OPTIONS=--jitless PLAYWRIGHT_BROWSERS_PATH=/opt/ms-playwright \
       node /usr/local/lib/lighthouse-kit/node_modules/playwright-core/cli.js \
         install --with-deps chromium \
  && rm -rf /var/lib/apt/lists/*
