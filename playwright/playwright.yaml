@@ -115,6 +115,9 @@ capabilities:
         # unrestricted hook environment handed it over. Under v3's
         # deny-by-default hook env it has to be declared or the package fetch
         # fails behind the sandbox's forced proxy.
+        # The overlay ships npm content, not a Node runtime. Reuse the base's
+        # interpreter when present; otherwise install DHI's versioned package
+        # before asking the bundled CLI to calculate Chromium dependencies.
         - command: |
             set -euo pipefail
             if ! command -v node >/dev/null 2>&1; then

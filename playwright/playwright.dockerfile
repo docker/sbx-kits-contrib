@@ -29,6 +29,8 @@
 ARG BASE_IMAGE=dhi.io/shell:latest
 FROM ${BASE_IMAGE} AS node-runtime
 USER root
+# This runtime is for building and checking the overlay. The composed
+# workload gets its Node prerequisite from playwright.yaml, not this stage.
 ENV NPM_CONFIG_PREFIX=/usr/local/share/npm-global
 RUN apt-get update \
  && apt-get install -y --no-install-recommends nodejs-24 npm \

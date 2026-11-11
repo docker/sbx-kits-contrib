@@ -72,6 +72,9 @@ capabilities:
       # v3 requirement: four static lines naming fixed paths, reading nothing
       # that exists only at create time. The overlay ships the same bytes.
       install:
+        # Preserve a workload's working Python toolchain, including DHI's
+        # versioned packages. Only install distro defaults when venv support
+        # is missing; the next hook binds the venv to that interpreter.
         - command: |
             set -eu
             if python3 -c 'import ensurepip, venv' >/dev/null 2>&1; then

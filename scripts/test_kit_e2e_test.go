@@ -9,6 +9,8 @@ import (
 )
 
 func TestE2EMixinWorkload(t *testing.T) {
+	// A package requirement needs the neutral DHI fallback; a named workload
+	// or an explicit override must still take precedence over that fallback.
 	for _, tt := range []struct {
 		name, requires, override, want string
 	}{
@@ -37,7 +39,11 @@ func TestE2EMixinWorkload(t *testing.T) {
 			}
 			write("mixin/mixin.yaml", "schemaVersion: '3'\nkind: mixin\n"+tt.requires+"\n", 0644)
 			write("agent/agent.yaml", "schemaVersion: '3'\nkind: workload\nprovides: [agent]\n", 0644)
+			// Migrated agent directories remain as README-only redirects. Their
+			// presence must not make discovery select a workload that cannot run.
 			write("claude/README.md", "This workload moved to DHI.\n", 0644)
+			// Run the real selection script, but capture its CLI boundary so this
+			// regression does not need credentials, images, or a sandbox daemon.
 			write("bin/sbx", "#!/bin/sh\nif [ \"$3\" = run ]; then printf '%s\\n' \"$@\" > \"$SBX_RUN_ARGS\"; fi\n", 0755)
 			argsFile := filepath.Join(root, "run-args")
 			cmd := exec.Command("bash", filepath.Join(root, "scripts/test-kit-e2e.sh"), "mixin")

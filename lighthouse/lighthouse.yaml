@@ -115,6 +115,9 @@ capabilities:
         # package fetch fails behind the sandbox's forced proxy — the same
         # declaration ../playwright carries on the same call. PLAYWRIGHT_BROWSERS_PATH
         # is gone with the download it used to steer.
+        # The overlay ships npm content, not a Node runtime. Reuse the base's
+        # interpreter when present; otherwise install DHI's versioned package
+        # before asking the bundled CLI to calculate Chromium dependencies.
         - command: |
             set -euo pipefail
             if ! command -v node >/dev/null 2>&1; then
