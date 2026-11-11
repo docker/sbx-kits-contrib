@@ -1,7 +1,0 @@
-# syntax=docker/sandbox-kit:3
-schemaVersion: "3"
-kind: workload
-displayName: Mixin e2e workload
-description: Credential-free Ubuntu workload for contrib mixin tests.
-capabilities:
-  - type: com.docker.sandbox/sbx@1

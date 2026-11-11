@@ -117,11 +117,15 @@ capabilities:
         # fails behind the sandbox's forced proxy.
         - command: |
             set -euo pipefail
+            if ! command -v node >/dev/null 2>&1; then
+              apt-get update
+              apt-get install -y --no-install-recommends nodejs-24
+            fi
             playwright install-deps chromium
             rm -rf /var/lib/apt/lists/*
           user: "0"
           env: [HTTP_PROXY, HTTPS_PROXY]
-          description: Install Chromium's system libraries via apt — the overlay carries the browser tree, apt packages cannot travel in one
+          description: Install Node and Chromium system libraries
 
   # No `filename:` — that is workload-only, and this mixin contributes a body
   # to whichever agent owns the profile.

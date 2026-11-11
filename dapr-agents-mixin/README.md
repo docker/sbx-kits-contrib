@@ -70,8 +70,7 @@ provider values and all other arguments match the workload README.
 
 The overlay requires the DHI Python 3.14 package, uv, Docker Engine, and
 the Docker Compose plugin. The `requires` entries use the package names
-from the DHI workload. CI composes the mixin onto `dhi.io/shell:latest`,
-as recorded in `testdata/e2e-host`.
+from the DHI workload. CI composes the mixin onto `dhi.io/shell:latest`.
 
 ## What stays with the base workload
 

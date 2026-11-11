@@ -31,12 +31,9 @@ sbx run claude --kit ./lighthouse/ .
 
 Prerequisites:
 
-- A base image with Node.js ≥ 18.20 — all standard agent templates ship
-  Node ≥ 18. The overlay carries Lighthouse's own JavaScript, so npm is
-  not needed on the composed base; a base without npm fails the kit's
-  *build*, not your sandbox.
-- A Debian-family base, for the one install hook that is left: Chromium's
-  system libraries come from the composed base's own apt (see below).
+- A DHI Debian workload such as `dhi.io/shell:latest`. The install hook
+  installs DHI's `nodejs-24` package when Node is absent, then installs
+  Chromium's system libraries. npm is needed only while building the kit.
 
 Inside the sandbox:
 
@@ -118,17 +115,12 @@ the composed image's. Defaulting them in the wrapper too is what keeps
 profile. A value already in the environment (the `playwright` kit's, when
 both kits are composed) wins over the default.
 
-### Why Lighthouse 12.6.1, not 13.x
+### Lighthouse version
 
-Lighthouse 13.x requires Node ≥ 22.19. Standard agent templates only
-guarantee Node ≥ 18. 12.6.1 is the last 12.x release and accepts Node ≥
-18.20. npm verifies tarballs against the registry `sha512` integrity
-values, so pinning the version pins the content — and now that the install
-happens at build, the published layer's digest pins it a second time. To
-bump: change `LIGHTHOUSE_VERSION` in `lighthouse.dockerfile`, the
-`provides` entry in `lighthouse.yaml`, and the version references in
-`lighthouse-context.md` and this README. Do not jump to 13.x until the
-templates ship Node 22.19.
+Lighthouse remains pinned to 12.6.1. The kit builds on DHI with Node 24.
+To update Lighthouse, change `LIGHTHOUSE_VERSION` in
+`lighthouse.dockerfile`, the `provides` entry in `lighthouse.yaml`, and the
+version references in `lighthouse-context.md` and this README.
 
 ### Why these domains
 
@@ -145,6 +137,8 @@ surviving apt hook needs.
 
 | Domain | Why |
 | --- | --- |
+| `deb.debian.org` | DHI workload Debian package sources |
+| `dhi.io` | DHI Node package and configured apt repository |
 | `archive.ubuntu.com` | Ubuntu apt archive, amd64 — `install-deps` installs Chromium system libraries |
 | `security.ubuntu.com` | Ubuntu security pocket, amd64 — refreshed by the same `apt-get update` |
 | `ports.ubuntu.com` | Ubuntu archive/security for arm64 (Apple Silicon sandboxes) |

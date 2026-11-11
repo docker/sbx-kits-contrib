@@ -26,8 +26,15 @@
 # relocation flag: npm's global prefix and Playwright's browsers path are both
 # absolute, and everything below lands at the absolute path it was built at, so
 # npm's relative bin symlink keeps resolving once the overlay is composed.
-ARG BASE_IMAGE=docker/sandbox-templates:shell-docker
-FROM ${BASE_IMAGE} AS build
+ARG BASE_IMAGE=dhi.io/shell:latest
+FROM ${BASE_IMAGE} AS node-runtime
+USER root
+ENV NPM_CONFIG_PREFIX=/usr/local/share/npm-global
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends nodejs-24 npm \
+ && rm -rf /var/lib/apt/lists/*
+
+FROM node-runtime AS build
 
 # The pin the install hook carried as a literal, unchanged. Stated here rather
 # than promoted to a kit arg deliberately -- npm verifies the tarballs against

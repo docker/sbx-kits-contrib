@@ -83,6 +83,9 @@ capabilities:
     config:
       runtime:
         allow:
+          # apt also reads the configured DHI Debian repositories.
+          - deb.debian.org
+          - dhi.io
           # Every domain the credential injects into — required here too, not
           # just in the credential entry: a domain absent from this list is
           # unreachable regardless of what the credential declares, and v3

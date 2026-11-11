@@ -67,8 +67,7 @@
 #             default deny there is nothing to block.
 #   E2E_HOST  the base a MIXIN composes onto: a built-in agent name (`shell`,
 #             `claude`, …) or an explicit `./path` to a workload kit in this
-#             repo. Overrides testdata/e2e-host when present. Otherwise the
-#             default is resolved from the mixin's `requires:` (see below).
+#             repo. Default: resolved from the mixin's `requires:` (see below).
 #   KIT_ARGS  space-separated name=value pairs for arguments the kit declares,
 #             e.g. KIT_ARGS="repo=docker/sbx-kits-contrib". Passed scoped to this
 #             kit (`--kit-arg <kit>.<name>=<value>`), so composing a base kit that
@@ -281,10 +280,10 @@ base_conflicts() {
   return 1
 }
 
-# Explicit workloads and named requirements take precedence. The test fixture
-# keeps the Ubuntu package names and apt sources these mixins were built for.
-# It owns no credentials or network grants, so it cannot mask missing policy.
-# Published agent directories may be README-only redirects.
+# Explicit workloads and named requirements take precedence. The default is
+# the published DHI Shell workload, which owns no agent credentials and carries
+# Docker Engine. Local agent directories can be README-only redirects, and
+# the first remaining workload may not satisfy distribution-package needs.
 host=""
 host_source=""
 host_is_kit=yes
@@ -293,10 +292,6 @@ if [ "$kind" = "mixin" ]; then
   if [ -n "${E2E_HOST:-}" ]; then
     host=$E2E_HOST
     host_source="E2E_HOST"
-  elif [ -f "$kit_abs/testdata/e2e-host" ]; then
-    host=$(cat "$kit_abs/testdata/e2e-host")
-    [ -n "$host" ] || { echo "ERROR: testdata/e2e-host is empty" >&2; exit 1; }
-    host_source="testdata/e2e-host"
   else
     for dep in $(requirement_names "$descriptor"); do
       dep_descriptor="$REPO_ROOT/$dep/$dep.yaml"
@@ -330,8 +325,8 @@ if [ "$kind" = "mixin" ]; then
     # conflicts, must not be quietly rehomed onto a base that cannot satisfy the
     # requirement anyway — it skips below instead.
     if [ -z "$host" ] && [ -z "$host_conflict" ]; then
-      host="$SCRIPT_DIR/testdata/e2e-workload"
-      host_source="the default credential-free test workload"
+      host="dhi.io/shell:latest"
+      host_source="the default DHI Shell workload"
     fi
   fi
   if [ -z "$host" ] && [ -n "$host_conflict" ]; then

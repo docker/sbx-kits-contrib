@@ -114,9 +114,9 @@ exactly the package-manager egress the kit exists to mediate.
 
 `install` covers:
 
-- the apt sources `apt-get update` refreshes for the prerequisites — all
-  three Ubuntu hosts for cross-arch coverage, plus Docker's repo, which the
-  `shell-docker` base pre-adds
+- The DHI and Debian apt sources that supply `nodejs-24`, npm and pip.
+  The existing Ubuntu, Docker and GitHub CLI sources remain declared for
+  workloads that configure them.
 
 The GitHub release hosts used to be here too. They are gone: the `sfw`
 download happens on the builder now, which this policy does not govern.

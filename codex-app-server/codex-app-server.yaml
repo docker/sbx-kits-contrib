@@ -72,6 +72,9 @@ capabilities:
     config:
       install:
         allow:
+          # apt also reads the configured DHI Debian repositories.
+          - deb.debian.org
+          - dhi.io
           # `apt-get update` (run by the first install hook) refreshes metadata
           # for every configured apt source. The codex-docker base template
           # pre-configures Docker's and GitHub CLI's apt repos, so

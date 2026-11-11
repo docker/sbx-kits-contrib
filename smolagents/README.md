@@ -43,7 +43,8 @@ agent@sandbox:~$ HF_TOKEN=... smolagent "Summarize this repository" \
 
 ## What gets installed
 
-The kit installs Python prerequisites from Ubuntu packages, creates
+The kit uses the workload's Python when venv and ensurepip are available.
+Otherwise it installs the missing prerequisites through apt. It creates
 `/opt/smolagents`, and installs `smolagents[toolkit,vision]==1.26.0` with
 pip. The `toolkit` extra matches the upstream quickstart path and provides
 the default search/webpage tools used by common `smolagent` examples. The
@@ -73,7 +74,7 @@ A venv is not relocatable content. `python3 -m venv` writes its packages under
 `lib/python3.<minor>/site-packages` and points `bin/python3` at the absolute
 path `/usr/bin/python3`, so it is bound to the exact Python minor version that
 created it. A mixin lands on a base the builder has never seen, and this kit's
-own apt hook installs *that base's* `python3`. Baking the venv was tried and
+own hook uses that base's Python or installs it when missing. Baking the venv was tried and
 composed onto three bases:
 
 | composed base | `python3` | result |
@@ -109,7 +110,7 @@ closed again before the agent starts.
 Install phase:
 
 - `pypi.org` and `files.pythonhosted.org` for pip installs.
-- Ubuntu and Docker apt hosts required by the base sandbox template during
+- DHI, Debian, Ubuntu, and Docker apt hosts used by supported workloads during
   `apt-get update`.
 
 Runtime phase:

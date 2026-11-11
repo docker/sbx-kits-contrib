@@ -72,6 +72,9 @@ capabilities:
       # are kept.
       install:
         allow:
+          # apt also reads the configured DHI Debian repositories.
+          - deb.debian.org
+          - dhi.io
           # `install-deps chromium` apt-installs Chromium's system libraries.
           # `apt-get update` refreshes every configured source, so all template
           # sources must be reachable: Ubuntu hosts amd64 on archive/security
@@ -114,11 +117,15 @@ capabilities:
         # is gone with the download it used to steer.
         - command: |
             set -euo pipefail
+            if ! command -v node >/dev/null 2>&1; then
+              apt-get update
+              apt-get install -y --no-install-recommends nodejs-24
+            fi
             node /usr/local/lib/lighthouse-kit/node_modules/playwright-core/cli.js install-deps chromium
             rm -rf /var/lib/apt/lists/*
           user: "0"
           env: [HTTP_PROXY, HTTPS_PROXY]
-          description: Install Chromium's system libraries via apt — the overlay carries the browser tree, apt packages cannot travel in one
+          description: Install Node and Chromium system libraries
 
   # v2's agentInstructions body, staged from the file beside this descriptor.
   # No `filename:` — that is workload-only, and this mixin contributes a body

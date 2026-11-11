@@ -10,12 +10,11 @@ import (
 
 func TestE2EMixinWorkload(t *testing.T) {
 	for _, tt := range []struct {
-		name, requires, override, declaredHost, want string
+		name, requires, override, want string
 	}{
-		{"package requirements", `requires: ["deb/curl", "deb/docker-ce"]`, "", "", "$ROOT/scripts/testdata/e2e-workload"},
-		{"named workload", `requires: ["agent"]`, "", "", "./agent"},
-		{"declared host", `requires: ["deb/python-3.14", "deb/uv"]`, "", "dhi.io/shell:latest", "dhi.io/shell:latest"},
-		{"explicit override", `requires: ["deb/docker-ce"]`, "dhi.io/custom:latest", "dhi.io/shell:latest", "dhi.io/custom:latest"},
+		{"package requirements", `requires: ["deb/curl", "deb/docker-ce"]`, "", "dhi.io/shell:latest"},
+		{"named workload", `requires: ["agent"]`, "", "./agent"},
+		{"explicit override", `requires: ["deb/docker-ce"]`, "dhi.io/custom:latest", "dhi.io/custom:latest"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			root := t.TempDir()
@@ -38,9 +37,6 @@ func TestE2EMixinWorkload(t *testing.T) {
 			}
 			write("mixin/mixin.yaml", "schemaVersion: '3'\nkind: mixin\n"+tt.requires+"\n", 0644)
 			write("agent/agent.yaml", "schemaVersion: '3'\nkind: workload\nprovides: [agent]\n", 0644)
-			if tt.declaredHost != "" {
-				write("mixin/testdata/e2e-host", tt.declaredHost+"\n", 0644)
-			}
 			write("claude/README.md", "This workload moved to DHI.\n", 0644)
 			write("bin/sbx", "#!/bin/sh\nif [ \"$3\" = run ]; then printf '%s\\n' \"$@\" > \"$SBX_RUN_ARGS\"; fi\n", 0755)
 			argsFile := filepath.Join(root, "run-args")
@@ -55,9 +51,8 @@ func TestE2EMixinWorkload(t *testing.T) {
 				t.Fatal(err)
 			}
 			args := strings.Split(strings.TrimSpace(string(body)), "\n")
-			want := strings.ReplaceAll(tt.want, "$ROOT", root)
-			if got := args[len(args)-2]; got != want {
-				t.Fatalf("workload passed to sbx run = %q, want %q", got, want)
+			if got := args[len(args)-2]; got != tt.want {
+				t.Fatalf("workload passed to sbx run = %q, want %q", got, tt.want)
 			}
 		})
 	}
