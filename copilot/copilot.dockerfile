@@ -48,6 +48,7 @@ ARG BASE_IMAGE
 # number to match.
 ARG COPILOT_VERSION
 RUN <<EOF
+#!/bin/bash
 set -exo pipefail
 [ -n "${COPILOT_VERSION}" ] || { echo "COPILOT_VERSION must be set" >&2; exit 1; }
 

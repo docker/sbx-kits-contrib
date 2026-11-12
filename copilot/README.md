@@ -25,20 +25,42 @@ an overlay.
 
 ## Prerequisites
 
-Two tokens, exported on your host, with no interactive device-flow path — the
-proxy injects each as an `Authorization: Bearer <token>` header on outbound
-requests to its matching hosts, so both must already be present as host
-environment variables before you run the kit:
+Two credentials, bound on the host, with no interactive device-flow path —
+the proxy injects each as an `Authorization: Bearer <token>` header on
+outbound requests to its matching hosts, so both must already be bound before
+you run the kit:
 
-- `GH_TOKEN` — a classic GitHub PAT (or `gh auth token`) for plain `gh`/git
+- `github` — a classic GitHub PAT (or `gh auth token`) for plain `gh`/git
   access, sent to `api.github.com` and `github.com`.
-- `COPILOT_GITHUB_TOKEN` — a token with Copilot access, sent to Copilot's own
-  API hosts (see [How auth works](#how-auth-works)).
+- `copilot` — a token with Copilot access, sent to Copilot's own API hosts
+  (see [How auth works](#how-auth-works)).
 
 These have to be separate credentials: Copilot's API hosts reject a classic
 PAT, while a fine-grained PAT scoped for Copilot requests breaks plain
 `gh`/git access. One token cannot satisfy both, which is why the kit declares
 two credential services (`github` and `copilot`) instead of one.
+
+Bind them with `sbx secret set`, once per host (or per sandbox, by scoping the
+command):
+
+```console
+sbx secret set github --command 'gh auth token'
+echo "$COPILOT_GITHUB_TOKEN" | sbx secret set copilot
+```
+
+`github` is one of `sbx`'s built-in auto-sign-on services, so it may already
+be bound on your host — check with `sbx secret set github` before assuming it
+needs setting up. `copilot` is not a known service, so the first `sbx run`
+against this kit prompts you to approve the credential and choose where it's
+discovered from (an env var, a file, or the secret you just set) if you
+haven't bound it already; see the [bindings
+guide](../skills/kit-author/topics/bindings.md) for the full mechanics.
+
+Simply exporting `GH_TOKEN`/`COPILOT_GITHUB_TOKEN` as host environment
+variables, with nothing bound via `sbx secret set` or
+`~/.config/sbx/credentials.yaml`, does **not** get picked up — those are the
+in-container variable names the kit populates with a proxy-managed sentinel,
+not the host-side discovery source.
 
 ## Usage
 
@@ -71,7 +93,8 @@ the defaults.
 
 ## How auth works
 
-The kit's `credentials` list declares two `apiKey` entries:
+The kit's `credentials` list declares two `apiKey` entries, both
+`proxyManaged: true`:
 
 - `github`, holding `GH_TOKEN`, injected into the plain `api.github.com` and
   `github.com` hosts — this is what `gh` and git use.
@@ -87,11 +110,15 @@ fine-grained PAT scoped for Copilot requests without affecting the broader
 `github` credential used for `gh`/git access. See [GitHub's Copilot CLI
 install docs](https://docs.github.com/en/copilot/how-tos/set-up/install-copilot-cli).
 
-When Copilot calls one of the domains above, the proxy adds
-`Authorization: Bearer <token>` using the matching credential's value from
-your host — the real token never enters the sandbox. If only `GH_TOKEN` is
-configured, plain `gh`/git access works, but calls to Copilot's own API will
-fail until `COPILOT_GITHUB_TOKEN` is set up too.
+`proxyManaged: true` is what makes the engine populate `GH_TOKEN` and
+`COPILOT_GITHUB_TOKEN` in-container with the literal `proxy-managed` sentinel
+in the first place — `apiKey.name` alone only declares which variable the
+credential corresponds to, it doesn't populate anything. When Copilot calls
+one of the domains above, the proxy swaps that sentinel for
+`Authorization: Bearer <token>` using the matching credential's value bound
+on your host — the real token never enters the sandbox. If only `github` is
+bound, plain `gh`/git access works, but calls to Copilot's own API will fail
+until `copilot` is bound too.
 
 ## Network policy
 
