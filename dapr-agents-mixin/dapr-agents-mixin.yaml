@@ -1,7 +1,7 @@
 # syntax=docker/sandbox-kit:3
 # Dapr Agents as a v3 mixin: the same runtime, provider credentials, and
 # network policy as ../dapr-agents, packaged as an overlay for a workload that
-# already supplies Python, uv, and a private Docker Engine.
+# already supplies Python and a private Docker Engine.
 schemaVersion: "3"
 displayName: Dapr Agents (mixin)
 description: >-
@@ -61,7 +61,6 @@ requires:
   - deb/docker-ce
   - deb/docker-compose-plugin
   - deb/python3
-  - deb/uv
 
 capabilities:
   # The Dapr CLI and daprd are installed while the Kit image is built, so the

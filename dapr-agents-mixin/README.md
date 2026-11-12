@@ -61,6 +61,8 @@ provider values and all other arguments match the workload README.
 ## What the overlay carries
 
 - Checksum-verified Dapr CLI and `daprd` 1.18.2 binaries.
+- The `uv` package manager used to create the selected project's locked Python
+  environment.
 - The launcher, pinned Compose services, Dapr configuration, bundled provider
   components, and locked smoke-agent project.
 - Optional proxy-managed credentials and matching runtime egress for OpenAI,
@@ -68,8 +70,8 @@ provider values and all other arguments match the workload README.
 - Runtime egress for locked Python dependency resolution and the private
   engine's pinned service-image pulls.
 
-The overlay requires the base workload to provide Python 3, uv, Docker Engine,
-and the Docker Compose plugin. These are declared as v3 `requires` entries, so
+The overlay requires the base workload to provide Python 3, Docker Engine, and
+the Docker Compose plugin. These are declared as v3 `requires` entries, so
 composition fails early on an incompatible base.
 
 ## What stays with the base workload
