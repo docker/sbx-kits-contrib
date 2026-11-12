@@ -381,7 +381,7 @@ Buildable kits are listed by `scripts/discover-kits.sh`. Entries marked DHI cata
 | [`cursor`](https://github.com/docker-hardened-images/catalog/tree/main/image) (DHI catalog) | [`cursor-mixin`](https://github.com/docker-hardened-images/catalog/tree/main/image) (DHI catalog) | Cursor |
 | [`devin`](https://github.com/docker-hardened-images/catalog/tree/main/image) (DHI catalog) | [`devin-mixin`](https://github.com/docker-hardened-images/catalog/tree/main/image) (DHI catalog) | Devin |
 | [`devin-enterprise`](./devin-enterprise) | [`devin-enterprise-mixin`](./devin-enterprise-mixin) | Devin Enterprise |
-| [`docker-agent`](./docker-agent) | [`docker-agent-mixin`](./docker-agent-mixin) | Docker Agent |
+| [`docker-agent`](https://github.com/docker-hardened-images/catalog/tree/main/image) (DHI catalog) | [`docker-agent-mixin`](https://github.com/docker-hardened-images/catalog/tree/main/image) (DHI catalog) | Docker Agent |
 | [`droid`](https://github.com/docker-hardened-images/catalog/tree/main/image) (DHI catalog) | [`droid-mixin`](https://github.com/docker-hardened-images/catalog/tree/main/image) (DHI catalog) | Droid |
 | [`grok`](./grok) | [`grok-mixin`](./grok-mixin) | Grok Build |
 | [`gstack`](./gstack) | [`gstack-mixin`](./gstack-mixin) | Claude Code plus Garry's Stack |
