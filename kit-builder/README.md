@@ -1,10 +1,12 @@
 # kit-builder
 
-The v3 Kit builder workload is maintained in Docker Hardened Images.
-Its definition is in the [DHI catalog](https://github.com/docker-hardened-images/catalog/tree/main/image/kit-builder).
+The v3 Kit builder workload is built and published by Docker Hardened Images.
+See the [Docker Hub page](https://hub.docker.com/r/sbx/kit-builder) for usage and tags,
+and the [DHI catalog](https://github.com/docker-hardened-images/catalog/tree/main/image)
+for public image definitions.
 
 ```console
-sbx run dhi.io/kit-builder:latest /path/to/workspace
+sbx run docker.io/sbx/kit-builder:latest /path/to/workspace
 ```
 
 This is a workload-only kit. Its source recipe comes from the
