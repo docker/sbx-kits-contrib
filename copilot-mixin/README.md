@@ -1,12 +1,11 @@
 # copilot-mixin
 
 The `copilot-mixin` agent mixin is maintained in Docker Hardened Images.
-Its definition is in the [DHI catalog](https://github.com/docker-hardened-images/catalog/tree/main/image/copilot-mixin).
+Its agent image is documented in the [DHI catalog](https://github.com/docker-hardened-images/catalog/tree/main/image/copilot).
 
 ```console
-sbx run --kit dhi.io/copilot-mixin:latest dhi.io/shell:latest /path/to/workspace
+sbx run --kit docker.io/sbx/copilot-mixin:latest docker.io/sbx/shell:latest /path/to/workspace
 ```
 
-Use the DHI reference for new sandboxes. This repository no longer builds
-or updates `docker.io/sbx/copilot-mixin`. Previously published tags are not
-removed by this change.
+DHI builds and publishes `docker.io/sbx/copilot-mixin`. This repository no longer
+builds or updates the kit. Previously published tags remain available.

@@ -376,7 +376,7 @@ Buildable kits are listed by `scripts/discover-kits.sh`. Entries marked DHI cata
 | [`claude`](https://github.com/docker-hardened-images/catalog/tree/main/image/claude) (DHI catalog) | [`claude-mixin`](https://github.com/docker-hardened-images/catalog/tree/main/image/claude-mixin) (DHI catalog) | Claude Code |
 | [`claude-ollama`](./claude-ollama) | [`claude-ollama-mixin`](./claude-ollama-mixin) | Claude Code against a local Ollama endpoint |
 | [`codex`](https://github.com/docker-hardened-images/catalog/tree/main/image/codex) (DHI catalog) | [`codex-mixin`](https://github.com/docker-hardened-images/catalog/tree/main/image/codex-mixin) (DHI catalog) | Codex |
-| [`copilot`](https://github.com/docker-hardened-images/catalog/tree/main/image/copilot) (DHI catalog) | [`copilot-mixin`](https://github.com/docker-hardened-images/catalog/tree/main/image/copilot-mixin) (DHI catalog) | GitHub Copilot |
+| [`copilot`](https://github.com/docker-hardened-images/catalog/tree/main/image/copilot) (DHI catalog) | [`copilot-mixin`](https://github.com/docker-hardened-images/catalog/tree/main/image/copilot) (DHI catalog) | GitHub Copilot |
 | [`crush`](./crush) | [`crush-mixin`](./crush-mixin) | Crush |
 | [`cursor`](./cursor) | [`cursor-mixin`](./cursor-mixin) | Cursor |
 | [`devin`](./devin) | [`devin-mixin`](./devin-mixin) | Devin |
