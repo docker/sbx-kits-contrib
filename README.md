@@ -379,7 +379,7 @@ Buildable kits are listed by `scripts/discover-kits.sh`. Entries marked DHI cata
 | [`copilot`](./copilot) | [`copilot-mixin`](./copilot-mixin) | GitHub Copilot |
 | [`crush`](./crush) | [`crush-mixin`](./crush-mixin) | Crush |
 | [`cursor`](./cursor) | [`cursor-mixin`](./cursor-mixin) | Cursor |
-| [`devin`](./devin) | [`devin-mixin`](./devin-mixin) | Devin |
+| [`devin`](https://github.com/docker-hardened-images/catalog/tree/main/image) (DHI catalog) | [`devin-mixin`](https://github.com/docker-hardened-images/catalog/tree/main/image) (DHI catalog) | Devin |
 | [`devin-enterprise`](./devin-enterprise) | [`devin-enterprise-mixin`](./devin-enterprise-mixin) | Devin Enterprise |
 | [`docker-agent`](./docker-agent) | [`docker-agent-mixin`](./docker-agent-mixin) | Docker Agent |
 | [`droid`](https://github.com/docker-hardened-images/catalog/tree/main/image) (DHI catalog) | [`droid-mixin`](https://github.com/docker-hardened-images/catalog/tree/main/image) (DHI catalog) | Droid |
