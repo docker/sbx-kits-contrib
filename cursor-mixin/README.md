@@ -1,12 +1,13 @@
 # cursor-mixin
 
-The `cursor-mixin` agent mixin is maintained in Docker Hardened Images.
-Its definition is in the [DHI catalog](https://github.com/docker-hardened-images/catalog/tree/main/image/cursor-mixin).
+The `cursor-mixin` agent mixin is built and published by Docker Hardened Images.
+See the [Docker Hub page](https://hub.docker.com/r/sbx/cursor-mixin) for usage and tags,
+and the [DHI catalog](https://github.com/docker-hardened-images/catalog/tree/main/image)
+for public image definitions.
 
 ```console
-sbx run --kit dhi.io/cursor-mixin:latest dhi.io/shell:latest /path/to/workspace
+sbx run --kit docker.io/sbx/cursor-mixin:latest docker.io/sbx/shell:latest /path/to/workspace
 ```
 
-Use the DHI reference for new sandboxes. This repository no longer builds
-or updates `docker.io/sbx/cursor-mixin`. Previously published tags are not
-removed by this change.
+DHI builds and publishes `docker.io/sbx/cursor-mixin`. This repository no longer
+builds or updates the kit. Previously published tags remain available.
