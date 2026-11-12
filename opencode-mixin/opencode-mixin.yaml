@@ -272,6 +272,40 @@ capabilities:
   - type: com.docker.sandbox/lifecycle@1
     config:
       startup:
+        # OpenCode v2's TUI reads the clipboard through the Wayland data-control
+        # protocol directly (OpenTUI), not through the sandbox's xclip/wl-paste
+        # shims. The sandbox presets WAYLAND_DISPLAY and ships
+        # /usr/local/bin/clipboard-bridge, but does not start it, so the socket
+        # is missing and OpenTUI reports "Clipboard read is not supported on
+        # this system". Start it once per boot and wait for the socket so the
+        # first TUI launch already has a backend. Clipboard is best-effort:
+        # never fail sandbox creation because it is unavailable.
+        - command:
+            - sh
+            - -c
+            - |
+              set -e
+              bridge=$(command -v clipboard-bridge 2>/dev/null || true)
+              [ -n "$bridge" ] || [ -x /usr/local/bin/clipboard-bridge ] || exit 0
+              [ -n "$bridge" ] || bridge=/usr/local/bin/clipboard-bridge
+              [ -n "${XDG_RUNTIME_DIR:-}" ] || exit 0
+              sock="$XDG_RUNTIME_DIR/${WAYLAND_DISPLAY:-wayland-0}"
+              [ -e "$sock" ] && exit 0
+              # The engine may reap the hook's process group when the hook
+              # exits. setsid puts the bridge in its own session so it keeps
+              # serving; a dead bridge leaves a stale socket and OpenTUI then
+              # reports "Clipboard read is not supported on this system".
+              setsid "$bridge" > /dev/null 2>&1 < /dev/null &
+              i=0
+              while [ ! -e "$sock" ] && [ "$i" -lt 50 ]; do
+                i=$((i + 1))
+                sleep 0.1
+              done
+              [ -e "$sock" ] || echo "clipboard-bridge did not create $sock" >&2
+          user: "agent"
+          env: [XDG_RUNTIME_DIR, WAYLAND_DISPLAY]
+          description: Start the sandbox clipboard bridge for Wayland-native clipboard clients
+
         # The workload's `apt-get update` hook is deliberately absent: it
         # refreshes the base image's own package sources, which belong to the
         # base workload, and this kit does not declare that base's apt hosts.
