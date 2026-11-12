@@ -1,20 +1,16 @@
 # pi
 
-The `pi` workload kit — the [pi coding agent](https://pi.dev) as the whole
-sandbox — is now maintained as a Docker Hardened Image. Its definition, guides
-and overview live in the DHI catalog:
-[`docker-hardened-images/catalog/image/pi`](https://github.com/docker-hardened-images/catalog/tree/main/image/pi).
+The `pi` workload is built and published by Docker Hardened Images.
+See the [Docker Hub page](https://hub.docker.com/r/sbx/pi) for usage and tags,
+and the [DHI catalog](https://github.com/docker-hardened-images/catalog/tree/main/image)
+for public image definitions.
 
 ```console
-sbx run dhi.io/pi:latest /path/to/workspace
+sbx run docker.io/sbx/pi:latest /path/to/workspace
 ```
 
-It still `provides: ["pi"]`, so anything here that `requires: ["pi"]` composes
-onto it unchanged. To add pi to a sandbox rather than boot it as one, use
-[`pi-mixin`](https://github.com/docker-hardened-images/catalog/tree/main/image/pi-mixin).
+DHI builds and publishes `docker.io/sbx/pi`. This repository no longer
+builds or updates the kit. Previously published tags remain available.
 
-Two kits that never existed here ship alongside it in the catalog:
-[`pi-acp`](https://github.com/docker-hardened-images/catalog/tree/main/image/pi-acp),
-an Agent Client Protocol adapter for editors such as Zed, and
-[`pi-sessions`](https://github.com/docker-hardened-images/catalog/tree/main/image/pi-sessions),
-which keeps pi's transcripts on the host across sandbox removal.
+The family also includes [pi-acp](https://hub.docker.com/r/sbx/pi-acp)
+and [pi-sessions](https://hub.docker.com/r/sbx/pi-sessions).

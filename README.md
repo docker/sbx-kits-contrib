@@ -372,21 +372,22 @@ Buildable kits are listed by `scripts/discover-kits.sh`. Entries marked DHI cata
 | --- | --- | --- |
 | [`aider`](./aider) | [`aider-mixin`](./aider-mixin) | Aider |
 | [`amp`](./amp) | [`amp-mixin`](./amp-mixin) | Amp |
-| [`antigravity`](./antigravity) | [`antigravity-mixin`](./antigravity-mixin) | Google Antigravity |
+| [`antigravity`](https://github.com/docker-hardened-images/catalog/tree/main/image) (DHI catalog) | [`antigravity-mixin`](https://github.com/docker-hardened-images/catalog/tree/main/image) (DHI catalog) | Google Antigravity |
 | [`claude`](https://github.com/docker-hardened-images/catalog/tree/main/image/claude) (DHI catalog) | [`claude-mixin`](https://github.com/docker-hardened-images/catalog/tree/main/image/claude-mixin) (DHI catalog) | Claude Code |
 | [`claude-ollama`](./claude-ollama) | [`claude-ollama-mixin`](./claude-ollama-mixin) | Claude Code against a local Ollama endpoint |
 | [`codex`](https://github.com/docker-hardened-images/catalog/tree/main/image/codex) (DHI catalog) | [`codex-mixin`](https://github.com/docker-hardened-images/catalog/tree/main/image/codex-mixin) (DHI catalog) | Codex |
 | [`copilot`](./copilot) | [`copilot-mixin`](./copilot-mixin) | GitHub Copilot |
 | [`crush`](./crush) | [`crush-mixin`](./crush-mixin) | Crush |
 | [`cursor`](https://github.com/docker-hardened-images/catalog/tree/main/image) (DHI catalog) | [`cursor-mixin`](https://github.com/docker-hardened-images/catalog/tree/main/image) (DHI catalog) | Cursor |
-| [`devin`](./devin) | [`devin-mixin`](./devin-mixin) | Devin |
+| [`devin`](https://github.com/docker-hardened-images/catalog/tree/main/image) (DHI catalog) | [`devin-mixin`](https://github.com/docker-hardened-images/catalog/tree/main/image) (DHI catalog) | Devin |
 | [`devin-enterprise`](./devin-enterprise) | [`devin-enterprise-mixin`](./devin-enterprise-mixin) | Devin Enterprise |
 | [`docker-agent`](./docker-agent) | [`docker-agent-mixin`](./docker-agent-mixin) | Docker Agent |
-| [`droid`](./droid) | [`droid-mixin`](./droid-mixin) | Droid |
+| [`droid`](https://github.com/docker-hardened-images/catalog/tree/main/image) (DHI catalog) | [`droid-mixin`](https://github.com/docker-hardened-images/catalog/tree/main/image) (DHI catalog) | Droid |
 | [`grok`](./grok) | [`grok-mixin`](./grok-mixin) | Grok Build |
 | [`gstack`](./gstack) | [`gstack-mixin`](./gstack-mixin) | Claude Code plus Garry's Stack |
 | [`hermes-agent`](./hermes-agent) | [`hermes-agent-mixin`](./hermes-agent-mixin) | Hermes Agent |
 | [`junie`](./junie) | [`junie-mixin`](./junie-mixin) | Junie |
+| [`kit-builder`](https://github.com/docker-hardened-images/catalog/tree/main/image) (DHI catalog) | — | Docker-in-Docker Kit builder |
 | [`kiro`](./kiro) | [`kiro-mixin`](./kiro-mixin) | Kiro |
 | [`nanobot`](./nanobot) | [`nanobot-mixin`](./nanobot-mixin) | Nanobot |
 | [`nanoclaw`](./nanoclaw) | [`nanoclaw-mixin`](./nanoclaw-mixin) | NanoClaw |
@@ -396,7 +397,7 @@ Buildable kits are listed by `scripts/discover-kits.sh`. Entries marked DHI cata
 | [`opencode-model-runner`](./opencode-model-runner) | [`opencode-model-runner-mixin`](./opencode-model-runner-mixin) | OpenCode against Docker Model Runner |
 | [`openhands`](./openhands) | [`openhands-mixin`](./openhands-mixin) | OpenHands |
 | [`paperclip`](./paperclip) | [`paperclip-mixin`](./paperclip-mixin) | Paperclip |
-| [`pi`](https://github.com/docker-hardened-images/catalog/tree/main/image/pi) (DHI catalog) | [`pi-mixin`](https://github.com/docker-hardened-images/catalog/tree/main/image/pi-mixin) (DHI catalog) | Pi |
+| [`pi`](https://github.com/docker-hardened-images/catalog/tree/main/image) (DHI catalog) | [`pi-mixin`](https://github.com/docker-hardened-images/catalog/tree/main/image) (DHI catalog) | Pi |
 | [`picoclaw`](./picoclaw) | [`picoclaw-mixin`](./picoclaw-mixin) | PicoClaw |
 | [`shell`](https://github.com/docker-hardened-images/catalog/tree/main/image/shell) (DHI catalog) | — | A hardened Debian sandbox with a Docker engine, a login shell and no agent: the base an agent mixin layers onto |
 | [`trivy`](./trivy) | [`trivy-mixin`](./trivy-mixin) | Trivy vulnerability scanner |
