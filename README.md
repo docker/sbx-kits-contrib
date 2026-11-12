@@ -388,7 +388,7 @@ Buildable kits are listed by `scripts/discover-kits.sh`. Entries marked DHI cata
 | [`hermes-agent`](./hermes-agent) | [`hermes-agent-mixin`](./hermes-agent-mixin) | Hermes Agent |
 | [`junie`](./junie) | [`junie-mixin`](./junie-mixin) | Junie |
 | [`kit-builder`](https://github.com/docker-hardened-images/catalog/tree/main/image) (DHI catalog) | — | Docker-in-Docker Kit builder |
-| [`kiro`](./kiro) | [`kiro-mixin`](./kiro-mixin) | Kiro |
+| [`kiro`](https://github.com/docker-hardened-images/catalog/tree/main/image) (DHI catalog) | [`kiro-mixin`](https://github.com/docker-hardened-images/catalog/tree/main/image) (DHI catalog) | Kiro |
 | [`nanobot`](./nanobot) | [`nanobot-mixin`](./nanobot-mixin) | Nanobot |
 | [`nanoclaw`](./nanoclaw) | [`nanoclaw-mixin`](./nanoclaw-mixin) | NanoClaw |
 | [`open-interpreter`](./open-interpreter) | [`open-interpreter-mixin`](./open-interpreter-mixin) | Open Interpreter |
