@@ -1,12 +1,13 @@
 # hermes-agent-mixin
 
-The `hermes-agent-mixin` agent mixin is maintained in Docker Hardened Images.
-Its definition is in the [DHI catalog](https://github.com/docker-hardened-images/catalog/tree/main/image/hermes-agent-mixin).
+The `hermes-agent-mixin` agent mixin is built and published by Docker Hardened Images.
+See the [Docker Hub page](https://hub.docker.com/r/sbx/hermes-agent-mixin) for usage and tags,
+and the [DHI catalog](https://github.com/docker-hardened-images/catalog/tree/main/image)
+for public image definitions.
 
 ```console
-sbx run --kit dhi.io/hermes-agent-mixin:latest dhi.io/shell:latest /path/to/workspace
+sbx run --kit docker.io/sbx/hermes-agent-mixin:latest docker.io/sbx/shell:latest /path/to/workspace
 ```
 
-Use the DHI reference for new sandboxes. This repository no longer builds
-or updates `docker.io/sbx/hermes-agent-mixin`. Previously published tags are not
-removed by this change.
+DHI builds and publishes `docker.io/sbx/hermes-agent-mixin`. This repository no longer
+builds or updates the kit. Previously published tags remain available.

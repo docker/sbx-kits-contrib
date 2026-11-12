@@ -385,7 +385,7 @@ Buildable kits are listed by `scripts/discover-kits.sh`. Entries marked DHI cata
 | [`droid`](./droid) | [`droid-mixin`](./droid-mixin) | Droid |
 | [`grok`](./grok) | [`grok-mixin`](./grok-mixin) | Grok Build |
 | [`gstack`](./gstack) | [`gstack-mixin`](./gstack-mixin) | Claude Code plus Garry's Stack |
-| [`hermes-agent`](https://github.com/docker-hardened-images/catalog/tree/main/image/hermes-agent) (DHI catalog) | [`hermes-agent-mixin`](https://github.com/docker-hardened-images/catalog/tree/main/image/hermes-agent-mixin) (DHI catalog) | Hermes Agent |
+| [`hermes-agent`](https://github.com/docker-hardened-images/catalog/tree/main/image) (DHI catalog) | [`hermes-agent-mixin`](https://github.com/docker-hardened-images/catalog/tree/main/image) (DHI catalog) | Hermes Agent |
 | [`junie`](./junie) | [`junie-mixin`](./junie-mixin) | Junie |
 | [`kiro`](./kiro) | [`kiro-mixin`](./kiro-mixin) | Kiro |
 | [`nanobot`](./nanobot) | [`nanobot-mixin`](./nanobot-mixin) | Nanobot |
