@@ -84,6 +84,12 @@ install. Requesting `scan` or `guard` without its credential still installs
 the binary, but the corresponding hooks stay inactive (logged, not an
 error) until a credential is set and the sandbox is recreated.
 
+`-e SNYK_TOKEN` with no value passes through the value already exported in
+your host shell. If the variable isn't exported, nothing reaches the sandbox.
+Export it first (`export SNYK_TOKEN=...`, or from a secrets manager such as
+`export SNYK_TOKEN="$(op read ...)"`), or pass it explicitly with
+`-e SNYK_TOKEN="$SNYK_TOKEN"`. The same applies to `SNYK_ADS_PUSH_KEY`.
+
 ### Default: free-tier Agent Scan
 
 ```bash
@@ -228,6 +234,13 @@ Snyk CLI has separate authentication.
 Background results are logged rather than inserted into an existing conversation.
 Enterprise background scans can submit asynchronous analysis to Snyk. MCP execution
 consent is preserved for interactive scans.
+
+**Known limitation: MCP servers behind the sandbox MCP gateway.** MCP servers
+added with `sbx mcp add` / `sbx mcp load` reach the agent through the
+sandbox's `mcp-gateway` entry. Agent Scan can't start that gateway (it reports
+`X001`), so the tools behind it aren't inspected and those servers don't
+appear in Evo. MCP servers and skills configured directly in the agent's own
+config are scanned as usual.
 
 ## Verification and troubleshooting
 
