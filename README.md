@@ -372,7 +372,7 @@ Buildable kits are listed by `scripts/discover-kits.sh`. Entries marked DHI cata
 | --- | --- | --- |
 | [`aider`](./aider) | [`aider-mixin`](./aider-mixin) | Aider |
 | [`amp`](./amp) | [`amp-mixin`](./amp-mixin) | Amp |
-| [`antigravity`](https://github.com/docker-hardened-images/catalog/tree/main/image/antigravity) (DHI catalog) | [`antigravity-mixin`](https://github.com/docker-hardened-images/catalog/tree/main/image/antigravity-mixin) (DHI catalog) | Google Antigravity |
+| [`antigravity`](https://github.com/docker-hardened-images/catalog/tree/main/image) (DHI catalog) | [`antigravity-mixin`](https://github.com/docker-hardened-images/catalog/tree/main/image) (DHI catalog) | Google Antigravity |
 | [`claude`](https://github.com/docker-hardened-images/catalog/tree/main/image/claude) (DHI catalog) | [`claude-mixin`](https://github.com/docker-hardened-images/catalog/tree/main/image/claude-mixin) (DHI catalog) | Claude Code |
 | [`claude-ollama`](./claude-ollama) | [`claude-ollama-mixin`](./claude-ollama-mixin) | Claude Code against a local Ollama endpoint |
 | [`codex`](https://github.com/docker-hardened-images/catalog/tree/main/image/codex) (DHI catalog) | [`codex-mixin`](https://github.com/docker-hardened-images/catalog/tree/main/image/codex-mixin) (DHI catalog) | Codex |
