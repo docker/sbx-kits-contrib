@@ -31,39 +31,19 @@ version: "${{ kit.args.version }}"
 # read as "resolve upstream's newest stable at build time" — the rolling behavior
 # a provide cannot stand behind. The pattern below refuses that value now.
 #
-# WHICH NUMBER THIS IS, because Hermes carries two and only one can be selected:
-# upstream's releases are git tags of the form `vYYYY.M.D[.N]`, and that tag is
-# what scripts/install.sh takes as its `--branch`, so it is the only release
-# identity this kit can ask for. The Python package's own version
-# (`hermes_cli.__version__`, 0.21.3 at the tag pinned here) moves independently
-# and no installer input selects it. This arg is therefore the tag, minus the `v`
-# that SPEC-v3 §5.2 does not admit in a version; the recipe puts the `v` back.
-# `hermes --version` opens with `Hermes Agent v<package version> (<release
-# date>)`, where the release date is upstream's `__release_date__` stamp — the tag
-# without its `v` — so the value declared here is one the built overlay reports,
-# and the recipe compares exactly that field.
-#
-# HOW THE DEFAULT WAS DETERMINED, and how to bump it: the newest stable release
-# tag, from the same redirect the recipe used to follow when this was empty:
-#
-#     curl -fsSI -o /dev/null -w '%{redirect_url}\n' \
-#       https://github.com/NousResearch/hermes-agent/releases/latest
-#
-# v2026.9.14 at the moment of pinning. Strip the `v` when you set it.
-#
-# THIS MUST STAY EQUAL TO ../hermes-agent's `version` default. The two kits run
-# the same installer at the same pin and provide the same name, so a composition
-# that resolved one against the other's requires must see the same release.
-# Nothing enforces it across kit directories — bump both together, along with the
-# byte-identical hermes-credential-auth.sh the two kits each carry a copy of.
+# RELEASE PIN: The default v0.22.5 tag installs Hermes Agent 0.22.5.
+# Earlier releases used date-based tags such as v2026.9.24; that tag
+# instead reports Hermes Agent v0.21.5 (2026.9.24). Both styles are
+# valid when explicitly requested, so the pattern allows three or four
+# numeric components. The build checks the printed package version
+# OR the parenthesized release date against the requested tag suffix.
+# Keep this default aligned with the sibling Hermes kit.
 args:
   version:
-    default: "2026.9.14"
-    # Upstream's date-tag shape, with the fourth segment that same-day releases
-    # use (v2026.8.16.2) optional. It refuses the empty string this arg used to
-    # default to, and every value it accepts is a legal provide version under
-    # SPEC-v3 §5.2.
-    pattern: '^[0-9]{4}\.[0-9]{1,2}\.[0-9]{1,2}(\.[0-9]+)?$'
+    default: "0.22.5"
+    # Accepts three-component release versions (0.22.5) as well as
+    # historical date tags (2026.9.24, 2026.8.16.2).
+    pattern: '^[0-9]+\.[0-9]+\.[0-9]+(\.[0-9]+)?$'
     description: hermes-agent release to install, without the tag's leading "v"
     buildArg: HERMES_VERSION
 

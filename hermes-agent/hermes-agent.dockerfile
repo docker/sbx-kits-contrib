@@ -64,27 +64,13 @@ WORKDIR /home/agent/workspace
 # afterward because this kit wires Anthropic up as a first-class provider,
 # so it can't be left to upstream's lazy-install-at-runtime path.
 #
-# `hermes --version` is the build-time gate: a broken release fails the
-# build instead of shipping a non-starting agent. It is also the pin's check now,
-# and the field it compares needs saying, because Hermes reports two numbers.
-# Its first line is
-#
-#     Hermes Agent v<package version> (<release date>)
-#
-# optionally followed by `· upstream <sha>` for a git install, which this is. The
-# package version (0.21.3 at the tag pinned here) is `hermes_cli.__version__` and
-# no installer input selects it; the parenthesised release date is
-# `__release_date__`, which upstream stamps with the release's own tag minus the
-# `v` -- the identity this kit asked for. So the pin is matched against
-# `(<version>)`, parentheses included, which keeps it anchored to that field
-# rather than matching the digits anywhere in the line.
-#
-# The descriptor publishes `hermes-agent@${HERMES_VERSION}`, so a checkout whose
-# own stamp disagrees with the tag it came from fails the build instead of
-# publishing a provide that lies about its content -- the one failure mode worse
-# than floating. If a future release ever stamps something other than its tag,
-# this is where that shows up, and the honest fix is to look rather than to
-# loosen the comparison.
+# `hermes --version` gates the build. For a v0.22.5 tag it prints
+# "Hermes Agent v0.22.5 (2026.9.24) ...": package version and release date
+# are separate fields. Previous tags such as v2026.9.24 name the release
+# date instead of the package version. Accept either field for backward
+# compatibility, while anchoring the match to the CLI version banner.
+# The descriptor publishes hermes-agent@${HERMES_VERSION}, so reject a
+# build whose installed CLI reports neither matching version field.
 #
 # The fetch retries because raw.githubusercontent.com answers 429 often enough
 # to red the publish on its own, and a build that dies on someone else's rate
@@ -103,12 +89,11 @@ RUN set -eu; \
     chmod +x /tmp/hermes-install.sh; \
     /tmp/hermes-install.sh --branch "$tag" --skip-setup --skip-browser --skip-computer-use --non-interactive; \
     rm -f /tmp/hermes-install.sh; \
-    "$HOME/.hermes/bin/uv" pip install --python "$HOME/.hermes/hermes-agent/venv/bin/python" \
-        -e "$HOME/.hermes/hermes-agent[anthropic]"; \
+    "$HOME/.local/bin/hermes" pm install --extra anthropic; \
     reported="$("$HOME/.local/bin/hermes" --version | head -1)"; \
     echo "hermes --version: $reported"; \
     case "$reported" in \
-      *"(${HERMES_VERSION})"*) ;; \
+      "Hermes Agent v${HERMES_VERSION} "* | "Hermes Agent v"*" (${HERMES_VERSION})"*) ;; \
       *) echo "pin mismatch: descriptor says ${HERMES_VERSION}, hermes reports '$reported'" >&2; exit 1 ;; \
     esac
 
