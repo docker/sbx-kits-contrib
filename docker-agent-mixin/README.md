@@ -1,77 +1,13 @@
-> [!NOTE]
-> <strong>Experimental: Sandbox Kit v3</strong>
->
-> This kit uses the experimental [Sandbox Kit specification](https://github.com/docker/sandbox-kit-spec), specifically [v3](https://github.com/docker/sandbox-kit-spec/blob/main/docs/spec/SPEC-v3.md). The format and runtime behavior may change before v3 is stable.
-
 # docker-agent-mixin
 
-The mixin form of the [`docker-agent`](../docker-agent) kit: Docker Agent in
-an overlay that lands on a shell workload, instead of a whole sandbox of its
-own.
-
-## What it is
-
-A `kind: mixin` kit carrying the Docker Agent binary as a filesystem delta,
-with the same declarations the workload makes — eight optional proxy-managed
-provider credentials, the runtime allow list covering every host they inject
-into plus `objects.githubusercontent.com` and `models.dev`, and the `TERM` /
-`COLORTERM` / `LANG` / `TELEMETRY_ENABLED` environment.
-
-Nothing here has to be worked around, unlike the sibling agent mixins in this
-repo: Docker Agent ships one static binary per platform as a release asset, so
-`docker-agent-mixin.dockerfile` downloads it straight into the staging tree
-and the overlay is a genuine relocation rather than a copy-out from an
-unrelocatable installer. The `/opt/docker-agent` tree is built agent-owned
-(uid/gid 1000) because `DOCKER_AGENT_AUTO_UPDATE` means the agent replaces the
-binary in place.
-
-## The pin
-
-`version` (build arg `DOCKER_AGENT_VERSION`) is the release the overlay
-installs, expanded into `provides: ["docker-agent@<version>"]` and into the
-descriptor's own `version:`, and it must stay equal to the workload's, since
-the two shapes provide one name. **It holds a bare version, not the tag**
-(`1.2.3`, not `v1.2.3`) — SPEC-v3 §5.2 versions carry no `v` prefix, so the
-recipe re-adds it. That is a change from the v2 spelling, and the empty
-"resolve the newest release" default is gone with it: an empty value now fails
-the build.
-
-The versioned provide is a claim with a caveat, since `DOCKER_AGENT_AUTO_UPDATE`
-lets the agent move past the pin at run time. It is still the honest one — an
-unversioned provide falls back to the descriptor's `version:`, which used to be
-a hand-written `1.0.0` and published `docker-agent@1.0.0`, false at every
-instant rather than only after an update. The full reasoning is beside the arg
-in `docker-agent-mixin.yaml`, and the bump procedure is in
-[`../docker-agent/README.md`](../docker-agent/README.md).
-
-## Compose it
+The `docker-agent-mixin` agent mixin is built and published by Docker Hardened Images.
+See the [Docker Hub page](https://hub.docker.com/r/sbx/docker-agent-mixin) for usage and tags,
+and the [DHI catalog](https://github.com/docker-hardened-images/catalog/tree/main/image)
+for public image definitions.
 
 ```console
-$ sbx create --kit <shell-workload> --kit ./docker-agent-mixin
-$ docker-agent run --yolo
+sbx run --kit docker.io/sbx/docker-agent-mixin:latest docker.io/sbx/shell:latest /path/to/workspace
 ```
 
-## What it leaves to the base
-
-- **The launch command.** No `ENTRYPOINT`: the base workload's stays, so
-  `run --yolo --agent-picker` has to be spelled out. Dropping `--agent-picker`
-  is usually what you want from a shell — it opens a full-screen chooser.
-- **The base's package sources.** The workload allows `archive.ubuntu.com`,
-  `security.ubuntu.com`, `ports.ubuntu.com` and `download.docker.com` and runs
-  an `apt-get update` startup hook. Both stay with it: they describe the base
-  image's apt configuration, which an overlay does not own and cannot know.
-- **Docker-in-Docker.** The workload sets
-  `com.docker.sandboxes.start-docker` because it owns a base that carries an
-  engine. An overlay setting it would ask for Docker mode over a base that may
-  have nothing to run.
-- **The `AGENTS.md` profile**, `sbx@1` and the sandbox identity, and the
-  platform floor — `bash`, the `agent` user, `git`, a CA store.
-
-This kit declares **no lifecycle hooks at all**, where the workload has two.
-The apt refresh is the base's business, and the workload's self-update
-relocation hook exists to repair a layout that this overlay simply builds
-correctly.
-
-`docker-agent` and `docker-agent-mixin` both provide `docker-agent`, so they
-are alternatives: composing the two together is refused, one capability having
-one provider.
+DHI builds and publishes `docker.io/sbx/docker-agent-mixin`. This repository no longer
+builds or updates the kit. Previously published tags remain available.

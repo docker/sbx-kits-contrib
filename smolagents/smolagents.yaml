@@ -27,12 +27,21 @@ kind: mixin
 # README together.
 provides: ["smolagents@1.26.0"]
 
-# Dependency installation targets apt-based DHI workloads.
+# Dependency installation targets apt-based DHI workloads. deb/apt is a real
+# capability derived from the workload's installed dpkg database, not a name
+# invented for this mixin. A base without apt cannot satisfy the install hook.
+# deb/python3 is deliberately absent: the hook preserves a working Python
+# toolchain and installs Python itself only when venv support is missing.
 requires: ["deb/apt"]
 
 capabilities:
-  # The venv is created against the workload's Python. Pip reaches PyPI at
-  # create time; apt reaches the workload's sources only when Python is missing.
+  # MIGRATION NOTE: moving the environment file into an overlay does not move
+  # dependency downloads into the builder. The venv uses the workload's Python
+  # and pip still reaches PyPI at create time. When Python support is missing,
+  # apt still refreshes every configured source, including the DHI, Debian,
+  # Ubuntu and Docker mirrors below. Removing install egress would break that
+  # legitimate create-time path even though the environment file ships in an
+  # overlay. A working Python toolchain skips only the apt installation.
   - type: com.docker.sandbox/network-policy@1
     config:
       install:

@@ -280,10 +280,30 @@ base_conflicts() {
   return 1
 }
 
-# Explicit workloads and named requirements take precedence. The default is
-# the published DHI Shell workload, which owns no agent credentials and carries
-# Docker Engine. Local agent directories can be README-only redirects, and
-# the first remaining workload may not satisfy distribution-package needs.
+# WHAT A MIXIN COMPOSES ONTO
+#
+# A mixin cannot run alone. Its requirements resolve against the composed
+# set, so selecting the wrong base fails create before the mixin is exercised.
+# Keep the selection precedence explicit:
+#
+#   1. E2E_HOST, when the caller knows which workload to use.
+#   2. A requirement naming a WORKLOAD kit in this repo. A local mixin such
+#      as task cannot supply the single workload that a v3 set requires.
+#   3. A requirement naming no local kit is recorded as a built-in agent
+#      name. The skip below explains that a built-in contributes no workload
+#      kit; it cannot silently select an unrelated base instead.
+#   4. Never infer foo as the base for foo-mixin. Both commonly provide the
+#      same agent capability, which v3 refuses as having more than one owner.
+#   5. With no particular workload requirement, use the published DHI Shell
+#      workload. It owns no agent credentials and carries Docker Engine and
+#      the distribution packages needed by neutral mixins.
+#
+# The former local ./claude fallback can now be a README-only DHI redirect.
+# A built-in shell name is not a replacement: it contributes no workload kit
+# and fails resolution with "no workload kit in the set". The first remaining
+# local workload is not a safe fallback either; it may lack a requested
+# package or own credentials that contend with the mixin. A registry workload
+# preserves the real-kit requirement without relying on migrated sources.
 host=""
 host_source=""
 host_is_kit=yes
@@ -325,6 +345,8 @@ if [ "$kind" = "mixin" ]; then
     # conflicts, must not be quietly rehomed onto a base that cannot satisfy the
     # requirement anyway — it skips below instead.
     if [ -z "$host" ] && [ -z "$host_conflict" ]; then
+      # The registry kit remains available after local agent source removal.
+      # Explicit requirements and conflict handling above still take priority.
       host="dhi.io/shell:latest"
       host_source="the default DHI Shell workload"
     fi

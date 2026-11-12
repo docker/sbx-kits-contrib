@@ -30,8 +30,13 @@ RUN apt-get update \
 
 FROM node-runtime AS build
 
-# Keep the existing Lighthouse release pinned while moving the runtime to DHI.
-# Update the descriptor, context and README together when changing this pin.
+# Lighthouse 13.x requires Node >= 22.19. The former standard agent templates
+# guaranteed only Node >= 18, so 12.6.1 was retained as the last 12.x release
+# accepting Node >= 18.20. DHI Node 24 removes that runtime restriction, but
+# moving the base does not also authorize a Lighthouse major-version upgrade.
+# npm verifies release tarballs against registry sha512 integrity. Keep the
+# release pinned and update lighthouse.yaml's provides, lighthouse-context.md
+# and README together when a separately verified version bump is intended.
 ARG LIGHTHOUSE_VERSION=12.6.1
 # The browser channel, pinned exactly as v2's `npx -y playwright@1.61.1` pinned
 # it, and deliberately the same release ../playwright ships so both kits land
