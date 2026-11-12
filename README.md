@@ -385,7 +385,7 @@ Buildable kits are listed by `scripts/discover-kits.sh`. Entries marked DHI cata
 | [`droid`](https://github.com/docker-hardened-images/catalog/tree/main/image) (DHI catalog) | [`droid-mixin`](https://github.com/docker-hardened-images/catalog/tree/main/image) (DHI catalog) | Droid |
 | [`grok`](./grok) | [`grok-mixin`](./grok-mixin) | Grok Build |
 | [`gstack`](./gstack) | [`gstack-mixin`](./gstack-mixin) | Claude Code plus Garry's Stack |
-| [`hermes-agent`](./hermes-agent) | [`hermes-agent-mixin`](./hermes-agent-mixin) | Hermes Agent |
+| [`hermes-agent`](https://github.com/docker-hardened-images/catalog/tree/main/image) (DHI catalog) | [`hermes-agent-mixin`](https://github.com/docker-hardened-images/catalog/tree/main/image) (DHI catalog) | Hermes Agent |
 | [`junie`](./junie) | [`junie-mixin`](./junie-mixin) | Junie |
 | [`kit-builder`](https://github.com/docker-hardened-images/catalog/tree/main/image) (DHI catalog) | — | Docker-in-Docker Kit builder |
 | [`kiro`](https://github.com/docker-hardened-images/catalog/tree/main/image) (DHI catalog) | [`kiro-mixin`](https://github.com/docker-hardened-images/catalog/tree/main/image) (DHI catalog) | Kiro |
