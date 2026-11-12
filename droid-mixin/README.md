@@ -1,7 +1,9 @@
 # droid-mixin
 
-The `droid-mixin` agent mixin is maintained in Docker Hardened Images.
-Its agent image is documented in the [DHI catalog](https://github.com/docker-hardened-images/catalog/tree/main/image/droid).
+The `droid-mixin` agent mixin is built and published by Docker Hardened Images.
+See the [Docker Hub page](https://hub.docker.com/r/sbx/droid-mixin) for usage and tags,
+and the [DHI catalog](https://github.com/docker-hardened-images/catalog/tree/main/image)
+for public image definitions.
 
 ```console
 sbx run --kit docker.io/sbx/droid-mixin:latest docker.io/sbx/shell:latest /path/to/workspace
