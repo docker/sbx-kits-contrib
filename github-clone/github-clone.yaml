@@ -89,6 +89,9 @@ capabilities:
     config:
       install:
         allow:
+          # apt also reads the configured DHI Debian repositories.
+          - deb.debian.org
+          - dhi.io
           # gh + git, reached by the clone hook below
           - api.github.com
           - github.com

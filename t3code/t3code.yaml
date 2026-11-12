@@ -74,6 +74,9 @@ capabilities:
     config:
       install:
         allow:
+          # apt also reads the configured DHI Debian repositories.
+          - deb.debian.org
+          - dhi.io
           # apt-get update refreshes every configured source, so all template
           # apt sources must be reachable even though we only install from
           # Ubuntu's main archive. amd64 uses archive/security, arm64 uses

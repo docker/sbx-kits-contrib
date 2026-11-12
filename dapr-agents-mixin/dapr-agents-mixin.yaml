@@ -60,7 +60,9 @@ provides: ["dapr-agents@${{ kit.args.version }}"]
 requires:
   - deb/docker-ce
   - deb/docker-compose-plugin
-  - deb/python3
+  # Workload provides come from dpkg package names. DHI's versioned Python
+  # package is python-3.14; requiring python3 rejects a usable DHI interpreter.
+  - deb/python-3.14
   - deb/uv
 
 capabilities:
