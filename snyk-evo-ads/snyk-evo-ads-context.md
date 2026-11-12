@@ -6,11 +6,11 @@ during setup, unconditionally - the Agent Scan/Agent Guard/Snyk Studio binaries 
 public and install regardless of credentials. Check what was actually
 requested with `sh "$HOME/.snyk-kit/resolve-components.sh"`, which prints
 `scan=0|1 guard=0|1 studio=0|1 auth_mode=enterprise|standalone|none`.
-auth_mode=none means scan/guard hooks are inactive even if selected -
+auth_mode=none means Agent Scan/Agent Guard hooks are inactive even if selected -
 that's expected when no SNYK_TOKEN or SNYK_ADS_PUSH_KEY was supplied, not
 an install failure. Do not print credentials.
 
-Agent Scan (Scan and Guard share one binary) always lives at
+Agent Scan and Agent Guard share one binary, which always lives at
 `~/.local/share/snyk-agent-scan/agent-scan`, regardless of auth mode. A
 missing binary means scan wasn't requested, or install failed - check
 `~/.snyk/agent-scan-startup.log`. Run scans with
@@ -21,7 +21,7 @@ into commands or responses.
 
 An optional SNYK_API overrides the Snyk API base URL (default
 https://api.snyk.io). The kit passes it to Agent Guard install as --url, and to
-Scan as --analysis-url with the same path Agent Scan uses by default
+Agent Scan as --analysis-url with the same path Agent Scan uses by default
 (only the host changes). This kit's network allowlist covers any host
 under snyk.io (any subdomain depth), so a SNYK_API host under snyk.io
 works with no extra setup.
@@ -42,7 +42,7 @@ Propose remediation and apply changes when authorized by the user's request.
 
 ## Studio and Snyk CLI authentication
 
-Studio installs independently of Scan/Guard credentials - it needs no
+Snyk Studio installs independently of Agent Scan/Agent Guard credentials - it needs no
 push key or token to install, only to authenticate its Snyk CLI
 afterward. An optional SNYK_TOKEN authenticates Studio's Snyk CLI. Studio
 also accepts existing Snyk CLI credentials, including OAuth; a missing

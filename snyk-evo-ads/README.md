@@ -5,7 +5,9 @@
 
 # snyk-evo-ads
 
-A Docker Sandboxes mixin (`kind: mixin`), requiring **sbx 0.39.0 or later**.
+A Docker Sandboxes mixin (`kind: mixin`), requiring **sbx 0.53.0 or later**.
+Earlier releases fail to run the `sbx/claude` agent kit used in the examples
+below (`agent "claude" is already registered`).
 The kit installs whichever Snyk components you request — Agent Scan, Agent
 Guard, and/or Snyk Studio — directly from their public release channels. It
 stages optional corporate certificates, installs the requested components,
@@ -51,10 +53,9 @@ snyk-evo-ads/
 ├── snyk-evo-ads.yaml
 ├── snyk-evo-ads.dockerfile
 ├── snyk-evo-ads-context.md
-├── files/home/
-│   ├── .snyk-kit/   # Component selection, auth, and download helpers
-│   └── corp-ca/     # Optional corporate root certificates
-└── tests/           # Offline unit tests and Docker CA trust-store checks
+└── files/home/
+    ├── .snyk-kit/   # Component selection, auth, and download helpers
+    └── corp-ca/     # Optional corporate root certificates
 ```
 
 ## Components
@@ -251,5 +252,5 @@ none). Agent Scan and Agent Guard always share
 | Connection failure, curl 6/7 | DNS, proxy, and organization network policy |
 | Sandbox creation fails immediately with a `snyk-ads: ERROR` | `SNYK_COMPONENTS` itself — an unknown component name, or a value that resolves to none (see [Components](#components)) |
 | Binary installed but Agent Scan / Agent Guard hooks inactive | Missing credential for that component — install logs say so; set it and recreate the sandbox |
-| No Scan binary | Whether `scan` was actually requested in `SNYK_COMPONENTS` |
+| No Agent Scan binary | Whether `scan` was actually requested in `SNYK_COMPONENTS` |
 | No recurring output | Startup log and sbx version |
