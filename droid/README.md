@@ -1,12 +1,11 @@
 # droid
 
 The `droid` workload is maintained in Docker Hardened Images.
-Its definition is in the [DHI catalog](https://github.com/docker-hardened-images/catalog/tree/main/image/droid).
+Its agent image is documented in the [DHI catalog](https://github.com/docker-hardened-images/catalog/tree/main/image/droid).
 
 ```console
-sbx run dhi.io/droid:latest /path/to/workspace
+sbx run docker.io/sbx/droid:latest /path/to/workspace
 ```
 
-Use the DHI reference for new sandboxes. This repository no longer builds
-or updates `docker.io/sbx/droid`. Previously published tags are not
-removed by this change.
+DHI builds and publishes `docker.io/sbx/droid`. This repository no longer
+builds or updates the kit. Previously published tags remain available.
