@@ -387,7 +387,7 @@ Buildable kits are listed by `scripts/discover-kits.sh`. Entries marked DHI cata
 | [`gstack`](./gstack) | [`gstack-mixin`](./gstack-mixin) | Claude Code plus Garry's Stack |
 | [`hermes-agent`](./hermes-agent) | [`hermes-agent-mixin`](./hermes-agent-mixin) | Hermes Agent |
 | [`junie`](./junie) | [`junie-mixin`](./junie-mixin) | Junie |
-| [`kiro`](https://github.com/docker-hardened-images/catalog/tree/main/image/kiro) (DHI catalog) | [`kiro-mixin`](https://github.com/docker-hardened-images/catalog/tree/main/image/kiro-mixin) (DHI catalog) | Kiro |
+| [`kiro`](https://github.com/docker-hardened-images/catalog/tree/main/image) (DHI catalog) | [`kiro-mixin`](https://github.com/docker-hardened-images/catalog/tree/main/image) (DHI catalog) | Kiro |
 | [`nanobot`](./nanobot) | [`nanobot-mixin`](./nanobot-mixin) | Nanobot |
 | [`nanoclaw`](./nanoclaw) | [`nanoclaw-mixin`](./nanoclaw-mixin) | NanoClaw |
 | [`open-interpreter`](./open-interpreter) | [`open-interpreter-mixin`](./open-interpreter-mixin) | Open Interpreter |
