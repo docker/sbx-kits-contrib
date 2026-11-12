@@ -272,7 +272,7 @@ sbx run shell --kit ./mise .          # or onto a built-in agent
    └── README.md
    ```
 
-2. Write `my-kit.yaml`, starting from the skeleton in [Anatomy of a kit](#anatomy-of-a-kit) and from whichever existing kit is closest in shape. `mise/` is a good declaration-only mixin; `cursor-mixin/` is a good overlay mixin; [the DHI Copilot workload](https://github.com/docker-hardened-images/catalog/tree/main/image/copilot) is a workload example.
+2. Write `my-kit.yaml`, starting from the skeleton in [Anatomy of a kit](#anatomy-of-a-kit) and from whichever existing kit is closest in shape. `mise/` is a good declaration-only mixin; `cursor-mixin/` is a good overlay mixin; [the DHI Copilot workload](https://hub.docker.com/r/sbx/copilot) is a workload example.
 
 3. Write `my-kit.dockerfile`, unless the kit declares only. A workload must have one.
 
@@ -376,7 +376,7 @@ Buildable kits are listed by `scripts/discover-kits.sh`. Entries marked DHI cata
 | [`claude`](https://github.com/docker-hardened-images/catalog/tree/main/image/claude) (DHI catalog) | [`claude-mixin`](https://github.com/docker-hardened-images/catalog/tree/main/image/claude-mixin) (DHI catalog) | Claude Code |
 | [`claude-ollama`](./claude-ollama) | [`claude-ollama-mixin`](./claude-ollama-mixin) | Claude Code against a local Ollama endpoint |
 | [`codex`](https://github.com/docker-hardened-images/catalog/tree/main/image/codex) (DHI catalog) | [`codex-mixin`](https://github.com/docker-hardened-images/catalog/tree/main/image/codex-mixin) (DHI catalog) | Codex |
-| [`copilot`](https://github.com/docker-hardened-images/catalog/tree/main/image/copilot) (DHI catalog) | [`copilot-mixin`](https://github.com/docker-hardened-images/catalog/tree/main/image/copilot) (DHI catalog) | GitHub Copilot |
+| [`copilot`](https://github.com/docker-hardened-images/catalog/tree/main/image) (DHI catalog) | [`copilot-mixin`](https://github.com/docker-hardened-images/catalog/tree/main/image) (DHI catalog) | GitHub Copilot |
 | [`crush`](./crush) | [`crush-mixin`](./crush-mixin) | Crush |
 | [`cursor`](./cursor) | [`cursor-mixin`](./cursor-mixin) | Cursor |
 | [`devin`](./devin) | [`devin-mixin`](./devin-mixin) | Devin |
