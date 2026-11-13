@@ -139,6 +139,10 @@ func (s *Suite) RunContainerTests(t *testing.T) {
 		// Last: this one seeds and rewrites the agent's MCP config, so it
 		// runs after every assertion that reads the container as provisioned.
 		s.RunMCPMergeTests(t, ctx, container)
+
+		// Also stateful: startup cases seed fixtures and replay the kit's
+		// startup hooks, so they run after the provisioned-state assertions.
+		s.RunStartupCommandTests(t, ctx, container)
 	})
 }
 
