@@ -1,0 +1,179 @@
+# Docker Sandboxes kit: wire an agent to an OpenObserve instance through its
+# built-in Streamable-HTTP MCP endpoint (no separate binary to install -- the
+# MCP server ships inside the OpenObserve server itself, at /api/{org}/mcp).
+# Usage/design notes: see README.md.
+schemaVersion: "2"
+kind: mixin
+name: openobserve
+version: "1.0.0"
+displayName: OpenObserve (built-in MCP)
+description: "Wires an agent to an OpenObserve instance (self-hosted or OpenObserve Cloud) through its built-in Streamable-HTTP MCP endpoint -- search logs, metrics, and traces with SQL/PromQL, list streams, inspect incidents. Nothing is installed; the kit holds no credential, and the sbx proxy injects it as a Basic auth header on requests to your instance. Defaults to a local instance at host.docker.internal:5080."
+
+licenses:
+  - Apache-2.0
+
+# OpenObserve is commonly self-hosted (including straight on the dev's own
+# machine, reachable from the sandbox at host.docker.internal), so unlike a
+# fixed SaaS host this needs a host:port and a scheme the kit can't assume.
+# Defaults target a local instance started with the stock `docker run
+# openobserve/openobserve` one-liner from the OpenObserve quickstart, so the
+# kit is useful out of the box for the common local-dev case; override both
+# for OpenObserve Cloud or a remote self-hosted instance:
+#   sbx run --kit docker.io/sbx/openobserve-kit:latest \
+#     --kit-arg openobserve.host=myorg.openobserve.ai \
+#     --kit-arg openobserve.scheme=https \
+#     --kit-arg openobserve.port=443 \
+#     --kit-arg openobserve.org=myorg claude
+args:
+  host:
+    default: "host.docker.internal"
+    description: >-
+      Your OpenObserve instance hostname -- no scheme, no port, no path.
+      Defaults to the Docker Desktop/Engine host gateway, for the common
+      local-dev case. For OpenObserve Cloud or a remote self-hosted instance,
+      set this to that host (and set openobserve.scheme=https,
+      openobserve.port=443).
+    pattern: '^[A-Za-z0-9][A-Za-z0-9.-]*$'
+  port:
+    default: "5080"
+    description: >-
+      Port for the instance in openobserve.host. Defaults to OpenObserve's
+      stock port for the local-instance default; set to 443 for OpenObserve
+      Cloud or any TLS-terminated self-hosted instance on its default port.
+    pattern: '^[0-9]{1,5}$'
+  scheme:
+    default: "http"
+    description: >-
+      URL scheme for the instance in openobserve.host. Defaults to http for
+      the local-instance default; set to https for OpenObserve Cloud or any
+      TLS-terminated self-hosted instance.
+    pattern: '^https?$'
+  org:
+    default: "default"
+    description: "OpenObserve organization/stream-group name. Matches the org_id segment in OpenObserve's API paths (/api/{org_id}/...). Defaults to \"default\", the org every fresh instance starts with."
+    pattern: '^[A-Za-z0-9_-]+$'
+
+credentials:
+  # Custom (non-registry) service, same mechanics as the dynatrace and
+  # jfrog-xray kits in this repo: the sandbox never sees the real credential,
+  # only a placeholder the proxy overwrites on the wire for the configured
+  # host. OpenObserve's own HTTP API (which the built-in MCP endpoint shares)
+  # takes standard HTTP Basic auth, so the stored secret is the ALREADY
+  # base64-encoded "email:password" pair, not a bearer token -- see the
+  # "How auth works" section in README.md for the exact command to produce it.
+  - service: openobserve
+    description: >-
+      OpenObserve Basic-auth token: base64("email:password") for an account
+      on the target instance (root user, or any user with read access to the
+      streams you want to query). Sent as `Authorization: Basic <token>` to
+      the configured host. Stored on the host; the sandbox only ever sees a
+      placeholder.
+    required: true
+    apiKey:
+      name: OPENOBSERVE_BASIC_TOKEN
+      inject:
+        - domain: "${{ kit.args.host }}"
+          header: Authorization
+          format: "Basic %s"
+
+permissions:
+  network:
+    allow:
+      # The user's own OpenObserve instance -- shared by the REST API, the
+      # built-in MCP endpoint, and the runbooks below.
+      - "${{ kit.args.host }}"
+
+environment:
+  variables:
+    OPENOBSERVE_URL: "${{ kit.args.scheme }}://${{ kit.args.host }}:${{ kit.args.port }}/api/${{ kit.args.org }}"
+    OPENOBSERVE_MCP_URL: "${{ kit.args.scheme }}://${{ kit.args.host }}:${{ kit.args.port }}/api/${{ kit.args.org }}/mcp"
+    NO_PROXY: "localhost,127.0.0.1,host.docker.internal"
+    no_proxy: "localhost,127.0.0.1,host.docker.internal"
+
+agentInstructions:
+  content: |
+    ## OpenObserve observability tooling (built-in MCP)
+
+    This sandbox is wired to an OpenObserve instance at `$OPENOBSERVE_URL`.
+    Its MCP server is built into the OpenObserve server itself (no separate
+    process) and exposed at `$OPENOBSERVE_MCP_URL` over Streamable HTTP, per
+    the 2026-07-28 MCP transport. Through it you can run SQL/PromQL searches
+    over logs, metrics, and traces, list streams, and inspect incidents.
+
+    No credential lives in the sandbox: it is stored on the host as the
+    `openobserve` secret, and the sbx proxy overwrites the `Authorization`
+    header with the real Basic-auth token on outbound requests to the
+    configured host. If MCP calls fail with auth errors, check that the
+    secret is stored (`sbx secret ls`) and that `openobserve.host`/`.scheme`
+    point at a reachable instance.
+
+    For quick scripting without the MCP server, `~/runbooks/search.py` runs a
+    SQL query directly against the `_search` API:
+    `python3 ~/runbooks/search.py 'SELECT * FROM default LIMIT 10'`
+
+setup:
+  install:
+    - command: "pip install --break-system-packages 'requests>=2.31,<3'"
+      user: "1000"
+      description: "Install the requests library used by the search runbook"
+  startup:
+    # Best-effort: register the built-in MCP endpoint with the Claude agent.
+    # The Authorization value is a placeholder; the proxy overwrites it on
+    # the wire with the real Basic token for the configured host. Guarded and
+    # `|| true` so it is a no-op on other agents and never fails startup.
+    # Agents that read an mcpServers block can import ~/.openobserve/mcp.json
+    # instead.
+    - command: ["sh", "-c", "command -v claude >/dev/null 2>&1 && claude mcp add --transport http openobserve \"$OPENOBSERVE_MCP_URL\" --header \"Authorization: Basic inject-me\" >/dev/null 2>&1 || true"]
+      user: "1000"
+      description: "Register the OpenObserve MCP endpoint with the Claude agent (best-effort; no-op elsewhere)"
+  files:
+    - path: /home/agent/.openobserve/mcp.json
+      mode: "0644"
+      onlyIfMissing: true
+      description: "Portable MCP server definition for any agent that reads an mcpServers block. The Authorization value is a placeholder the proxy overwrites on the wire."
+      content: |
+        {
+          "mcpServers": {
+            "openobserve": {
+              "type": "http",
+              "url": "${{ kit.args.scheme }}://${{ kit.args.host }}:${{ kit.args.port }}/api/${{ kit.args.org }}/mcp",
+              "headers": {
+                "Authorization": "Basic inject-me"
+              }
+            }
+          }
+        }
+    - path: /home/agent/runbooks/search.py
+      mode: "0755"
+      description: "Minimal SQL-search runbook against OpenObserve's _search API, using the same proxy-injected Basic auth as the MCP endpoint."
+      content: |
+        #!/usr/bin/env python3
+        """Run a SQL query against OpenObserve's _search API.
+
+        Usage: search.py 'SELECT * FROM default LIMIT 10' [stream_type]
+        """
+        import os
+        import sys
+        import json
+        import requests
+
+        def main() -> int:
+            if len(sys.argv) < 2:
+                print(__doc__)
+                return 1
+            sql = sys.argv[1]
+            stream_type = sys.argv[2] if len(sys.argv) > 2 else "logs"
+            base_url = os.environ["OPENOBSERVE_URL"]
+            resp = requests.post(
+                f"{base_url}/_search",
+                params={"type": stream_type},
+                json={"query": {"sql": sql, "start_time": 0, "end_time": 0}},
+                headers={"Authorization": "Basic inject-me"},
+                timeout=30,
+            )
+            resp.raise_for_status()
+            print(json.dumps(resp.json(), indent=2))
+            return 0
+
+        if __name__ == "__main__":
+            raise SystemExit(main())
