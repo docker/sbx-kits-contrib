@@ -266,3 +266,11 @@ capabilities:
         (`git@${{ kit.args.host }}:group/project.git`) — add the `gitlab-ssh`
         kit for passwordless host-key verification, and load your key with
         `ssh-add` on the host so it forwards into the sandbox.
+
+  # A v3 kit set receives the host's git user.name and user.email only when a
+  # kit requests them. Without one, commits in the sandbox have no configured
+  # author.
+  # Optional so that a host with no git identity configured still starts.
+  - type: com.docker.sandbox/git-identity@1
+    optional: true
+
