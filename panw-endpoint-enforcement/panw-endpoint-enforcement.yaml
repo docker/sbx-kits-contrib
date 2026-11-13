@@ -1,0 +1,56 @@
+# syntax=docker/sandbox-kit:3
+#
+# Docker Sandboxes kit: PANW endpoint enforcement marker (v3).
+# Usage and design notes: see README.md in this directory.
+#
+# This is a MIXIN: it carries no ENTRYPOINT and does not launch an agent. It
+# layers onto any base agent workload; the marker it sets up lets a host-side
+# endpoint security policy engine permit sandbox-wrapped agent processes while
+# denying any agent process that spawns outside a sandbox.
+#
+# The kit reaches no network and holds no secret, so it declares neither a
+# network-policy nor a credential capability. Its whole footprint is two env
+# vars and one on-disk marker file, both carried as overlay content in
+# panw-endpoint-enforcement.dockerfile.
+schemaVersion: "3"
+kind: mixin
+displayName: PANW Endpoint Enforcement Marker
+description: >-
+  Marks agent processes as running inside a sandbox so a host-side endpoint
+  security policy engine can permit sandbox-wrapped agents while denying any
+  agent process that spawns outside a sandbox.
+version: "0.1.0"
+sourceUrl: https://github.com/docker/sbx-kits-contrib
+licenses: [Apache-2.0]
+
+# markerId is a build-time identity baked into both the env marker and the
+# on-disk marker file, so it is a buildArg: it resolves at build and expands
+# into the recipe (which bakes it into the overlay). Overriding it with
+# --kit-arg rebuilds the source kit with the new value, which is correct for an
+# identity the host endpoint policy keys on.
+args:
+  markerId:
+    default: "sandbox-wrapped"
+    description: "Identity string the host endpoint policy keys on to allow this process."
+    pattern: '^[a-z0-9]([a-z0-9-]{0,62}[a-z0-9])?$'
+    buildArg: MARKER_ID
+
+capabilities:
+  # Agent instructions. A mixin carries contentFile only - it does not own the
+  # environment profile (filename:/directory: belong to the workload that owns
+  # the environment), so no filename: here. The body interpolates no args, so a
+  # staged contentFile is correct.
+  - type: com.docker.sandbox/agent-context@1
+    config:
+      contentFile: ./panw-endpoint-enforcement-context.md
+
+# MIGRATION NOTE: v2 declared environment.variables (SANDBOX_ENFORCED,
+# SANDBOX_ENFORCEMENT_MARKER) and a setup.files create-time write of
+# ~/.sandbox-enforced (onlyIfMissing, mode 0444). Both are pure content needing
+# nothing from create time - markerId resolves at build - so they move into the
+# overlay recipe (ENV on the final stage, the marker file baked under
+# /home/agent). This drops the per-sandbox-create file write and gives the
+# mixin real, digest-pinned content. The one behavior delta: a baked file
+# always lands at that path, where v2's onlyIfMissing would have preserved a
+# pre-existing marker file on the base. A marker file should always be present,
+# so this is a safe - arguably better - change.
