@@ -1,0 +1,145 @@
+# Docker Sandboxes kit: wire an agent to an n8n instance's public REST API
+# (self-hosted or n8n Cloud) via proxy-injected credentials -- list, create,
+# and trigger workflows. Usage/design notes: see README.md.
+schemaVersion: "2"
+kind: mixin
+name: n8n
+version: "1.0.0"
+displayName: n8n
+description: "Wires an agent to an n8n instance (self-hosted or n8n Cloud) via its public REST API -- list, inspect, create, and trigger workflows, read executions. Nothing beyond a Python client library is installed; the kit holds no credential, and the sbx proxy injects it as the X-N8N-API-KEY header on requests to your instance. Defaults to a local instance at host.docker.internal:5678."
+
+licenses:
+  - Apache-2.0
+
+# n8n is commonly self-hosted (including on the dev's own machine, reachable
+# from the sandbox at host.docker.internal), so unlike a fixed SaaS host this
+# needs a host, port, and scheme the kit can't assume. Defaults target a
+# local instance started with n8n's own quickstart one-liner, so the kit is
+# useful out of the box for local dev; override for n8n Cloud or a remote
+# self-hosted instance:
+#   sbx run --kit docker.io/sbx/n8n-kit:latest \
+#     --kit-arg n8n.host=myorg.app.n8n.cloud \
+#     --kit-arg n8n.scheme=https \
+#     --kit-arg n8n.port=443 claude
+args:
+  host:
+    default: "host.docker.internal"
+    description: >-
+      Your n8n instance hostname -- no scheme, no port, no path. Defaults to
+      the Docker Desktop/Engine host gateway, for the common local-dev case.
+      For n8n Cloud or a remote self-hosted instance, set this to that host.
+    pattern: '^[A-Za-z0-9][A-Za-z0-9.-]*$'
+  port:
+    default: "5678"
+    description: >-
+      Port for the instance in n8n.host. Defaults to n8n's stock port for the
+      local-instance default; set to 443 for n8n Cloud or any TLS-terminated
+      self-hosted instance on its default port.
+    pattern: '^[0-9]{1,5}$'
+  scheme:
+    default: "http"
+    description: >-
+      URL scheme for the instance in n8n.host. Defaults to http for the
+      local-instance default; set to https for n8n Cloud or any
+      TLS-terminated self-hosted instance.
+    pattern: '^https?$'
+
+credentials:
+  - service: n8n
+    description: >-
+      n8n API key, created under the instance's own Settings -> API page.
+      Sent as the X-N8N-API-KEY header to the configured host. Stored on
+      the host; the sandbox only ever sees a placeholder.
+    required: true
+    apiKey:
+      name: N8N_API_KEY
+      proxyManaged: true
+      inject:
+        - domain: "${{ kit.args.host }}"
+          header: X-N8N-API-KEY
+          format: "%s"
+
+permissions:
+  network:
+    allow:
+      # pip install path for the requests library used by the runbook.
+      - pypi.org
+      - files.pythonhosted.org
+      # The user's own n8n instance.
+      - "${{ kit.args.host }}"
+
+environment:
+  variables:
+    N8N_API_URL: "${{ kit.args.scheme }}://${{ kit.args.host }}:${{ kit.args.port }}/api/v1"
+    NO_PROXY: "localhost,127.0.0.1,host.docker.internal"
+    no_proxy: "localhost,127.0.0.1,host.docker.internal"
+
+agentInstructions:
+  content: |
+    ## n8n workflow automation
+
+    This sandbox is wired to an n8n instance at `$N8N_API_URL` (n8n's public
+    REST API, version 1): list, inspect, create, and trigger workflows; read
+    execution history. `$N8N_API_KEY` is a proxy-managed placeholder -- the
+    sbx proxy injects the real key on the `X-N8N-API-KEY` header for outbound
+    requests to the configured host.
+
+    `~/runbooks/workflows.py` lists workflows or triggers one by ID, using
+    the same proxy-injected auth:
+
+        python3 ~/runbooks/workflows.py list
+        python3 ~/runbooks/workflows.py trigger <workflow_id>
+
+    If calls fail with auth errors, check that the secret is stored
+    (`sbx secret ls`) and that `n8n.host`/`.scheme`/`.port` point at a
+    reachable instance. The REST API needs n8n's `N8N_PUBLIC_API_DISABLED`
+    setting left at its default (enabled) on the instance itself.
+
+setup:
+  install:
+    - command: "pip install --break-system-packages 'requests>=2.31,<3'"
+      user: "1000"
+      description: "Install the requests library used by the workflows runbook"
+  files:
+    - path: /home/agent/runbooks/workflows.py
+      mode: "0755"
+      description: "List or trigger n8n workflows via the public REST API, using the same proxy-injected auth."
+      content: |
+        #!/usr/bin/env python3
+        """List or trigger n8n workflows via the public REST API.
+
+        Usage:
+          workflows.py list
+          workflows.py trigger <workflow_id>
+        """
+        import os
+        import sys
+        import json
+        import requests
+
+        def main() -> int:
+            if len(sys.argv) < 2:
+                print(__doc__)
+                return 1
+            base_url = os.environ["N8N_API_URL"]
+            headers = {"X-N8N-API-KEY": "inject-me"}
+
+            if sys.argv[1] == "list":
+                resp = requests.get(f"{base_url}/workflows", headers=headers, timeout=30)
+            elif sys.argv[1] == "trigger" and len(sys.argv) > 2:
+                workflow_id = sys.argv[2]
+                resp = requests.post(
+                    f"{base_url}/workflows/{workflow_id}/activate",
+                    headers=headers,
+                    timeout=30,
+                )
+            else:
+                print(__doc__)
+                return 1
+
+            resp.raise_for_status()
+            print(json.dumps(resp.json(), indent=2))
+            return 0
+
+        if __name__ == "__main__":
+            raise SystemExit(main())
