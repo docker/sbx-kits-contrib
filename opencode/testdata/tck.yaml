@@ -59,3 +59,50 @@ mcp:
     - httpUrl
     - http_headers
     - command
+
+# The OAuth import hook in spec.yaml converts the sentinel-backed records that
+# sandbox OAuth bindings write to auth.json into OpenCode v2's credential
+# store. Every way it can fail exits 0 and the dispatcher logs `ok`, so this
+# runs it and reads the store back.
+#
+# The seed hook runs first on each start, as the dispatcher orders them: it is
+# what writes the github-copilot record from GH_TOKEN. Setup adds an openai
+# record, so one start reconciles both integrations; with only one, a loop that
+# drops every row after the first still passes.
+#
+# OpenCode migrates auth.json into its store on its own the first time any
+# `opencode auth` command runs, labelling each record "OAuth". The hook has to
+# replace those with its managed records rather than import alongside them,
+# which is what the one-credential-per-integration check asserts. The default
+# two starts cover the replay.
+startupCommands:
+  - name: oauth_import
+    commands:
+      - Seed OpenCode's GitHub Copilot provider from the GH_TOKEN sentinel
+      - Import sandbox OAuth credentials into OpenCode v2
+    env:
+      GH_TOKEN: ghu_tck_sentinel
+    setup: |
+      set -e
+      auth="$HOME/.local/share/opencode/auth.json"
+      mkdir -p "$(dirname "$auth")"
+      printf '%s\n' '{"openai":{"type":"oauth","access":"oai-oat01-proxy-managed","refresh":"oai-ort01-proxy-managed","expires":0,"accountId":"acct_tck"}}' > "$auth"
+    checks:
+      - name: both sandbox bindings are imported under their managed IDs
+        run: |
+          opencode auth export --standalone | jq -e '
+            [.[] | .id] | (index("sbx-openai") != null) and (index("sbx-github-copilot") != null)'
+      - name: each integration holds exactly one credential, the active sandbox one
+        run: |
+          opencode auth export --standalone | jq -e '
+            [.[] | select(.integrationID == "openai" or .integrationID == "github-copilot")]
+            | group_by(.integrationID)
+            | length == 2 and all(.[]; length == 1 and .[0].active and (.[0].id | startswith("sbx-")))'
+      - name: imported credentials carry the sentinels and account metadata
+        run: |
+          opencode auth export --standalone | jq -e '
+            (.[] | select(.id == "sbx-openai") | .value
+              | .access == "oai-oat01-proxy-managed" and .refresh == "oai-ort01-proxy-managed"
+                and .methodID == "chatgpt-browser" and .metadata.accountID == "acct_tck")
+            and (.[] | select(.id == "sbx-github-copilot") | .value
+              | .access == "ghu_tck_sentinel" and .refresh == "ghu_tck_sentinel" and .methodID == "device")'

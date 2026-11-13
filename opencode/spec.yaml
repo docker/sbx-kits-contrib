@@ -417,6 +417,10 @@ setup:
         - -c
         - |
           set -e
+          # The startup dispatcher does not inherit the image's ENV PATH, and the
+          # v2 installer puts the binary under the agent's home rather than a
+          # system bin directory.
+          export PATH="$HOME/.opencode/bin:$PATH"
           auth="$HOME/.local/share/opencode/auth.json"
           mkdir -p "$(dirname "$auth")"
           exec 9>>"$(dirname "$auth")/.credentials-sync.lock"
@@ -448,7 +452,7 @@ setup:
                      then {metadata: ({} + (if ($credential.accountId | type) == "string" then {accountID: $credential.accountId} else {} end)
                                            + (if ($credential.enterpriseUrl | type) == "string" then {enterpriseUrl: $credential.enterpriseUrl} else {} end))}
                      else {} end))
-              else empty end;
+              } else empty end;
             [oauth("openai"; "sbx-openai"; "chatgpt-browser"; "Sandbox OpenAI"; "oai-oat01-proxy-managed"; "oai-ort01-proxy-managed"), oauth("github-copilot"; "sbx-github-copilot"; "device"; "Sandbox GitHub Copilot"; $github_token; $github_token)]' "$auth"); then
               echo "auth.json is not valid OpenCode OAuth data; leaving v2 credentials unchanged" >&2
               exit 0
@@ -481,9 +485,12 @@ setup:
             echo "unable to save managed OpenCode credentials for rollback" >&2
             exit 0
           fi
+          # Every opencode call inside a `| while read` loop takes </dev/null: the CLI
+          # reads stdin, so without it the first call swallows the remaining rows
+          # and every later integration is silently skipped.
           printf '%s\n' "$sync" | jq -r '.[] | .integrationID as $integration | .remove[]? | [$integration, .] | @tsv' |
             while IFS="$(printf '\t')" read -r integration id; do
-              opencode auth logout "$integration" "$id" --standalone >/dev/null 2>&1 || true
+              opencode auth logout "$integration" "$id" --standalone </dev/null >/dev/null 2>&1 || true
             done
           if [ "$credentials" != "[]" ] && ! printf '%s\n' "$credentials" | opencode auth import --standalone >/dev/null; then
             echo "unable to import sandbox OAuth credentials into OpenCode v2" >&2
@@ -493,7 +500,7 @@ setup:
             fi
             if ! printf '%s\n' "$sync" | jq -r '.[] | select(.previousActiveID != null) | [.integrationID, .previousActiveID] | @tsv' |
               while IFS="$(printf '\t')" read -r integration id; do
-                opencode auth switch "$integration" "$id" --standalone >/dev/null
+                opencode auth switch "$integration" "$id" --standalone </dev/null >/dev/null
               done; then
               echo "unable to restore the managed OpenCode credential selection after failed import" >&2
               exit 1
@@ -503,7 +510,7 @@ setup:
           fi
           printf '%s\n' "$sync" | jq -r '.[] | select(.activate) | [.integrationID, .id] | @tsv' |
             while IFS="$(printf '\t')" read -r integration id; do
-              opencode auth switch "$integration" "$id" --standalone >/dev/null
+              opencode auth switch "$integration" "$id" --standalone </dev/null >/dev/null
             done
       user: "agent"
       description: Import sandbox OAuth credentials into OpenCode v2
