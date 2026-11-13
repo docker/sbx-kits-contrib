@@ -1,0 +1,117 @@
+# syntax=docker/sandbox-kit:3
+#
+# Docker Sandboxes kit for GitGuardian ggshield secret scanning (v3).
+# Usage, prerequisites and design notes: see README.md in this directory.
+#
+# This is a MIXIN: it carries no ENTRYPOINT and does not launch an agent. It
+# layers onto a `claude` workload; the agent (and the user, from the shell) run
+# ggshield. ggshield itself ships in gitguardian.dockerfile as an overlay layer
+# (a pinned, digest-verified release tarball); the AI-hook wiring stays a
+# create-time lifecycle hook because it MERGES into the agent's own
+# ~/.claude/settings.json, and a layer replaces a file rather than merging it.
+schemaVersion: "3"
+kind: mixin
+displayName: GitGuardian (ggshield)
+description: Installs the GitGuardian CLI (ggshield) with proxy-injected API-key auth for api.gitguardian.com and wires it as a Claude Code AI hook, so the agent's actions are scanned for hardcoded secrets automatically - the real key never enters the sandbox.
+version: "0.1.0"
+sourceUrl: https://github.com/docker/sbx-kits-contrib
+licenses: [Apache-2.0]
+
+# ggshield's AI hook is agent-specific: it writes Claude Code's own hook file
+# (~/.claude/settings.json) and the agent instructions describe Claude Code, so
+# layering this onto a codex or copilot sandbox would produce a
+# valid-but-nonsensical result. The affinity turns that into a composition error
+# instead. Codex/Copilot/Cursor variants are separate kits.
+requires: ["claude"]
+
+# ggshield ships at a pinned version (see gitguardian.dockerfile). The provide
+# is versioned and the build asserts the installed version matches it, so this
+# is a claim about content rather than a borrowed number. Bump this in lockstep
+# with GGSHIELD_VERSION and the per-arch SHA256 values in the recipe.
+provides: ["ggshield@1.53.0"]
+
+capabilities:
+  # Every destination the kit needs at RUNTIME. The install-phase hosts the v2
+  # kit listed (github.com, objects.githubusercontent.com,
+  # release-assets.githubusercontent.com) are GONE from here: the ggshield
+  # download moved into the recipe's build stage, which BuildKit networks at
+  # build time, so there is no install-phase grant left to make.
+  #
+  # MIGRATION NOTE: v2 listed hosts portless; kept portless here to match
+  # exactly. A portless pattern matches any port. The inject domain below is an
+  # exact-host match against this list.
+  #
+  # Runtime: ggshield's scan/verify calls hit the GitGuardian public API. EU
+  # workspace / self-hosted instances use a different host - add your
+  # GITGUARDIAN_INSTANCE domain here and to the credential inject block.
+  - type: com.docker.sandbox/network-policy@1
+    config:
+      runtime:
+        allow:
+          - api.gitguardian.com
+
+  # GitGuardian API key. v2 declared this required: true, which is also the v3
+  # default, so no `optional:` here. The real value is held on the host; the
+  # sandbox sees only a placeholder and the proxy rewrites the Authorization
+  # header with the real key on outbound api.gitguardian.com requests.
+  #
+  # phase: runtime - the credential exists for ggshield's scan/verify calls, not
+  # for any install-time download (the download is pinned+digest-verified and
+  # needs no auth).
+  - type: com.docker.sandbox/credential@1
+    description: GitGuardian API key (from a Personal or Service Account, "scan" scope). Stored on the host; the sandbox only sees a placeholder and the proxy injects the real value on requests to api.gitguardian.com.
+    config:
+      service: gitguardian
+      phase: runtime
+      apiKey:
+        # ggshield reads GITGUARDIAN_API_KEY. On the wire, the proxy rewrites the
+        # Authorization header with the real key on outbound api.gitguardian.com
+        # calls. GitGuardian's API auth scheme is "Authorization: Token <key>",
+        # not Bearer.
+        name: GITGUARDIAN_API_KEY
+        inject:
+          - domain: api.gitguardian.com
+            header: Authorization
+            format: "Token %s"
+
+  # Install ggshield as the Claude Code AI hook. This STAYS a create-time hook
+  # (rather than becoming a layer like the ggshield binary itself) because
+  # `ggshield machine setup` merges handlers into the agent's own
+  # ~/.claude/settings.json - a file the composed claude base also writes - and
+  # an overlay layer would REPLACE that file rather than merge into it.
+  #
+  # Unlike a git pre-commit hook, the AI hook fires inside the agent's own tool
+  # loop and scans the content the agent produces - putting the secret scan
+  # directly on the agent's authorized output path, which is exactly the surface
+  # this sandbox exists to protect.
+  #
+  # `machine setup` is the current, non-deprecated entrypoint. We scope it to the
+  # AI hook only: --no-git-hooks (the kit deliberately does not gate git) and
+  # --no-honeytokens (the scan-scoped token can't plant one, and a honeytoken
+  # isn't this kit's job). It is idempotent. ggshield's own agent id for Claude
+  # Code is `claude-code`; the kit's agent affinity above is `claude`.
+  #
+  # MUST run as the agent user (uid 1000), NOT root: root would write the hook
+  # under /root where the agent (HOME=/home/agent) never reads it.
+  #
+  # env: GITGUARDIAN_API_KEY - hook environments are deny-by-default, and
+  # ggshield refuses to run when GITGUARDIAN_API_KEY is unset. The recipe sets it
+  # to the proxy-managed sentinel via ENV; declaring it here lets the hook see it.
+  - type: com.docker.sandbox/lifecycle@1
+    config:
+      install:
+        - command: |
+            set -eu
+            ggshield machine setup --agent claude-code --no-git-hooks --no-honeytokens
+            echo "ggshield AI hook installed (~/.claude/settings.json)"
+          user: "1000"
+          env: [GITGUARDIAN_API_KEY]
+          description: Install ggshield as a Claude Code AI hook (agent user)
+
+  # Agent instructions. A mixin carries contentFile only - it does not own the
+  # environment profile (filename:/directory: belong to the claude workload), so
+  # declaring `filename:` here would be wrong. The body interpolates no args, so
+  # a staged contentFile is correct.
+  - type: com.docker.sandbox/agent-context@1
+    config:
+      contentFile: ./gitguardian-context.md

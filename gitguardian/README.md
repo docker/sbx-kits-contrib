@@ -6,6 +6,8 @@ A mixin kit that installs [GitGuardian](https://www.gitguardian.com/)'s [`ggshie
 
 This kit is **Claude Code-specific**: ggshield's AI hook writes Claude Code's own hook file (`~/.claude/settings.json`), so the kit declares `requires: agent: claude` and the engine rejects composing it onto another agent. Codex, Copilot, and Cursor are served by separate sibling kits.
 
+> **Kit format.** This directory ships both schemas. `spec.yaml` is the v2 descriptor; `gitguardian.yaml` (plus `gitguardian.dockerfile` and `gitguardian-context.md`) is the Kits v3 descriptor. In v3, ggshield is baked as an overlay layer rather than downloaded by an install hook, which drops the install-phase network grant entirely (`github.com` and the object stores) — the sandbox opens the network only at runtime, for `api.gitguardian.com`. The AI-hook wiring stays a create-time hook because it merges into the agent's own `~/.claude/settings.json`.
+
 ## Usage
 
 Store a GitGuardian API key once on the host (a Personal or Service Account key with the `scan` scope):
