@@ -27,21 +27,30 @@ version: "${{ kit.args.version }}"
 # resolves at build. Nothing in the container reads a MISE_VERSION, and mise
 # itself would misread one if it did.
 #
-# An installer may override it, but not silently: the per-arch SHA256s in the
-# recipe are pinned to this release, so another version fails the digest check
-# rather than installing under a descriptor that goes on claiming this number.
-# Bumping mise is therefore a three-part edit — this default and both digests
-# in mise.dockerfile, together — with the checksums from the release's
-# SHASUMS256.txt.
+# Source builds can override the version and per-architecture checksums
+# together. A version override without matching checksums fails verification.
+# Published kits have already been built and cannot accept these build args.
+# For a release bump, update all three defaults here using the release's
+# SHASUMS256.txt; see the README for sourcing and override guidance.
 args:
   version:
-    default: "2026.5.2"
+    default: "2026.11.0"
     # mise versions are CalVer, but the shape is the same three dotted numeric
     # segments, and every value this accepts is a legal provide version under
     # SPEC-v3 §5.2. No leading `v`, which the release URL adds for itself.
     pattern: '^[0-9]+\.[0-9]+\.[0-9]+$'
     description: mise release to install
     buildArg: MISE_VERSION
+  sha256_amd64:
+    default: "cf48795ee2cb3f8822ba0ed4b45d729b791fe0c984baf6080ebb7b0c1ba23119"
+    pattern: '^[0-9a-f]{64}$'
+    description: SHA256 of mise-v<version>-linux-x64.tar.gz, from that release's SHASUMS256.txt
+    buildArg: MISE_SHA256_AMD64
+  sha256_arm64:
+    default: "92f90c094b6eab2dcdbc46f2b977a78bba82a9311fe0c592c17e403a8d0ec621"
+    pattern: '^[0-9a-f]{64}$'
+    description: SHA256 of mise-v<version>-linux-arm64.tar.gz, from that release's SHASUMS256.txt
+    buildArg: MISE_SHA256_ARM64
 
 # MIGRATION NOTE: the provide was the literal `mise@2026.5.2` and now reads the
 # arg, so the version is not repeated in two places that could drift. The claim

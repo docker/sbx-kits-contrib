@@ -38,22 +38,13 @@
 ARG BASE_IMAGE=docker/sandbox-templates:shell-docker
 FROM ${BASE_IMAGE} AS build
 
-# THE PIN, handed in by the frontend from the descriptor's `version` arg
-# (buildArg: MISE_VERSION), which mise.yaml also expands into `provides` and
-# into its own `version:` -- so the release is stated in exactly one place.
-#
-# No default, deliberately: the descriptor always supplies one, and an empty
-# fallback would build a nonsense URL rather than failing. The guard below
-# fails instead.
-#
-# The per-arch SHA256s stay beside it, carried over from the install hook
-# unchanged, and they are what makes an installer-supplied `version` safe: a
-# different release fails the digest check rather than installing quietly
-# under a descriptor still publishing this number. Bumping mise is the
-# three-part edit the README documents -- the arg's default in mise.yaml and
-# both digests here, together -- with the checksums from the release's
-# SHASUMS256.txt.
+# The descriptor supplies the version and per-architecture checksums as
+# build args. It also expands the version into `provides` and `version:`.
+# No recipe defaults: missing or malformed pins must fail even when this
+# Dockerfile is built directly. Update all three defaults together in mise.yaml.
 ARG MISE_VERSION
+ARG MISE_SHA256_AMD64
+ARG MISE_SHA256_ARM64
 ARG TARGETARCH
 
 USER root
@@ -85,15 +76,19 @@ RUN set -eu; \
     case "${TARGETARCH}" in \
       amd64) \
         slug="x64"; \
-        sha256=cdf616b3d8554bece574cb1a5c0f19cc0f551dffbecf66037df1cc06569a42ef ;; \
+        sha256="${MISE_SHA256_AMD64}" ;; \
       arm64) \
         slug="arm64"; \
-        sha256=a746ad85fe8a7b62a6c72939da5fb4231074fd16c482f6334a598bd92926f41e ;; \
+        sha256="${MISE_SHA256_ARM64}" ;; \
       *) echo "unsupported TARGETARCH: ${TARGETARCH} (expected amd64 or arm64)" >&2; exit 1 ;; \
     esac; \
+    case "${sha256}" in \
+      ""|*[!0-9a-f]*) echo "MISE_SHA256_${TARGETARCH} must be 64 lowercase hex" >&2; exit 1 ;; \
+    esac; \
+    [ "${#sha256}" -eq 64 ] || { echo "MISE_SHA256_${TARGETARCH} must be 64 lowercase hex" >&2; exit 1; }; \
     curl --proto '=https' --tlsv1.2 -fsSL -o /tmp/mise.tgz \
       "https://github.com/jdx/mise/releases/download/v${MISE_VERSION}/mise-v${MISE_VERSION}-linux-${slug}.tar.gz"; \
-    echo "${sha256}  /tmp/mise.tgz" | sha256sum -c -; \
+    printf '%s  %s\n' "${sha256}" /tmp/mise.tgz | sha256sum --strict -c -; \
     tar -C /tmp -xzf /tmp/mise.tgz mise/bin/mise; \
     mkdir -p /out/usr/local/bin; \
     install -m 0755 -o 0 -g 0 /tmp/mise/bin/mise /out/usr/local/bin/mise; \
