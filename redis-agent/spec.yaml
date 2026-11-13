@@ -1,0 +1,212 @@
+schemaVersion: "1"
+kind: mixin
+name: redis-agent
+displayName: Redis
+description: "Adds a local Redis instance to any sandbox agent. Redis runs inside the sandbox via Docker-in-Docker and is ready on localhost:6379. Includes redis-py in an isolated Python venv with a cache.py helper covering the patterns AI agents use most: key-value caching, pub/sub messaging, and task queues."
+
+network:
+  allowedDomains:
+    - registry-1.docker.io
+    - auth.docker.io
+    - production.cloudflare.docker.com
+    - index.docker.io
+    - pypi.org
+    - files.pythonhosted.org
+    - pythonhosted.org
+    - archive.ubuntu.com
+    - security.ubuntu.com
+    - ports.ubuntu.com
+    - download.docker.com
+
+environment:
+  variables:
+    REDIS_URL: "redis://localhost:6379"
+    REDIS_HOST: "localhost"
+    REDIS_PORT: "6379"
+
+commands:
+  install:
+    - command: |
+        set -euo pipefail
+        apt-get update && apt-get install -y --no-install-recommends \
+          python3 python3-pip python3-venv ca-certificates && \
+        rm -rf /var/lib/apt/lists/*
+      user: "0"
+      description: "Install Python and system dependencies"
+    - command: |
+        set -euo pipefail
+        python3 -m venv /opt/redis-agent
+        /opt/redis-agent/bin/pip install --upgrade pip
+        /opt/redis-agent/bin/pip install "redis[hiredis]"
+        # Put the venv on PATH for every shell context. The sandbox's persistent env
+        # file is sourced non-interactively (via BASH_ENV) as well as for login and
+        # interactive shells, so agents — which run bash non-interactively — also get
+        # `python`/`pip` from the venv and can `from cache import ...` out of the box.
+        # profile.d is kept as a belt-and-suspenders fallback for login shells.
+        echo 'export PATH=/opt/redis-agent/bin:$PATH' >> /etc/sandbox-persistent.sh
+        echo 'export PATH=/opt/redis-agent/bin:$PATH' >> /etc/profile.d/redis-agent.sh
+      user: "0"
+      description: "Install redis-py with hiredis in isolated venv at /opt/redis-agent"
+
+  startup:
+    - command:
+        - bash
+        - -c
+        - |
+          set -euo pipefail
+          echo "Starting Redis..."
+          docker run -d \
+            --name redis \
+            --restart unless-stopped \
+            -p 6379:6379 \
+            redis:7-alpine
+          echo "Waiting for Redis to accept connections..."
+          for i in $(seq 1 30); do
+            docker exec redis redis-cli ping 2>/dev/null | grep -q PONG && break
+            sleep 1
+          done
+          echo "Redis ready at localhost:6379"
+      description: "Pull and start redis:7-alpine"
+      background: false
+
+  initFiles:
+    - path: /home/agent/workspace/cache.py
+      content: |
+        """
+        Redis helper for sandbox agents.
+        Connects to Redis at REDIS_URL (default: redis://localhost:6379).
+        """
+        import os
+        import json
+        import redis
+
+        _client = None
+
+
+        def client() -> redis.Redis:
+            global _client
+            if _client is None:
+                _client = redis.from_url(
+                    os.getenv("REDIS_URL", "redis://localhost:6379"),
+                    decode_responses=True,
+                )
+            return _client
+
+
+        # ── Key-value cache ───────────────────────────────────────────────────────
+
+        def set(key: str, value, ttl: int = None) -> None:
+            """Store a value. Pass ttl (seconds) to auto-expire."""
+            v = json.dumps(value) if not isinstance(value, str) else value
+            client().set(key, v, ex=ttl)
+
+
+        def get(key: str, default=None):
+            """Retrieve a value. Returns default if the key does not exist."""
+            v = client().get(key)
+            if v is None:
+                return default
+            try:
+                return json.loads(v)
+            except (json.JSONDecodeError, TypeError):
+                return v
+
+
+        def delete(*keys: str) -> int:
+            """Delete one or more keys. Returns the number of keys removed."""
+            return client().delete(*keys)
+
+
+        # ── Task queue ────────────────────────────────────────────────────────────
+
+        def enqueue(queue: str, task) -> int:
+            """Push a task onto the right end of a list queue. Returns queue length."""
+            return client().rpush(queue, json.dumps(task))
+
+
+        def dequeue(queue: str, timeout: int = 0):
+            """
+            Block until a task is available on the left end of the queue.
+            Returns the task, or None if timeout is reached.
+            timeout=0 blocks indefinitely.
+            """
+            result = client().blpop(queue, timeout=timeout)
+            if result is None:
+                return None
+            _, raw = result
+            return json.loads(raw)
+
+
+        # ── Pub/sub ───────────────────────────────────────────────────────────────
+
+        def publish(channel: str, message) -> int:
+            """Publish a message to a channel. Returns the number of subscribers."""
+            return client().publish(channel, json.dumps(message))
+
+
+        def subscribe(channel: str):
+            """
+            Return a pubsub object subscribed to channel.
+            Iterate with: for msg in ps.listen(): ...
+            """
+            ps = client().pubsub(ignore_subscribe_messages=True)
+            ps.subscribe(channel)
+            return ps
+
+
+        def listen(ps):
+            """
+            Iterate over messages from a pubsub object, decoding JSON automatically.
+            Usage: for msg in listen(subscribe('channel')): print(msg)
+            """
+            for msg in ps.listen():
+                try:
+                    yield json.loads(msg["data"])
+                except (json.JSONDecodeError, TypeError):
+                    yield msg["data"]
+
+    - path: /home/agent/workspace/REDIS.md
+      content: |
+        # Redis Agent Sandbox
+
+        Redis 7 is running at localhost:6379 (no authentication).
+        Import the cache helper:
+
+            from cache import set, get, delete, enqueue, dequeue, publish, subscribe
+
+        Key-value cache (with optional TTL):
+
+            set("result:run-42", {"status": "done", "tokens": 1024}, ttl=3600)
+            value = get("result:run-42")
+            delete("result:run-42")
+
+        Task queue (producer/consumer):
+
+            # Producer agent
+            enqueue("tasks", {"type": "summarize", "doc_id": "abc123"})
+
+            # Consumer agent (blocks until task arrives)
+            task = dequeue("tasks", timeout=30)
+
+        Pub/sub (event-driven agents):
+
+            # Publisher
+            publish("agent-events", {"event": "analysis_complete", "id": "run-42"})
+
+            # Subscriber
+            from cache import subscribe, listen
+            ps = subscribe("agent-events")
+            for msg in listen(ps):
+                print(msg)  # already decoded from JSON
+
+        Direct redis-py client for advanced use:
+
+            from cache import client
+            r = client()
+            r.incr("counter")
+            r.expire("my-key", 60)
+
+        Notes:
+        - All data is local to this sandbox. Run sbx rm to delete everything.
+        - Redis data is not persisted to disk — restart clears all keys.
+        - To use an external Redis instance, set REDIS_URL before creating the sandbox.
