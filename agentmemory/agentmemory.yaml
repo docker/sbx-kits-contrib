@@ -1,0 +1,26 @@
+# syntax=docker/sandbox-kit:3
+schemaVersion: "3"
+kind: mixin
+version: "0.9.33"
+displayName: agentmemory (persistent memory)
+description: Local persistent memory for coding agents. Runs agentmemory on loopback with file-backed state and registers its MCP server for Claude Code and Codex, with no API keys, model downloads or sandbox egress.
+sourceUrl: https://github.com/rohitg00/agentmemory
+licenses:
+  - Apache-2.0
+
+provides: ["agentmemory@0.9.33"]
+
+capabilities:
+  - type: com.docker.sandbox/lifecycle@1
+    config:
+      startup:
+        - command: ["sh", "/opt/agentmemory-sbx/register-mcp.sh"]
+          user: "1000"
+          description: Register the agentmemory MCP server with the installed agent CLIs
+        - command: ["sh", "/opt/agentmemory-sbx/start.sh"]
+          user: "1000"
+          description: Start the local memory service once and wait for readiness
+
+  - type: com.docker.sandbox/agent-context@1
+    config:
+      contentFile: ./agentmemory-context.md
