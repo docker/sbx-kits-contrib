@@ -1,0 +1,229 @@
+# Docker Sandboxes kit: install LangChain + LangGraph in an isolated Python
+# venv, with proxy-mediated auth for the model providers LangChain itself
+# supports first-class (its own `init_chat_model` provider list). Usage/design
+# notes: see README.md.
+schemaVersion: "2"
+kind: mixin
+name: langchain
+version: "1.0.0"
+displayName: LangChain / LangGraph
+description: "Installs LangChain and LangGraph in an isolated Python virtual environment, so an agent can build and run graph-based LLM workflows inside the sandbox. Proxy-mediated auth for the model providers LangChain's init_chat_model supports: set any of the provider API keys on the host and the sbx proxy injects them on outbound requests to the matching provider -- no key ever lives in the sandbox."
+licenses:
+  - Apache-2.0
+
+permissions:
+  network:
+    allow:
+      # pip install path for langchain/langgraph and their dependencies.
+      - "pypi.org:443"
+      - "files.pythonhosted.org:443"
+      # `apt-get update` refreshes every configured apt source from the base
+      # template. Keep all template sources allowed for amd64 and arm64.
+      - "archive.ubuntu.com:80"
+      - "security.ubuntu.com:80"
+      - "ports.ubuntu.com:80"
+      - "download.docker.com:443"
+      # Exactly the provider hosts the credentials block below injects into.
+      # A credential's inject domain is not allowed implicitly -- see README,
+      # "How auth works" -- and e2e runs every kit under deny-all.
+      - "api.anthropic.com:443"
+      - "api.openai.com:443"
+      - "generativelanguage.googleapis.com:443"
+      - "api.mistral.ai:443"
+      - "api.groq.com:443"
+      - "api.cohere.com:443"
+      - "api.deepseek.com:443"
+      - "api.fireworks.ai:443"
+      - "openrouter.ai:443"
+
+environment:
+  variables:
+    LANGCHAIN_PYTHON: /opt/langchain/bin/python
+    LANGCHAIN_VENV: /opt/langchain
+    # LangChain/LangGraph read these directly via init_chat_model and the
+    # individual provider integration packages -- no extra config file needed.
+    # Each is set to a proxy-managed placeholder; see credentials below.
+
+credentials:
+  # One entry per provider LangChain's init_chat_model names first-class.
+  # Every env var below is a proxy-managed placeholder: the sandbox never
+  # sees the real key, only a sentinel the proxy swaps out on the wire for
+  # the matching domain. None is `required`, since a user only sets the
+  # providers they actually use -- same shape as the crush kit's credential
+  # list in this repo.
+  - service: anthropic
+    apiKey:
+      name: ANTHROPIC_API_KEY
+      proxyManaged: true
+      inject:
+        - domain: api.anthropic.com
+          header: x-api-key
+          format: "%s"
+  - service: openai
+    apiKey:
+      name: OPENAI_API_KEY
+      proxyManaged: true
+      inject:
+        - domain: api.openai.com
+          header: Authorization
+          format: "Bearer %s"
+  - service: google
+    apiKey:
+      name: GOOGLE_API_KEY
+      proxyManaged: true
+      inject:
+        - domain: generativelanguage.googleapis.com
+          header: x-goog-api-key
+          format: "%s"
+  - service: mistral
+    apiKey:
+      name: MISTRAL_API_KEY
+      proxyManaged: true
+      inject:
+        - domain: api.mistral.ai
+          header: Authorization
+          format: "Bearer %s"
+  - service: groq
+    apiKey:
+      name: GROQ_API_KEY
+      proxyManaged: true
+      inject:
+        - domain: api.groq.com
+          header: Authorization
+          format: "Bearer %s"
+  - service: cohere
+    apiKey:
+      name: COHERE_API_KEY
+      proxyManaged: true
+      inject:
+        - domain: api.cohere.com
+          header: Authorization
+          format: "Bearer %s"
+  - service: deepseek
+    apiKey:
+      name: DEEPSEEK_API_KEY
+      proxyManaged: true
+      inject:
+        - domain: api.deepseek.com
+          header: Authorization
+          format: "Bearer %s"
+  - service: fireworks
+    apiKey:
+      name: FIREWORKS_API_KEY
+      proxyManaged: true
+      inject:
+        - domain: api.fireworks.ai
+          header: Authorization
+          format: "Bearer %s"
+  - service: openrouter
+    apiKey:
+      name: OPENROUTER_API_KEY
+      proxyManaged: true
+      inject:
+        - domain: openrouter.ai
+          header: Authorization
+          format: "Bearer %s"
+
+agentInstructions:
+  content: |
+    ## LangChain / LangGraph
+
+    LangChain and LangGraph are installed in an isolated venv at
+    `$LANGCHAIN_VENV` (`langchain`, `langgraph`, plus the `langchain-<provider>`
+    integration package for every provider listed below). Run scripts with
+    `$LANGCHAIN_PYTHON` or the `langchain-python` shell alias.
+
+    Set any of these on the host and the sbx proxy injects it on outbound
+    requests to the matching provider -- no key ever lives in the sandbox:
+    `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GOOGLE_API_KEY`, `MISTRAL_API_KEY`,
+    `GROQ_API_KEY`, `COHERE_API_KEY`, `DEEPSEEK_API_KEY`, `FIREWORKS_API_KEY`,
+    `OPENROUTER_API_KEY`. These are exactly the providers LangChain's own
+    `init_chat_model("<provider>:<model>")` helper resolves by name, so a
+    script can switch providers with a one-line string change.
+
+    `~/runbooks/hello_graph.py` is a minimal two-node LangGraph app
+    (`langgraph`'s `StateGraph`) you can run or copy as a starting point:
+    `python3 ~/runbooks/hello_graph.py "your prompt here"`.
+
+setup:
+  install:
+    - command: apt-get update && apt-get install -y --no-install-recommends ca-certificates python3 python3-venv python3-pip && rm -rf /var/lib/apt/lists/*
+      user: "0"
+      description: Install Python and venv prerequisites
+    - command: |
+        set -euo pipefail
+        LANGCHAIN_VERSION=0.3.27
+        LANGGRAPH_VERSION=0.6.8
+        python3 -m venv /opt/langchain
+        /opt/langchain/bin/python -m pip install --upgrade pip setuptools wheel
+        /opt/langchain/bin/python -m pip install \
+          "langchain==${LANGCHAIN_VERSION}" \
+          "langgraph==${LANGGRAPH_VERSION}" \
+          langchain-anthropic langchain-openai langchain-google-genai \
+          langchain-mistralai langchain-groq langchain-cohere langchain-fireworks
+        cat > /usr/local/bin/langchain-python <<'SCRIPT'
+        #!/bin/sh
+        exec /opt/langchain/bin/python "$@"
+        SCRIPT
+        chmod 0755 /usr/local/bin/langchain-python
+        # importlib.metadata, not module.__version__: langgraph doesn't set
+        # the latter on its top-level package, so a direct attribute read
+        # fails even on a correct install.
+        /opt/langchain/bin/python -c 'from importlib.metadata import version; print("langchain", version("langchain")); print("langgraph", version("langgraph"))'
+      user: "0"
+      description: Install LangChain/LangGraph and provider integration packages in /opt/langchain
+    - command: |
+        set -euo pipefail
+        grep -qF 'langchain-python' ~/.bashrc 2>/dev/null || \
+          printf '\n# langchain (added by sbx-kits-contrib/langchain)\nexport LANGCHAIN_VENV=/opt/langchain\nexport LANGCHAIN_PYTHON=/opt/langchain/bin/python\nalias langchain-python=/opt/langchain/bin/python\n' >> ~/.bashrc
+      user: "1000"
+      description: Add langchain helper environment variables to interactive shells
+  files:
+    - path: /home/agent/runbooks/hello_graph.py
+      mode: "0755"
+      description: "Minimal two-node LangGraph app using init_chat_model, so a reviewer/user can smoke-test the kit end to end against whichever provider key they've set."
+      content: |
+        #!/usr/bin/env python3
+        """Minimal two-node LangGraph app.
+
+        Usage: hello_graph.py "your prompt" [provider:model]
+        Defaults to anthropic:claude-3-5-haiku-latest.
+        """
+        import sys
+        from typing import TypedDict
+
+        from langchain.chat_models import init_chat_model
+        from langgraph.graph import StateGraph, START, END
+
+
+        class State(TypedDict):
+            input: str
+            output: str
+
+
+        def main() -> int:
+            if len(sys.argv) < 2:
+                print(__doc__)
+                return 1
+            prompt = sys.argv[1]
+            model_name = sys.argv[2] if len(sys.argv) > 2 else "anthropic:claude-3-5-haiku-latest"
+
+            model = init_chat_model(model_name)
+
+            def call_model(state: State) -> State:
+                response = model.invoke(state["input"])
+                return {"output": response.content}
+
+            graph = StateGraph(State)
+            graph.add_node("call_model", call_model)
+            graph.add_edge(START, "call_model")
+            graph.add_edge("call_model", END)
+            app = graph.compile()
+
+            result = app.invoke({"input": prompt, "output": ""})
+            print(result["output"])
+            return 0
+
+
+        if __name__ == "__main__":
+            raise SystemExit(main())
