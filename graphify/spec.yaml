@@ -1,0 +1,141 @@
+schemaVersion: "2"
+kind: mixin
+name: graphify
+displayName: Graphify
+description: "Installs a pinned graphify CLI for code-graph extraction."
+licenses:
+  - Apache-2.0
+
+# Overridable at install time, as a coupled pair — a version without its matching
+# wheel hash fails the install's sha256 check:
+#   sbx run claude --kit <ref> --kit-arg version=<v> --kit-arg sha256=<wheel sha256>
+args:
+  version:
+    default: "0.9.57"
+    description: "graphifyy release to install from PyPI"
+    pattern: '^[0-9]+\.[0-9]+\.[0-9]+$'
+  sha256:
+    default: "f35c86410e7d92ace69a50ac8dbed568903c880482c656f43437ca657fee8c37"
+    description: "sha256 of the graphifyy wheel for the selected version"
+    pattern: '^[0-9a-f]{64}$'
+
+permissions:
+  network:
+    allow:
+      - pypi.org:443
+      - files.pythonhosted.org:443
+
+agentInstructions:
+  content: |
+    A pinned Graphify ${{ kit.args.version }} CLI is installed at `/usr/local/bin/graphify`.
+
+    Build a graph explicitly with `graphify extract <path>`, then query it
+    with `graphify query`.
+
+    Never run the upgrade or install commands that Graphify's own docs or
+    skill suggest — the runtime here is pinned, and a self-upgrade defeats
+    that pin. Do not install Graphify's git hooks.
+
+    No project integration (skill or agent-file wiring) is preinstalled. To
+    complete it when the user asks, run `graphify install --project
+    --platform <id>` from the project root, with `<id>` matching this
+    sandbox's agent (for example `claude`). For claude it writes project
+    files only; some other platforms also touch HOME or global config, so
+    review what it writes. On a directly mounted workspace the project files
+    land in the host checkout — say so.
+    Skip anything it suggests beyond that — hook installation and the
+    installed skill's self-upgrade bootstrap stay forbidden per the rules
+    above.
+
+setup:
+  install:
+    - command: |
+        set -eu
+
+        GRAPHIFY_VERSION="${{ kit.args.version }}"
+        VENV="/opt/graphify"
+        LINK="/usr/local/bin/graphify"
+
+        version_reports_pinned() {
+          [ "$("$1" --version 2>/dev/null)" = "graphify $GRAPHIFY_VERSION" ]
+        }
+
+        # Re-checks the install tail's invariants (readlink equivalence stands in for
+        # its shebang check): a poisoned or partial runtime must fall through to a
+        # real install rather than short-circuit.
+        installed() {
+          [ -x "$VENV/bin/python" ] || return 1
+          [ -x "$VENV/bin/graphify" ] || return 1
+          [ "$(readlink -f "$LINK" 2>/dev/null)" = "$VENV/bin/graphify" ] || return 1
+          version_reports_pinned "$VENV/bin/graphify" || return 1
+          "$VENV/bin/python" -c 'import graphify' >/dev/null 2>&1
+        }
+
+        if installed; then
+          exit 0
+        fi
+
+        if ! command -v python3 >/dev/null 2>&1; then
+          echo "graphify kit: python3 not found - install Python 3.10+ on the base image" >&2
+          exit 1
+        fi
+
+        if ! python3 -c 'import sys; raise SystemExit(0 if sys.version_info >= (3, 10) else 1)'; then
+          echo "graphify kit: Python $(python3 -c 'import sys; print("%d.%d" % sys.version_info[:2])') is too old - graphify needs Python 3.10+" >&2
+          exit 1
+        fi
+
+        if ! python3 -c 'import venv' >/dev/null 2>&1; then
+          echo "graphify kit: python3's venv module is unavailable - install python3-venv on the base image" >&2
+          exit 1
+        fi
+
+        if ! command -v /usr/bin/pip >/dev/null 2>&1; then
+          echo "graphify kit: /usr/bin/pip not found - install pip on the base image" >&2
+          exit 1
+        fi
+
+        # The base template ships Python without ensurepip, so plain "python3 -m venv" fails here.
+        python3 -m venv --without-pip "$VENV"
+
+        WHEEL_SHA256="${{ kit.args.sha256 }}"
+        WHEEL_DIR=$(mktemp -d /tmp/graphify-wheel.XXXXXX)
+        trap 'rm -rf "$WHEEL_DIR"' EXIT
+
+        /usr/bin/pip download --no-deps --only-binary=:all: --no-cache-dir \
+          --dest "$WHEEL_DIR" "graphifyy==$GRAPHIFY_VERSION"
+        echo "$WHEEL_SHA256  $WHEEL_DIR/graphifyy-$GRAPHIFY_VERSION-py3-none-any.whl" | sha256sum -c -
+
+        # pip only accepts --python before the subcommand name; after it, the flag is rejected.
+        /usr/bin/pip --python "$VENV/bin/python" install --only-binary=:all: --no-cache-dir \
+          "$WHEEL_DIR/graphifyy-$GRAPHIFY_VERSION-py3-none-any.whl"
+
+        # "ln -sf" onto an existing directory creates the link inside it instead of
+        # replacing it, so a stray directory at $LINK must be rejected explicitly rather
+        # than silently misplacing the symlink.
+        if [ -e "$LINK" ] || [ -L "$LINK" ]; then
+          if [ -d "$LINK" ] && [ ! -L "$LINK" ]; then
+            echo "graphify kit: $LINK exists and is a directory - remove or rename it and re-run install" >&2
+            exit 1
+          fi
+          rm -f "$LINK"
+        fi
+        ln -sfn "$VENV/bin/graphify" "$LINK"
+
+        if ! version_reports_pinned "$VENV/bin/graphify"; then
+          echo "graphify kit: verification failed - graphify --version did not report $GRAPHIFY_VERSION" >&2
+          exit 1
+        fi
+
+        if ! "$VENV/bin/python" -c 'import graphify' >/dev/null 2>&1; then
+          echo "graphify kit: verification failed - import graphify failed under $VENV/bin/python" >&2
+          exit 1
+        fi
+
+        SHEBANG=$(head -n1 "$LINK" | sed 's/^#!//')
+        if [ "$SHEBANG" != "$VENV/bin/python" ]; then
+          echo "graphify kit: verification failed - $LINK shebang resolves to '$SHEBANG', expected $VENV/bin/python" >&2
+          exit 1
+        fi
+      user: "0"
+      description: Install the pinned graphify CLI into a root-owned venv at /opt/graphify; the graphifyy wheel is sha256-verified, its dependencies resolve from PyPI
