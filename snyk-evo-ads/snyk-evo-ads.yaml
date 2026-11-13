@@ -1,13 +1,14 @@
 # syntax=docker/sandbox-kit:3
-# Migration of this kit's v2 spec.yaml. Deltas are marked MIGRATION NOTE inline.
+# Sandbox Kit v3. Migration deltas are marked MIGRATION NOTE inline.
 schemaVersion: "3"
 kind: mixin
 displayName: Snyk Evo ADS
-description: "Installs Snyk AgentScan, Agent Guard, and/or Snyk Studio, selected via SNYK_COMPONENTS, directly from their public release channels"
-sourceUrl: https://github.com/docker/sbx-kits-contrib/tree/main/snyk-evo-ads
+description: "Installs Snyk Agent Scan, Agent Guard, and/or Snyk Studio, selected via SNYK_COMPONENTS, directly from their public release channels"
+sourceUrl: https://github.com/docker/sbx-kits-contrib/tree/v3/snyk-evo-ads
 licenses:
   - Apache-2.0
-version: "1.0.0"
+version: "1.1.0"
+iconUrl: https://raw.githubusercontent.com/snyk/evo-ads-sbx-kit/main/icon.png
 
 # Agent-agnostic: there is no agent requirement. Guard installs hooks for
 # whichever of claude/cursor/codex is present and skips the rest.
@@ -52,9 +53,33 @@ capabilities:
 
         - description: "Install corporate root CA certificate(s) into the system trust store"
           user: "0"
+          env: [SNYK_CORP_CA_PEM]
           command: |
             set -e
             found=0
+            # Like SNYK_COMPONENTS, this is supplied by sbx run -e at creation.
+            # update-ca-certificates expects one PEM certificate per .crt file.
+            if [ -n "${SNYK_CORP_CA_PEM:-}" ]; then
+              found=$(printf '%s\n' "$SNYK_CORP_CA_PEM" | awk '
+                { sub(/\r$/, "") }
+                /^-----BEGIN CERTIFICATE-----$/ {
+                  if (active) exit 1
+                  active=1; n++
+                  file="/usr/local/share/ca-certificates/corp-ca-env" (n == 1 ? "" : "-" n) ".crt"
+                }
+                active { print > file }
+                /^-----END CERTIFICATE-----$/ { close(file); active=0 }
+                END { if (active || n == 0) exit 1; print n }
+              ') || { echo "corp-ca: ERROR SNYK_CORP_CA_PEM must contain complete PEM certificates" >&2; exit 1; }
+              i=1
+              while [ "$i" -le "$found" ]; do
+                name=corp-ca-env
+                [ "$i" = 1 ] || name="$name-$i"
+                chmod 0644 "/usr/local/share/ca-certificates/$name.crt"
+                echo "corp-ca: staged $name.crt"
+                i=$((i + 1))
+              done
+            fi
             for src in /home/agent/corp-ca/*.crt; do
               [ -e "$src" ] || continue
               install -m 0644 "$src" "/usr/local/share/ca-certificates/$(basename "$src")"
@@ -66,7 +91,7 @@ capabilities:
               echo "corp-ca: continuing without a corporate root CA. If outbound TLS is" >&2
               echo "corp-ca: intercepted, the Snyk downloads below will fail with curl" >&2
               echo "corp-ca: exit 60/77 — that is your signal to ship the cert at" >&2
-              echo "corp-ca: files/home/corp-ca/<name>.crt (PEM content, .crt extension)." >&2
+              echo "corp-ca: SNYK_CORP_CA_PEM or files/home/corp-ca/<name>.crt (PEM content)." >&2
               exit 0
             fi
             command -v update-ca-certificates >/dev/null 2>&1 || {
@@ -101,10 +126,10 @@ capabilities:
             eval "$COMPONENTS_OUTPUT"
             echo "snyk-ads: components scan=$scan guard=$guard studio=$studio (auth_mode=$auth_mode)"
             if [ "$auth_mode" = none ]; then
-              echo "snyk-ads: no SNYK_TOKEN or SNYK_ADS_PUSH_KEY supplied; binaries install, but scan/guard hooks stay inactive until a credential is set and the sandbox is recreated."
+              echo "snyk-ads: no SNYK_TOKEN or SNYK_ADS_PUSH_KEY supplied; binaries install, but Agent Scan/Agent Guard hooks stay inactive until a credential is set and the sandbox is recreated."
             fi
 
-        - description: "Install AgentScan and/or Guard"
+        - description: "Install Agent Scan and/or Agent Guard"
           user: "1000"
           env:
             - SNYK_COMPONENTS
@@ -124,7 +149,7 @@ capabilities:
             eval "$COMPONENTS_OUTPUT"
 
             if [ "$scan" != 1 ] && [ "$guard" != 1 ]; then
-              echo "snyk-ads: scan and guard not requested; skipping AgentScan install."
+              echo "snyk-ads: scan and guard not requested; skipping Agent Scan install."
               exit 0
             fi
 
@@ -134,14 +159,14 @@ capabilities:
 
             if [ "$guard" = 1 ]; then
               if [ "$auth_mode" != enterprise ]; then
-                echo "snyk-ads: guard requested but SNYK_ADS_PUSH_KEY is not set; skipping Guard hook installation. Set SNYK_ADS_PUSH_KEY and recreate the sandbox to enable Guard."
+                echo "snyk-ads: guard requested but SNYK_ADS_PUSH_KEY is not set; skipping Agent Guard hook installation. Set SNYK_ADS_PUSH_KEY and recreate the sandbox to enable Agent Guard."
                 exit 0
               fi
               # Docker sbx provides these identity variables at runtime.
               : "${SANDBOX_NAME:?SANDBOX_NAME is required}"
               : "${SANDBOX_ID:?SANDBOX_ID is required}"
               MACHINE_ID="docker-sbx:${SANDBOX_NAME}:${SANDBOX_ID}"
-              echo "snyk-ads: installing Guard hooks under machine id ${MACHINE_ID}"
+              echo "snyk-ads: installing Agent Guard hooks under machine id ${MACHINE_ID}"
               # "all" installs hooks for whichever of claude/cursor/codex is
               # actually present, skipping the rest with a warning.
               set -- guard install all
@@ -156,7 +181,7 @@ capabilities:
               set -e
               if [ "$rc" != 0 ]; then
                 if [ -n "${SNYK_API:-}" ]; then
-                  echo "snyk-ads: ERROR guard install failed (exit $rc) against SNYK_API=${SNYK_API}. Guard install sends a test event to \${SNYK_API}/hidden/agent-monitor/hooks/<client> after copying hooks; a 404 there means that host doesn't serve Guard's backend routes for this push key/tenant, not a kit or network-policy problem. Verify SNYK_API points at a full Snyk API deployment with Guard enabled, and that SNYK_ADS_PUSH_KEY is valid for it." >&2
+                  echo "snyk-ads: ERROR guard install failed (exit $rc) against SNYK_API=${SNYK_API}. Guard install sends a test event to \${SNYK_API}/hidden/agent-monitor/hooks/<client> after copying hooks; a 404 there means that host doesn't serve Agent Guard's backend routes for this push key/tenant, not a kit or network-policy problem. Verify SNYK_API points at a full Snyk API deployment with Agent Guard enabled, and that SNYK_ADS_PUSH_KEY is valid for it." >&2
                 else
                   echo "snyk-ads: ERROR guard install failed (exit $rc)." >&2
                 fi
@@ -256,7 +281,7 @@ capabilities:
                   echo "agent-scan: WARNING version $SCAN_VERSION is older than 0.6.0; upgrade to 0.6.0 or later. Continuing scan."
                 fi
               else
-                echo "agent-scan: WARNING could not determine whether AgentScan is 0.6.0 or later. Continuing scan."
+                echo "agent-scan: WARNING could not determine whether Agent Scan is 0.6.0 or later. Continuing scan."
               fi
 
               MACHINE_ID="docker-sbx:${SANDBOX_NAME}:${SANDBOX_ID}"
