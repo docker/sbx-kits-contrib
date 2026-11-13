@@ -1,0 +1,97 @@
+schemaVersion: "2"
+kind: sandbox
+# The KIT's version, not kimchi's. The kimchi binary inside the image floats
+# (installed from the latest release at build time), so a newer kimchi CLI does
+# not bump this. Bump here for spec, files/, network-policy, or hook changes,
+# then tag.
+version: "1.0.0"
+name: kimchi
+displayName: Kimchi
+description: Kimchi Coding, the terminal coding agent with multi-model orchestration by Cast AI.
+
+sandbox:
+  # Built from the Dockerfile beside this spec and published by
+  # .github/workflows/build-and-publish-kits.yml. Carries a Docker engine and
+  # requests Docker-in-Docker, matching the built-in agents. The `-image`
+  # suffix distinguishes the base image from the kit artifact (`kimchi-kit`).
+  image: "docker.io/sbx/kimchi-image:latest"
+  # Launches the interactive harness. Auth is resolved in this order:
+  # KIMCHI_API_KEY (set from the `kimchi` credential below when bound), then
+  # the saved credential in ~/.config/kimchi. With neither, the CLI shows an
+  # interactive login selector (Kimchi account via browser, or a subscription
+  # provider such as GitHub Copilot) inside the sandbox — so the kit does not
+  # require the key up front.
+  entrypoint: [kimchi]
+
+environment:
+  variables:
+    IS_SANDBOX: "1"
+
+permissions:
+  network:
+    # Community kits run e2e under `deny-all`; this list is the complete
+    # egress contract.
+    allow:
+      # GitHub releases: the install script downloads the kimchi tarball from
+      # github.com (release metadata + redirect) and the binary lands on the
+      # release-asset CDN behind it. Both are also needed at runtime for the
+      # CLI's background self-update probe.
+      - github.com
+      - api.github.com
+      - objects.githubusercontent.com
+      # Kimchi backend: llm.kimchi.dev serves the OpenAI-compatible inference
+      # API and the model metadata feed; app.kimchi.dev serves the browser
+      # login flow and console.
+      - llm.kimchi.dev
+      - app.kimchi.dev
+      # `apt-get update` (startup hook below) refreshes every configured apt
+      # source and fails wholesale if any one is unreachable. The
+      # shell-docker base ships five sources; all five must be open. Ubuntu
+      # serves amd64 from archive/security and arm64 from ports, so all three
+      # Ubuntu hosts keep the kit working cross-arch.
+      - archive.ubuntu.com
+      - security.ubuntu.com
+      - ports.ubuntu.com
+      - download.docker.com
+      - cli.github.com
+
+credentials:
+  - service: kimchi
+    # Not required: without a bound credential the CLI offers its interactive
+    # login selector (browser OAuth or subscription provider) on first run,
+    # which is the documented onboarding path for many users.
+    apiKey:
+      name: KIMCHI_API_KEY
+      # The harness reads KIMCHI_API_KEY directly (it takes precedence over
+      # the saved config), so the sentinel value is enough: no proxy rewrite
+      # needed on the inference host for the env-var path. The inject rule
+      # still helps tools inside the sandbox that call the API directly.
+      inject:
+        - domain: llm.kimchi.dev
+          header: Authorization
+          format: Bearer %s
+
+setup:
+  install:
+    # Install latest kimchi from the GitHub release. The script writes the
+    # binary under bin/ and the auxiliary files (themes, skills, oauth pages)
+    # under share/kimchi in the chosen prefix. /usr/local is not used: the
+    # binary locates its share dir relative to its own path, and the
+    # installer keeps both under one prefix.
+    - command: >
+        curl -fsSL https://github.com/getkimchi/kimchi/releases/latest/download/install.sh | bash
+      user: "agent"
+      description: Install the kimchi CLI from the latest GitHub release
+  startup:
+    - command: ["sh", "-c", "command -v apt-get > /dev/null 2>&1 && (apt-get update -qq -y > /dev/null 2>&1 || true) &"]
+      user: "root"
+      description: Update apt package cache in background
+
+agentInstructions:
+  filename: AGENTS.md
+  content: |
+    ## Sandbox environment
+
+    You are running inside a Docker sandbox. The workspace is mounted at
+    its absolute host path. `sudo` is passwordless; use it for package
+    installs.
