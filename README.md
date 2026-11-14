@@ -222,7 +222,7 @@ The primary way to consume a kit from this repo is its published OCI image on Do
 
 ```console
 sbx run docker.io/sbx/claude:latest .
-sbx run docker.io/sbx/claude:latest --kit docker.io/sbx/mise:latest .
+sbx run docker.io/sbx/claude:latest --kit docker.io/sbx/mise-mixin:latest .
 ```
 
 Or target this repo directly over git:
@@ -235,30 +235,30 @@ The fragment after `#` accepts two parameters, both optional:
 
 | Parameter | Purpose | Example |
 | --- | --- | --- |
-| `dir` | Subdirectory inside the repo containing the kit | `#dir=mise` |
+| `dir` | Subdirectory inside the repo containing the kit | `#dir=task` |
 | `ref` | Git ref to check out — branch, tag, or commit SHA | `#ref=v1.0.0` |
 
 Combine them with `&`:
 
 ```console
 # Pin to a tag — the recommended form for production use
-sbx run shell --kit "git+https://github.com/docker/sbx-kits-contrib.git#ref=v0.2.0&dir=mise" .
+sbx run shell --kit "git+https://github.com/docker/sbx-kits-contrib.git#ref=v0.2.0&dir=task" .
 
 # Track a branch (less stable; the kit may change under you)
-sbx run shell --kit "git+https://github.com/docker/sbx-kits-contrib.git#ref=main&dir=mise" .
+sbx run shell --kit "git+https://github.com/docker/sbx-kits-contrib.git#ref=main&dir=task" .
 
 # Pin to an exact commit SHA — fully reproducible
-sbx run shell --kit "git+https://github.com/docker/sbx-kits-contrib.git#ref=abc1234&dir=mise" .
+sbx run shell --kit "git+https://github.com/docker/sbx-kits-contrib.git#ref=abc1234&dir=task" .
 ```
 
 Without `ref`, sbx clones the default branch shallowly. With a branch or tag, sbx clones at that ref shallowly. With a commit SHA, sbx clones fully and checks out the commit. SSH works in place of HTTPS for private repos (`git+ssh://git@github.com/...`).
 
-For local development, point at a directory. A relative local reference has to be an explicit path (`./mise`, not `mise`) — a bare value keeps its agent-name or sandbox-name meaning:
+For local development, point at a directory. A relative local reference has to be an explicit path (`./task`, not `task`) — a bare value keeps its agent-name or sandbox-name meaning:
 
 ```console
 sbx run ./claude .                    # a workload
-sbx run ./claude --kit ./mise .       # a mixin, composed onto it
-sbx run shell --kit ./mise .          # or onto a built-in agent
+sbx run ./claude --kit ./task .       # a mixin, composed onto it
+sbx run shell --kit ./task .          # or onto a built-in agent
 ```
 
 ## Adding a new kit
@@ -272,7 +272,7 @@ sbx run shell --kit ./mise .          # or onto a built-in agent
    └── README.md
    ```
 
-2. Write `my-kit.yaml`, starting from the skeleton in [Anatomy of a kit](#anatomy-of-a-kit) and from whichever existing kit is closest in shape. `mise/` is a good declaration-only mixin; [the DHI Cursor mixin](https://hub.docker.com/r/sbx/cursor-mixin) documents its overlay; [the DHI Copilot workload](https://hub.docker.com/r/sbx/copilot) is a workload example.
+2. Write `my-kit.yaml`, starting from the skeleton in [Anatomy of a kit](#anatomy-of-a-kit) and from whichever existing kit is closest in shape. `task/` is a small static-binary overlay mixin; [the DHI Cursor mixin](https://hub.docker.com/r/sbx/cursor-mixin) documents its overlay; [the DHI Copilot workload](https://hub.docker.com/r/sbx/copilot) is a workload example.
 
 3. Write `my-kit.dockerfile`, unless the kit declares only. A workload must have one.
 
@@ -364,7 +364,7 @@ Note that a fork PR does not receive repository secrets, so any leg needing Dock
 
 ## Kit index
 
-Buildable kits are listed by `scripts/discover-kits.sh`. Entries marked DHI catalog are maintained in [Docker Hardened Images](https://github.com/docker-hardened-images/catalog/tree/main/image); their local directories contain migration pointers only.
+Buildable kits are listed by `scripts/discover-kits.sh`. Entries marked DHI catalog are maintained in [Docker Hardened Images](https://github.com/docker-hardened-images/catalog/tree/main/image); their local directories contain migration pointers; any `legacy/` sources are retired from publishing.
 
 ### Workloads
 
@@ -431,7 +431,7 @@ Buildable kits are listed by `scripts/discover-kits.sh`. Entries marked DHI cata
 | [`goose`](./goose) | — | goose, the open-source AI agent from Block, with proxy-managed provider credentials and a ChatGPT login |
 | [`kernel`](./kernel) | — | Cloud-hosted Chromium with stealth, managed auth and session replay |
 | [`lighthouse`](./lighthouse) | — | The Lighthouse CLI with headless Chromium, for auditing pages served in-sandbox |
-| [`mise`](./mise) | `deb/dpkg` | mise-en-place, the polyglot dev-tool version manager, with shell activation |
+| [`mise`](https://hub.docker.com/r/sbx/mise-mixin) (DHI catalog) | See Hub usage | mise tool management with shell activation |
 | [`neovim`](./neovim) | `deb/dpkg` | Neovim at a pinned release, with a bundled `~/.config/nvim` |
 | [`packages-through-sfw`](./packages-through-sfw) | — | Routes npm and pip through Socket Firewall Free |
 | [`playwright`](./playwright) | — | The Playwright toolchain with Chromium on a shared system browsers path |
