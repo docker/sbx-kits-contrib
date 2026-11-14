@@ -364,7 +364,7 @@ Note that a fork PR does not receive repository secrets, so any leg needing Dock
 
 ## Kit index
 
-Buildable kits are listed by `scripts/discover-kits.sh`. Entries marked DHI catalog are maintained in [Docker Hardened Images](https://github.com/docker-hardened-images/catalog/tree/main/image); their local directories contain migration pointers only.
+Buildable kits are listed by `scripts/discover-kits.sh`. Entries marked DHI catalog are maintained in [Docker Hardened Images](https://github.com/docker-hardened-images/catalog/tree/main/image); their local directories contain migration pointers; any `legacy/` sources are retired from publishing.
 
 ### Workloads
 
@@ -421,6 +421,7 @@ Buildable kits are listed by `scripts/discover-kits.sh`. Entries marked DHI cata
 | [`cosmos-db-emulator`](./cosmos-db-emulator) | `deb/curl`, `deb/docker-ce` | The Azure Cosmos DB emulator (vNext, API for NoSQL) on the sandbox's Docker Engine, with the gateway and Data Explorer published on the host loopback |
 | [`docker-tcp`](./docker-tcp) | `deb/curl`, `deb/docker-ce`, `deb/jq`, `deb/procps` | The sandbox's Docker Engine on a TCP port published on the host loopback, so host Docker clients can run containers in it |
 | [`ecc`](./ecc) | `claude` | Everything Claude Code: rules, agents, commands and skills |
+| [`git-identity`](https://hub.docker.com/r/sbx/git-identity) (DHI catalog) | See Hub usage | Git name and email defaults from the host |
 | [`git-ssh-sign`](./git-ssh-sign) | `deb/openssh-client` | Commit signing with the key forwarded from the host's SSH agent |
 | [`gitea`](./gitea) | `deb/dpkg` | Gitea token auth for git-over-HTTPS and the Gitea API, via the proxy |
 | [`gitguardian`](./gitguardian) | `claude`, `deb/dpkg` | ggshield as a Claude Code hook, scanning the agent's actions for secrets |
