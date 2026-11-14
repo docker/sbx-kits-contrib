@@ -364,7 +364,7 @@ Note that a fork PR does not receive repository secrets, so any leg needing Dock
 
 ## Kit index
 
-Buildable kits are listed by `scripts/discover-kits.sh`. Entries marked DHI catalog are maintained in [Docker Hardened Images](https://github.com/docker-hardened-images/catalog/tree/main/image); their local directories contain migration pointers only.
+Buildable kits are listed by `scripts/discover-kits.sh`. Entries marked DHI catalog are maintained in [Docker Hardened Images](https://github.com/docker-hardened-images/catalog/tree/main/image); their local directories contain migration pointers; any `legacy/` sources are retired from publishing.
 
 ### Workloads
 
@@ -425,7 +425,7 @@ Buildable kits are listed by `scripts/discover-kits.sh`. Entries marked DHI cata
 | [`gitea`](./gitea) | `deb/dpkg` | Gitea token auth for git-over-HTTPS and the Gitea API, via the proxy |
 | [`gitguardian`](./gitguardian) | `claude`, `deb/dpkg` | ggshield as a Claude Code hook, scanning the agent's actions for secrets |
 | [`github-clone`](./github-clone) | — | Clones a GitHub repository at create time with a proxy-managed token |
-| [`github-ssh`](./github-ssh) | `deb/jq`, `deb/openssh-client` | Pre-populated GitHub host keys, so SSH needs no interactive verification |
+| [`github-ssh`](https://hub.docker.com/r/sbx/github-ssh) (DHI catalog) | See Hub usage | GitHub SSH access with trusted host keys |
 | [`gitlab`](./gitlab) | `deb/dpkg` | The GitLab CLI (`glab`) with proxy-injected token auth |
 | [`gitlab-ssh`](./gitlab-ssh) | `deb/openssh-client` | GitLab SSH host keys in `known_hosts` |
 | [`goose`](./goose) | — | goose, the open-source AI agent from Block, with proxy-managed provider credentials and a ChatGPT login |
