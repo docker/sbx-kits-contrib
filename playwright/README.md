@@ -28,8 +28,9 @@ sbx run claude --kit ./playwright/ .
 Prerequisites:
 
 - A DHI Debian workload such as `dhi.io/shell:latest`. The install hook
-  installs DHI's `nodejs-24` package when Node is absent and its `npm`
-  package when `npx` is absent, then installs Chromium's system libraries.
+  installs DHI's Node.js package (`nodejs-24` by default, see
+  [Arguments](#arguments)) when Node is absent and its `npm` package when
+  `npx` is absent, then installs Chromium's system libraries.
 
 Inside the sandbox:
 
@@ -44,6 +45,22 @@ Driving a browser from code works with the globally installed library or a proje
 ```js
 const { chromium } = require('playwright');
 const browser = await chromium.launch();     // headless; finds browsers via PLAYWRIGHT_BROWSERS_PATH
+```
+
+## Arguments
+
+| Argument | Default | Description |
+| --- | --- | --- |
+| `nodeVersion` | `24` | DHI Node.js major (`22`, `24` or `26`) installed when the base has no Node. |
+
+The argument only applies when the base has no `node` on `PATH`. A base that
+ships Node keeps its own version. Other kits can still change it, because DHI's
+`nodejs-NN` packages conflict with each other: lighthouse installs `nodejs-24`
+only when no Node is present, so whichever hook runs first wins, while
+packages-through-sfw always installs `nodejs-24` and replaces any other major.
+
+```console
+sbx run claude --kit "docker.io/sbx/playwright:latest" --kit-arg playwright.nodeVersion=22 .
 ```
 
 ## How it works

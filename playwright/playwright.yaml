@@ -51,6 +51,18 @@ kind: mixin
 # playwright.dockerfile, this entry, the agent context and the README together.
 provides: ["playwright@1.61.1"]
 
+args:
+  # Unlike the two fixed paths above, which Node a sandbox runs is a real
+  # choice: a project's `engines` field can pin a major. It only matters when
+  # the base has no Node, because the install hook reuses whatever `node` is
+  # already on PATH. An enum rather than a pattern, so a typo fails validation
+  # instead of apt at create: these are DHI's LTS majors at or above the
+  # Node 20 floor of current Playwright releases.
+  nodeVersion:
+    default: "24"
+    enum: ["22", "24", "26"]
+    description: "DHI Node.js major the install hook installs when the base has no Node. Ignored when `node` is already on PATH."
+
 capabilities:
   # MIGRATION NOTE: v2's one flat allow list, split by the phase that reaches
   # each host — and then shortened again when the npm install and the browser
@@ -119,15 +131,16 @@ capabilities:
         # The overlay ships npm content, not a Node runtime. Reuse the base's
         # interpreter when present; otherwise install DHI's versioned package
         # before asking the bundled CLI to calculate Chromium dependencies.
-        # DHI ships npm (and with it npx) as a separate package from
-        # nodejs-24, and the documented `npx playwright …` workflows need it.
+        # DHI ships npm (and with it npx) as a separate package from its
+        # nodejs-NN packages, and the documented `npx playwright …` workflows
+        # need it. NN is the `nodeVersion` arg.
         # Each tool is checked on its own: an earlier kit (lighthouse is one)
         # may apt-install nodejs-24 without npm, and npm's `nodejs` dependency
         # is then already satisfied.
         - command: |
             set -euo pipefail
             pkgs=""
-            command -v node >/dev/null 2>&1 || pkgs="nodejs-24"
+            command -v node >/dev/null 2>&1 || pkgs="nodejs-${{ kit.args.nodeVersion }}"
             command -v npx >/dev/null 2>&1 || pkgs="$pkgs npm"
             if [ -n "$pkgs" ]; then
               apt-get update
