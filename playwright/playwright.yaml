@@ -115,20 +115,31 @@ capabilities:
         # unrestricted hook environment handed it over. Under v3's
         # deny-by-default hook env it has to be declared or the package fetch
         # fails behind the sandbox's forced proxy.
+        #
         # The overlay ships npm content, not a Node runtime. Reuse the base's
         # interpreter when present; otherwise install DHI's versioned package
         # before asking the bundled CLI to calculate Chromium dependencies.
+        # DHI ships npm (and with it npx) as a separate package from
+        # nodejs-24, and the documented `npx playwright …` workflows need it.
+        # Each tool is checked on its own: an earlier kit (lighthouse is one)
+        # may apt-install nodejs-24 without npm, and npm's `nodejs` dependency
+        # is then already satisfied.
         - command: |
             set -euo pipefail
-            if ! command -v node >/dev/null 2>&1; then
+            pkgs=""
+            command -v node >/dev/null 2>&1 || pkgs="nodejs-24"
+            command -v npx >/dev/null 2>&1 || pkgs="$pkgs npm"
+            if [ -n "$pkgs" ]; then
               apt-get update
-              apt-get install -y --no-install-recommends nodejs-24
+              # Word-split on purpose: $pkgs is one or two package names.
+              # shellcheck disable=SC2086
+              apt-get install -y --no-install-recommends $pkgs
             fi
             playwright install-deps chromium
             rm -rf /var/lib/apt/lists/*
           user: "0"
           env: [HTTP_PROXY, HTTPS_PROXY]
-          description: Install Node and Chromium system libraries
+          description: Install Node, npm and Chromium system libraries
 
   # No `filename:` — that is workload-only, and this mixin contributes a body
   # to whichever agent owns the profile.
