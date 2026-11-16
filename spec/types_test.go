@@ -1,6 +1,7 @@
 package spec
 
 import (
+	"encoding/json"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -24,6 +25,69 @@ func TestApiKeyProxyManagedRoundTrips(t *testing.T) {
 		require.NotNil(t, a.Credentials[0].ApiKey)
 		require.False(t, a.Credentials[0].ApiKey.ProxyManaged)
 	})
+}
+
+// Only an explicit empty interactiveOptions changes the bytes. Unset and nonempty lists encode
+// exactly as before, in place, ahead of the fields that follow them.
+func TestManifestInteractiveOptionsJSON(t *testing.T) {
+	const head = `{"schemaVersion":"2","kind":"sandbox","name":"k","binary":"bin","template":"img","runOptions":["-x"],`
+	const tail = `"resources":{"cpu":2},"security":{"privileged":true},"volumes":[{"path":"/data"}]}`
+	for _, tt := range []struct {
+		name        string
+		interactive []string
+		want        string
+	}{
+		{name: "unset is omitted", interactive: nil, want: head + tail},
+		{name: "nonempty is unchanged", interactive: []string{"-i"}, want: head + `"interactiveOptions":["-i"],` + tail},
+		{name: "explicit empty is kept", interactive: []string{}, want: head + `"interactiveOptions":[],` + tail},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			m := Manifest{
+				SchemaVersion: "2", Kind: KindSandbox, Name: "k", Binary: "bin", Template: "img",
+				RunOptions: []string{"-x"}, InteractiveOptions: tt.interactive,
+				Resources: &Resources{CPU: 2}, Security: &Security{Privileged: true}, Volumes: []MountSpec{{Path: "/data"}},
+			}
+			got, err := json.Marshal(m)
+			require.NoError(t, err)
+			require.Equal(t, tt.want, string(got))
+
+			var back Manifest
+			require.NoError(t, json.Unmarshal(got, &back))
+			require.Equal(t, tt.interactive, back.InteractiveOptions)
+		})
+	}
+}
+
+// A v2 command.interactive that is present, even empty, replaces the default tail for
+// interactive launches; an absent or null one falls back to the default tail.
+func TestV2InteractiveCommandPresence(t *testing.T) {
+	for _, tt := range []struct {
+		name            string
+		sandbox         string
+		wantRun         []string
+		wantInteractive []string
+	}{
+		{name: "absent falls back to default", sandbox: "entrypoint: [bin]\n  command: {default: [-x]}",
+			wantRun: []string{"-x"}, wantInteractive: []string{"-x"}},
+		{name: "null falls back to default", sandbox: "entrypoint: [bin]\n  command: {default: [-x], interactive: null}",
+			wantRun: []string{"-x"}, wantInteractive: []string{"-x"}},
+		{name: "empty without fixed arguments", sandbox: "entrypoint: [bin]\n  command: {default: [-x], interactive: []}",
+			wantRun: []string{"-x"}, wantInteractive: []string{}},
+		{name: "empty after fixed arguments", sandbox: "entrypoint: [bin, --always]\n  command: {default: [-x], interactive: []}",
+			wantRun: []string{"--always", "-x"}, wantInteractive: []string{"--always"}},
+		{name: "empty with no default", sandbox: "entrypoint: [bin]\n  command: {interactive: []}",
+			wantRun: nil, wantInteractive: []string{}},
+		{name: "no command", sandbox: "entrypoint: [bin]",
+			wantRun: nil, wantInteractive: nil},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			in := "schemaVersion: \"2\"\nkind: sandbox\nname: k\nsandbox:\n  image: img\n  " + tt.sandbox + "\n"
+			a, err := LoadArtifactFromBytes([]byte(in))
+			require.NoError(t, err)
+			require.Equal(t, tt.wantRun, a.Manifest.RunOptions)
+			require.Equal(t, tt.wantInteractive, a.Manifest.InteractiveOptions)
+		})
+	}
 }
 
 func TestCredentialRoutingHosts(t *testing.T) {

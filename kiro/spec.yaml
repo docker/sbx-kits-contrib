@@ -79,9 +79,9 @@ permissions:
 
 setup:
   install:
-    - command: "kiro-cli setup --no-confirm"
+    - command: "kiro-cli settings list > /dev/null"
       user: "agent"
-      description: Run Kiro CLI setup
+      description: Create Kiro CLI's state database
   startup:
     - command: ["sh", "-c", "command -v apt-get > /dev/null 2>&1 && (apt-get update -qq -y > /dev/null 2>&1 || true) &"]
       user: "root"

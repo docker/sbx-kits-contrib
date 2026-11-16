@@ -32,7 +32,8 @@ credentials:
       proxyManaged: true
       inject:
         - domain: api.firecrawl.dev
-          scheme: bearer
+          header: Authorization
+          format: "Bearer %s"
 
 setup:
   install:

@@ -42,7 +42,8 @@ credentials:
       name: JF_ACCESS_TOKEN
       inject:
         - domain: "${{ kit.args.jfrog_host }}"
-          scheme: bearer
+          header: Authorization
+          format: "Bearer %s"
 
 permissions:
   network:

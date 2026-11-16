@@ -2,6 +2,15 @@
 
 Community-contributed kits for [Docker Sandboxes](https://docs.docker.com/ai/sandboxes/).
 
+> [!IMPORTANT]
+> **Upcoming v3 transition:** We will rename `main` to `v2` and deprecate it,
+> and rename `v3` to `main`.
+>
+> All PRs that add or update kits must use the **v3 specification format**.
+> Target `v3` until the branches are renamed, then target `main`.
+> Follow the [v3 contribution and migration guide](https://github.com/docker/sbx-kits-contrib/blob/v3/CONTRIBUTING.md).
+> The documentation below describes the legacy v2 format.
+
 Each top-level directory containing a `spec.yaml` is a **kit** — a declarative artifact with that `spec.yaml` and an optional `files/` directory, extending sandbox agents with additional capabilities. A `kind: sandbox` kit may also carry a `Dockerfile` for the image its sandbox boots from (see [`kiro/`](./kiro)); CI builds and publishes that image as `docker.io/sbx/<kit>-image` — see [`PUBLISHING.md`](./PUBLISHING.md).
 
 The remaining top-level directories are shared infrastructure: [`spec/`](./spec) (the kit spec implementation), [`tck/`](./tck) (the compatibility test kit), [`scripts/`](./scripts) (maintainer utilities), and [`skills/`](./skills).

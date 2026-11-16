@@ -1,5 +1,15 @@
 # Contributing
 
+> [!IMPORTANT]
+> **Upcoming v3 transition:** We will rename `main` to `v2` and deprecate it,
+> and rename `v3` to `main`.
+>
+> All PRs that add or update kits must use the **v3 specification format**.
+> Target `v3` until the branches are renamed, then target `main`.
+> If you already have an open kit PR, update it to v3 and change its base to `v3`.
+> Follow the [v3 contribution and migration guide](https://github.com/docker/sbx-kits-contrib/blob/v3/CONTRIBUTING.md).
+> The documentation below describes the legacy v2 format.
+
 This repo collects community-contributed kits for [Docker Sandboxes](https://docs.docker.com/ai/sandboxes/). New kits, fixes to existing ones, and improvements to the shared `spec/` and `tck/` packages are all welcome.
 
 If you're new to sandbox customization, start with the docs:

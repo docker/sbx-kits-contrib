@@ -38,8 +38,7 @@ permissions:
       # the Gemfury-fronted S3 bucket it redirects package downloads to, and
       # the base image's own apt sources are all install-time-only now --
       # none of them is a credential inject domain, so none belongs here.
-      # What remains below is exactly the provider hosts the credentials
-      # block injects into: a credential's inject
+      # Provider API hosts need explicit egress: a credential's inject
       # domains are not allowed implicitly, and e2e runs every kit under
       # `deny-all` -- see README, "How auth works".
       - api.anthropic.com
@@ -143,10 +142,11 @@ credentials:
       name: GROQ_API_KEY
       proxyManaged: true
       inject:
+        # Cloud's groq service registry covers api.groq.com only. Injecting
+        # groq.com fails bake with "not covered by the service's registry
+        # injection domains". groq.com remains allowed for egress only;
+        # authenticated Groq requests must target api.groq.com.
         - domain: api.groq.com
-          header: Authorization
-          format: Bearer %s
-        - domain: groq.com
           header: Authorization
           format: Bearer %s
   - service: huggingface
