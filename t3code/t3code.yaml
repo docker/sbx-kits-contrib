@@ -112,13 +112,19 @@ capabilities:
         # reads nothing from the environment.
         - command: |
             set -euo pipefail
-            if ldconfig -p 2>/dev/null | grep -q 'libatomic\.so\.1'; then
+            # Not `grep -q`: it exits on the first match, and under pipefail
+            # ldconfig's resulting SIGPIPE would send a base that has the
+            # library down the apt path anyway.
+            if ldconfig -p 2>/dev/null | grep 'libatomic\.so\.1' >/dev/null; then
               echo "libatomic1 already present on the base image"
               exit 0
             fi
             export DEBIAN_FRONTEND=noninteractive
-            apt-get update
-            apt-get install -y --no-install-recommends libatomic1
+            # apt looks up _http._tcp.<host> SRV records for the host it
+            # connects to, here the sandbox proxy. That lookup is not a host
+            # this kit needs, and the proxy reports it as a blocked request.
+            apt-get -o Acquire::EnableSrvRecords=false update
+            apt-get -o Acquire::EnableSrvRecords=false install -y --no-install-recommends libatomic1
             rm -rf /var/lib/apt/lists/*
           user: "0"
           description: Install libatomic1 when the base image lacks it; t3's binaries link against it
