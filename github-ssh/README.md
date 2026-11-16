@@ -1,58 +1,16 @@
-> [!NOTE]
-> <strong>Experimental: Sandbox Kit v3</strong>
->
-> This kit uses the experimental [Sandbox Kit specification](https://github.com/docker/sandbox-kit-spec), specifically [v3](https://github.com/docker/sandbox-kit-spec/blob/main/docs/spec/SPEC-v3.md). The format and runtime behavior may change before v3 is stable.
-
 # github-ssh
 
-A mixin that pre-populates `~/.ssh/known_hosts` with GitHub's host keys so
-SSH operations to GitHub work without interactive host verification prompts.
-
-Without this kit, SSH connections from a sandbox to GitHub fail because there
-is no TTY available to interactively accept a new host key.
-
-## Prerequisites
-
-Your SSH key must be loaded in the agent on the host and registered with your
-GitHub account. Start the sandbox with this kit attached, from its published OCI artifact on Docker Hub:
+GitHub SSH access with trusted host keys. The `github-ssh` Kit is maintained in
+[Docker Hardened Images](https://github.com/docker-hardened-images/catalog/tree/main/image).
+The [Docker Hub page](https://hub.docker.com/r/sbx/github-ssh) documents
+its prerequisites, supported workloads, and create-time arguments.
 
 ```console
-sbx run --kit "docker.io/sbx/github-ssh:latest" claude
+sbx run sbx/shell --kit sbx/github-ssh /path/to/workspace
 ```
 
-Or from a git URL targeting this repo:
-
-```console
-sbx run --kit "git+https://github.com/docker/sbx-kits-contrib.git#dir=github-ssh" claude
-```
-
-## Usage
-
-Once the kit is installed, SSH operations to GitHub work without any
-additional configuration:
-
-```console
-git clone git@github.com:org/repo.git
-git push origin my-branch
-```
-
-## Composing with git-ssh-sign
-
-If you also want SSH commit signing, combine this kit with
-[git-ssh-sign](../git-ssh-sign/):
-
-```console
-sbx run \
-  --kit "git+https://github.com/docker/sbx-kits-contrib.git#dir=github-ssh" \
-  --kit "git+https://github.com/docker/sbx-kits-contrib.git#dir=git-ssh-sign" \
-  claude
-```
-
-## How it works
-
-At install time, the kit fetches GitHub's current SSH host keys from
-[`https://api.github.com/meta`](https://api.github.com/meta) (the canonical
-source GitHub publishes) and appends them to
-`/home/agent/.ssh/known_hosts`. Using the HTTPS metadata endpoint works
-through HTTPS-only proxies where `ssh-keyscan` cannot reach port 22, and
-avoids hardcoding keys that GitHub may rotate.
+This directory no longer publishes `sbx/github-ssh`. Its retired sources
+and comments remain under `legacy/` for reference. Root kit discovery
+requires a descriptor at `github-ssh/github-ssh.yaml`. The archive is excluded
+from current builds, releases, conformance discovery, and Hub page publishing.
+Previously published tags are retained.
