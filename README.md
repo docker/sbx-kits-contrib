@@ -222,7 +222,7 @@ The primary way to consume a kit from this repo is its published OCI image on Do
 
 ```console
 sbx run docker.io/sbx/claude:latest .
-sbx run docker.io/sbx/claude:latest --kit docker.io/sbx/mise-mixin:latest .
+sbx run sbx/claude:latest --kit sbx/mise:latest .
 ```
 
 Or target this repo directly over git:
@@ -433,7 +433,7 @@ Buildable kits are listed by `scripts/discover-kits.sh`. Entries marked DHI cata
 | [`goose`](./goose) | — | goose, the open-source AI agent from Block, with proxy-managed provider credentials and a ChatGPT login |
 | [`kernel`](./kernel) | — | Cloud-hosted Chromium with stealth, managed auth and session replay |
 | [`lighthouse`](./lighthouse) | — | The Lighthouse CLI with headless Chromium, for auditing pages served in-sandbox |
-| [`mise`](https://hub.docker.com/r/sbx/mise-mixin) (DHI catalog) | See Hub usage | mise tool management with shell activation |
+| [`mise`](https://hub.docker.com/r/sbx/mise) (DHI catalog) | See Hub usage | mise tool management with shell activation |
 | [`neovim`](./neovim) | `deb/dpkg` | Neovim at a pinned release, with a bundled `~/.config/nvim` |
 | [`packages-through-sfw`](./packages-through-sfw) | — | Routes npm and pip through Socket Firewall Free |
 | [`playwright`](./playwright) | — | The Playwright toolchain with Chromium on a shared system browsers path |
