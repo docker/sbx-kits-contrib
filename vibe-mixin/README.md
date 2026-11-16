@@ -45,6 +45,14 @@ vibe-start          # vibe --trust --agent "$VIBE_AGENT"
   `GIT_TERMINAL_PROMPT` as a `/etc/profile.d` snippet: a mixin's image config
   is not the composed image's, so `ENV` would be dropped at assembly.
 
+## Authentication
+
+The proxy injects the `mistral` key only on `api.mistral.ai`, as in the
+[workload kit](../vibe/README.md#authentication). `chat.mistral.ai` and
+`console.mistral.ai` remain allowed without injection. Requests using the
+placeholder key there may return HTTP 401, so admin-managed configuration
+and account or plan lookups may be unavailable locally and on Cloud.
+
 ## Why there is a `vibe-start`
 
 v2's `sandbox.entrypoint` was not just "run the binary" — it carried

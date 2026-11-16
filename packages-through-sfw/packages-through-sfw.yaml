@@ -33,11 +33,14 @@ capabilities:
       # HTTP are kept.
       install:
         allow:
+          # apt also reads the configured DHI Debian repositories.
+          - deb.debian.org
+          - dhi.io
           # `apt-get update` — run by the one remaining install hook that
           # reaches a host at all — refreshes metadata for every configured apt
-          # source. The shell-docker base template ships three sources, all of
-          # which must succeed for the update to exit 0, regardless of which one
-          # our install actually fetches from.
+          # source. Every source the shell-docker base template configures must
+          # succeed for the update to exit 0, regardless of which one our
+          # install actually fetches from.
           # Ubuntu hosts amd64 packages on archive/security and arm64 packages
           # on ports.ubuntu.com, so all three Ubuntu hosts are listed for
           # cross-arch coverage.
@@ -45,6 +48,7 @@ capabilities:
           - security.ubuntu.com       # Ubuntu security updates (amd64, HTTP)
           - ports.ubuntu.com          # Ubuntu archive/security (arm64, HTTP)
           - download.docker.com       # Docker's apt repo, pre-added by shell-docker
+          - cli.github.com            # GitHub CLI apt repo, pre-added by the base
       runtime:
         allow:
           # Socket's API, which sfw consults to score a package before it is
@@ -86,7 +90,7 @@ capabilities:
       # the platform baseline. v3 hook environments are deny-by-default, so this
       # is worth stating rather than assuming.
       install:
-        - command: apt-get update && apt-get install -y --no-install-recommends ca-certificates curl nodejs npm python3-pip && rm -rf /var/lib/apt/lists/*
+        - command: apt-get update && apt-get install -y --no-install-recommends ca-certificates curl nodejs-24 npm python3-pip && rm -rf /var/lib/apt/lists/*
           user: "0"
           description: Install package-manager prerequisites
         # The overlay ships /etc/profile.d/packages-through-sfw.sh; this is the

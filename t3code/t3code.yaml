@@ -39,6 +39,15 @@ args:
     pattern: '^[0-9]+\.[0-9]+\.[0-9]+$'
     description: t3 release to install
     buildArg: T3_VERSION
+  # The sandbox proxy does not allow the telemetry host by default, so leaving
+  # telemetry on only produces retries. v3 has no static env grammar, so the
+  # variable the t3 server reads at startup rides on this create-phase arg's
+  # `env:` (SPEC-v3 §6), which exports it into the sandbox's environment.
+  telemetry:
+    default: "false"
+    enum: ["true", "false"]
+    description: "Whether the t3 server inside the sandbox sends anonymous usage telemetry. Off by default: the sandbox proxy blocks the telemetry host unless it is allowed, and a server that cannot reach it keeps retrying. Set to true to opt in, and allow us.i.posthog.com:443 in the sandbox's network policy."
+    env: T3CODE_TELEMETRY_ENABLED
 
 # MIGRATION NOTE: this provide was `t3code`, named after the kit, because the
 # recipe asked npm for `t3@latest` and so the kit could not state what version of
@@ -65,15 +74,19 @@ capabilities:
     config:
       install:
         allow:
+          # apt also reads the configured DHI Debian repositories.
+          - deb.debian.org
+          - dhi.io
           # apt-get update refreshes every configured source, so all template
           # apt sources must be reachable even though we only install from
           # Ubuntu's main archive. amd64 uses archive/security, arm64 uses
           # ports.ubuntu.com. download.docker.com is pre-added to apt sources on
-          # shell-docker / *-docker templates.
+          # shell-docker / *-docker templates, as is the GitHub CLI's.
           - archive.ubuntu.com
           - security.ubuntu.com
           - ports.ubuntu.com
           - download.docker.com
+          - cli.github.com          # GitHub CLI apt repo, pre-added by the base
 
   - type: com.docker.sandbox/lifecycle@1
     config:

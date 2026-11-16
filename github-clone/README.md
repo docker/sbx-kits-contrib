@@ -113,6 +113,12 @@ pre-populated and the host's `ssh-agent` is forwarded. In that mode the
 `GH_TOKEN` sentinel is unused for the clone itself, though `gh api`
 inside the sandbox still routes through the proxy.
 
+github-clone declares `integrates: ["github-ssh"]` and github-ssh
+`provides: ["github-ssh"]`, so when both are composed the host keys are
+written *before* the clone hook runs, regardless of `--kit` order. The
+dependency is optional: without github-ssh in the composition the entry is
+ignored and HTTPS clones work as before.
+
 ## References
 
 - [Kit descriptor](github-clone.yaml)

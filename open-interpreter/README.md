@@ -178,6 +178,7 @@ operational needs:
 | `registry.npmjs.org` | npm — OI's executed code can install and run JS |
 | `deb.debian.org` / `archive.ubuntu.com` / `security.ubuntu.com` / `ports.ubuntu.com` | apt — OI's executed code can install system packages |
 | `download.docker.com` | pre-added to this base image's apt sources regardless of the `-docker` variant; `apt-get update` fails on it if it's missing, even for an unrelated package |
+| `cli.github.com` | GitHub CLI apt repo, pre-added by the base image; same `apt-get update` failure if it's missing |
 
 These are runtime needs of OI itself, not the kit's own toolchain: OI's whole
 purpose is writing and running code on request, so the code it runs can

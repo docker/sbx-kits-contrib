@@ -34,6 +34,12 @@ RUN set -eux; \
     installed="$(node -p 'require("/usr/local/lib/node_modules/@openhands/agent-canvas/package.json").version')"; \
     [ "$installed" = "$AGENT_CANVAS_VERSION" ]
 
+USER agent
+RUN --network=none command -v agent-canvas \
+    && { output="$(agent-canvas --help 2>&1)"; status=$?; \
+         printf '%s\n' "$output"; test "$status" -eq 0 && test -n "$output"; }
+USER root
+
 # shell-docker's uv has no working uvx. Agent Canvas invokes
 # `uvx --from openhands-agent-server==<ver> agent-server`; `uv tool run`
 # supports that interface.
@@ -90,4 +96,8 @@ ENV LLM_MODEL="anthropic/claude-opus-4-8" \
 # image config; sbx@1 requires a non-empty resolvable user.
 USER agent
 WORKDIR /home/agent/workspace
+
+# Overrides the base's flavor: sbx reads it as the image's agent.
+LABEL com.docker.sandboxes.flavor="openhands-canvas"
+
 ENTRYPOINT ["/usr/local/bin/openhands-canvas-launch"]

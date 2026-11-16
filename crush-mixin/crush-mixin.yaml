@@ -61,8 +61,8 @@ capabilities:
   # install happens at image build (see crush-mixin.dockerfile), which no
   # network-policy phase governs, and this kit declares no hooks.
   #
-  # What is listed is exactly the provider hosts the credentials inject into:
-  # inject domains are not allowed implicitly, and v3 validates that each one
+  # Provider API hosts need explicit egress: inject domains are not allowed
+  # implicitly, and v3 validates that each one
   # appears in the matching phase's allow list.
   - type: com.docker.sandbox/network-policy@1
     config:
@@ -176,9 +176,10 @@ capabilities:
       apiKey:
         name: GROQ_API_KEY
         proxyManaged: true
+        # Cloud's groq service registry covers api.groq.com only.
+        # groq.com remains allowed for egress without credential injection.
         inject:
           - {domain: api.groq.com, header: Authorization, format: "Bearer %s"}
-          - {domain: groq.com, header: Authorization, format: "Bearer %s"}
   - type: com.docker.sandbox/credential@1
     optional: true
     description: Hugging Face inference access

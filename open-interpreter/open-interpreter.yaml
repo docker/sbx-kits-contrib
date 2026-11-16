@@ -82,6 +82,7 @@ capabilities:
           - security.ubuntu.com
           - ports.ubuntu.com
           - download.docker.com
+          - cli.github.com          # GitHub CLI apt repo, pre-added by the base
 
   # Narrow inject domains: only the LLM API hosts that need auth injection.
   # A wildcard here would TLS-intercept all traffic, including code that

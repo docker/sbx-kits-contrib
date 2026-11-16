@@ -16,7 +16,7 @@ kind: mixin
 # The kit's own version, not the version of anything it installs: it is the
 # tag this kit publishes under, and the fallback that versions an unversioned
 # provide at publish. Bump it when this kit's declarations change.
-version: "1.0.0"
+version: "1.0.1"
 displayName: ECC (Everything Claude Code)
 description: 'The agent-harness optimization content pack for Claude Code: rules, agents, commands, and — when the sandbox skills store is writable — skills, installed from upstream''s minimal profile (no hooks runtime). Pinned to v2.0.0.'
 
@@ -52,8 +52,8 @@ capabilities:
           # (best-effort, non-blocking) -- refreshing metadata for every
           # configured apt source, which fails on any one of them even if the
           # kit's own package would come from a different repo. The claude
-          # family's base images ship three sources, so all three must be
-          # allowed under `deny-all`. Ubuntu hosts amd64 packages on
+          # family's base images configure Ubuntu, Docker and GitHub CLI apt
+          # sources, so all of them must be allowed under `deny-all`. Ubuntu hosts amd64 packages on
           # archive/security and arm64 packages on ports.ubuntu.com, so all
           # three Ubuntu hosts are listed to keep the kit working cross-arch
           # (CI runs amd64; a real e2e run on arm64 only exercised
@@ -66,6 +66,7 @@ capabilities:
           - security.ubuntu.com       # Ubuntu security updates (amd64)
           - ports.ubuntu.com          # Ubuntu archive/security (arm64)
           - download.docker.com       # Docker's apt repo
+          - cli.github.com            # GitHub CLI apt repo, pre-added by the base
 
   # MIGRATION NOTE: new in v3, and the one declaration this migration adds rather
   # than carries. v2 had no way to say anything about the skills store, so the

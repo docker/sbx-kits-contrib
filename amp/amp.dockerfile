@@ -106,6 +106,9 @@ RUN set -eux; \
 # that leaves the agent's home free for the tooling Amp installs into it.
 WORKDIR /home/agent/workspace
 
+# Overrides the base's flavor: sbx reads it as the image's agent.
+LABEL com.docker.sandboxes.flavor="amp"
+
 # v2's sandbox.entrypoint. The binary it names is now in this image's layers
 # rather than installed into the container before the entrypoint first runs;
 # either way it is on PATH by the time the host launches it.

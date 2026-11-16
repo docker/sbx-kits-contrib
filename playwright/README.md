@@ -27,8 +27,9 @@ sbx run claude --kit ./playwright/ .
 
 Prerequisites:
 
-- A base image with Node.js ≥ 18 — all standard agent templates ship it. The overlay carries Playwright's own JavaScript, so npm is not needed on the composed base; a base without npm fails the kit's *build*, not your sandbox.
-- A Debian-family base, for the one install hook that is left: Chromium's system libraries come from the composed base's own apt (see below).
+- A DHI Debian workload such as `dhi.io/shell:latest`. The install hook
+  installs DHI's `nodejs-24` package when Node is absent, then installs
+  Chromium's system libraries. npm is needed only while building the kit.
 
 Inside the sandbox:
 
@@ -91,10 +92,13 @@ The kit's `network-policy@1` capability is its complete outbound contract — CI
 
 | Domain | Phase | Why |
 | --- | --- | --- |
+| `deb.debian.org` | install | Debian apt archive, updates and security (trixie) — `install-deps` installs Chromium's system libraries |
+| `dhi.io` | install | DHI apt mirror (`dhi.io/deb/debian/main`), a configured source on the Debian-based templates — refreshed by the same `apt-get update` |
 | `archive.ubuntu.com` | install | Ubuntu apt archive, amd64 — `install-deps` installs Chromium's system libraries |
 | `security.ubuntu.com` | install | Ubuntu security pocket, amd64 — refreshed by the same `apt-get update` |
 | `ports.ubuntu.com` | install | Ubuntu archive/security for arm64 (Apple Silicon sandboxes) |
 | `download.docker.com` | install | Docker's apt repo, pre-added by the `*-docker` templates — `apt-get update` refreshes every configured source and fails if any is blocked |
+| `cli.github.com` | install | GitHub CLI apt repo, pre-added by the `*-docker` templates; refreshed by the same `apt-get update` |
 | `cdn.playwright.dev` | runtime | Playwright's primary browser-binary CDN, for a project that pins a different Playwright version and fetches its own build |
 | `playwright.download.prss.microsoft.com` | runtime | Documented fallback CDN Playwright rotates to on primary failure |
 | `storage.googleapis.com` | runtime | Google's Chrome-for-Testing bucket, where `cdn.playwright.dev` redirects for amd64 Chromium |

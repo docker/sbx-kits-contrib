@@ -231,8 +231,9 @@ v3 closes install-phase egress before the workload's entrypoint starts,
 so composing this kit no longer leaves a standing runtime grant to the
 apt mirrors on its account. Under the v2 grammar there was one flat list
 and no way to say otherwise. If a composition needs those mirrors at
-runtime, the kit that owns the base image declares them for its own
-boot-time apt refresh — [`codex`](../codex/) does.
+runtime, the kit that owns the base image declares them — [`codex`](../codex/)
+grants `deb.debian.org` and `dhi.io` at runtime so the agent can
+`apt-get install`.
 
 ## Troubleshooting
 

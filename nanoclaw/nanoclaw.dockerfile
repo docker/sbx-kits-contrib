@@ -23,5 +23,8 @@ ENV IS_SANDBOX=1 \
     ONECLI_URL=http://127.0.0.1:10254 \
     TZ=UTC
 
+# Overrides the base's flavor: sbx reads it as the image's agent.
+LABEL com.docker.sandboxes.flavor="nanoclaw"
+
 # v2's sandbox.entrypoint.
 ENTRYPOINT ["/usr/local/bin/nanoclaw-start"]

@@ -52,6 +52,9 @@ EOF
 # session. Override it per sandbox, or pin a different default in a fork.
 ENV CLAUDE_OLLAMA_MODEL=gemma4:e4b-it-q4_K_M
 
+# Overrides the base's flavor: sbx reads it as the image's agent.
+LABEL com.docker.sandboxes.flavor="claude-ollama"
+
 # MIGRATION NOTE: v2's `sandbox.entrypoint`, moved into the image config — in v3
 # the image carries the runtime contract and the descriptor duplicates none of
 # it. The target is the wrapper the kit's lifecycle `files:` entry writes, which

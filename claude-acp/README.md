@@ -1,69 +1,12 @@
-> [!NOTE]
-> <strong>Experimental: Sandbox Kit v3</strong>
->
-> This kit uses the experimental [Sandbox Kit specification](https://github.com/docker/sandbox-kit-spec), specifically [v3](https://github.com/docker/sandbox-kit-spec/blob/main/docs/spec/SPEC-v3.md). The format and runtime behavior may change before v3 is stable.
-
 # claude-acp
 
-Run the Claude ACP adapter inside a Docker Sandbox.
-
-This is a v2 mixin for the built-in `claude` sandbox agent. It adds
-`/home/agent/.local/bin/claude-acp`, a small launcher that runs
-`@agentclientprotocol/claude-agent-acp` with `CLAUDE_CODE_EXECUTABLE=claude`.
-
-## Authentication
-
-`claude-acp` inherits Anthropic authentication from the built-in `claude`
-sandbox agent.
-
-For non-interactive API-key auth, seed the Anthropic credential with `sbx`
-before creating the sandbox:
+The `claude-acp` kit — the Claude ACP adapter over stdio, for any kit that
+provides `claude` — is now maintained as a Docker Hardened Image. Its
+definition, guides and overview live in the DHI catalog:
+[`docker-hardened-images/catalog/image/claude-acp`](https://github.com/docker-hardened-images/catalog/tree/main/image/claude-acp).
 
 ```console
-echo "$ANTHROPIC_API_KEY" | sbx secret set -g anthropic
+sbx create --kit docker.io/sbx/claude-acp:latest --name my-task docker.io/sbx/claude:latest /path/to/task
 ```
 
-You can also import a detected host environment variable:
-
-```console
-sbx secret import anthropic
-```
-
-For Claude subscription or console login, the Claude ACP adapter advertises
-terminal auth methods to ACP clients that support `_meta["terminal-auth"]`.
-Those clients should run the advertised auth command in the same sandbox
-context, separate from the adapter's JSON-RPC stdio stream. Normal ACP adapter
-sessions still run without a TTY; only the advertised auth handoff is
-terminal-oriented.
-
-If an Anthropic API key is configured through `sbx`, terminal auth is not
-needed. If you add an API key after a sandbox has already been created, recreate
-the sandbox so the built-in `claude` kit can refresh its Claude settings.
-
-## Usage
-
-Create a sandbox from its published OCI artifact on Docker Hub:
-
-```console
-sbx create --kit "docker.io/sbx/claude-acp:latest" --name my-task claude /path/to/task
-```
-
-Or from a git URL targeting this repo:
-
-```console
-sbx create --kit "git+https://github.com/docker/sbx-kits-contrib.git#dir=claude-acp" --name my-task claude /path/to/task
-```
-
-Run the adapter over stdio:
-
-```console
-sbx exec -i my-task /home/agent/.local/bin/claude-acp
-```
-
-Do not allocate a TTY for ACP sessions; the adapter expects newline-delimited
-JSON-RPC on stdin/stdout.
-
-## References
-
-- [Kit descriptor](claude-acp.yaml)
-- [Credential bindings](../skills/kit-author/topics/bindings.md)
+`docker.io/sbx/claude-acp` is published from that definition.

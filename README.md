@@ -47,7 +47,7 @@ There are two kinds:
 | `workload` | The whole environment: the image the sandbox boots from, including the agent. Replaces v2's `kind: sandbox`. | A full root filesystem. A workload **must** have a recipe. |
 | `mixin` | A delta layered onto a workload: extra tools, credentials, hooks, egress. | An overlay (`FROM scratch`), or no recipe at all for a declaration-only kit. |
 
-This repo ships **30 workloads and 57 mixins**. Every workload has a `-mixin` sibling declaring the same capabilities in overlay form, so an agent can either *be* the sandbox or be layered onto one; the remaining 27 mixins are standalone tools and integrations. See the [Kit index](#kit-index).
+This repo ships **33 workloads and 76 mixins**. Every workload except `openhands-canvas` and `shell` has a `-mixin` sibling declaring the same capabilities in overlay form, so an agent can either *be* the sandbox or be layered onto one; the remaining 45 mixins are standalone tools and integrations. See the [Kit index](#kit-index).
 
 ## Anatomy of a kit
 
@@ -62,7 +62,7 @@ This repo ships **30 workloads and 57 mixins**. Every workload has a `-mixin` si
 
 A kit's Hub logo comes from the descriptor's `iconUrl`: the overview job downloads it and uploads it to the kit's repository, the same way `README.md` becomes the overview, and keeps it in sync. Point it at an image the vendor hosts. Logo files are not kept in this repository: they are third-party trademarks and this tree is Apache-2.0. A kit without `iconUrl` keeps whatever logo its repository already has.
 
-The descriptor and the recipe pair by **filename stem**: `claude.yaml` looks for `claude.dockerfile` beside it. Naming a recipe that does not exist is an error; *not having* the conventional companion just means a declaration-only kit, which is legal for a `kind: mixin` and rejected for a `kind: workload`. Fourteen mixins here are declaration-only — they contribute credentials, egress and hooks without shipping bits.
+The descriptor and the recipe pair by **filename stem**: `claude.yaml` looks for `claude.dockerfile` beside it. Naming a recipe that does not exist is an error; *not having* the conventional companion just means a declaration-only kit, which is legal for a `kind: mixin` and rejected for a `kind: workload`. Twelve mixins here are declaration-only — they contribute credentials, egress and hooks without shipping bits.
 
 There is no `spec.yaml`, no plain `Dockerfile`, no `testdata/tck.yaml` and no `.dockerignore`. The build context is the kit's own directory and a `dockerfile:` path may not escape it, so a mixin cannot reach an asset sitting in its workload sibling's directory — a shared script has to be copied into both.
 
@@ -204,7 +204,7 @@ A handful of kits genuinely cannot be pinned: an installer whose only channel kn
 
 `provides` is what a kit offers by name; `requires` is a **closed-set** check against everything composed together, so a name nothing provides makes the kit refuse to compose anywhere rather than only where it would really have failed.
 
-v2 could express exactly one dependency — `requires: {agent: <name>}` — so a kit whose hook ran `apt-get` or called `jq` said nothing about needing them and simply failed at create on a base that lacked them. v3 kits can say it, because publishing a `kind: workload` kit reads the built content's dpkg (or apk) database and derives one provide per installed package under `deb/` or `apk/` (SPEC-v3 §9.6). Nineteen mixins here require derived names — `deb/jq`, `deb/dpkg`, `deb/docker-ce`, `deb/openssh-client`:
+v2 could express exactly one dependency — `requires: {agent: <name>}` — so a kit whose hook ran `apt-get` or called `jq` said nothing about needing them and simply failed at create on a base that lacked them. v3 kits can say it, because publishing a `kind: workload` kit reads the built content's dpkg (or apk) database and derives one provide per installed package under `deb/` or `apk/` (SPEC-v3 §9.6). Seventeen mixins here require derived names — `deb/jq`, `deb/dpkg`, `deb/docker-ce`, `deb/openssh-client`:
 
 ```yaml
 requires: ["claude", "deb/jq", "deb/openssl >= 3.5"]
@@ -272,7 +272,7 @@ sbx run shell --kit ./mise .          # or onto a built-in agent
    └── README.md
    ```
 
-2. Write `my-kit.yaml`, starting from the skeleton in [Anatomy of a kit](#anatomy-of-a-kit) and from whichever existing kit is closest in shape. `mise/` is a good declaration-only mixin; `claude-mixin/` is a good overlay mixin; `claude/` is a good workload.
+2. Write `my-kit.yaml`, starting from the skeleton in [Anatomy of a kit](#anatomy-of-a-kit) and from whichever existing kit is closest in shape. `mise/` is a good declaration-only mixin; [the DHI Cursor mixin](https://hub.docker.com/r/sbx/cursor-mixin) documents its overlay; [the DHI Copilot workload](https://hub.docker.com/r/sbx/copilot) is a workload example.
 
 3. Write `my-kit.dockerfile`, unless the kit declares only. A workload must have one.
 
@@ -289,6 +289,8 @@ The frontend validates during the build, so building *is* validating. `--output 
 ```console
 cd my-kit && docker buildx build . -f my-kit.yaml --output type=cacheonly
 ```
+
+For a workload, also run `scripts/verify-kit-image.sh my-kit`. It builds the image and checks its launch binary, non-root user, flavor label and, when `start-docker` is set, the engine, which the frontend does not. Set `VERIFY_PLATFORM=linux/arm64` on an arm64 host.
 
 ### Run it
 
@@ -362,7 +364,7 @@ Note that a fork PR does not receive repository secrets, so any leg needing Dock
 
 ## Kit index
 
-101 kits: 32 workloads and 69 mixins. Every workload has a `-mixin` sibling that declares the same capabilities in overlay form, so you can either boot the agent as the sandbox or layer it onto one.
+Buildable kits are listed by `scripts/discover-kits.sh`. Entries marked DHI catalog are maintained in [Docker Hardened Images](https://github.com/docker-hardened-images/catalog/tree/main/image); their local directories contain migration pointers only.
 
 ### Workloads
 
@@ -370,32 +372,34 @@ Note that a fork PR does not receive repository secrets, so any leg needing Dock
 | --- | --- | --- |
 | [`aider`](./aider) | [`aider-mixin`](./aider-mixin) | Aider |
 | [`amp`](./amp) | [`amp-mixin`](./amp-mixin) | Amp |
-| [`antigravity`](./antigravity) | [`antigravity-mixin`](./antigravity-mixin) | Google Antigravity |
-| [`claude`](./claude) | [`claude-mixin`](./claude-mixin) | Claude Code |
+| [`antigravity`](https://github.com/docker-hardened-images/catalog/tree/main/image) (DHI catalog) | [`antigravity-mixin`](https://github.com/docker-hardened-images/catalog/tree/main/image) (DHI catalog) | Google Antigravity |
+| [`claude`](https://github.com/docker-hardened-images/catalog/tree/main/image/claude) (DHI catalog) | [`claude-mixin`](https://github.com/docker-hardened-images/catalog/tree/main/image/claude-mixin) (DHI catalog) | Claude Code |
 | [`claude-ollama`](./claude-ollama) | [`claude-ollama-mixin`](./claude-ollama-mixin) | Claude Code against a local Ollama endpoint |
-| [`codex`](./codex) | [`codex-mixin`](./codex-mixin) | Codex |
-| [`copilot`](./copilot) | [`copilot-mixin`](./copilot-mixin) | GitHub Copilot |
+| [`codex`](https://github.com/docker-hardened-images/catalog/tree/main/image/codex) (DHI catalog) | [`codex-mixin`](https://github.com/docker-hardened-images/catalog/tree/main/image/codex-mixin) (DHI catalog) | Codex |
+| [`copilot`](https://github.com/docker-hardened-images/catalog/tree/main/image) (DHI catalog) | [`copilot-mixin`](https://github.com/docker-hardened-images/catalog/tree/main/image) (DHI catalog) | GitHub Copilot |
 | [`crush`](./crush) | [`crush-mixin`](./crush-mixin) | Crush |
-| [`cursor`](./cursor) | [`cursor-mixin`](./cursor-mixin) | Cursor |
-| [`devin`](./devin) | [`devin-mixin`](./devin-mixin) | Devin |
+| [`cursor`](https://github.com/docker-hardened-images/catalog/tree/main/image) (DHI catalog) | [`cursor-mixin`](https://github.com/docker-hardened-images/catalog/tree/main/image) (DHI catalog) | Cursor |
+| [`devin`](https://github.com/docker-hardened-images/catalog/tree/main/image) (DHI catalog) | [`devin-mixin`](https://github.com/docker-hardened-images/catalog/tree/main/image) (DHI catalog) | Devin |
 | [`devin-enterprise`](./devin-enterprise) | [`devin-enterprise-mixin`](./devin-enterprise-mixin) | Devin Enterprise |
-| [`docker-agent`](./docker-agent) | [`docker-agent-mixin`](./docker-agent-mixin) | Docker Agent |
-| [`droid`](./droid) | [`droid-mixin`](./droid-mixin) | Droid |
+| [`docker-agent`](https://github.com/docker-hardened-images/catalog/tree/main/image) (DHI catalog) | [`docker-agent-mixin`](https://github.com/docker-hardened-images/catalog/tree/main/image) (DHI catalog) | Docker Agent |
+| [`droid`](https://github.com/docker-hardened-images/catalog/tree/main/image) (DHI catalog) | [`droid-mixin`](https://github.com/docker-hardened-images/catalog/tree/main/image) (DHI catalog) | Droid |
 | [`grok`](./grok) | [`grok-mixin`](./grok-mixin) | Grok Build |
 | [`gstack`](./gstack) | [`gstack-mixin`](./gstack-mixin) | Claude Code plus Garry's Stack |
-| [`hermes-agent`](./hermes-agent) | [`hermes-agent-mixin`](./hermes-agent-mixin) | Hermes Agent |
+| [`hermes-agent`](https://github.com/docker-hardened-images/catalog/tree/main/image) (DHI catalog) | [`hermes-agent-mixin`](https://github.com/docker-hardened-images/catalog/tree/main/image) (DHI catalog) | Hermes Agent |
 | [`junie`](./junie) | [`junie-mixin`](./junie-mixin) | Junie |
-| [`kiro`](./kiro) | [`kiro-mixin`](./kiro-mixin) | Kiro |
+| [`kit-builder`](https://github.com/docker-hardened-images/catalog/tree/main/image) (DHI catalog) | — | Docker-in-Docker Kit builder |
+| [`kiro`](https://github.com/docker-hardened-images/catalog/tree/main/image) (DHI catalog) | [`kiro-mixin`](https://github.com/docker-hardened-images/catalog/tree/main/image) (DHI catalog) | Kiro |
 | [`nanobot`](./nanobot) | [`nanobot-mixin`](./nanobot-mixin) | Nanobot |
 | [`nanoclaw`](./nanoclaw) | [`nanoclaw-mixin`](./nanoclaw-mixin) | NanoClaw |
 | [`open-interpreter`](./open-interpreter) | [`open-interpreter-mixin`](./open-interpreter-mixin) | Open Interpreter |
 | [`openclaw`](./openclaw) | [`openclaw-mixin`](./openclaw-mixin) | OpenClaw |
-| [`opencode`](./opencode) | [`opencode-mixin`](./opencode-mixin) | OpenCode |
+| [`opencode`](https://github.com/docker-hardened-images/catalog/tree/main/image) (DHI catalog) | [`opencode-mixin`](https://github.com/docker-hardened-images/catalog/tree/main/image) (DHI catalog) | OpenCode |
 | [`opencode-model-runner`](./opencode-model-runner) | [`opencode-model-runner-mixin`](./opencode-model-runner-mixin) | OpenCode against Docker Model Runner |
 | [`openhands`](./openhands) | [`openhands-mixin`](./openhands-mixin) | OpenHands |
 | [`paperclip`](./paperclip) | [`paperclip-mixin`](./paperclip-mixin) | Paperclip |
-| [`pi`](./pi) | [`pi-mixin`](./pi-mixin) | Pi |
+| [`pi`](https://github.com/docker-hardened-images/catalog/tree/main/image) (DHI catalog) | [`pi-mixin`](https://github.com/docker-hardened-images/catalog/tree/main/image) (DHI catalog) | Pi |
 | [`picoclaw`](./picoclaw) | [`picoclaw-mixin`](./picoclaw-mixin) | PicoClaw |
+| [`shell`](https://github.com/docker-hardened-images/catalog/tree/main/image/shell) (DHI catalog) | — | A hardened Debian sandbox with a Docker engine, a login shell and no agent: the base an agent mixin layers onto |
 | [`trivy`](./trivy) | [`trivy-mixin`](./trivy-mixin) | Trivy vulnerability scanner |
 | [`vibe`](./vibe) | [`vibe-mixin`](./vibe-mixin) | Mistral Vibe |
 | [`zeroclaw`](./zeroclaw) | [`zeroclaw-mixin`](./zeroclaw-mixin) | ZeroClaw |
@@ -405,14 +409,17 @@ Note that a fork PR does not receive repository secrets, so any leg needing Dock
 | Kit | Requires | What it is |
 | --- | --- | --- |
 | [`aidlc-claude`](./aidlc-claude) | `claude-bedrock` | AWS AI-DLC starter: a pinned Bun and the aidlc-workflows Claude harness |
-| [`claude-acp`](./claude-acp) | `claude` | The Claude ACP adapter over stdio |
+| [`claude-acp`](https://github.com/docker-hardened-images/catalog/tree/main/image/claude-acp) (DHI catalog) | `claude` | The Claude ACP adapter over stdio |
+| [`claude-bedrock-mixin`](./claude-bedrock-mixin) | `claude`, `deb/jq` | Claude Code on Amazon Bedrock with the AWS profile stored on the host |
 | [`claude-mem`](./claude-mem) | `claude` | Persistent memory across Claude Code sessions, in SQLite + FTS5 |
 | [`claude-model-runner`](./claude-model-runner) | `claude` | Routes Claude Code's API calls to a local Docker Model Runner |
 | [`claude-sbx-statusline`](./claude-sbx-statusline) | `claude`, `deb/jq` | A two-line Docker Sandboxes status line for Claude Code |
 | [`claude-vertex-mixin`](./claude-vertex-mixin) | `claude`, `deb/jq` | Claude Code on Google Vertex AI with host gcloud Application Default Credentials |
 | [`code-server`](./code-server) | `claude` | code-server on port 8080 with the Claude Code VS Code extension |
-| [`codex-acp`](./codex-acp) | `codex` | The Codex ACP adapter over stdio |
+| [`codex-acp`](https://github.com/docker-hardened-images/catalog/tree/main/image/codex-acp) (DHI catalog) | `codex` | The Codex ACP adapter over stdio |
 | [`codex-app-server`](./codex-app-server) | `codex`, `deb/apt` | sshd plus forwarded host keys, so the Codex Mac GUI can drive `codex app-server` |
+| [`cosmos-db-emulator`](./cosmos-db-emulator) | `deb/curl`, `deb/docker-ce` | The Azure Cosmos DB emulator (vNext, API for NoSQL) on the sandbox's Docker Engine, with the gateway and Data Explorer published on the host loopback |
+| [`docker-tcp`](./docker-tcp) | `deb/curl`, `deb/docker-ce`, `deb/jq`, `deb/procps` | The sandbox's Docker Engine on a TCP port published on the host loopback, so host Docker clients can run containers in it |
 | [`ecc`](./ecc) | `claude` | Everything Claude Code: rules, agents, commands and skills |
 | [`git-ssh-sign`](./git-ssh-sign) | `deb/openssh-client` | Commit signing with the key forwarded from the host's SSH agent |
 | [`gitea`](./gitea) | `deb/dpkg` | Gitea token auth for git-over-HTTPS and the Gitea API, via the proxy |
@@ -421,6 +428,7 @@ Note that a fork PR does not receive repository secrets, so any leg needing Dock
 | [`github-ssh`](./github-ssh) | `deb/jq`, `deb/openssh-client` | Pre-populated GitHub host keys, so SSH needs no interactive verification |
 | [`gitlab`](./gitlab) | `deb/dpkg` | The GitLab CLI (`glab`) with proxy-injected token auth |
 | [`gitlab-ssh`](./gitlab-ssh) | `deb/openssh-client` | GitLab SSH host keys in `known_hosts` |
+| [`goose`](./goose) | — | goose, the open-source AI agent from Block, with proxy-managed provider credentials and a ChatGPT login |
 | [`kernel`](./kernel) | — | Cloud-hosted Chromium with stealth, managed auth and session replay |
 | [`lighthouse`](./lighthouse) | — | The Lighthouse CLI with headless Chromium, for auditing pages served in-sandbox |
 | [`mise`](./mise) | `deb/dpkg` | mise-en-place, the polyglot dev-tool version manager, with shell activation |
@@ -428,6 +436,7 @@ Note that a fork PR does not receive repository secrets, so any leg needing Dock
 | [`packages-through-sfw`](./packages-through-sfw) | — | Routes npm and pip through Socket Firewall Free |
 | [`playwright`](./playwright) | — | The Playwright toolchain with Chromium on a shared system browsers path |
 | [`qemu`](./qemu) | `deb/docker-ce` | QEMU user-mode emulators via binfmt_misc, for cross-arch builds |
+| [`shell-credentials`](./shell-credentials) | — | The eight provider credentials the built-in agentless sandbox declared, for a base that owns none of them |
 | [`smolagents`](./smolagents) | `deb/apt` | Hugging Face smolagents in an isolated virtualenv |
 | [`t3code`](./t3code) | — | The build toolchain T3 Code's SSH integration needs to compile `node-pty` |
 | [`task`](./task) | `deb/dpkg` | The Task CLI, for running Taskfiles |

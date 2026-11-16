@@ -1,0 +1,158 @@
+# syntax=docker/sandbox-kit:3
+# Migration of the v2 dapr-agents sandbox kit. The workload image, runtime
+# configuration, credentials, and network policy now ship as one v3 Kit
+# artifact. Deliberate behavior changes are marked MIGRATION NOTE inline.
+schemaVersion: "3"
+displayName: Dapr Agents
+description: >-
+  Run a durable Python Dapr Agent with a Dapr sidecar and private Redis,
+  placement, and scheduler services in one Docker Sandbox.
+sourceUrl: https://github.com/dapr/dapr-agents
+licenses: [Apache-2.0]
+
+kind: workload
+version: "${{ kit.args.version }}"
+
+args:
+  # The lockfile, launcher compatibility gate, and provide all describe this
+  # same Dapr Agents release. The recipe refuses a lockfile that disagrees.
+  version:
+    default: "1.0.6"
+    pattern: '^[0-9]+\.[0-9]+\.[0-9]+$'
+    description: Dapr Agents release carried by the bundled environment
+    buildArg: DAPR_AGENTS_VERSION
+  mode:
+    default: "example"
+    enum: ["example", "custom"]
+    description: Run the bundled example or a compatible project in the sandbox workspace
+    env: DAPR_KIT_MODE
+  entrypoint:
+    default: ""
+    description: Python script relative to the workspace; required in custom mode
+    env: DAPR_KIT_ENTRYPOINT
+  # MIGRATION NOTE: v3 arg keys cannot contain hyphens, so the v2
+  # `resources-dir` and `app-id` spellings become underscores. Their delivered
+  # environment variable names, defaults, and runtime behavior are unchanged.
+  resources_dir:
+    default: ""
+    description: Optional workspace-relative Dapr component overlay; llm-provider.yaml replaces the selected bundled provider
+    env: DAPR_KIT_RESOURCES_DIR
+  app_id:
+    default: "dapr-agent"
+    pattern: '^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$'
+    description: Stable Dapr application ID
+    env: DAPR_KIT_APP_ID
+  provider:
+    default: "openai"
+    enum: ["openai", "anthropic", "deepseek", "google", "huggingface", "mistral"]
+    description: Bundled Dapr Conversation provider to expose as llm-provider
+    env: DAPR_KIT_PROVIDER
+  model:
+    default: ""
+    description: Optional model override; an empty value delegates to the selected Dapr component default
+    env: SANDBOX_DAPR_AGENTS_MODEL
+
+provides: ["dapr-agents@${{ kit.args.version }}"]
+
+# MIGRATION NOTE: v2 requested 4 GiB through sandbox.resources. v3 has no
+# descriptor resource field; the sandbox runtime/operator owns that limit.
+capabilities:
+  - type: com.docker.sandbox/sbx@1
+
+  # The Dapr CLI and daprd are installed while the Kit image is built, so the
+  # GitHub release and package-manager hosts from v2 are no longer runtime
+  # grants. PyPI remains because the launcher creates the bundled or custom
+  # locked Python environment inside each sandbox. Docker Hub remains because
+  # the private engine pulls the pinned Redis, placement, and scheduler images.
+  - type: com.docker.sandbox/network-policy@1
+    config:
+      runtime:
+        allow:
+          - pypi.org
+          - files.pythonhosted.org
+          - registry-1.docker.io
+          - auth.docker.io
+          - production.cloudflare.docker.com
+          - production.cloudfront.docker.com
+          # Every credential inject domain appears in this same phase.
+          - api.anthropic.com
+          - api.deepseek.com
+          - generativelanguage.googleapis.com
+          - router.huggingface.co
+          - api.mistral.ai
+          - api.openai.com
+
+  # MIGRATION NOTE: v2 credentials defaulted to optional. v3 defaults to
+  # required, so every provider explicitly opts out to preserve the behavior:
+  # the user binds only the provider selected by the `provider` argument.
+  - type: com.docker.sandbox/credential@1
+    optional: true
+    description: Anthropic API key for the bundled conversation.anthropic provider
+    config:
+      service: anthropic
+      phase: runtime
+      apiKey:
+        name: ANTHROPIC_API_KEY
+        proxyManaged: true
+        inject:
+          - {domain: api.anthropic.com, header: x-api-key, format: "%s"}
+
+  - type: com.docker.sandbox/credential@1
+    optional: true
+    description: DeepSeek API key for the bundled conversation.deepseek provider
+    config:
+      service: deepseek
+      phase: runtime
+      apiKey:
+        name: DEEPSEEK_API_KEY
+        proxyManaged: true
+        inject:
+          - {domain: api.deepseek.com, header: Authorization, format: "Bearer %s"}
+
+  - type: com.docker.sandbox/credential@1
+    optional: true
+    description: Google AI API key for the bundled conversation.googleai provider
+    config:
+      service: google
+      phase: runtime
+      apiKey:
+        name: GOOGLE_API_KEY
+        proxyManaged: true
+        inject:
+          - {domain: generativelanguage.googleapis.com, header: x-goog-api-key, format: "%s"}
+
+  - type: com.docker.sandbox/credential@1
+    optional: true
+    description: Hugging Face token for the bundled conversation.huggingface provider
+    config:
+      service: huggingface
+      phase: runtime
+      apiKey:
+        name: HF_TOKEN
+        proxyManaged: true
+        inject:
+          - {domain: router.huggingface.co, header: Authorization, format: "Bearer %s"}
+
+  - type: com.docker.sandbox/credential@1
+    optional: true
+    description: Mistral API key for the bundled conversation.mistral provider
+    config:
+      service: mistral
+      phase: runtime
+      apiKey:
+        name: MISTRAL_API_KEY
+        proxyManaged: true
+        inject:
+          - {domain: api.mistral.ai, header: Authorization, format: "Bearer %s"}
+
+  - type: com.docker.sandbox/credential@1
+    optional: true
+    description: OpenAI API key for the default bundled conversation.openai provider
+    config:
+      service: openai
+      phase: runtime
+      apiKey:
+        name: OPENAI_API_KEY
+        proxyManaged: true
+        inject:
+          - {domain: api.openai.com, header: Authorization, format: "Bearer %s"}

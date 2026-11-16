@@ -11,33 +11,33 @@ it ships a pinned [Bun](https://bun.sh) in its overlay layer, clones the latest
 existing project already pinned), and copies that repo's Claude harness into the
 workspace.
 
-Pairs with the built-in `claude-bedrock` agent — the kit declares
-`requires: ["claude-bedrock"]`. Unlike the rest of the claude family in this
-repo, that provider is not a kit here: `claude-bedrock` is a built-in sbx agent.
-v3 resolution is a closed-set check, so the requirement is satisfied only by a
-composition that actually carries a `claude-bedrock` provider. It is stated
-rather than softened to `claude` because the harness targets AWS Bedrock and pins
-Bedrock model ids, so the plain `claude` kit is not a substitute.
+Pairs with [`claude-bedrock-mixin`](../claude-bedrock-mixin), which provides
+`claude-bedrock`. The kit declares `requires: ["claude-bedrock"]`, and v3
+resolution is a closed-set check, so the requirement is satisfied only by a
+composition that carries that provider. It is stated rather than softened to
+`claude` because the harness targets AWS Bedrock and pins Bedrock model ids, so
+the plain `claude` kit is not a substitute.
 
 ## Usage
 
-Run it with the `claude-bedrock` agent, from its published OCI artifact on
-Docker Hub:
+Compose `claude` with the Bedrock mixin and this kit. Store your AWS profile
+first (see below), then run it from the published OCI artifacts on Docker Hub:
 
 ```console
-sbx run --kit "docker.io/sbx/aidlc-claude:latest" claude-bedrock
+sbx secret set bedrock
+sbx run claude --kit docker.io/sbx/claude-bedrock-mixin:latest --kit docker.io/sbx/aidlc-claude:latest
 ```
 
 Or from a git URL targeting this repo:
 
 ```console
-sbx run --kit "git+https://github.com/docker/sbx-kits-contrib.git#dir=aidlc-claude" claude-bedrock
+sbx run claude --kit "git+https://github.com/docker/sbx-kits-contrib.git#dir=claude-bedrock-mixin" --kit "git+https://github.com/docker/sbx-kits-contrib.git#dir=aidlc-claude"
 ```
 
 Or with a local clone of this repo:
 
 ```console
-sbx run --kit ./aidlc-claude/ claude-bedrock
+sbx run claude --kit ./claude-bedrock-mixin/ --kit ./aidlc-claude/
 ```
 
 > Requires `sbx` newer than v0.39.0.
@@ -65,11 +65,11 @@ bun --version
 
 The shipped `.claude/settings.json` targets **AWS Bedrock** and pins Fable /
 Opus / Sonnet / Haiku in `us-east-1`. You need Anthropic model access enabled
-in your AWS account, and the `claude-bedrock` agent needs its own credentials
+in your AWS account, and the Bedrock mixin needs its own credentials
 set up on the host *before* you run the kit — it does not pick up an
 `AWS_PROFILE` from your shell, since the sandbox runtime deliberately does not
 import that automatically. With AWS CLI v2 installed on the host and a
-profile configured there, store that profile for the agent with
+profile configured there, store that profile with
 `sbx secret set bedrock`.
 
 ## How the Bun install works

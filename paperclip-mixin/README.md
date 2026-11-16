@@ -35,7 +35,7 @@ startup hook resolved.
 
 ## What it carries
 
-- Node 22 (with `npm`/`npx`, which the server resolves agent CLIs through)
+- Node 24 (with `npm`/`npx`, which the server resolves agent CLIs through)
   and the pinned `paperclipai` package with its built UI — all copied out of
   a build stage on the same base the workload uses, because neither `n` nor
   `npm install -g` takes a relocation flag.

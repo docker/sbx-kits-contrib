@@ -6,7 +6,7 @@ kind: mixin
 # The kit's own version, not the version of anything it installs: it is the
 # tag this kit publishes under, and the fallback that versions an unversioned
 # provide at publish. Bump it when this kit's declarations change.
-version: "1.0.0"
+version: "1.0.1"
 displayName: claude-mem (persistent memory)
 description: 'Persistent context across Claude Code sessions: captures session activity into SQLite+FTS5, compresses with the Agent SDK, and injects relevant memory at session start. Tracks the latest claude-mem release.'
 
@@ -63,6 +63,7 @@ capabilities:
           - security.ubuntu.com
           - ports.ubuntu.com
           - download.docker.com
+          - cli.github.com          # GitHub CLI apt repo, pre-added by the base
 
   # MIGRATION NOTE: v2's `ports[]`. v2 spelled the transport `protocol:`; v3
   # spells it `transport:` and defaults it to tcp, which is what this entry wants,
@@ -202,10 +203,12 @@ capabilities:
                   bypassPermissionsModeAccepted: true,
                 };
                 const SENTINEL = "echo proxy-managed";
-                if (process.env.MODE !== "none") defaults.apiKeyHelper = SENTINEL;
+                // Only API-key mode gets the helper. A subscription would run as an API-key session.
+                const apikey = process.env.MODE === "apikey";
+                if (apikey) defaults.apiKeyHelper = SENTINEL;
                 for (const k of Object.keys(defaults)) if (!(k in s)) s[k] = defaults[k];
                 // Only clear our own sentinel, never a user-customized helper.
-                if (process.env.MODE === "none" && s.apiKeyHelper === SENTINEL) delete s.apiKeyHelper;
+                if (!apikey && s.apiKeyHelper === SENTINEL) delete s.apiKeyHelper;
                 s.enabledPlugins = s.enabledPlugins || {};
                 if (!("claude-mem@thedotmack" in s.enabledPlugins)) s.enabledPlugins["claude-mem@thedotmack"] = true;
                 fs.writeFileSync(p, JSON.stringify(s, null, 2));

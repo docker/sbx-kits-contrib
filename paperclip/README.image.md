@@ -8,7 +8,7 @@ Base image for the Paperclip agent-management kit for
 Built on `docker/sandbox-templates:claude-code`, so Claude Code is available
 for Paperclip's `claude_local` adapter. On top of that:
 
-- Node 22 (Paperclip requires >= 20)
+- Node 24 (its npm 11 is what resolves paperclipai's dependency tree; see the recipe)
 - `paperclipai`, installed globally at a pinned version — `@paperclipai/server`,
   the built React UI, and sharp prebuilds
 - Distro PostgreSQL (not the bundled embedded-postgres, whose arm64 binaries

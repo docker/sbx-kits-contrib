@@ -59,7 +59,8 @@ capabilities:
         proxyManaged: true
         inject:
           - domain: ${{ kit.args.jfrog_host }}
-            scheme: bearer
+            header: Authorization
+            format: "Bearer %s"
 
   - type: com.docker.sandbox/agent-context@1
     config:

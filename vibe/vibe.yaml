@@ -117,10 +117,11 @@ capabilities:
         # real key on the hosts listed below, and nowhere else.
         proxyManaged: true
         inject:
+          # Cloud's mistral service registry covers api.mistral.ai only.
+          # chat.mistral.ai / console.mistral.ai stay on the network allow list
+          # for egress, but injecting them fails bake with "not covered by the
+          # service's registry injection domains".
           - {domain: api.mistral.ai, header: Authorization, format: "Bearer %s"}
-          # The two other hosts Vibe calls with the same key.
-          - {domain: chat.mistral.ai, header: Authorization, format: "Bearer %s"}
-          - {domain: console.mistral.ai, header: Authorization, format: "Bearer %s"}
 
   # Keeps config.toml, sessions, logs, custom agents and .env across
   # re-creations of a sandbox with the same name.

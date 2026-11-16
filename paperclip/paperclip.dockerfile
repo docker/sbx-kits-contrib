@@ -32,16 +32,22 @@ USER root
 # Some networks block plain-HTTP apt traffic (UA-based filtering).
 RUN sed -i 's|http://|https://|g' /etc/apt/sources.list.d/*.sources /etc/apt/sources.list 2>/dev/null || true
 
-# Node 22 (paperclip requires >=20; its own agent images use 22) and the
-# pinned paperclipai CLI. The install pulls @paperclipai/server, the
-# built UI, embedded-postgres platform binaries, and sharp prebuilds.
-# `n 22` floats to the latest 22.x patch intentionally (security fixes);
+# The install must run under npm 11: npm 9 (the base's apt package) and
+# npm 10 (node 22's) both crash resolving this tree (npm/cli#9787), so node
+# 24. `hash -r` because this RUN is one sh and dash has already cached the
+# base's /usr/bin/npm; without it the old npm runs on the new node.
+# `n 24` floats to the latest 24.x patch intentionally (security fixes);
 # the shared kit-image pipeline's nightly rebuild catches any drift.
-RUN npm install -g n && n 22 && npm install -g "paperclipai@${PAPERCLIP_VERSION}"
+RUN npm install -g n && n 24 && hash -r && npm install -g "paperclipai@${PAPERCLIP_VERSION}"
 
 # Pin the binary somewhere always on PATH (startup commands and
 # entrypoints run with a minimal PATH).
 RUN ln -sf "$(npm prefix -g)/bin/paperclipai" /usr/local/bin/paperclipai
+USER agent
+RUN --network=none command -v paperclipai \
+    && { output="$(paperclipai --help 2>&1)"; status=$?; \
+         printf '%s\n' "$output"; test "$status" -eq 0 && test -n "$output"; }
+USER root
 
 # Distro PostgreSQL instead of paperclip's embedded-postgres: the bundled
 # arm64 binaries are linked for 4KB pages and fail to load on the sandbox

@@ -33,11 +33,12 @@
 # detection — so what counts as a kit is defined in exactly one place.
 set -euo pipefail
 
+# KIT_ROOT (default: the repo root) names the directory to scan instead.
 # Anchor to the repo root so this works regardless of the caller's cwd —
 # run from a kit subdirectory otherwise, the glob below matches nothing and
 # the script silently prints an empty list instead of erroring.
 SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
-cd "$SCRIPT_DIR/.."
+cd "${KIT_ROOT:-$SCRIPT_DIR/..}"
 
 # `*/` rather than `*` so only directories are considered: a stray top-level
 # file would otherwise be probed as though it were a kit directory.

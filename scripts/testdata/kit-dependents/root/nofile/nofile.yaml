@@ -1,0 +1,3 @@
+# syntax=docker/sandbox-kit:3
+name: nofile
+dockerfile: gone/Dockerfile

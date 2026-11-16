@@ -43,5 +43,8 @@ if [ "${actual}" != "${EXPECTED_OPENCODE_VERSION}" ]; then
 fi
 EOF
 
+# Overrides the base's flavor: sbx reads it as the image's agent.
+LABEL com.docker.sandboxes.flavor="opencode-model-runner"
+
 # v2's sandbox.entrypoint. There was no `environment.variables` block to carry.
 ENTRYPOINT ["opencode"]

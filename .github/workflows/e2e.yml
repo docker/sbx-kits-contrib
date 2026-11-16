@@ -103,6 +103,9 @@ jobs:
     # there).
     strategy:
       fail-fast: false
+      # Hub throttles this shared account's login and managed-settings requests.
+      # Match main's cap so a full-kit run can still read its organization policy.
+      max-parallel: 10
       matrix:
         kit: ${{ fromJson(inputs.kits) }}
     runs-on: ubuntu-latest
@@ -222,7 +225,16 @@ jobs:
         # end up silently inert with every other check green.
         env:
           KIT: ${{ matrix.kit }}
-        run: ./scripts/test-kit-e2e.sh "$KIT"
+        run: |
+          if [ "$KIT" = git-ssh-sign ] || [ "$KIT" = github-ssh ] || [ "$KIT" = gitlab-ssh ]; then
+            signing_dir=$(mktemp -d)
+            eval "$(ssh-agent -s)"
+            trap 'ssh-agent -k >/dev/null; rm -rf "$signing_dir"' EXIT
+            ssh-keygen -q -t ed25519 -N '' -f "$signing_dir/key"
+            ssh-add "$signing_dir/key"
+            sbx --app-name "$APP_NAME" settings set ssh.agentForwardingEnabled true
+          fi
+          ./scripts/test-kit-e2e.sh "$KIT"
 
       - name: Sign out of Docker Hub
         if: always()

@@ -241,6 +241,15 @@ entirely: no network call is made and the command signs with the first
 key the agent offers. GitHub Enterprise Server and other forges aren't
 cross-checked.
 
+**Author identity**
+
+The kit requests `git-identity@1`, so the sandbox gets your host's git
+`user.name` and `user.email`: from the workspace repository's config, else
+your global config. GitHub shows a signed commit as Verified only when its
+committer email belongs to the account that registered the signing key, so
+signing is of little use without it. The request is optional: on a host
+with no identity configured, the sandbox still starts without one.
+
 **Composing with repo-local hooks**
 
 This kit does not set `core.hooksPath` and does not install a

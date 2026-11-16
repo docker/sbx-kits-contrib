@@ -77,9 +77,9 @@ capabilities:
   # network-policy phase governs. This kit declares no lifecycle hooks at all,
   # so nothing runs in the install phase either.
   #
-  # What remains below is exactly the provider hosts the credentials inject
-  # into: a credential's inject domains are not allowed implicitly, and v3
-  # validates that each one appears in the matching phase's allow list.
+  # Provider API hosts need explicit egress: a credential's inject domains
+  # are not allowed implicitly, and v3 validates that each one appears in
+  # the matching phase's allow list.
   - type: com.docker.sandbox/network-policy@1
     config:
       runtime:
@@ -199,8 +199,11 @@ capabilities:
         name: GROQ_API_KEY
         proxyManaged: true
         inject:
+          # Cloud's groq service registry covers api.groq.com only. Injecting
+          # groq.com fails bake with "not covered by the service's registry
+          # injection domains". groq.com remains allowed for egress only;
+          # authenticated Groq requests must target api.groq.com.
           - {domain: api.groq.com, header: Authorization, format: "Bearer %s"}
-          - {domain: groq.com, header: Authorization, format: "Bearer %s"}
   - type: com.docker.sandbox/credential@1
     optional: true
     description: Hugging Face inference access
