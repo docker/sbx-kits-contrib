@@ -424,6 +424,7 @@ Buildable kits are listed by `scripts/discover-kits.sh`. Entries marked DHI cata
 | [`git-ssh-sign`](https://hub.docker.com/r/sbx/git-ssh-sign) (DHI catalog) | See Hub usage | Git commit signing through the host SSH agent |
 | [`gitea`](./gitea) | `deb/dpkg` | Gitea token auth for git-over-HTTPS and the Gitea API, via the proxy |
 | [`gitguardian`](./gitguardian) | `claude`, `deb/dpkg` | ggshield as a Claude Code hook, scanning the agent's actions for secrets |
+| [`github-cli`](https://hub.docker.com/r/sbx/github-cli) (DHI catalog) | See Hub usage | GitHub CLI with proxy-managed authentication |
 | [`github-clone`](./github-clone) | — | Clones a GitHub repository at create time with a proxy-managed token |
 | [`github-ssh`](https://hub.docker.com/r/sbx/github-ssh) (DHI catalog) | See Hub usage | GitHub SSH access with trusted host keys |
 | [`gitlab`](./gitlab) | `deb/dpkg` | The GitLab CLI (`glab`) with proxy-injected token auth |
