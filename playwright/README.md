@@ -28,8 +28,8 @@ sbx run claude --kit ./playwright/ .
 Prerequisites:
 
 - A DHI Debian workload such as `dhi.io/shell:latest`. The install hook
-  installs DHI's `nodejs-24` package when Node is absent, then installs
-  Chromium's system libraries. npm is needed only while building the kit.
+  installs DHI's `nodejs-24` package when Node is absent and its `npm`
+  package when `npx` is absent, then installs Chromium's system libraries.
 
 Inside the sandbox:
 
