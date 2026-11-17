@@ -436,7 +436,7 @@ Buildable kits are listed by `scripts/discover-kits.sh`. Entries marked DHI cata
 | [`mise`](https://hub.docker.com/r/sbx/mise) (DHI catalog) | See Hub usage | mise tool management with shell activation |
 | [`neovim`](./neovim) | `deb/dpkg` | Neovim at a pinned release, with a bundled `~/.config/nvim` |
 | [`packages-through-sfw`](./packages-through-sfw) | — | Routes npm and pip through Socket Firewall Free |
-| [`playwright`](./playwright) | — | The Playwright toolchain with Chromium on a shared system browsers path |
+| [`playwright`](https://hub.docker.com/r/sbx/playwright) (DHI catalog) | See Hub usage | Playwright browser automation and tests with Chromium |
 | [`qemu`](./qemu) | `deb/docker-ce` | QEMU user-mode emulators via binfmt_misc, for cross-arch builds |
 | [`shell-credentials`](./shell-credentials) | — | The eight provider credentials the built-in agentless sandbox declared, for a base that owns none of them |
 | [`smolagents`](./smolagents) | `deb/apt` | Hugging Face smolagents in an isolated virtualenv |
