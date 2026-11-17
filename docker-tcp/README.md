@@ -57,13 +57,18 @@ requires: ["docker-tcp >= 0.1"]
 
 ## How it works
 
-- **`daemon.json`.** A startup hook merges `hosts` into
+- **`daemon.json`.** An install hook merges `hosts` into
   `/etc/docker/daemon.json` — the file every way of starting dockerd in a
   sandbox reads — keeping any other keys already there. The unix socket stays
-  listed: `sbx`'s readiness probe pings it on every start.
-- **One restart.** `sbx` starts dockerd before kit startup hooks run, so the
-  first boot restarts it once to pick up `hosts`. Later boots find the edit in
-  place and the hook returns after a single probe.
+  listed: `sbx`'s readiness probe pings it on every start. Unless you've set
+  `tls` or `tlsverify` yourself, it also sets `"tls": false`, which tells
+  dockerd that serving without TLS is intended. Without it, dockerd delays
+  every start by about 15 seconds to warn about it.
+- **No restart.** Install hooks run before `sbx` first starts dockerd, so
+  dockerd listens on TCP from its first start. The kit never restarts it,
+  which would drop the settings `sbx` starts it with.
+- **A check on every start.** A startup hook pings the API on TCP and fails,
+  with the end of `/var/log/dockerd.log`, if dockerd isn't listening.
 - **The port.** A `port@1` capability for container port 2375 asks `sbx` to
   publish it on the host. `transport` is left out so the local runtime binds
   IPv4 loopback only.
