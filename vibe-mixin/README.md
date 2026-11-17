@@ -47,11 +47,10 @@ vibe-start          # vibe --trust --agent "$VIBE_AGENT"
 
 ## Authentication
 
-The proxy injects the `mistral` key only on `api.mistral.ai`, as in the
-[workload kit](../vibe/README.md#authentication). `chat.mistral.ai` and
-`console.mistral.ai` remain allowed without injection. Requests using the
-placeholder key there may return HTTP 401, so admin-managed configuration
-and account or plan lookups may be unavailable locally and on Cloud.
+The proxy injects the `mistral` key on `api.mistral.ai`, `chat.mistral.ai`
+and `console.mistral.ai`, as in the
+[workload kit](../vibe/README.md#authentication). The container only sees the
+sentinel.
 
 ## Why there is a `vibe-start`
 

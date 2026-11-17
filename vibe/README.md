@@ -46,16 +46,10 @@ sbx run "docker.io/sbx/vibe:latest"
 ```
 
 The container only ever sees `MISTRAL_API_KEY` set to a proxy sentinel.
-The proxy substitutes the real key only on requests to `api.mistral.ai`,
-matching Cloud's `mistral` service registry. Exfiltrating the variable
-therefore exposes only the sentinel.
-
-`chat.mistral.ai` and `console.mistral.ai` remain allowed for egress but
-receive no credential injection. Requests using `MISTRAL_API_KEY` there
-carry the sentinel and may return HTTP 401: the organization's
-admin-managed configuration at startup and the `/whoami` account and
-plan lookup may be unavailable. This applies locally and on Cloud;
-inference requests to `api.mistral.ai` still receive the real key.
+The proxy substitutes the real key on requests to `api.mistral.ai`
+(inference), `chat.mistral.ai` (the admin-managed configuration at startup)
+and `console.mistral.ai` (the `/whoami` account and plan lookup), and
+nowhere else. Exfiltrating the variable therefore exposes only the sentinel.
 
 ## Agent profile
 
