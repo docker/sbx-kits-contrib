@@ -33,6 +33,9 @@ capabilities:
       # HTTP are kept.
       install:
         allow:
+          # apt also reads the configured DHI Debian repositories.
+          - deb.debian.org
+          - dhi.io
           # `apt-get update` — run by the one remaining install hook that
           # reaches a host at all — refreshes metadata for every configured apt
           # source. Every source the shell-docker base template configures must
@@ -87,7 +90,7 @@ capabilities:
       # the platform baseline. v3 hook environments are deny-by-default, so this
       # is worth stating rather than assuming.
       install:
-        - command: apt-get update && apt-get install -y --no-install-recommends ca-certificates curl nodejs npm python3-pip && rm -rf /var/lib/apt/lists/*
+        - command: apt-get update && apt-get install -y --no-install-recommends ca-certificates curl nodejs-24 npm python3-pip && rm -rf /var/lib/apt/lists/*
           user: "0"
           description: Install package-manager prerequisites
         # The overlay ships /etc/profile.d/packages-through-sfw.sh; this is the

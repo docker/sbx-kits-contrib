@@ -103,6 +103,9 @@ jobs:
     # there).
     strategy:
       fail-fast: false
+      # Hub throttles this shared account's login and managed-settings requests.
+      # Match main's cap so a full-kit run can still read its organization policy.
+      max-parallel: 10
       matrix:
         kit: ${{ fromJson(inputs.kits) }}
     runs-on: ubuntu-latest

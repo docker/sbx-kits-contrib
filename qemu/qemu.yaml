@@ -80,6 +80,9 @@ capabilities:
     config:
       install:
         allow:
+          # apt also reads the configured DHI Debian repositories.
+          - deb.debian.org
+          - dhi.io
           # apt: install `mount` if the base image lacks it.
           # `apt-get update` refreshes every configured source, so all of the
           # *-docker template's Ubuntu, Docker and GitHub CLI apt hosts must be

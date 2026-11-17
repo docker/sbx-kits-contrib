@@ -223,7 +223,7 @@ The primary way to consume a kit from this repo is its published OCI image on Do
 
 ```console
 sbx run docker.io/sbx/claude:latest .
-sbx run docker.io/sbx/claude:latest --kit docker.io/sbx/mise:latest .
+sbx run sbx/claude:latest --kit sbx/mise:latest .
 ```
 
 Or target this repo directly over git:
@@ -236,30 +236,30 @@ The fragment after `#` accepts two parameters, both optional:
 
 | Parameter | Purpose | Example |
 | --- | --- | --- |
-| `dir` | Subdirectory inside the repo containing the kit | `#dir=mise` |
+| `dir` | Subdirectory inside the repo containing the kit | `#dir=task` |
 | `ref` | Git ref to check out — branch, tag, or commit SHA | `#ref=v1.0.0` |
 
 Combine them with `&`:
 
 ```console
 # Pin to a tag — the recommended form for production use
-sbx run shell --kit "git+https://github.com/docker/sbx-kits-contrib.git#ref=v0.2.0&dir=mise" .
+sbx run shell --kit "git+https://github.com/docker/sbx-kits-contrib.git#ref=v0.2.0&dir=task" .
 
 # Track a branch (less stable; the kit may change under you)
-sbx run shell --kit "git+https://github.com/docker/sbx-kits-contrib.git#ref=main&dir=mise" .
+sbx run shell --kit "git+https://github.com/docker/sbx-kits-contrib.git#ref=main&dir=task" .
 
 # Pin to an exact commit SHA — fully reproducible
-sbx run shell --kit "git+https://github.com/docker/sbx-kits-contrib.git#ref=abc1234&dir=mise" .
+sbx run shell --kit "git+https://github.com/docker/sbx-kits-contrib.git#ref=abc1234&dir=task" .
 ```
 
 Without `ref`, sbx clones the default branch shallowly. With a branch or tag, sbx clones at that ref shallowly. With a commit SHA, sbx clones fully and checks out the commit. SSH works in place of HTTPS for private repos (`git+ssh://git@github.com/...`).
 
-For local development, point at a directory. A relative local reference has to be an explicit path (`./mise`, not `mise`) — a bare value keeps its agent-name or sandbox-name meaning:
+For local development, point at a directory. A relative local reference has to be an explicit path (`./task`, not `task`) — a bare value keeps its agent-name or sandbox-name meaning:
 
 ```console
 sbx run ./claude .                    # a workload
-sbx run ./claude --kit ./mise .       # a mixin, composed onto it
-sbx run shell --kit ./mise .          # or onto a built-in agent
+sbx run ./claude --kit ./task .       # a mixin, composed onto it
+sbx run shell --kit ./task .          # or onto a built-in agent
 ```
 
 ## Adding a new kit
@@ -273,7 +273,7 @@ sbx run shell --kit ./mise .          # or onto a built-in agent
    └── README.md
    ```
 
-2. Write `my-kit.yaml`, starting from the skeleton in [Anatomy of a kit](#anatomy-of-a-kit) and from whichever existing kit is closest in shape. `mise/` is a good declaration-only mixin; `cursor-mixin/` is a good overlay mixin; `copilot/` is a good workload.
+2. Write `my-kit.yaml`, starting from the skeleton in [Anatomy of a kit](#anatomy-of-a-kit) and from whichever existing kit is closest in shape. `task/` is a small static-binary overlay mixin; [the DHI Cursor mixin](https://hub.docker.com/r/sbx/cursor-mixin) documents its overlay; [the DHI Copilot workload](https://hub.docker.com/r/sbx/copilot) is a workload example.
 
 3. Write `my-kit.dockerfile`, unless the kit declares only. A workload must have one.
 
@@ -365,7 +365,7 @@ Note that a fork PR does not receive repository secrets, so any leg needing Dock
 
 ## Kit index
 
-104 kits: 31 workloads and 73 mixins, plus the `claude`, `codex` and `shell` workloads and the `claude-mixin`, `codex-mixin`, `claude-acp` and `codex-acp` mixins, which are now Docker Hardened Images in the [DHI catalog](https://github.com/docker-hardened-images/catalog/tree/main/image). Every workload except `openhands-canvas` and `shell` has a `-mixin` sibling that declares the same capabilities in overlay form, so you can either boot the agent as the sandbox or layer it onto one.
+Buildable kits are listed by `scripts/discover-kits.sh`. Entries marked DHI catalog are maintained in [Docker Hardened Images](https://github.com/docker-hardened-images/catalog/tree/main/image); their local directories contain migration pointers; any `legacy/` sources are retired from publishing.
 
 ### Workloads
 
@@ -373,31 +373,32 @@ Note that a fork PR does not receive repository secrets, so any leg needing Dock
 | --- | --- | --- |
 | [`aider`](./aider) | [`aider-mixin`](./aider-mixin) | Aider |
 | [`amp`](./amp) | [`amp-mixin`](./amp-mixin) | Amp |
-| [`antigravity`](./antigravity) | [`antigravity-mixin`](./antigravity-mixin) | Google Antigravity |
+| [`antigravity`](https://github.com/docker-hardened-images/catalog/tree/main/image) (DHI catalog) | [`antigravity-mixin`](https://github.com/docker-hardened-images/catalog/tree/main/image) (DHI catalog) | Google Antigravity |
 | [`claude`](https://github.com/docker-hardened-images/catalog/tree/main/image/claude) (DHI catalog) | [`claude-mixin`](https://github.com/docker-hardened-images/catalog/tree/main/image/claude-mixin) (DHI catalog) | Claude Code |
 | [`claude-ollama`](./claude-ollama) | [`claude-ollama-mixin`](./claude-ollama-mixin) | Claude Code against a local Ollama endpoint |
 | [`codex`](https://github.com/docker-hardened-images/catalog/tree/main/image/codex) (DHI catalog) | [`codex-mixin`](https://github.com/docker-hardened-images/catalog/tree/main/image/codex-mixin) (DHI catalog) | Codex |
-| [`copilot`](./copilot) | [`copilot-mixin`](./copilot-mixin) | GitHub Copilot |
+| [`copilot`](https://github.com/docker-hardened-images/catalog/tree/main/image) (DHI catalog) | [`copilot-mixin`](https://github.com/docker-hardened-images/catalog/tree/main/image) (DHI catalog) | GitHub Copilot |
 | [`crush`](./crush) | [`crush-mixin`](./crush-mixin) | Crush |
-| [`cursor`](./cursor) | [`cursor-mixin`](./cursor-mixin) | Cursor |
-| [`devin`](./devin) | [`devin-mixin`](./devin-mixin) | Devin |
+| [`cursor`](https://github.com/docker-hardened-images/catalog/tree/main/image) (DHI catalog) | [`cursor-mixin`](https://github.com/docker-hardened-images/catalog/tree/main/image) (DHI catalog) | Cursor |
+| [`devin`](https://github.com/docker-hardened-images/catalog/tree/main/image) (DHI catalog) | [`devin-mixin`](https://github.com/docker-hardened-images/catalog/tree/main/image) (DHI catalog) | Devin |
 | [`devin-enterprise`](./devin-enterprise) | [`devin-enterprise-mixin`](./devin-enterprise-mixin) | Devin Enterprise |
-| [`docker-agent`](./docker-agent) | [`docker-agent-mixin`](./docker-agent-mixin) | Docker Agent |
-| [`droid`](./droid) | [`droid-mixin`](./droid-mixin) | Droid |
+| [`docker-agent`](https://github.com/docker-hardened-images/catalog/tree/main/image) (DHI catalog) | [`docker-agent-mixin`](https://github.com/docker-hardened-images/catalog/tree/main/image) (DHI catalog) | Docker Agent |
+| [`droid`](https://github.com/docker-hardened-images/catalog/tree/main/image) (DHI catalog) | [`droid-mixin`](https://github.com/docker-hardened-images/catalog/tree/main/image) (DHI catalog) | Droid |
 | [`grok`](./grok) | [`grok-mixin`](./grok-mixin) | Grok Build |
 | [`gstack`](./gstack) | [`gstack-mixin`](./gstack-mixin) | Claude Code plus Garry's Stack |
-| [`hermes-agent`](./hermes-agent) | [`hermes-agent-mixin`](./hermes-agent-mixin) | Hermes Agent |
+| [`hermes-agent`](https://github.com/docker-hardened-images/catalog/tree/main/image) (DHI catalog) | [`hermes-agent-mixin`](https://github.com/docker-hardened-images/catalog/tree/main/image) (DHI catalog) | Hermes Agent |
 | [`junie`](./junie) | [`junie-mixin`](./junie-mixin) | Junie |
-| [`kiro`](./kiro) | [`kiro-mixin`](./kiro-mixin) | Kiro |
+| [`kit-builder`](https://github.com/docker-hardened-images/catalog/tree/main/image) (DHI catalog) | — | Docker-in-Docker Kit builder |
+| [`kiro`](https://github.com/docker-hardened-images/catalog/tree/main/image) (DHI catalog) | [`kiro-mixin`](https://github.com/docker-hardened-images/catalog/tree/main/image) (DHI catalog) | Kiro |
 | [`nanobot`](./nanobot) | [`nanobot-mixin`](./nanobot-mixin) | Nanobot |
 | [`nanoclaw`](./nanoclaw) | [`nanoclaw-mixin`](./nanoclaw-mixin) | NanoClaw |
 | [`open-interpreter`](./open-interpreter) | [`open-interpreter-mixin`](./open-interpreter-mixin) | Open Interpreter |
 | [`openclaw`](./openclaw) | [`openclaw-mixin`](./openclaw-mixin) | OpenClaw |
-| [`opencode`](./opencode) | [`opencode-mixin`](./opencode-mixin) | OpenCode |
+| [`opencode`](https://github.com/docker-hardened-images/catalog/tree/main/image) (DHI catalog) | [`opencode-mixin`](https://github.com/docker-hardened-images/catalog/tree/main/image) (DHI catalog) | OpenCode |
 | [`opencode-model-runner`](./opencode-model-runner) | [`opencode-model-runner-mixin`](./opencode-model-runner-mixin) | OpenCode against Docker Model Runner |
 | [`openhands`](./openhands) | [`openhands-mixin`](./openhands-mixin) | OpenHands |
 | [`paperclip`](./paperclip) | [`paperclip-mixin`](./paperclip-mixin) | Paperclip |
-| [`pi`](./pi) | [`pi-mixin`](./pi-mixin) | Pi |
+| [`pi`](https://github.com/docker-hardened-images/catalog/tree/main/image) (DHI catalog) | [`pi-mixin`](https://github.com/docker-hardened-images/catalog/tree/main/image) (DHI catalog) | Pi |
 | [`picoclaw`](./picoclaw) | [`picoclaw-mixin`](./picoclaw-mixin) | PicoClaw |
 | [`shell`](https://github.com/docker-hardened-images/catalog/tree/main/image/shell) (DHI catalog) | — | A hardened Debian sandbox with a Docker engine, a login shell and no agent: the base an agent mixin layers onto |
 | [`trivy`](./trivy) | [`trivy-mixin`](./trivy-mixin) | Trivy vulnerability scanner |
@@ -421,17 +422,19 @@ Note that a fork PR does not receive repository secrets, so any leg needing Dock
 | [`cosmos-db-emulator`](./cosmos-db-emulator) | `deb/curl`, `deb/docker-ce` | The Azure Cosmos DB emulator (vNext, API for NoSQL) on the sandbox's Docker Engine, with the gateway and Data Explorer published on the host loopback |
 | [`docker-tcp`](./docker-tcp) | `deb/curl`, `deb/docker-ce`, `deb/jq`, `deb/procps` | The sandbox's Docker Engine on a TCP port published on the host loopback, so host Docker clients can run containers in it |
 | [`ecc`](./ecc) | `claude` | Everything Claude Code: rules, agents, commands and skills |
-| [`git-ssh-sign`](./git-ssh-sign) | `deb/openssh-client` | Commit signing with the key forwarded from the host's SSH agent |
+| [`git-identity`](https://hub.docker.com/r/sbx/git-identity) (DHI catalog) | See Hub usage | Git name and email defaults from the host |
+| [`git-ssh-sign`](https://hub.docker.com/r/sbx/git-ssh-sign) (DHI catalog) | See Hub usage | Git commit signing through the host SSH agent |
 | [`gitea`](./gitea) | `deb/dpkg` | Gitea token auth for git-over-HTTPS and the Gitea API, via the proxy |
 | [`gitguardian`](./gitguardian) | `claude`, `deb/dpkg` | ggshield as a Claude Code hook, scanning the agent's actions for secrets |
-| [`github-clone`](./github-clone) | — | Clones a GitHub repository at create time with a proxy-managed token |
-| [`github-ssh`](./github-ssh) | `deb/jq`, `deb/openssh-client` | Pre-populated GitHub host keys, so SSH needs no interactive verification |
+| [`github-cli`](https://hub.docker.com/r/sbx/github-cli) (DHI catalog) | See Hub usage | GitHub CLI with proxy-managed authentication |
+| [`github-clone`](https://hub.docker.com/r/sbx/github-clone) (DHI catalog) | See Hub usage | Clone a GitHub repository at sandbox creation |
+| [`github-ssh`](https://hub.docker.com/r/sbx/github-ssh) (DHI catalog) | See Hub usage | GitHub SSH access with trusted host keys |
 | [`gitlab`](./gitlab) | `deb/dpkg` | The GitLab CLI (`glab`) with proxy-injected token auth |
 | [`gitlab-ssh`](./gitlab-ssh) | `deb/openssh-client` | GitLab SSH host keys in `known_hosts` |
 | [`goose`](./goose) | — | goose, the open-source AI agent from Block, with proxy-managed provider credentials and a ChatGPT login |
 | [`kernel`](./kernel) | — | Cloud-hosted Chromium with stealth, managed auth and session replay |
 | [`lighthouse`](./lighthouse) | — | The Lighthouse CLI with headless Chromium, for auditing pages served in-sandbox |
-| [`mise`](./mise) | `deb/dpkg` | mise-en-place, the polyglot dev-tool version manager, with shell activation |
+| [`mise`](https://hub.docker.com/r/sbx/mise) (DHI catalog) | See Hub usage | mise tool management with shell activation |
 | [`neovim`](./neovim) | `deb/dpkg` | Neovim at a pinned release, with a bundled `~/.config/nvim` |
 | [`packages-through-sfw`](./packages-through-sfw) | — | Routes npm and pip through Socket Firewall Free |
 | [`playwright`](./playwright) | — | The Playwright toolchain with Chromium on a shared system browsers path |

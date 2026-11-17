@@ -42,6 +42,9 @@ capabilities:
     config:
       install:
         allow:
+          # apt also reads the configured DHI Debian repositories.
+          - deb.debian.org
+          - dhi.io
           # Prebuilt-package path (4KB-page hosts): installer script + apt repo.
           - raw.githubusercontent.com
           - packages.fluentbit.io

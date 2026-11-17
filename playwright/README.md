@@ -27,8 +27,9 @@ sbx run claude --kit ./playwright/ .
 
 Prerequisites:
 
-- A base image with Node.js ≥ 18 — all standard agent templates ship it. The overlay carries Playwright's own JavaScript, so npm is not needed on the composed base; a base without npm fails the kit's *build*, not your sandbox.
-- A Debian-family base, for the one install hook that is left: Chromium's system libraries come from the composed base's own apt (see below).
+- A DHI Debian workload such as `dhi.io/shell:latest`. The install hook
+  installs DHI's `nodejs-24` package when Node is absent, then installs
+  Chromium's system libraries. npm is needed only while building the kit.
 
 Inside the sandbox:
 

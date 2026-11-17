@@ -18,15 +18,25 @@
 # third hook is here and the apt half stays a hook in lighthouse.yaml, run from
 # the playwright-core this stage stages for it. ../playwright and
 # ../openclaw-mixin split the same work the same way for the same reason.
-ARG BASE_IMAGE=docker/sandbox-templates:shell-docker
-FROM ${BASE_IMAGE} AS build
+ARG BASE_IMAGE=dhi.io/shell:latest
+FROM ${BASE_IMAGE} AS node-runtime
+USER root
+# This runtime is for building and checking the overlay. The composed
+# workload gets its Node prerequisite from lighthouse.yaml, not this stage.
+ENV NPM_CONFIG_PREFIX=/usr/local/share/npm-global
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends nodejs-24 npm \
+ && rm -rf /var/lib/apt/lists/*
 
-# Lighthouse 13.x requires Node >= 22.19; standard agent templates only
-# guarantee Node >= 18. 12.6.1 is the last 12.x line and accepts Node >= 18.20.
-# npm verifies tarballs against registry sha512 integrity, so pinning the
-# version pins the content. To bump: change this line, the `provides` entry in
-# lighthouse.yaml, and the version in lighthouse-context.md / README. Do not
-# jump to 13.x until templates ship Node 22.19.
+FROM node-runtime AS build
+
+# Lighthouse 13.x requires Node >= 22.19. The former standard agent templates
+# guaranteed only Node >= 18, so 12.6.1 was retained as the last 12.x release
+# accepting Node >= 18.20. DHI Node 24 removes that runtime restriction, but
+# moving the base does not also authorize a Lighthouse major-version upgrade.
+# npm verifies release tarballs against registry sha512 integrity. Keep the
+# release pinned and update lighthouse.yaml's provides, lighthouse-context.md
+# and README together when a separately verified version bump is intended.
 ARG LIGHTHOUSE_VERSION=12.6.1
 # The browser channel, pinned exactly as v2's `npx -y playwright@1.61.1` pinned
 # it, and deliberately the same release ../playwright ships so both kits land
@@ -40,8 +50,7 @@ USER root
 # reaches registry.npmjs.org directly, so `npm config set proxy` has nothing to
 # configure. The `command -v npm` guard is gone too -- a base without npm now
 # fails this build rather than a user's sandbox, which is the point of the move.
-# (Node itself still has to exist on the *composed* base at run time: this
-# overlay ships lighthouse's JS, not an interpreter. That was true in v2 too.)
+# The install hook supplies the DHI Node package when the workload lacks it.
 RUN npm install -g "lighthouse@${LIGHTHOUSE_VERSION}"
 
 # playwright-core, in a private prefix rather than the global npm root, for two
@@ -71,7 +80,8 @@ RUN npm install --no-audit --no-fund --prefix /usr/local/lib/lighthouse-kit \
 # anything at create any more, both pin playwright 1.61.1, so both overlays
 # carry the same Chromium revision at the same path and the duplicate costs
 # layer bytes rather than sandbox-create time.
-RUN PLAYWRIGHT_BROWSERS_PATH=/opt/ms-playwright \
+# The build-only downloader also runs under QEMU arm64 in the publish checks.
+RUN NODE_OPTIONS=--jitless PLAYWRIGHT_BROWSERS_PATH=/opt/ms-playwright \
       node /usr/local/lib/lighthouse-kit/node_modules/playwright-core/cli.js \
         install --with-deps chromium \
  && rm -rf /var/lib/apt/lists/*
@@ -203,7 +213,7 @@ EOF
 # /opt and /etc/profile.d are what a mixin landing on an unknown base should
 # prefer, since whatever is at /home/agent may be a mounted volume. No
 # ENTRYPOINT -- the base workload's launch command stays.
-FROM ${BASE_IMAGE} AS verified
+FROM node-runtime AS verified
 USER root
 COPY --from=build /out /out
 COPY --from=build /out /

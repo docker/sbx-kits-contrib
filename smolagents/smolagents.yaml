@@ -27,30 +27,28 @@ kind: mixin
 # README together.
 provides: ["smolagents@1.26.0"]
 
-# The apt hook is a bare `apt-get update && apt-get install ...` under no
-# guard, so a base without apt fails sandbox creation. v2 had no field for
-# this; v3 does, and the name is real rather than invented — publishing a
-# workload derives one entry per installed distribution package out of its own
-# dpkg database (SPEC-v3 §9.6), so every Debian-family base provides `deb/apt`
-# whether or not its author wrote anything down.
-#
-# `deb/python3` is deliberately absent even though the venv needs one: that
-# hook installs python3 itself, and a kit does not require what it brings.
+# Dependency installation targets apt-based DHI workloads. deb/apt is a real
+# capability derived from the workload's installed dpkg database, not a name
+# invented for this mixin. A base without apt cannot satisfy the install hook.
+# deb/python3 is deliberately absent: the hook preserves a working Python
+# toolchain and installs Python itself only when venv support is missing.
 requires: ["deb/apt"]
 
 capabilities:
-  # MIGRATION NOTE: the install phase is UNCHANGED by this pass, and that is
-  # the honest outcome rather than an oversight. Elsewhere in this repo moving
-  # an install into an overlay deletes or shortens the install grant, because
-  # the builder takes over the download. Here nothing that reaches a host
-  # moved: the hook that became content writes a file and contacts nobody. The
-  # pip install still runs at create and still reaches PyPI; apt still runs at
-  # create and still reaches the Ubuntu and Docker mirrors. A shorter list
-  # would be a policy that lies.
+  # MIGRATION NOTE: moving the environment file into an overlay does not move
+  # dependency downloads into the builder. The venv uses the workload's Python
+  # and pip still reaches PyPI at create time. When Python support is missing,
+  # apt still refreshes every configured source, including the DHI, Debian,
+  # Ubuntu and Docker mirrors below. Removing install egress would break that
+  # legitimate create-time path even though the environment file ships in an
+  # overlay. A working Python toolchain skips only the apt installation.
   - type: com.docker.sandbox/network-policy@1
     config:
       install:
         allow:
+          # apt also reads the configured DHI Debian repositories.
+          - deb.debian.org
+          - dhi.io
           # pip install path for smolagents and its Python dependencies.
           - pypi.org
           - files.pythonhosted.org
@@ -83,7 +81,17 @@ capabilities:
       # v3 requirement: four static lines naming fixed paths, reading nothing
       # that exists only at create time. The overlay ships the same bytes.
       install:
-        - command: apt-get update && apt-get install -y --no-install-recommends ca-certificates python3 python3-venv python3-pip && rm -rf /var/lib/apt/lists/*
+        # Preserve a workload's working Python toolchain, including DHI's
+        # versioned packages. Only install distro defaults when venv support
+        # is missing; the next hook binds the venv to that interpreter.
+        - command: |
+            set -eu
+            if python3 -c 'import ensurepip, venv' >/dev/null 2>&1; then
+              exit 0
+            fi
+            apt-get update
+            apt-get install -y --no-install-recommends ca-certificates python3 python3-venv python3-pip
+            rm -rf /var/lib/apt/lists/*
           user: "0"
           description: Install Python and venv prerequisites for smolagents
         # THE VENV STAYS A HOOK, and this is the one decision in this kit worth
@@ -106,7 +114,7 @@ capabilities:
         #   ubuntu:24.04, no python3  —               bin/python: not found
         #
         # A mixin lands on a base the builder has never seen, and the hook
-        # above installs *that base's* python3 — whose minor the builder cannot
+        # above supplies Python when missing, whose minor the builder cannot
         # know. Baking would trade a hook that works everywhere for content
         # that works only where the builder's Python matches, and it would fail
         # in the worst available way: apt succeeds, sandbox creation succeeds,

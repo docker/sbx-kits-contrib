@@ -29,7 +29,7 @@ sbx run docker.io/sbx/copilot:latest --kit "git+https://github.com/docker/sbx-ki
 Or with a local clone of this repo:
 
 ```console
-sbx run ./copilot --kit ./cosmos-db-emulator .
+sbx run docker.io/sbx/copilot:latest --kit ./cosmos-db-emulator .
 ```
 
 Any other Docker-in-Docker base works the same way, such as the shell
