@@ -1,0 +1,46 @@
+# syntax=docker/sandbox-kit:3
+# Docker Sandbox kit: live Google web, News and Scholar search via the Serply API.
+# Usage and design notes: see README.md in this directory.
+schemaVersion: "3"
+kind: mixin
+version: "1.0.0"
+displayName: Serply (live search)
+iconUrl: https://serply.io/favicon/apple-touch-icon.png
+description: >-
+  Adds live Google web, News and Scholar search to any agent through the
+  Serply API, with the key injected by the sbx proxy. Needs a key:
+  `sbx secret set -g serply` (the kit holds no key).
+licenses:
+  - Apache-2.0
+
+capabilities:
+  # The kit installs nothing (the sandbox images already ship curl), so there
+  # is no install phase and no package host to allow. The agent's steady state
+  # reaches exactly one host.
+  - type: com.docker.sandbox/network-policy@1
+    config:
+      runtime:
+        allow:
+          # Every Serply API call. Portless and literal, because v3 validates
+          # the credential inject domain below against this list by exact host.
+          - api.serply.io
+
+  # Required (the v3 default): the kit's whole function is authenticated API
+  # calls, so failing at create beats the agent discovering a 401 mid-task.
+  - type: com.docker.sandbox/credential@1
+    description: Serply API key from https://serply.io
+    config:
+      service: serply
+      phase: runtime
+      apiKey:
+        name: SERPLY_API_KEY
+        # The sandbox receives the proxy-managed sentinel; the proxy writes the
+        # real key into the X-Api-Key header on the way out, so the key never
+        # lands in the sandbox.
+        proxyManaged: true
+        inject:
+          - {domain: api.serply.io, header: x-api-key, format: "%s"}
+
+  - type: com.docker.sandbox/agent-context@1
+    config:
+      contentFile: ./serply-context.md
