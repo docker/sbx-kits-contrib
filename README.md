@@ -430,6 +430,7 @@ Buildable kits are listed by `scripts/discover-kits.sh`. Entries marked DHI cata
 | [`github-ssh`](https://hub.docker.com/r/sbx/github-ssh) (DHI catalog) | See Hub usage | GitHub SSH access with trusted host keys |
 | [`gitlab`](./gitlab) | `deb/dpkg` | The GitLab CLI (`glab`) with proxy-injected token auth |
 | [`gitlab-ssh`](./gitlab-ssh) | `deb/openssh-client` | GitLab SSH host keys in `known_hosts` |
+| [`go`](./go) | — | A pinned Go toolchain and gopls, with module downloads through the Go proxy |
 | [`goose`](./goose) | — | goose, the open-source AI agent from Block, with proxy-managed provider credentials and a ChatGPT login |
 | [`kernel`](./kernel) | — | Cloud-hosted Chromium with stealth, managed auth and session replay |
 | [`lighthouse`](./lighthouse) | — | The Lighthouse CLI with headless Chromium, for auditing pages served in-sandbox |
