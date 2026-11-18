@@ -57,6 +57,7 @@ This repo ships **33 workloads and 76 mixins**. Every workload except `openhands
 ├── <kit>.dockerfile     # the recipe — found by filename stem
 ├── <kit>-context.md     # the agent-context body, referenced as contentFile:
 ├── files/               # optional assets the recipe COPYs in
+├── testdata/test_*.py   # optional unit tests (stdlib unittest), run by CI
 └── README.md            # what this kit is and how to use it
 ```
 
@@ -358,7 +359,7 @@ Validation enforces that every `credential@1` `inject[].domain` appears in the *
 
 ## CI
 
-Pull requests build every changed kit with the v3 frontend, which is what validates the descriptor, and run `kit-tck` against the built artifact. Merges to `main` publish. The workflows are in [`.github/workflows/`](.github/workflows) and are the authority on what runs; [`PUBLISHING.md`](./PUBLISHING.md) covers the publishing half — what gets pushed, under what name, and with what tags.
+Pull requests build every changed kit with the v3 frontend, which is what validates the descriptor, and run `kit-tck` against the built artifact. Whenever kits are tested, CI also runs every kit's `testdata/test_*.py` and `tests/test_*.py` with `python3 -m unittest`, as part of the same `conformance` gate. Merges to `main` publish. The workflows are in [`.github/workflows/`](.github/workflows) and are the authority on what runs; [`PUBLISHING.md`](./PUBLISHING.md) covers the publishing half — what gets pushed, under what name, and with what tags.
 
 Note that a fork PR does not receive repository secrets, so any leg needing Docker Hub credentials is skipped on it. Run the local verification above before opening a PR from a fork.
 
