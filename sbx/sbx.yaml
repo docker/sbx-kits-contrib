@@ -1,0 +1,46 @@
+# syntax=docker/sandbox-kit:3
+schemaVersion: "3"
+kind: mixin
+displayName: Docker Sandboxes (sbx)
+description: >-
+  The whole sbx release (CLI and runtime components) from its
+  docker/sbx-releases tarball, pinned by version, as an overlay.
+sourceUrl: https://github.com/docker/sbx-releases
+licenses: [SEE LICENSE IN https://github.com/docker/sbx-releases]
+
+# musl: the tarball's `sbx` is static and runs on alpine, but its helpers
+# (mkfs.*, shims, docklet) link against glibc and do not start there, so
+# daemon-backed commands need a glibc base.
+# The microVM parts (shims, kernel, rootfs images) need /dev/kvm. sbx does
+# not expose it inside its own sandboxes, but another v3 runtime might.
+# Requirements on the workload: Docker with buildx only if local v3 kits are
+# to be loaded.
+#
+# SIGN-IN: some commands refuse while signed out. Sign in with a Docker
+# personal access token (see the kit README); the PAT then lives inside the
+# sandbox.
+
+args:
+  version:
+    default: "0.51.0"
+    pattern: '^[0-9]+\.[0-9]+\.[0-9]+$'
+    description: sbx release to install (a docker/sbx-releases tag without the v)
+    buildArg: SBX_VERSION
+
+provides: ["sbx@${{ kit.args.version }}"]
+
+capabilities:
+  # Network rules travel with the tool (authoring pattern "Keep runtime
+  # access with the tool").
+  - type: com.docker.sandbox/network-policy@1
+    config:
+      runtime:
+        allow:
+          - login.docker.com                 # sign-in
+          - hub.docker.com                   # Hub API, PAT exchange
+          - api.docker.com
+          # api.sandboxes-cloud.docker.com (`sbx --cloud`) is left out:
+          # untested.
+          - registry-1.docker.io             # kit pulls
+          - auth.docker.io
+          - production.cloudfront.docker.com # blob downloads
