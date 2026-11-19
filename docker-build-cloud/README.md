@@ -202,6 +202,7 @@ The kit was tested in a real sandbox against a real builder. These all worked:
   **private** base image;
 - `--load`, which pulls the result into the sandbox's engine;
 - `--push` to a Docker Hub repository;
+- a wrong builder name failing sandbox creation, with buildx's error;
 - the builds showing in the Docker Build Cloud web app's history;
 - the individual requests: the builder lookup, the build token for the builder
   scope, the health endpoint over HTTP/2, and a gRPC `Info` call with the build
@@ -221,10 +222,6 @@ dropped, the Docker config merge, and each way `setup` can end, against a stub
 
 Not tested:
 
-- **A failing install hook failing sandbox creation.** This is what Docker's kit
-  documentation implies, since it says install commands run synchronously during
-  creation, and what this kit's design relies on for a wrong builder name. It was
-  not separately confirmed.
 - How long the `sbx-login` token lives, and whether the proxy refreshes it. buildx
   refetches its build token about once a minute, so the login has to stay valid
   for the whole build.
