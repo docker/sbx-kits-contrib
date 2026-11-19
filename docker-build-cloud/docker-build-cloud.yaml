@@ -1,0 +1,207 @@
+# syntax=docker/sandbox-kit:3
+# Points the sandbox's Docker CLI at a Docker Build Cloud builder, so
+# `docker build` and `docker buildx build` run on Docker's cloud builders
+# instead of the sandbox's own engine.
+#
+# Docker Build Cloud is a buildx *driver*, not a dockerd setting, so this kit
+# edits the CLI's side (~/.docker) and leaves the engine alone.
+#
+# The kit ships one file, a Python helper, and runs a small loopback shim from
+# it. The shim exists because buildx authenticates to Docker Hub with a request
+# the sandbox proxy cannot sign: see README.md, "Why there is a shim". Usage,
+# prerequisites, security notes and the test results: also README.md.
+#
+# The builder is created at sandbox create, by an install hook, so that a wrong
+# builder name or an expired login fails creation. A startup hook cannot do
+# that: sbx logs a failing one and boots the sandbox anyway.
+schemaVersion: "3"
+displayName: Docker Build Cloud
+description: Run `docker build` on a Docker Build Cloud builder, authenticated through the host's sbx login.
+kind: mixin
+
+# The kit's own version. There is no tool to take one from, so this is the
+# kit's release number and the version of the capability below.
+version: "0.1.0"
+
+# What other kits `require` to be sure builds go to Build Cloud.
+provides: ["docker-build-cloud"]
+
+# `deb/docker-ce` is the name the other Docker kits here require, and the base
+# provides the CLI and buildx with it. The helper also needs `python3`, which
+# the shell and claude-code templates install, but `deb/python3` is NOT among
+# the provides that publishing derives for them, so requiring it would refuse
+# composition on exactly the bases this kit is for. A base without python3
+# fails at the install hook instead, when `python3` is not found. Nothing here
+# needs `jq`, and `curl` is part of the platform floor. The `cloud` driver needs
+# buildx 0.37 or later, which no package name can say, so the helper checks the
+# version itself.
+requires: ["deb/docker-ce"]
+
+# Kit args are not secrets: they are visible in `sbx kit inspect` and in the
+# descriptor. The credential is the host's `sbx login`, see below.
+args:
+  builder:
+    required: true
+    # ORG/NAME, as in `docker buildx create --driver cloud ORG/NAME`. ORG is
+    # the Docker Hub organization (or username) that owns the builder, NAME is
+    # the builder as named in the Build Cloud dashboard. Both come back in the
+    # local endpoint name, cloud-ORG-NAME, so neither may hold a slash.
+    pattern: '^[a-z0-9][a-z0-9_-]*/[A-Za-z0-9][A-Za-z0-9_-]*$'
+    description: >-
+      Build Cloud builder as ORG/NAME, for example acme/default. The builder
+      must already exist in the Docker Build Cloud dashboard.
+
+capabilities:
+  # Every destination the sandbox's `docker buildx` reaches to resolve and use
+  # a Build Cloud builder, and nothing else. All of it is runtime traffic: the
+  # hooks below run at boot, which is the runtime phase, and builds happen while
+  # the agent works. Confirmed against a real builder's data plane addresses:
+  #
+  #   hub.docker.com          looks the builder up, through the shim
+  #   auth.docker.io          exchanges the Docker login for a build token, and
+  #                           for the registry tokens of pulls and pushes
+  #   build-cloud.docker.com  the builder's gRPC endpoint and its registry
+  #
+  # Not listed, deliberately: the registries a build pulls from and pushes to.
+  # That traffic leaves from Docker's builder, not from the sandbox, so this
+  # policy does not govern it. Docker's firewall guidance also names
+  # 3.211.38.21, which is build-cloud.docker.com's address and so reached by
+  # name here. The shim listens on loopback and needs no entry.
+  #
+  # The install phase holds the two hosts the credential below injects on. Only
+  # hub.docker.com is called then, by the install hook's builder lookup, but a
+  # credential in the install phase needs each of its inject domains allowed in
+  # that phase, and auth.docker.io is one. An absent phase grants nothing, so
+  # build-cloud.docker.com stays out of it.
+  - type: com.docker.sandbox/network-policy@1
+    config:
+      install:
+        allow:
+          - auth.docker.io
+          - hub.docker.com
+      runtime:
+        allow:
+          - build-cloud.docker.com
+          - auth.docker.io
+          - hub.docker.com
+
+  # The Docker credential of whoever is logged in to sbx on the host, applied by
+  # the proxy so the sandbox never holds it. `sbx-login` is the service that
+  # resolves to that login; there is no secret to set.
+  #
+  # Two inject rules, and both are needed:
+  #
+  #   hub.docker.com   the builder lookup, which the shim forwards without a
+  #                    credential so that the proxy adds this one.
+  #   auth.docker.io   buildx asks for its build token, and for registry
+  #                    tokens, with HTTP Basic auth from the placeholder login.
+  #                    The proxy replaces that header with this Bearer.
+  #
+  # Not on build-cloud.docker.com: its Bearer is the build token buildx gets
+  # back from auth.docker.io, and replacing it with the login would break the
+  # builder session rather than authenticate it.
+  #
+  # The proxy injects by domain, not by path, so every request the sandbox
+  # sends to these two hosts carries the login, not only buildx's. See
+  # README.md, "Security".
+  #
+  # Both phases: the install hook creates the builder, and creating it calls Hub.
+  # Whether `sbx-login` is available during install is unverified; if it is not,
+  # the install hook fails with a 401 and the sandbox is not created.
+  #
+  # Not `optional:`. Without a login there is no builder to reach, and a sandbox
+  # that cannot build is better refused than started.
+  - type: com.docker.sandbox/credential@1
+    description: Docker Build Cloud access through the host's sbx login. The sandbox only sees a placeholder and the proxy injects the real token on requests to auth.docker.io and hub.docker.com.
+    config:
+      service: sbx-login
+      phase: [install, runtime]
+      apiKey:
+        # proxyManaged sets DOCKER_ACCESS_TOKEN to the sentinel inside the
+        # container. The login hook below writes that sentinel into the Docker
+        # config, so nothing secret is on disk.
+        name: DOCKER_ACCESS_TOKEN
+        proxyManaged: true
+        inject:
+          - {domain: auth.docker.io, header: Authorization, format: "Bearer %s"}
+          - {domain: hub.docker.com, header: Authorization, format: "Bearer %s"}
+
+  - type: com.docker.sandbox/lifecycle@1
+    config:
+      # Port 8099 is the helper's default and is the one the shim listens on.
+      # buildx stores it with the builder, as the `internal.hub.host` driver
+      # option, and calls the shim whenever it resolves the builder, so a
+      # builder created against one port needs the shim on that port.
+      install:
+        # Creates the builder, so that a wrong name, an account that cannot use
+        # the builder, or an expired login fails sandbox creation with buildx's
+        # error, and builds never quietly fall back to the local engine.
+        #
+        # `--serve` runs the shim inside the helper for the length of the
+        # command, because the boot-time shim does not exist yet. It needs the
+        # proxy settings to reach Docker Hub, and the CA variables because the
+        # proxy terminates TLS with the sandbox's own CA: a hook's environment
+        # is deny-by-default, and that includes what the helper itself reads.
+        #
+        # Runs once per sandbox, and again on recreate, which is safe: an
+        # existing builder is selected instead of created.
+        - description: Create the ${{ kit.args.builder }} Build Cloud builder and make it the default.
+          user: "1000"
+          env: [DOCKER_ACCESS_TOKEN, HTTP_PROXY, HTTPS_PROXY, NO_PROXY, http_proxy, https_proxy, no_proxy, SSL_CERT_FILE, SSL_CERT_DIR]
+          command: [python3, /usr/local/lib/docker-build-cloud/helper.py, setup, --builder, "${{ kit.args.builder }}", --home, /home/agent, --serve]
+
+      # Startup hooks run on every start, so they converge. They also cannot
+      # stop the sandbox: a failing one is logged to
+      # /var/log/sbx-kit-startup.log (`fail ... exit=1`) and the sandbox boots
+      # anyway, as a bogus builder name showed. They are therefore the repair
+      # path, and the install hook above is the check.
+      startup:
+        # The shim, backgrounded so that it outlives the hook. v3's
+        # `background: true` detaches it. It needs the same proxy and CA
+        # variables as above.
+        #
+        # A second start finds the port taken and exits 0 if the shim already
+        # answers there, so re-running this hook is safe.
+        - description: Start the Docker Hub shim for the Build Cloud builder lookup.
+          user: "1000"
+          background: true
+          env: [HTTP_PROXY, HTTPS_PROXY, NO_PROXY, http_proxy, https_proxy, no_proxy, SSL_CERT_FILE, SSL_CERT_DIR]
+          command: [sh, -c, "exec python3 /usr/local/lib/docker-build-cloud/helper.py serve --port 8099 >> /tmp/docker-build-cloud-shim.log 2>&1"]
+
+        # Selects the builder, waiting for the shim first. The Docker config and
+        # the builder live in the agent's home, which on a composed base may be
+        # a volume that did not exist at install, so this creates the builder
+        # again if it is missing. The shim is the separate process above, so no
+        # `--serve`.
+        - description: Select the ${{ kit.args.builder }} Build Cloud builder.
+          user: "1000"
+          env: [DOCKER_ACCESS_TOKEN]
+          command: [python3, /usr/local/lib/docker-build-cloud/helper.py, setup, --builder, "${{ kit.args.builder }}", --home, /home/agent]
+
+  # Inline `content:` rather than a companion file: the builder name is a
+  # create-phase arg, and a staged `contentFile:` body would reach the agent
+  # with the placeholder unexpanded.
+  - type: com.docker.sandbox/agent-context@1
+    config:
+      content: |
+        ## Docker Build Cloud
+
+        `docker build` and `docker buildx build` in this sandbox run on the Docker
+        Build Cloud builder `${{ kit.args.builder }}`, which is the default buildx
+        builder. They do not run on the sandbox's own Docker Engine.
+
+        - Build normally. Use `--builder default` to build on the local engine
+          instead.
+        - The build context is uploaded to the builder, so keep it small and use a
+          `.dockerignore`.
+        - A build's result stays in the builder's cache unless it is exported. To
+          get an image into the local engine, add `--load`; to publish it, add
+          `--push` and let the builder push directly. For a build you only want to
+          check, use `--output type=cacheonly`.
+        - A small helper on `127.0.0.1:8099`, started when the sandbox boots, is
+          part of this setup: buildx calls it to look up the builder. If a build
+          fails with a connection error to that port, tell the user rather than
+          reconfiguring the builder.
+        - `DOCKER_ACCESS_TOKEN` holds a placeholder, not the real token: the
+          sandbox proxy swaps in the real one on requests to `auth.docker.io` and
+          `hub.docker.com`. Do not read, print, or reconfigure it.
