@@ -1,0 +1,80 @@
+# syntax=docker/sandbox-kit:3
+# PROTOTYPE. Keeps Kiro CLI's AWS sign-in tokens on the host. Kiro signs in
+# inside the sandbox as before, but the sandbox proxy captures the tokens AWS
+# SSO OIDC returns, stores them in the host credential store, and hands
+# kiro-cli placeholder tokens instead. kiro-cli's SQLite state then holds only
+# the placeholders; the proxy swaps in the real tokens on the way out.
+#
+# Declaration-only: it ships no files and layers onto the `kiro` workload.
+# Requires an sbx build whose proxy accepts AWS SSO OIDC token requests
+# (device_code sign-in, camelCase JSON bodies).
+schemaVersion: "3"
+kind: mixin
+displayName: Kiro host-held sign-in (prototype)
+description: >-
+  Keeps Kiro CLI's AWS Builder ID or IAM Identity Center tokens on the host.
+  The sandbox only ever sees placeholder tokens. Layer it onto the kiro
+  workload.
+
+version: "0.1.0"
+
+# Unversioned on purpose: the mixin ships no binary.
+provides: ["kiro-host-auth"]
+requires: ["kiro"]
+
+args:
+  region:
+    default: us-east-1
+    pattern: '^[a-z]{2}(-[a-z]+)+-[0-9]$'
+    description: >-
+      AWS region of the IAM Identity Center instance Kiro signs in through.
+      Builder ID always uses us-east-1.
+
+capabilities:
+  - type: com.docker.sandbox/network-policy@1
+    config:
+      runtime:
+        allow:
+          # AWS SSO OIDC: client registration, device authorization and the
+          # token endpoint the proxy intercepts. Identity Center serves it in
+          # the instance's own region.
+          - oidc.${{ kit.args.region }}.amazonaws.com
+          # Kiro's chat API. kiro-cli picks the endpoint from the Q Developer
+          # profile's region, and these are the two it knows.
+          - q.us-east-1.amazonaws.com
+          - q.eu-central-1.amazonaws.com
+          # Kiro's own backend, listed by the kiro workload too. Repeated here
+          # because every resource host below must be reachable.
+          - runtime.us-east-1.kiro.dev
+          - management.us-east-1.kiro.dev
+
+  - type: com.docker.sandbox/credential@1
+    # Optional: before the first sign-in nothing is stored, and the proxy
+    # captures the first token response instead.
+    optional: true
+    description: Kiro sign-in through AWS Builder ID or IAM Identity Center
+    config:
+      service: kiro
+      phase: runtime
+      oauth:
+        # kiro-cli calls CreateToken here for both the device_code sign-in and
+        # every refresh, as a camelCase JSON body.
+        tokenEndpoint:
+          host: oidc.${{ kit.args.region }}.amazonaws.com
+          path: /token
+        # Where kiro-cli presents the access token as a bearer. Whether the
+        # kiro.dev hosts read the bearer is unverified; injecting it there
+        # sends the token only to Kiro's own backend.
+        resourceHosts:
+          - q.us-east-1.amazonaws.com
+          - q.eu-central-1.amazonaws.com
+          - runtime.us-east-1.kiro.dev
+          - management.us-east-1.kiro.dev
+        sentinels:
+          accessToken: sbx-kiro-access-managed-by-proxy
+          refreshToken: sbx-kiro-refresh-managed-by-proxy
+        # CreateToken answers in camelCase.
+        responseFields:
+          accessToken: accessToken
+          refreshToken: refreshToken
+          expiresIn: expiresIn
