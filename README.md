@@ -47,7 +47,7 @@ There are two kinds:
 | `workload` | The whole environment: the image the sandbox boots from, including the agent. Replaces v2's `kind: sandbox`. | A full root filesystem. A workload **must** have a recipe. |
 | `mixin` | A delta layered onto a workload: extra tools, credentials, hooks, egress. | An overlay (`FROM scratch`), or no recipe at all for a declaration-only kit. |
 
-This repo ships **33 workloads and 76 mixins**. Every workload except `openhands-canvas` and `shell` has a `-mixin` sibling declaring the same capabilities in overlay form, so an agent can either *be* the sandbox or be layered onto one; the remaining 45 mixins are standalone tools and integrations. See the [Kit index](#kit-index).
+This repo ships **33 workloads and 77 mixins**. Every workload except `openhands-canvas` and `shell` has a `-mixin` sibling declaring the same capabilities in overlay form, so an agent can either *be* the sandbox or be layered onto one; the remaining 46 mixins are standalone tools and integrations. See the [Kit index](#kit-index).
 
 ## Anatomy of a kit
 
@@ -425,6 +425,7 @@ Buildable kits are listed by `scripts/discover-kits.sh`. Entries marked DHI cata
 | [`git-ssh-sign`](https://hub.docker.com/r/sbx/git-ssh-sign) (DHI catalog) | See Hub usage | Git commit signing through the host SSH agent |
 | [`gitea`](./gitea) | `deb/dpkg` | Gitea token auth for git-over-HTTPS and the Gitea API, via the proxy |
 | [`gitguardian`](./gitguardian) | `claude`, `deb/dpkg` | ggshield as a Claude Code hook, scanning the agent's actions for secrets |
+| [`github-actions-runner`](./github-actions-runner) | — | An ephemeral self-hosted GitHub Actions runner for one job per sandbox |
 | [`github-cli`](https://hub.docker.com/r/sbx/github-cli) (DHI catalog) | See Hub usage | GitHub CLI with proxy-managed authentication |
 | [`github-clone`](https://hub.docker.com/r/sbx/github-clone) (DHI catalog) | See Hub usage | Clone a GitHub repository at sandbox creation |
 | [`github-ssh`](https://hub.docker.com/r/sbx/github-ssh) (DHI catalog) | See Hub usage | GitHub SSH access with trusted host keys |
