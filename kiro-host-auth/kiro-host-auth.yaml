@@ -1,0 +1,105 @@
+# syntax=docker/sandbox-kit:3
+# PROTOTYPE. Keeps Kiro CLI's AWS sign-in on the host. You sign in on the host
+# with `sbx secret set kiro --oauth`; sbx keeps the tokens and the AWS client
+# they are bound to, refreshes them itself, and the sandbox proxy adds the
+# access token to Kiro's API requests. The sandbox holds only placeholders.
+#
+# kiro-cli reads its sign-in from SQLite, so the install hook writes a
+# placeholder token there with an expiry far in the future: kiro-cli never
+# refreshes it, and with no client registration in the sandbox it could not.
+#
+# Requires an sbx build with the host-side Kiro sign-in.
+schemaVersion: "3"
+kind: mixin
+displayName: Kiro host-held sign-in (prototype)
+description: >-
+  Keeps Kiro CLI's AWS Builder ID or IAM Identity Center sign-in on the host.
+  Sign in with `sbx secret set kiro --oauth`; the sandbox only ever sees
+  placeholder tokens. Layer it onto the kiro workload.
+
+version: "0.2.0"
+
+# Unversioned on purpose: the overlay ships a helper, not Kiro.
+provides: ["kiro-host-auth"]
+requires: ["kiro"]
+
+# Both must match what `sbx secret set kiro --oauth` signed in with. Their
+# patterns keep them free of quotes, because the install hook writes them into
+# a SQL string.
+args:
+  startUrl:
+    default: https://view.awsapps.com/start
+    pattern: '^https://[A-Za-z0-9.-]+(/[A-Za-z0-9._~/-]*)?$'
+    description: >-
+      AWS access portal start URL. The default is AWS Builder ID; use your IAM
+      Identity Center start URL otherwise.
+  region:
+    default: us-east-1
+    pattern: '^[a-z]{2}(-[a-z]+)+-[0-9]$'
+    description: >-
+      AWS region of the IAM Identity Center instance. Builder ID always uses
+      us-east-1.
+
+capabilities:
+  - type: com.docker.sandbox/network-policy@1
+    config:
+      runtime:
+        allow:
+          # Kiro's chat API. kiro-cli picks the endpoint from the Q Developer
+          # profile's region, and these are the two it knows.
+          - q.us-east-1.amazonaws.com
+          - q.eu-central-1.amazonaws.com
+          # Kiro's own backend, listed by the kiro workload too. Repeated here
+          # because every resource host below must be reachable.
+          - runtime.us-east-1.kiro.dev
+          - management.us-east-1.kiro.dev
+        deny:
+          # AWS SSO OIDC. Signing in or refreshing from the sandbox would put
+          # real tokens back into it; the host does both instead. The kiro
+          # workload allows the us-east-1 endpoint, and deny wins.
+          - oidc.us-east-1.amazonaws.com
+          - oidc.${{ kit.args.region }}.amazonaws.com
+
+  - type: com.docker.sandbox/credential@1
+    # Optional, so a sandbox still starts before the host has signed in.
+    optional: true
+    description: Kiro sign-in through AWS Builder ID or IAM Identity Center
+    config:
+      service: kiro
+      phase: runtime
+      oauth:
+        # The proxy needs a token endpoint to manage an OAuth credential. The
+        # sandbox cannot reach it (see deny above), and the proxy turns away
+        # a sign-in that gets there anyway instead of capturing it.
+        tokenEndpoint:
+          host: oidc.${{ kit.args.region }}.amazonaws.com
+          path: /token
+        # Where kiro-cli presents the access token as a bearer. Whether the
+        # kiro.dev hosts read the bearer is unverified; injecting it there
+        # sends the token only to Kiro's own backend.
+        resourceHosts:
+          - q.us-east-1.amazonaws.com
+          - q.eu-central-1.amazonaws.com
+          - runtime.us-east-1.kiro.dev
+          - management.us-east-1.kiro.dev
+        sentinels:
+          accessToken: sbx-kiro-access-managed-by-proxy
+          refreshToken: sbx-kiro-refresh-managed-by-proxy
+
+  - type: com.docker.sandbox/lifecycle@1
+    config:
+      install:
+        - command: |
+            set -eu
+            db=/home/agent/.local/share/kiro-cli/data.sqlite3
+            sqlite=/opt/kiro-host-auth/bin/sqlite3
+            if [ ! -f "$db" ]; then
+              kiro-cli whoami >/dev/null 2>&1 || true
+            fi
+            [ -f "$db" ] || { echo "kiro-host-auth: kiro-cli did not create $db" >&2; exit 1; }
+            # The refresh token is a placeholder too: kiro-cli deletes a
+            # sign-in that has none when a request forces a refresh.
+            token='{"access_token":"sbx-kiro-access-managed-by-proxy","expires_at":"2999-12-31T00:00:00Z","refresh_token":"sbx-kiro-refresh-managed-by-proxy","region":"${{ kit.args.region }}","start_url":"${{ kit.args.startUrl }}","oauth_flow":"DeviceCode","scopes":["codewhisperer:completions","codewhisperer:analysis","codewhisperer:conversations"]}'
+            "$sqlite" "$db" "INSERT OR REPLACE INTO auth_kv (key, value) VALUES ('kirocli:odic:token', '$token'); DELETE FROM auth_kv WHERE key = 'kirocli:odic:device-registration';"
+          user: agent
+          description: Write a placeholder Kiro sign-in into kiro-cli's SQLite state
