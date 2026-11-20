@@ -1,15 +1,15 @@
 # kiro-host-auth (prototype)
 
-A declaration-only mixin for the [`kiro`](https://hub.docker.com/r/sbx/kiro) workload that keeps Kiro CLI's AWS sign-in tokens on the host instead of in the sandbox.
+A mixin for the [`kiro`](https://hub.docker.com/r/sbx/kiro) workload that keeps Kiro CLI's AWS sign-in on the host instead of in the sandbox.
 
-Without it, `kiro-cli login` stores the real access and refresh tokens in `~/.local/share/kiro-cli/data.sqlite3` inside the sandbox. With it, you still sign in from the sandbox, but the sandbox proxy intercepts the AWS SSO OIDC token endpoint, stores the real tokens in the host credential store under the `kiro` service, and returns placeholder tokens to kiro-cli. The proxy then substitutes the real access token on Kiro's chat API and the real refresh token when kiro-cli refreshes.
+Without it, `kiro-cli login` stores the real access and refresh tokens in `~/.local/share/kiro-cli/data.sqlite3` inside the sandbox. With it, you sign in on the host with `sbx secret set kiro --oauth`. sbx keeps the tokens and the AWS client they belong to in the host credential store and refreshes them itself, and the sandbox proxy adds the access token to Kiro's API requests. kiro-cli's state in the sandbox holds only placeholders, and the sandbox cannot reach AWS's sign-in endpoint at all.
 
 > [!WARNING]
-> Prototype. It needs an sbx build whose proxy accepts AWS SSO OIDC token requests (device_code sign-in and camelCase JSON bodies); released sbx versions reject both. It has not yet been tested against a real Kiro sign-in.
+> Prototype. It needs an sbx build with the host-side Kiro sign-in, which no sbx release has yet. It has not yet been tested against a real Kiro sign-in.
 
 ## Try it
 
-1. Build sbx from the proxy change and use an isolated daemon, so your normal sbx state is untouched:
+1. Build sbx from the sbx change and use an isolated daemon, so your normal sbx state is untouched:
 
    ```console
    gh pr checkout 10114 --repo docker/sandboxes
@@ -21,42 +21,44 @@ Without it, `kiro-cli login` stores the real access and refresh tokens in `~/.lo
 
    On macOS, run sbx from an isolated install instead of `bin/sbx`, as the docker/sandboxes `cli-tester` skill's Environment Setup describes (`task install:ci SBX_PREFIX=… CHECK_PATH=false`), and point the alias at that prefix.
 
-2. Create a `kiro` sandbox with this mixin from the PR branch. Set `region` to your IAM Identity Center region; Builder ID users can omit it (default `us-east-1`). Approve the `kiro` OAuth binding when sbx asks:
+2. Sign in to Kiro on the host. sbx asks for your IAM Identity Center start URL and region (leave the start URL empty for AWS Builder ID), opens the AWS sign-in page, and shows a code to confirm there:
+
+   ```console
+   sbx-kiro secret set kiro --oauth
+   ```
+
+3. Create a `kiro` sandbox with this mixin from the PR branch. Pass the same start URL and region you signed in with; Builder ID users can omit both. Approve the `kiro` OAuth binding when sbx asks:
 
    ```console
    sbx-kiro create --name kiro-host-auth docker.io/sbx/kiro:latest \
      --kit "git+https://github.com/docker/sbx-kits-contrib.git#ref=kiro-host-auth&dir=kiro-host-auth" \
+     --kit-arg startUrl=https://d-1234567890.awsapps.com/start \
      --kit-arg region=eu-central-1
    ```
 
-3. Sign in. The workload's entrypoint is `kiro-cli chat`, so run the login through `exec` and finish the device flow in your browser:
+4. Check that kiro-cli sees a sign-in, then chat:
 
    ```console
-   sbx-kiro exec -it kiro-host-auth kiro-cli login --use-device-flow
-   ```
-
-   For Identity Center, pass your start URL and region as kiro-cli prompts for them.
-
-4. Check that kiro-cli's state holds the placeholders, then chat:
-
-   ```console
-   sbx-kiro exec kiro-host-auth sh -c 'grep -a -o "sbx-kiro-[a-z-]*" ~/.local/share/kiro-cli/data.sqlite3* | sort -u'
+   sbx-kiro exec kiro-host-auth kiro-cli whoami
    sbx-kiro run --name kiro-host-auth
    ```
 
-   The first command should print `sbx-kiro-access-managed-by-proxy` and `sbx-kiro-refresh-managed-by-proxy`. It shows the placeholders are present, not that no real token is; sign in on a fresh sandbox so no earlier token is left in the state. Leave the chat open past the access token's lifetime (usually an hour) to exercise a refresh through the proxy. If something fails, `sbx-kiro policy log kiro-host-auth` shows blocked hosts and `sbx-kiro daemon logs` shows the proxy's `kiro` lines.
+   `whoami` should print `Logged in with Builder ID` or `Logged in with IAM Identity Center (…)`. With Identity Center, kiro-cli may ask you to pick a Kiro profile; run `sbx-kiro exec -it kiro-host-auth kiro-cli profile` if it does. Leave the chat open past the access token's lifetime (usually an hour) to exercise a refresh on the host. If something fails, `sbx-kiro policy log kiro-host-auth` shows blocked hosts and `sbx-kiro daemon logs` shows the proxy's `kiro` lines.
 
-5. Clean up. `reset -f` removes the isolated daemon's sandboxes and state, including the captured Kiro tokens, which `rm` alone leaves in the host credential store:
+5. Clean up. `secret rm` deletes the host sign-in; `reset -f` removes the isolated daemon's sandboxes and state:
 
    ```console
+   sbx-kiro secret rm kiro
    sbx-kiro reset -f
    ```
 
 ## Known limitations
 
-- **One sign-in per sandbox.** kiro-cli keeps its OIDC client registration in its SQLite state, and a refresh token works only with the client that obtained it. A new sandbox has no registration, so it signs in again, and that sign-in replaces the host-held tokens. Another sandbox that is still running then fails its next refresh and has to sign in again. Reusing one sign-in across sandboxes needs the proxy to keep the client registration as well.
-- **One region per sandbox.** The token endpoint is `oidc.<region>.amazonaws.com`, fixed when the sandbox is created.
-- **`sbx secret` does not list or remove the `kiro` token yet.** `kiro-cli logout` clears only the placeholders in the sandbox; the host keeps the tokens until the next sign-in replaces them or `sbx reset` removes every stored secret.
+- **Sign in on the host first.** The sandbox always carries the placeholder sign-in, so without a host sign-in kiro-cli believes it is signed in and Kiro's API rejects its requests. Run `sbx secret set kiro --oauth`; the next request uses the new sign-in.
+- **The start URL and region are given twice**, to `sbx secret set kiro --oauth` and as kit arguments, and they must match. The kit arguments only label the placeholder sign-in; the host's sign-in decides which account the requests use.
+- **Identity Center profile selection is unverified.** kiro-cli stores the chosen profile in the sandbox; it is not a secret, but each new sandbox may ask again.
+- **Organizations can disable device-code sign-in** for Identity Center. sbx then cannot sign in on the host.
+- **The AWS client registration expires**, after about 90 days. Refreshing then fails, and you sign in again with `sbx secret set kiro --oauth`.
+- **`kiro-cli logout` in the sandbox removes the placeholders**, and kiro-cli then reports no sign-in. Recreate the sandbox to restore them; the host sign-in is unaffected.
 - **Social sign-in (Google, GitHub) is not covered.** It uses Kiro's own auth service, not AWS SSO OIDC.
-- The proxy routes every request to the OIDC host to the `kiro` service, so once a token is stored, client registration and device authorization requests also carry it as a bearer. Whether AWS ignores that header is unverified.
 - The chat hosts that receive the bearer (`resourceHosts`) are taken from kiro-cli's open-source predecessor and the `kiro` workload's allow list; a live run may surface more.
