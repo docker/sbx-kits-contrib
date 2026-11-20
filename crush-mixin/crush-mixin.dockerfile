@@ -30,7 +30,7 @@ FROM ${BASE_IMAGE} AS build
 # nothing installs the same release -- which is what the `dpkg -L` copy-out
 # below needs anyway, since the file list it carries has to be the file list of
 # the version the descriptor publishes.
-ARG CRUSH_VERSION=0.95.0
+ARG CRUSH_VERSION=0.102.0
 
 # Charm's GPG key, apt repository and install, run unmodified apart from the
 # exact-version selector. repo.charm.sh and the Gemfury-fronted S3 bucket its

@@ -29,7 +29,7 @@ ARG BASE_IMAGE
 # `docker build` of this file still works; the descriptor is the authority
 # and the two move together. See crush.yaml for how the value is read out of
 # Charm's package index and what makes an apt pin durable here.
-ARG CRUSH_VERSION=0.95.0
+ARG CRUSH_VERSION=0.102.0
 
 # GPG key, apt repository, and install run once here at image-build time,
 # where they have ordinary internet access. repo.charm.sh (the apt index and

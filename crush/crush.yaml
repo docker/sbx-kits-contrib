@@ -50,7 +50,7 @@ version: "${{ kit.args.version }}"
 #     it with the command above before trusting a bump.
 args:
   version:
-    default: "0.95.0"
+    default: "0.102.0"
     # Charm's tags are plain three-part semver.
     pattern: '^[0-9]+\.[0-9]+\.[0-9]+$'
     description: Crush release to install from Charm's apt repository
