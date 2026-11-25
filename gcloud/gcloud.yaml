@@ -1,0 +1,107 @@
+# syntax=docker/sandbox-kit:3
+# Docker Sandboxes kit: install the Google Cloud CLI (gcloud), authenticated
+# through its own interactive device-flow login -- no API key, no proxy-
+# managed credential. Usage/design notes: see README.md.
+#
+# MIGRATION NOTE: migrated from the v2 `spec.yaml` grammar. `setup.install`
+# stays a lifecycle install hook rather than becoming recipe content: it
+# unconditionally calls `apt-get`, which needs the composed base's real dpkg
+# database and keyring, not an overlay's. `environment.variables` moved into
+# `gcloud.dockerfile`'s ENV (see that file's header).
+schemaVersion: "3"
+kind: mixin
+displayName: Google Cloud CLI (gcloud)
+description: "Installs the official Google Cloud CLI (gcloud, plus gsutil and bq), from Google's own apt repository. Like the kiro kit in this repo, gcloud has no API-key or env-var auth path for a human account -- it authenticates via gcloud auth login --no-launch-browser (device-flow: a URL and a verification code), which the agent or the user runs interactively inside the sandbox."
+sourceUrl: https://cloud.google.com/sdk/gcloud
+version: "1.0.0"
+licenses:
+  - Apache-2.0
+
+# The apt package is pinned to an exact version, so the install is
+# pinnable -- state it as a provide and make the hook itself enforce the
+# pin (below), rather than asserting a version the content may not have.
+provides: ["gcloud@590.0.0"]
+
+# Unconditional `apt-get`, so the base must actually be Debian-derived;
+# the platform floor (bash, sh, curl, git, a CA store, the agent user)
+# does not guarantee apt on its own.
+requires: ["deb/apt"]
+
+dockerfile: ./gcloud.dockerfile
+
+capabilities:
+  - type: com.docker.sandbox/network-policy@1
+    config:
+      install:
+        # Google's official apt repo: the signing key and the package index/pool.
+        allow:
+          - packages.cloud.google.com
+          # `apt-get update` refreshes every configured apt source from the base
+          # template too. Keep all template sources allowed for amd64 and arm64.
+          - archive.ubuntu.com
+          - security.ubuntu.com
+          - ports.ubuntu.com
+          - download.docker.com
+      runtime:
+        allow:
+          # gcloud's own device-flow login and token refresh.
+          - oauth2.googleapis.com
+          - accounts.google.com
+          - sts.googleapis.com
+          # Most-common API surfaces a freshly-authenticated gcloud session
+          # touches first (gcloud config set, gcloud projects list, IAM checks).
+          # Project-specific API calls (GCS, Compute, etc.) reach their own
+          # *.googleapis.com host, which this kit cannot enumerate in advance --
+          # see the "What this kit does not do" note in README.md.
+          - cloudresourcemanager.googleapis.com
+          - iam.googleapis.com
+          - storage.googleapis.com
+
+  - type: com.docker.sandbox/lifecycle@1
+    config:
+      install:
+        - command: |
+            set -euo pipefail
+            apt-get update && apt-get install -y --no-install-recommends ca-certificates curl gnupg apt-transport-https
+            mkdir -p /usr/share/keyrings
+            curl -fsSL https://packages.cloud.google.com/apt/doc/apt-key.gpg | gpg --dearmor -o /usr/share/keyrings/cloud.google.gpg
+            echo "deb [signed-by=/usr/share/keyrings/cloud.google.gpg] https://packages.cloud.google.com/apt cloud-sdk main" > /etc/apt/sources.list.d/google-cloud-sdk.list
+            apt-get update
+            GCLOUD_VERSION=590.0.0
+            apt-get install -y --no-install-recommends "google-cloud-cli=${GCLOUD_VERSION}-0"
+            installed="$(gcloud --version | head -n1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+')"
+            if [ "$installed" != "$GCLOUD_VERSION" ]; then
+              echo "gcloud: expected ${GCLOUD_VERSION}, apt installed ${installed}" >&2
+              exit 1
+            fi
+          user: "0"
+          description: "Add Google's official apt repo and install google-cloud-cli v590.0.0 (gcloud, gsutil, bq), failing if the installed version drifts from the pin"
+
+  # Accept one context version through runtime policy, or skip both.
+  # Accepting both conflicts; optionality does not express alternatives.
+  - type: com.docker.sandbox/agent-context@1
+    optional: true
+    config: &agent-context
+      content: |
+        ## Google Cloud CLI (gcloud)
+
+        `gcloud` (plus `gsutil` and `bq`) is installed from Google's official apt
+        repository. There is no API-key or environment-variable auth path for a
+        human Google account -- the sandbox is not pre-authenticated. Run
+
+            gcloud auth login --no-launch-browser
+
+        which prints a URL and asks you to paste back a verification code: open
+        the URL on your host, sign in, copy the code it shows into the sandbox
+        shell. Auth state then lives in `~/.config/gcloud` and survives restarts
+        of this sandbox (not recreation of it), same as any other `gcloud`
+        install.
+
+        Set a default project once signed in: `gcloud config set project <id>`.
+
+        For fully unattended use with a service account key instead of a human
+        login, see "Service accounts" in README.md.
+
+  - type: com.docker.sandbox/agent-context@2
+    optional: true
+    config: *agent-context
