@@ -1,0 +1,214 @@
+# syntax=docker/sandbox-kit:3
+# Docker Sandboxes kit: installs the official Supabase CLI (version+digest
+# pinned), pre-wired to a Supabase project's data API (PostgREST/Auth/
+# Storage) via proxy-injected credentials, plus an optional personal access
+# token for the CLI's own platform operations (project link, migrations).
+# Usage/design notes: see README.md.
+#
+# MIGRATION NOTE: migrated from the v2 `spec.yaml` grammar. `setup.install`
+# stays a lifecycle install hook: the CLI install itself needs nothing from
+# create time, but the follow-on `pip install` does nothing an overlay could
+# carry either, and keeping both install steps together (same ordering, same
+# phase) is simpler than splitting one into recipe content and one into a
+# hook. No dockerfile: v2's one `environment.variables` entry was a URL
+# derived from the `project_ref` arg, which v3 has no mechanism to export as
+# a composed env var (args.*.env exports only the raw arg value -- see
+# FIELD-MAPPING.md's args section in docker/sandbox-kit-spec). The raw
+# project ref is exported instead (`SUPABASE_PROJECT_REF`), and the one place
+# that read `$SUPABASE_URL` (the query runbook) now builds the URL itself.
+schemaVersion: "3"
+kind: mixin
+displayName: Supabase
+description: "Installs the official Supabase CLI, pre-wired to a Supabase project's data API (PostgREST, Auth, Storage) via proxy-injected credentials. Covers both the project's own API key (for REST/SDK calls against your tables) and, optionally, a personal access token for the CLI's platform operations (supabase link, supabase db push)."
+sourceUrl: https://supabase.com/docs/guides/local-development/cli/getting-started
+version: "1.0.0"
+licenses:
+  - Apache-2.0
+
+# The project ref is per-user (every Supabase project has its own
+# <ref>.supabase.co host), so it can't be hardcoded. Substituted into the
+# credential inject domain and the egress allowlist before decode (both
+# capability config strings, same `${{ kit.args.* }}` expansion lifecycle
+# hooks use). Also exported raw so the query runbook can build the full URL
+# itself. Defaults to a placeholder so the kit still validates and installs;
+# set it with --kit-arg project_ref=abcdefghijklmnop.
+args:
+  project_ref:
+    default: "your-project-ref"
+    description: >-
+      Your Supabase project ref, the subdomain in
+      https://<project_ref>.supabase.co -- found on the project's API
+      settings page. Defaults to a placeholder; set it or the data-API
+      credential and egress allowlist have no real host to reach.
+    pattern: '^[a-z0-9-]+$'
+    env: SUPABASE_PROJECT_REF
+
+# The apt package is pinned to an exact version (via a downloaded .deb), so
+# the install is pinnable -- state it as a provide and make the hook itself
+# enforce the pin (below), rather than asserting a version the content may
+# not have.
+provides: ["supabase@2.121.0"]
+
+# `dpkg -i` needs dpkg actually present; the platform floor (bash, sh, curl,
+# git, a CA store, the agent user) does not guarantee it on its own.
+requires: ["deb/apt"]
+
+capabilities:
+  - type: com.docker.sandbox/network-policy@1
+    config:
+      install:
+        allow:
+          # Supabase CLI release download (.deb, version+digest pinned).
+          - github.com
+          - objects.githubusercontent.com
+          - release-assets.githubusercontent.com
+          # pip install path for the official supabase-py client.
+          - pypi.org
+          - files.pythonhosted.org
+      runtime:
+        allow:
+          # The user's own project -- the data-API credential's inject domain.
+          - "${{ kit.args.project_ref }}.supabase.co"
+          # The Supabase platform/Management API -- the access-token
+          # credential's inject domain, used only by CLI commands that need it.
+          - api.supabase.com
+
+  # The project's own data-API key (anon or service_role -- your choice,
+  # same credential either way from the kit's perspective). Supabase's
+  # REST/Auth/Storage APIs accept the key on EITHER of two headers
+  # (apikey, or Authorization: Bearer), and different client libraries pick
+  # different ones, so both are declared from the one stored secret.
+  - type: com.docker.sandbox/credential@1
+    description: >-
+      Supabase project API key (anon or service_role) for
+      <project_ref>.supabase.co's data API -- PostgREST, Auth, Storage.
+      Sent as both `apikey: <key>` and `Authorization: Bearer <key>`.
+      Stored on the host; the sandbox only ever sees a placeholder.
+    config:
+      service: supabase-project
+      phase: runtime
+      apiKey:
+        name: SUPABASE_KEY
+        proxyManaged: true
+        inject:
+          - domain: "${{ kit.args.project_ref }}.supabase.co"
+            header: apikey
+            format: "%s"
+          - domain: "${{ kit.args.project_ref }}.supabase.co"
+            header: Authorization
+            format: "Bearer %s"
+
+  # Optional: a personal access token for the Supabase CLI's own platform
+  # operations (supabase link, supabase db push, supabase projects list),
+  # which talk to the Supabase Management API rather than a project's data
+  # API. Not required -- most agent tasks only need the data-API key above.
+  - type: com.docker.sandbox/credential@1
+    optional: true
+    description: >-
+      Supabase personal access token (from https://supabase.com/dashboard/account/tokens),
+      used by the CLI's platform commands (supabase link, supabase db push,
+      ...) against api.supabase.com. Not needed for plain data-API access to
+      an already-linked project.
+    config:
+      service: supabase-access-token
+      phase: runtime
+      apiKey:
+        name: SUPABASE_ACCESS_TOKEN
+        proxyManaged: true
+        inject:
+          - domain: api.supabase.com
+            header: Authorization
+            format: "Bearer %s"
+
+  - type: com.docker.sandbox/lifecycle@1
+    config:
+      install:
+        - command: |
+            set -euo pipefail
+            SUPABASE_VERSION=2.121.0
+            ARCH=$(dpkg --print-architecture)
+            case "$ARCH" in
+              amd64) SHA256="f6e10fc4086390ca386127bb4fd1a5e578625f95e7db84255a6bb82a159f973f" ;;
+              arm64) SHA256="c7f58ceeac60c38a6a72d7835e1157f2bcd55b40349964f9234c324b6c4733b8" ;;
+              *) echo "unsupported sandbox arch: $ARCH (expected amd64 or arm64)" >&2; exit 1 ;;
+            esac
+            URL="https://github.com/supabase/cli/releases/download/v${SUPABASE_VERSION}/supabase_${SUPABASE_VERSION}_linux_${ARCH}.deb"
+            curl --proto '=https' --tlsv1.2 -fsSL -o /tmp/supabase.deb "$URL"
+            echo "${SHA256}  /tmp/supabase.deb" | sha256sum -c -
+            dpkg -i /tmp/supabase.deb
+            rm -f /tmp/supabase.deb
+            installed="$(supabase --version | head -n1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+')"
+            if [ "$installed" != "$SUPABASE_VERSION" ]; then
+              echo "supabase: expected ${SUPABASE_VERSION}, dpkg installed ${installed}" >&2
+              exit 1
+            fi
+          user: "0"
+          description: "Install Supabase CLI v2.121.0, version+digest pinned (.deb), failing if the installed version drifts from the pin"
+        - command: "pip install --break-system-packages 'supabase>=2.9,<3'"
+          user: "1000"
+          description: "Install the official supabase-py client library"
+      files:
+        - path: /home/agent/runbooks/query.py
+          mode: "0755"
+          description: "Minimal PostgREST query runbook, using the same proxy-injected key as the Python client."
+          content: |
+            #!/usr/bin/env python3
+            """Run a SELECT * LIMIT 10 against a Supabase table.
+
+            Usage: query.py <table_name>
+            """
+            import os
+            import sys
+            import json
+            from supabase import create_client
+
+            def main() -> int:
+                if len(sys.argv) < 2:
+                    print(__doc__)
+                    return 1
+                table = sys.argv[1]
+                url = f"https://{os.environ['SUPABASE_PROJECT_REF']}.supabase.co"
+                client = create_client(url, os.environ["SUPABASE_KEY"])
+                result = client.table(table).select("*").limit(10).execute()
+                print(json.dumps(result.data, indent=2, default=str))
+                return 0
+
+            if __name__ == "__main__":
+                raise SystemExit(main())
+
+  # Accept one context version through runtime policy, or skip both.
+  # Accepting both conflicts; optionality does not express alternatives.
+  - type: com.docker.sandbox/agent-context@1
+    optional: true
+    config: &agent-context
+      content: |
+        ## Supabase
+
+        The Supabase CLI (`supabase`) is installed, and this sandbox is wired to
+        the project `$SUPABASE_PROJECT_REF` (build the data-API URL as
+        `https://$SUPABASE_PROJECT_REF.supabase.co`). `$SUPABASE_KEY` is a
+        proxy-managed placeholder -- the sbx proxy injects the real project API
+        key (anon or service_role, whichever you stored) on outbound requests to
+        `${{ kit.args.project_ref }}.supabase.co`, on both the `apikey` and
+        `Authorization: Bearer` headers so any client library's convention works.
+
+        The official Python client is installed too:
+
+            from supabase import create_client
+            import os
+            url = f"https://{os.environ['SUPABASE_PROJECT_REF']}.supabase.co"
+            client = create_client(url, os.environ["SUPABASE_KEY"])
+            client.table("your_table").select("*").limit(10).execute()
+
+        `~/runbooks/query.py` wraps the same thing as a one-liner:
+        `python3 ~/runbooks/query.py your_table`
+
+        For CLI platform operations (`supabase link`, `supabase db push`,
+        `supabase projects list`) you also need a personal access token stored as
+        the `supabase-access-token` secret -- see README.md. Without it, those
+        specific commands fail with an auth error; plain data-API access above
+        still works.
+
+  - type: com.docker.sandbox/agent-context@2
+    optional: true
+    config: *agent-context
