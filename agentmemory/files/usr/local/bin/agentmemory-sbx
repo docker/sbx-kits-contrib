@@ -1,0 +1,32 @@
+#!/bin/sh
+set -eu
+
+opt=/opt/agentmemory-sbx
+state=/home/agent/.local/share/agentmemory-sbx
+
+umask 077
+mkdir -p "$state/home" "$state/data"
+
+export HOME="$state/home"
+export PATH="$opt/bin:$opt/node/bin:$PATH"
+export CI=1
+export AGENTMEMORY_DATA_DIR="$state/data"
+export AGENTMEMORY_WORKER_BIN_DIR="$opt/workers"
+export AGENTMEMORY_III_VERSION=0.25.1
+export AGENTMEMORY_VIEWER_HOST=127.0.0.1
+export AGENTMEMORY_FORCE_PROXY=1
+export AGENTMEMORY_ALLOW_AGENT_SDK=false
+export III_REST_PORT=3111 III_ENGINE_PORT=49134 III_VIEWER_PORT=3113
+export III_TELEMETRY_ENABLED=false
+export NO_PROXY="${NO_PROXY:+$NO_PROXY,}127.0.0.1,localhost"
+export no_proxy="$NO_PROXY"
+unset AGENTMEMORY_SECRET AGENTMEMORY_URL AGENTMEMORY_LLM_PROVIDER LLM_PROVIDER EMBEDDING_PROVIDER
+unset ANTHROPIC_API_KEY OPENAI_API_KEY GEMINI_API_KEY GOOGLE_API_KEY OPENROUTER_API_KEY
+unset MINIMAX_API_KEY VOYAGE_API_KEY COHERE_API_KEY OPENAI_BASE_URL FALLBACK_PROVIDERS NODE_USE_ENV_PROXY
+
+cli="$opt/runtime/node_modules/@agentmemory/agentmemory/dist/cli.mjs"
+if [ "${1:-}" = mcp ] || [ "${1:-}" = status ]; then
+  export AGENTMEMORY_URL=http://127.0.0.1:3111
+fi
+cd "$state"
+exec "$opt/node/bin/node" "$cli" "$@"
