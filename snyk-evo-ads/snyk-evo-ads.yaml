@@ -309,3 +309,9 @@ capabilities:
   - type: com.docker.sandbox/agent-context@1
     config:
       contentFile: ./snyk-evo-ads-context.md
+
+  # Snyk Studio's CLI authenticates with `snyk auth`, an OAuth flow in the
+  # browser. Optional: the CLI prints the URL when it cannot open one, and a
+  # host SNYK_TOKEN skips the flow.
+  - type: com.docker.sandbox/open-url@1
+    optional: true

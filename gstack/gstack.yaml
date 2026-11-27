@@ -175,3 +175,8 @@ capabilities:
     config:
       filename: CLAUDE.md
       contentFile: ./gstack-context.md
+
+  # With no Anthropic credential bound, Claude Code falls back to /login, which
+  # opens the browser. Optional: it prints the URL when it cannot.
+  - type: com.docker.sandbox/open-url@1
+    optional: true
