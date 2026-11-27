@@ -1,0 +1,163 @@
+# syntax=docker/sandbox-kit:3
+# Google Agent Development Kit (ADK) as a MIXIN with a small overlay.
+#
+# MIGRATION NOTE: the v2 kit had no Dockerfile, because a v2 mixin had no
+# content mechanism and setup hooks were the only way for one to write a file.
+# v3 lets a mixin carry an overlay, so the one piece of pure static content --
+# v2's `environment.variables` -- is google-adk.dockerfile's /etc/profile.d
+# drop now. A mixin's image config is not the composed image's, so a profile.d
+# file the base's login shell sources is how a mixin sets variables at all.
+#
+# The venv, its apt prerequisites and the ~/.bashrc append stay install hooks,
+# for the same reasons the smolagents kit established by experiment: a venv is
+# bound to the Python minor version that created it, packages need the
+# composed base's dpkg database, and an overlay's ~/.bashrc would replace the
+# base's instead of appending to it. Each reason is on its hook below.
+schemaVersion: "3"
+displayName: Google Agent Development Kit
+description: >-
+  Installs Google's Agent Development Kit (ADK) in an isolated Python virtual
+  environment and exposes the adk CLI inside the sandbox.
+sourceUrl: https://github.com/google/adk-python
+licenses: [Apache-2.0]
+iconUrl: https://raw.githubusercontent.com/google/adk-docs/main/docs/assets/agent-development-kit.png
+
+kind: mixin
+
+# The install hook pins 2.3.0 and checks what it installed against that pin
+# rather than only printing it. To bump: edit the hook, this entry and the
+# README together.
+provides: ["google-adk@2.3.0"]
+
+# Dependency installation targets apt-based workloads. deb/apt is derived from
+# the workload's installed dpkg database, not a name invented for this mixin; a
+# base without apt cannot satisfy the install hook. deb/python3 is deliberately
+# absent: the hook keeps a working Python toolchain (including DHI's versioned
+# python-3.x packages) and installs Python itself only when venv support is
+# missing.
+requires: ["deb/apt"]
+
+capabilities:
+  # MIGRATION NOTE: v2's single allow list is split by phase. The install hooks
+  # reach only the package hosts; the Google API hosts are reached by the
+  # user's ADK code once the agent is running. No startup hooks exist, so
+  # nothing from the install list is needed at runtime.
+  - type: com.docker.sandbox/network-policy@1
+    config:
+      install:
+        allow:
+          # pip install path for google-adk and its Python dependencies.
+          - pypi.org
+          - files.pythonhosted.org
+          # `apt-get update` refreshes every configured apt source from the base
+          # template. Keep all template sources allowed for amd64 and arm64
+          # sandboxes.
+          - archive.ubuntu.com
+          - security.ubuntu.com
+          - ports.ubuntu.com
+          - download.docker.com
+          # MIGRATION NOTE: v3 workloads include DHI images whose apt sources
+          # are the DHI and Debian repositories (and the GitHub CLI repo on
+          # some templates), so a missing-Python install has to reach them too.
+          - deb.debian.org
+          - dhi.io
+          - cli.github.com
+      runtime:
+        allow:
+          # Gemini Developer API. The credential below proxy-injects
+          # GOOGLE_API_KEY as x-goog-api-key for this host.
+          - generativelanguage.googleapis.com
+          # Vertex AI and common Google auth endpoints for users who configure
+          # ADC or use Google Cloud project-based execution instead of an API
+          # key.
+          - aiplatform.googleapis.com
+          - oauth2.googleapis.com
+          - sts.googleapis.com
+          - iamcredentials.googleapis.com
+          - www.googleapis.com
+
+  # MIGRATION NOTE: v2 credentials defaulted to optional and v3 entries are
+  # required unless they opt out, so this one opts out: Vertex AI / ADC users
+  # never bind a Gemini API key. The service is `google` rather than v2's
+  # `google-gemini` to match every other kit in this repo that injects a
+  # Gemini key (crush, goose, junie, openhands, dapr-agents, shell-credentials),
+  # so one `sbx secret set -g google` covers all of them.
+  - type: com.docker.sandbox/credential@1
+    optional: true
+    description: Google Gemini API key
+    config:
+      service: google
+      phase: runtime
+      apiKey:
+        name: GOOGLE_API_KEY
+        proxyManaged: true
+        inject:
+          - {domain: generativelanguage.googleapis.com, header: x-goog-api-key, format: "%s"}
+
+  - type: com.docker.sandbox/lifecycle@1
+    config:
+      install:
+        # MIGRATION NOTE: v2 always ran apt. Keep a workload's working Python
+        # toolchain, including DHI's versioned packages, and only install the
+        # distro defaults when venv support is missing; the next hook binds the
+        # venv to whichever interpreter is there.
+        - command: |
+            set -eu
+            if python3 -c 'import ensurepip, venv' >/dev/null 2>&1; then
+              exit 0
+            fi
+            apt-get update
+            apt-get install -y --no-install-recommends ca-certificates python3 python3-venv python3-pip
+            rm -rf /var/lib/apt/lists/*
+          user: "0"
+          description: Install Python and venv prerequisites for Google ADK
+        # The venv stays a hook because it is not relocatable content:
+        # `python3 -m venv` writes packages under lib/python3.<minor> and links
+        # bin/python3 to the absolute /usr/bin/python3, so a venv baked by the
+        # builder breaks on any base whose Python minor differs. A mixin lands
+        # on bases the builder has never seen. The CLI symlink and the
+        # adk-python shim stay here too: they name paths only this hook creates.
+        #
+        # MIGRATION NOTE: the body reads no variable, but pip does -- it takes
+        # the proxy from the environment. Under v3's deny-by-default hook env it
+        # has to be declared or the install fails behind the sandbox's proxy.
+        - command: |
+            set -euo pipefail
+            GOOGLE_ADK_VERSION=2.3.0
+            python3 -m venv /opt/google-adk
+            /opt/google-adk/bin/python -m pip install --upgrade pip setuptools wheel
+            /opt/google-adk/bin/python -m pip install "google-adk==${GOOGLE_ADK_VERSION}"
+            ln -sf /opt/google-adk/bin/adk /usr/local/bin/adk
+            cat > /usr/local/bin/adk-python <<'SCRIPT'
+            #!/bin/sh
+            exec /opt/google-adk/bin/python "$@"
+            SCRIPT
+            chmod 0755 /usr/local/bin/adk-python
+            adk --help >/dev/null
+            # MIGRATION NOTE: v2 only printed the installed version. The pin in
+            # `provides` is a claim about content, so the hook now enforces it;
+            # with a create-time install this is the only place it can live.
+            installed=$(/opt/google-adk/bin/python -c 'import importlib.metadata; print(importlib.metadata.version("google-adk"))')
+            echo "google-adk ${installed}"
+            [ "${installed}" = "${GOOGLE_ADK_VERSION}" ] || {
+              echo "pin mismatch: kit declares ${GOOGLE_ADK_VERSION}, venv has ${installed}" >&2
+              exit 1
+            }
+            chown -R 1000:1000 /opt/google-adk
+          user: "0"
+          env: [HTTP_PROXY, HTTPS_PROXY]
+          description: Install google-adk v2.3.0 in the /opt/google-adk venv
+        # The ~/.bashrc append stays a hook: an overlay's file entries replace
+        # the base's rather than merging, so shipping /home/agent/.bashrc would
+        # shadow whatever the workload put there, and /home/agent may be a
+        # mounted volume. It complements the overlay's profile.d drop:
+        # profile.d covers login shells, ~/.bashrc the interactive non-login
+        # shells profile.d never reaches.
+        #
+        # No `env:` -- `~` expands from HOME, which is platform baseline.
+        - command: |
+            set -euo pipefail
+            grep -qF 'adk-python' ~/.bashrc 2>/dev/null || \
+              printf '\n# google-adk (added by sbx-kits-contrib/google-adk)\nexport GOOGLE_ADK_VENV=/opt/google-adk\nexport GOOGLE_ADK_PYTHON=/opt/google-adk/bin/python\nalias adk-python=/opt/google-adk/bin/python\n' >> ~/.bashrc
+          user: "1000"
+          description: Add Google ADK helper environment variables to interactive shells
