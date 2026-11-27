@@ -1,0 +1,232 @@
+# syntax=docker/sandbox-kit:3
+# Kimchi Coding, the terminal coding agent by Cast AI, as a sandbox kit.
+#
+# Migration of the v2 `kimchi` sandbox kit (kimchi/spec.yaml). Every v2 stanza
+# lands somewhere deliberate; the deltas are marked MIGRATION NOTE inline.
+#
+# MIGRATION NOTE: the big one. v2 pointed `sandbox.image` at
+# docker.io/sbx/kimchi-image:latest and shipped a Dockerfile that CI built
+# into it. A v3 workload's layers ARE the root filesystem, so that indirection
+# collapses: kimchi.dockerfile beside this file IS the kit's content, found by
+# the filename stem, and the CLI is installed at build time rather than by a
+# create-time hook. That is what retires v2's `setup.install` and the install
+# phase of its egress list.
+schemaVersion: "3"
+displayName: Kimchi
+description: >-
+  Kimchi Coding, the terminal coding agent with multi-model orchestration by
+  Cast AI. Runs the interactive harness in the sandbox, with the CLI pinned to
+  a released version.
+sourceUrl: https://github.com/getkimchi/kimchi
+licenses: [Apache-2.0]
+
+kind: workload
+
+# The Kimchi release this kit installs, by reference to the `version` arg
+# below -- SPEC-v3 §4 admits a build-phase arg reference in this field and
+# expands it at publish, so the version is stated in exactly one place and the
+# publish tag names the agent rather than a kit release number of its own.
+#
+# MIGRATION NOTE: v2 carried `version: "1.0.0"` and said in a comment that it
+# was "the KIT's version, not kimchi's" -- the CLI inside the image floated
+# with the latest release. v3 has no room for two versions, and the honest one
+# is the agent's: a provide is a claim about content, and a claim of
+# "kimchi@1.0.0" for an image carrying whatever latest was on build day is
+# the failure mode SPEC-v3 §5.2 warns about -- the kit's own release number
+# wearing the agent's name. So the pin is the CLI's version, and the recipe
+# enforces it at build time.
+version: "${{ kit.args.version }}"
+
+# The Kimchi release the recipe installs, declared once: validated here, handed
+# to the installer as the pin, and expanded into `provides` and into the
+# descriptor's own `version:` -- so the kit cannot claim a release it does not
+# carry.
+#
+# HOW THE DEFAULT WAS DETERMINED, and how to bump it: the `latest` release of
+# https://github.com/getkimchi/kimchi, whose tag names the version the
+# installer fetches. 1.39.2 at the time of writing. To bump:
+#
+#     curl -fsSL https://api.github.com/repos/getkimchi/kimchi/releases/latest
+#
+# WHY PINNED rather than left floating: v2's image installed `latest` at build
+# time and the CI rebuild was nightly, so the kit's content changed without
+# its version changing and nothing could constrain it. A pinned provide is
+# only worth anything if the install is pinned too, so the pin reaches the
+# installer itself -- the recipe asserts the agreement by asking the installed
+# binary.
+args:
+  version:
+    default: "1.39.2"
+    # Kimchi's published shape. No `v` prefix: a version is
+    # `[0-9]+(\.[0-9A-Za-z-]+)*` (SPEC-v3 §5.2) and carries no prefix, and the
+    # installer takes the bare number.
+    pattern: '^[0-9]+\.[0-9]+\.[0-9]+$'
+    description: Kimchi release to install
+    buildArg: KIMCHI_VERSION
+
+provides: ["kimchi@${{ kit.args.version }}"]
+
+capabilities:
+  # This workload is an agent sandbox: the host launches the agent rather than
+  # running the image's entrypoint as PID 1, and honors the identity the image
+  # config declares instead of assuming one.
+  - type: com.docker.sandbox/sbx@1
+
+  # MIGRATION NOTE: v2's flat list becomes phase-scoped, and there is no
+  # `install:` phase here at all.
+  #
+  # The install phase existed for one consumer: the hook that ran install.sh at
+  # sandbox create. kimchi.dockerfile now runs that same installer at image
+  # build -- outside any sandbox phase, and so outside this policy altogether
+  # -- which leaves an install grant with no installer to serve. It is dropped
+  # rather than left standing: a phase that opens egress nothing uses is
+  # permission surface the kit is asking for and never spending.
+  #
+  # The runtime phase is unchanged in substance, and every entry earns its
+  # place there on its own:
+  #
+  #   - llm.kimchi.dev is the inference host (the OpenAI-compatible API at
+  #     /openai/v1) and the model-metadata feed. It is also the credential's
+  #     inject domain, which v3 validates appears in the matching phase's
+  #     allow list.
+  #   - api.cast.ai is the platform API: the organization policy, the API-key
+  #     verification, the organization list and the OTLP telemetry ingest.
+  #     Confirmed by running the CLI against a logging proxy (see the README).
+  #   - app.kimchi.dev is the console: the browser login flow and the
+  #     account pages the CLI opens or redirects to.
+  #   - login.kimchi.dev is the OAuth authorization and token endpoint the
+  #     browser login completes against.
+  #   - api.github.com and github.com are the release metadata and the
+  #     release-asset download the CLI's own background update probe reads
+  #     (confirmed by running `kimchi update --dry-run` against a logging
+  #     proxy). The update probe is a convenience, not a requirement -- see
+  #     the README for the note on pinning it off.
+  #
+  # MIGRATION NOTE: entries are portless, this repo's house style. v2 wrote
+  # bare hosts too; a portless pattern matches any port, so this only widens
+  # within a host the list already names.
+  #
+  # MIGRATION NOTE: v2 also listed the five apt sources the base image
+  # configures, because its `setup.startup` hook ran `apt-get update`. v3 has
+  # no such hook -- see the lifecycle note below -- so those hosts are not in
+  # this list. The agent can still install packages, through the sandbox
+  # proxy, because the proxy's own policy (not this kit's) governs the
+  # agent's own egress to package mirrors; the kit's list is the contract for
+  # the hosts the AGENT reaches, not for the hosts the base image's apt
+  # sources point at.
+  - type: com.docker.sandbox/network-policy@1
+    config:
+      runtime:
+        allow:
+          - llm.kimchi.dev
+          - api.cast.ai
+          - app.kimchi.dev
+          - login.kimchi.dev
+          - api.github.com
+          - github.com
+
+  # MIGRATION NOTE: `optional: true` preserves v2 behavior, deliberately and
+  # with the same reasoning v2 gave. v2 credentials default to not-required
+  # and the v3 default inverts, so without this a sandbox with no Kimchi key
+  # bound would fail to create. It must not: with no key the CLI shows its
+  # interactive login selector on first run -- a Kimchi account via browser, or
+  # a subscription provider such as GitHub Copilot -- and the credential that
+  # comes back persists to ~/.config/kimchi inside the sandbox. Requiring the
+  # key would gate out that documented onboarding path.
+  #
+  # No `proxyManaged`, faithfully: v2 did not set it either, and setting it
+  # would be a security DOWNGRADE here rather than a hardening. Kimchi's
+  # harness reads KIMCHI_API_KEY directly and uses it as the bearer token for
+  # its own requests -- it does not need the proxy to substitute it. With
+  # proxyManaged the container would see a sentinel in KIMCHI_API_KEY instead
+  # of a usable key, and the harness would reject it (it validates the key
+  # against the model-metadata endpoint and fails with "KIMCHI_API_KEY
+  # environment variable contains an invalid API key"). The proxy still
+  # presents the REAL value outbound on the inject domains below, so the key
+  # never has to sit in the container at all for the requests the proxy
+  # rewrites -- but the env var path is what the harness uses, so it needs a
+  # real value in the container to work.
+  - type: com.docker.sandbox/credential@1
+    optional: true
+    description: Kimchi API access
+    config:
+      service: kimchi
+      phase: runtime
+      apiKey:
+        name: KIMCHI_API_KEY
+        inject:
+          # The inference host, where the bearer is used on every model call.
+          - {domain: llm.kimchi.dev, header: Authorization, format: "Bearer %s"}
+          # The platform API: organization policy, key verification and the
+          # organization list all carry the same bearer.
+          - {domain: api.cast.ai, header: Authorization, format: "Bearer %s"}
+
+  # MIGRATION NOTE: no lifecycle entry.
+  #
+  # v2's lifecycle block had two hooks. The install hook
+  # (`curl -fsSL .../install.sh | bash`) is now the recipe's build step --
+  # install.sh reads nothing that exists only at sandbox-create time (no kit
+  # arg, no workspace path, no credential), so it was encoding the v2
+  # limitation that a v2 kit could not carry content, not a requirement of
+  # Kimchi's. Baking it buys: no download on every sandbox create, the
+  # GitHub release hosts out of the install phase of the kit's permission
+  # surface, content that is pinned by digest in the kit image and scannable
+  # there, and an upstream installer that breaks at publish rather than in a
+  # user's sandbox.
+  #
+  # The startup hook (`apt-get update` in the background) is DROPPED, and this
+  # is a deliberate behavior change rather than a transcription. It existed to
+  # refresh the apt cache so an agent could `apt-get install` something during
+  # a session. In v3 the apt sources the base image configures are not this
+  # kit's egress -- see the network-policy note -- so the hook could not do
+  # what it did in v2 under the v3 phase split: a startup hook runs in the
+  # RUNTIME phase, and the runtime phase is where this kit's allow list lives,
+  # so the hook would have dragged five package-mirror hosts into the
+  # agent's egress contract to support a convenience. The base image's apt
+  # cache is populated by the platform, and an agent that needs a package
+  # installs it through the sandbox proxy.
+  #
+  # A lifecycle entry declaring no hooks, no files and no interactive tail is
+  # invalid, so the entry is dropped rather than left empty.
+
+  # MIGRATION NOTE: new, and the one place v2's recording was too thin to
+  # carry over.
+  #
+  # v2's testdata/tck.yaml documented `promptArgs: ["-p"]` but deliberately
+  # OPTED OUT of the prompt subtest, because `kimchi -p` with no credential
+  # bound exits 1 ("No API key found") and `requiresHostCredentials` would
+  # have skipped the whole kit e2e rather than just the prompt subtest. The
+  # invocation itself was real and working, so it is recorded here.
+  #
+  # The tail appends to the image's Entrypoint the way user arguments do, so
+  # the headless argv is `kimchi --no-auto-update -p <prompt>`.
+  #
+  # `--no-auto-update` is in the tail on purpose: the background update probe
+  # is the one thing the CLI does that reaches a host (api.github.com) with no
+  # user intent behind it, and a headless run has no user watching it. The
+  # probe is still permitted by the network policy -- an interactive session
+  # gets it -- so this is a quiet default rather than a wall.
+  #
+  # No resume, continue or list verb: v2 recorded no working spelling for any
+  # of them, and the capability exists precisely so a host surfaces
+  # "unsupported" instead of improvising flags. Kimchi's own session files
+  # live under ~/.config/kimchi/harness/sessions/<slug>/<timestamp>_<uuid>.jsonl
+  # and `kimchi --resume <id>` takes that id -- but a `list` verb needs to
+  # enumerate them, and that is left for a follow-up that pins the format
+  # rather than guesses it here.
+  - type: com.docker.sandbox/agent-sessions@1
+    description: Run one Kimchi prompt non-interactively
+    config:
+      prompt: ["--no-auto-update", "-p", "{{.Prompt}}"]
+
+  # v2's agentInstructions, body moved verbatim into the staged context file.
+  #
+  # Kimchi discovers AGENTS.md by walking up from the working directory to the
+  # filesystem root, and separately reads a global one from its agent
+  # directory (~/.config/kimchi/agent/AGENTS.md). The runtime writes this
+  # kit's profile beside the workspace, which the upward walk reaches, so the
+  # body lands where the harness reads it.
+  - type: com.docker.sandbox/agent-context@1
+    config:
+      filename: AGENTS.md
+      contentFile: ./kimchi-context.md

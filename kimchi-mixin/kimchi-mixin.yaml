@@ -1,0 +1,94 @@
+# syntax=docker/sandbox-kit:3
+# Kimchi as a MIXIN: the same declarations as the standalone workload kit
+# (../kimchi), minus what only the kit that owns the environment can carry --
+# the entrypoint (the base workload's launch command stays; run `kimchi` from
+# the shell), the context-file profile (`filename` is workload-only, so this
+# kit contributes `contentFile` alone) and sbx@1 (a mixin's image config never
+# becomes the composed image's, so there is no identity for the host to honor).
+#
+# There is also no agent-sessions@1: both that capability and the interactive
+# tail describe the LAUNCH argv, and a mixin does not own the launch command.
+# The base workload's launch stays; the user runs `kimchi` from the shell and
+# passes `-p` themselves when they want a headless prompt.
+schemaVersion: "3"
+displayName: Kimchi (mixin)
+description: >-
+  Kimchi Coding as a mixin -- the pinned CLI in an overlay, with the Kimchi
+  credential and its egress. Layer it onto a shell base and run `kimchi`.
+sourceUrl: https://github.com/getkimchi/kimchi
+licenses: [Apache-2.0]
+
+kind: mixin
+
+# The Kimchi release this kit's overlay carries, by reference to the `version`
+# arg below -- SPEC-v3 §4 admits a build-phase arg reference in this field and
+# expands it at publish, so the version is stated in exactly one place and the
+# publish tag names the agent rather than a kit release number of its own.
+version: "${{ kit.args.version }}"
+
+# The Kimchi release the recipe installs, declared once: validated here,
+# handed to the installer as the pin, and expanded into `provides` and into the
+# descriptor's own `version:` -- so the kit cannot claim a release its overlay
+# does not carry. The recipe asserts the agreement at build time by asking the
+# installed binary.
+#
+# THIS MUST STAY EQUAL TO ../kimchi's `version` default. The two kits run the
+# same installer at the same pin and provide the same name, so a composition
+# that resolved one against the other's requires must see the same release.
+# Nothing enforces it across kit directories -- bump both together.
+args:
+  version:
+    default: "1.39.2"
+    # Kimchi's published shape, with no `v` prefix: a version is
+    # `[0-9]+(\.[0-9A-Za-z-]+)*` (SPEC-v3 §5.2) and carries no prefix. The
+    # recipe adds the prefix the release tag needs.
+    pattern: '^[0-9]+\.[0-9]+\.[0-9]+$'
+    description: Kimchi release to install
+    buildArg: KIMCHI_VERSION
+
+provides: ["kimchi@${{ kit.args.version }}"]
+
+capabilities:
+  # The agent's own egress rides with the kit that ships the agent: the base
+  # grants nothing for services it does not carry.
+  #
+  # MIGRATION NOTE: runtime only, and for the same reason the workload
+  # declares no install phase: the overlay installs at image build, where the
+  # download is the builder's traffic and not the sandbox's, so an install
+  # grant would open egress for an install phase with no installer in it.
+  #
+  # The host list is the workload's, for the same reason: this overlay ships
+  # the same CLI, so it needs the same hosts to run.
+  - type: com.docker.sandbox/network-policy@1
+    config:
+      runtime:
+        allow:
+          - llm.kimchi.dev
+          - api.cast.ai
+          - app.kimchi.dev
+          - login.kimchi.dev
+          - api.github.com
+          - github.com
+
+  # Optional, matching the workload and v2: a sandbox with no Kimchi key
+  # bound still creates, and Kimchi's own sign-in can complete inside it. No
+  # proxyManaged, for the reason the workload gives: the harness reads
+  # KIMCHI_API_KEY directly, and a sentinel there would be rejected as an
+  # invalid key.
+  - type: com.docker.sandbox/credential@1
+    optional: true
+    description: Kimchi API access
+    config:
+      service: kimchi
+      phase: runtime
+      apiKey:
+        name: KIMCHI_API_KEY
+        inject:
+          - {domain: llm.kimchi.dev, header: Authorization, format: "Bearer %s"}
+          - {domain: api.cast.ai, header: Authorization, format: "Bearer %s"}
+
+  # contentFile alone: `filename` is workload-only, the profile belonging to
+  # the kit that owns the environment.
+  - type: com.docker.sandbox/agent-context@1
+    config:
+      contentFile: ./kimchi-mixin-context.md
