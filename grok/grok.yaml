@@ -144,3 +144,9 @@ capabilities:
     config:
       filename: AGENTS.md
       contentFile: ./grok-context.md
+
+  # Grok signs in through the browser ("Login with Grok") when no xAI key is
+  # bound. Optional: without the grant, `grok login --device-code` prints the
+  # URL to open by hand.
+  - type: com.docker.sandbox/open-url@1
+    optional: true

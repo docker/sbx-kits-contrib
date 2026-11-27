@@ -182,3 +182,8 @@ capabilities:
 
   # No agent-sessions@1: the v2 workload omitted promptArgs because sign-in
   # needs a human. No agent-skills@1: no verified discovery path was declared.
+
+  # The first launch signs in through an enterprise URL. Optional: the wrapper
+  # uses Devin's manual token flow, which prints the URL to open on the host.
+  - type: com.docker.sandbox/open-url@1
+    optional: true
