@@ -45,7 +45,7 @@ version: "${{ kit.args.version }}"
 # longer form of this reasoning.
 args:
   version:
-    default: "0.95.0"
+    default: "0.102.0"
     pattern: '^[0-9]+\.[0-9]+\.[0-9]+$'
     description: Crush release to install from Charm's apt repository
     buildArg: CRUSH_VERSION
