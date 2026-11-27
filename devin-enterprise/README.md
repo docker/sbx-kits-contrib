@@ -64,7 +64,7 @@ grants.
 
 ## Version and build
 
-The `version` build argument defaults to `3000.10.31`, matching the v3 Devin
+The `version` build argument defaults to `3000.15.14`, matching the v3 Devin
 kit. The recipe downloads Cognition's versioned setup script and checks that
 the installed binary reports the requested release. Both enterprise shapes
 provide `devin` at that version and must keep their defaults in sync.
