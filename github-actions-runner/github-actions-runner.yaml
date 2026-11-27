@@ -1,0 +1,133 @@
+# syntax=docker/sandbox-kit:3
+schemaVersion: "3"
+displayName: GitHub Actions Runner
+description: Ephemeral GitHub Actions self-hosted runner for one job per sandbox, provisioned with a JIT configuration.
+version: "${{ kit.args.version }}"
+sourceUrl: https://github.com/actions/runner
+iconUrl: https://github.com/actions.png
+licenses: [MIT]
+
+kind: mixin
+
+args:
+  version:
+    default: "2.338.2"
+    pattern: '^[0-9]+\.[0-9]+\.[0-9]+$'
+    description: Actions runner release version
+    buildArg: RUNNER_VERSION
+  sha256_x64:
+    default: "baebf204307bac6193480852732f0aba2ae97b6c5597c244f4d5558390147c40"
+    pattern: '^[a-f0-9]{64}$'
+    description: SHA-256 for the Linux x64 runner archive
+    buildArg: RUNNER_SHA256_X64
+  sha256_arm64:
+    default: "670adb2f268fe21dcbb58b3db0e0aa9d5b3bddfe2c651481336e561ff86de945"
+    pattern: '^[a-f0-9]{64}$'
+    description: SHA-256 for the Linux arm64 runner archive
+    buildArg: RUNNER_SHA256_ARM64
+
+provides: ["github-actions-runner@${{ kit.args.version }}"]
+
+capabilities:
+  - type: com.docker.sandbox/network-policy@1
+    config:
+      install:
+        allow:
+          # Apt refreshes every configured source. Match Playwright's v3 list:
+          # Debian and Ubuntu mirrors, DHI's mirror, and Docker's pre-added apt repo.
+          - deb.debian.org
+          - dhi.io
+          - archive.ubuntu.com
+          - security.ubuntu.com
+          - ports.ubuntu.com
+          - download.docker.com
+      runtime:
+        allow:
+          # GitHub's self-hosted runner communication requirements by function.
+          # https://docs.github.com/en/actions/reference/runners/self-hosted-runners
+          - github.com
+          - api.github.com
+          - "*.actions.githubusercontent.com"
+          - codeload.github.com
+          - objects.githubusercontent.com
+          - objects-origin.githubusercontent.com
+          - github-releases.githubusercontent.com
+          - github-registry-files.githubusercontent.com
+          - release-assets.githubusercontent.com
+          - "*.blob.core.windows.net"
+
+  - type: com.docker.sandbox/lifecycle@1
+    config:
+      install:
+        - command: /opt/actions-runner/bin/installdependencies.sh && rm -rf /var/lib/apt/lists/*
+          user: "0"
+          env: [HTTP_PROXY, HTTPS_PROXY]
+          description: Install the runner's system dependencies
+      startup:
+        - command: |
+            set -eu
+            cd /opt/actions-runner
+            remove_credentials() { rm -f .runner .credentials .credentials_rsaparams; }
+            if [ -e .jit-started ]; then
+              # A reboot or a killed runner left the start marker: never reuse the
+              # configuration, and remove any credentials the earlier run left.
+              remove_credentials
+              echo "JIT runner was already started; refusing to reuse its configuration." | tee -a /tmp/actions-runner.log
+              exit 0
+            fi
+            if [ -z "${RUNNER_JITCONFIG:-}" ]; then
+              echo "RUNNER_JITCONFIG is empty; Actions runner is not started." | tee -a /tmp/actions-runner.log
+              exit 0
+            fi
+            if ! command -v setsid >/dev/null 2>&1; then
+              # Checked before the marker, so the single-use configuration is not spent.
+              echo "setsid is missing (util-linux or busybox); Actions runner is not started." | tee -a /tmp/actions-runner.log
+              exit 1
+            fi
+            : > .jit-started
+            export ACTIONS_RUNNER_INPUT_JITCONFIG="$RUNNER_JITCONFIG"
+            unset RUNNER_JITCONFIG
+            set +e
+            # run.sh passes no signal on to the listener, so TERM goes to the runner's whole
+            # process group (INT too: a background job ignores INT). Credentials go before the
+            # wait: the runtime may kill the hook before the listener has finished.
+            stop_runner() {
+              child=${child:-${!:-}} # a signal between the fork and child=$!; empty before the fork
+              if [ -n "$child" ]; then
+                # The PID covers a signal that lands before setsid has made the group.
+                kill -TERM "-$child" 2>/dev/null || kill -TERM "$child" 2>/dev/null
+                remove_credentials
+                # Reap run.sh, or the group check below sees its zombie; it returns at once
+                # because run.sh has no TERM trap.
+                wait "$child" 2>/dev/null
+                i=0
+                while kill -0 "-$child" 2>/dev/null && [ "$i" -lt 30 ]; do sleep 1; i=$((i + 1)); done
+              fi
+              exit "$1"
+            }
+            child= # never a value from the environment
+            trap remove_credentials EXIT
+            trap 'stop_runner 143' TERM
+            trap 'stop_runner 130' INT
+            # In the background so a signal reaches this shell at once; setsid (util-linux,
+            # busybox) gives the runner its own process group.
+            setsid ./run.sh >>/tmp/actions-runner.log 2>&1 &
+            child=$!
+            wait "$child"
+            status=$?
+            # run.sh reports 0 for most listener failures, including a rejected
+            # configuration: judge the job from GitHub or _diag, not this status.
+            echo "Actions runner exited with status $status; removing runner credentials." | tee -a /tmp/actions-runner.log
+            exit "$status"
+          user: "1000"
+          env: [RUNNER_JITCONFIG, HTTP_PROXY, HTTPS_PROXY]
+          background: true
+          description: Start the one-job JIT runner when configured
+
+  # Optional: cloud sandboxes cannot provide it and live by their TTL; local runtimes that can provide it keep the sandbox alive for the job.
+  - type: com.docker.sandbox/long-running@1
+    optional: true
+
+  - type: com.docker.sandbox/agent-context@1
+    config:
+      contentFile: ./github-actions-runner-context.md
