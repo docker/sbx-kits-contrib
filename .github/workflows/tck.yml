@@ -361,20 +361,25 @@ jobs:
   # Stable gate for branch protection. Configure the repo's required status check
   # to be `conformance`, not the dynamic `test-kit (<kit>)` matrix legs whose names
   # change per PR. It always runs so a required check is never left pending, and it
-  # passes when the matrix succeeded or was skipped (no kits changed).
+  # passes when the matrix and the kit unit tests each succeeded or were skipped
+  # (no kits changed).
   conformance:
-    needs: [test-kit]
+    needs: [test-kit, test-kit-unit]
     if: always()
     runs-on: ubuntu-latest
     steps:
-      - name: Require the kit conformance matrix
+      - name: Require the kit conformance matrix and unit tests
         run: |
-          result="${{ needs.test-kit.result }}"
-          echo "conformance matrix result: ${result}"
-          case "${result}" in
-            success|skipped) echo "conformance gate passed"; exit 0 ;;
-            *)               echo "conformance gate failed"; exit 1 ;;
-          esac
+          status=0
+          for job in "test-kit=${{ needs.test-kit.result }}" "test-kit-unit=${{ needs.test-kit-unit.result }}"; do
+            echo "${job%%=*} result: ${job#*=}"
+            case "${job#*=}" in
+              success|skipped) ;;
+              *) status=1 ;;
+            esac
+          done
+          if [ "$status" = 0 ]; then echo "conformance gate passed"; else echo "conformance gate failed"; fi
+          exit "$status"
 
   # The v2 spec/ and tck/ packages are kept as documentation of the format these
   # kits migrated from. They are no longer driven per kit, but their own tests must
@@ -425,6 +430,39 @@ jobs:
             echo "==> bash -n ${script}"
             bash -n "$script"
           done
+
+  # Kit unit tests: every `<kit>/testdata/test_*.py` and `<kit>/tests/test_*.py`
+  # (dapr-agents uses the latter), run with the stdlib unittest runner. They
+  # cover logic in a kit's scripts that neither kit-tck nor e2e asserts, such as
+  # hermes-agent's provider pin across credential changes.
+  #
+  # Every suite runs whenever any kit is in the set, not only the changed kits'
+  # own: a suite can cover a sibling's copy of a script (hermes-agent's covers
+  # hermes-agent-mixin's), and which suite covers which kit is not something
+  # this workflow should have to know.
+  test-kit-unit:
+    needs: detect-changes
+    if: >-
+      needs.detect-changes.outputs.kits != '[]' &&
+      needs.detect-changes.outputs.kits != 'null' &&
+      needs.detect-changes.outputs.kits != ''
+    runs-on: ubuntu-latest
+    # The suites spawn the hooks as subprocesses; a hung one must not hold the
+    # runner for the 6-hour default.
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Run kit unit tests
+        run: |
+          shopt -s nullglob
+          suites=(*/testdata/test_*.py */tests/test_*.py)
+          if [ "${#suites[@]}" = 0 ]; then
+            echo "no kit unit test suites to run"
+            exit 0
+          fi
+          python3 --version
+          python3 -m unittest -v "${suites[@]}"
 
   # End-to-end tests run against two sbx channels via the reusable e2e.yml:
   #
